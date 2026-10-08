@@ -9,6 +9,10 @@ import {
 function image(
 	gitAuthentication: "native" | "zuse",
 	gitAccess: "readable" | "authentication-required" = "readable",
+	logins: Pick<
+		NonNullable<CloudAccountImage["snapshot"]>,
+		"agents" | "github"
+	> = {},
 ) {
 	return new CloudAccountImage({
 		source: "custom-snapshot",
@@ -31,6 +35,7 @@ function image(
 			revision: "1",
 			gitAuthentication,
 			agentAuthentication: "native",
+			...logins,
 			repositories: [{ projectId: "repo", path: "/work/web", gitAccess }],
 		},
 	});
@@ -69,10 +74,55 @@ it("directs missing Git credentials to the selected authentication source", () =
 		),
 	).toContain("connect GitHub in Cloud settings");
 });
-it("explains snapshot agent logins without claiming a Zuse account connection", () => {
-	const markup = renderToStaticMarkup(<CloudSnapshotAgentAuthentication />);
-	expect(markup).toContain(
-		"Claude Code and Codex use the logins on your snapshot",
+it("shows the snapshot's GitHub user with an avatar and owner avatars for repositories", () => {
+	const markup = renderToStaticMarkup(
+		<CloudSnapshotRepositories
+			image={image("native", "readable", {
+				github: { state: "authenticated", login: "octo-cat", checkedAt: 1 },
+			})}
+		/>,
 	);
+	expect(markup).toContain("@octo-cat");
+	expect(markup).toContain("Signed in with gh on your snapshot");
+	expect(markup).toContain("Signed in");
+	expect(markup).toContain('aria-label="acme avatar"');
+	expect(markup).toContain('aria-label="octo-cat avatar"');
+	expect(
+		renderToStaticMarkup(<CloudSnapshotRepositories image={image("native")} />),
+	).toContain("Not checked yet. Save the snapshot settings to check.");
+	expect(
+		renderToStaticMarkup(<CloudSnapshotRepositories image={image("zuse")} />),
+	).not.toContain("Signed in with gh");
+});
+it("lists each snapshot agent with its login state and account", () => {
+	const markup = renderToStaticMarkup(
+		<CloudSnapshotAgentAuthentication
+			image={image("native", "readable", {
+				agents: [
+					{
+						providerId: "claude",
+						state: "detected",
+						account: "dev@example.test",
+						checkedAt: 1,
+					},
+					{
+						providerId: "codex",
+						state: "authentication-required",
+						checkedAt: 1,
+					},
+				],
+			})}
+		/>,
+	);
+	expect(markup).toContain("Claude Code");
+	expect(markup).toContain("dev@example.test");
+	expect(markup).toContain("Codex");
+	expect(markup).toContain("Signed out");
+	expect(markup).toContain("Sign in on the source machine");
 	expect(markup).not.toContain("Reauthorize");
+	expect(
+		renderToStaticMarkup(
+			<CloudSnapshotAgentAuthentication image={image("native")} />,
+		).match(/Not checked yet/g),
+	).toHaveLength(2);
 });

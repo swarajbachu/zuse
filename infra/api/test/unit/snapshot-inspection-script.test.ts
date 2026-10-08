@@ -40,6 +40,22 @@ const fixture = () => {
 		`#!/bin/bash\nif [[ "$3" == ls-remote ]]; then if [[ -n "$TEST_GIT_ERROR" ]]; then echo "$TEST_GIT_ERROR" >&2; exit 1; fi; exit 0; fi\nexec '${realGit}' "$@"\n`,
 		{ mode: 0o700 },
 	);
+	// Login CLIs are stubbed so inspection never reaches the network.
+	writeFileSync(
+		join(bin, "gh"),
+		`#!/bin/bash\nif [[ -n "$TEST_LOGGED_OUT" ]]; then echo "HTTP 401: Requires authentication" >&2; exit 1; fi\necho octo-cat\n`,
+		{ mode: 0o700 },
+	);
+	writeFileSync(
+		join(bin, "claude"),
+		`#!/bin/bash\nif [[ -n "$TEST_LOGGED_OUT" ]]; then echo '{"loggedIn":false}'; exit 1; fi\necho '{"loggedIn":true,"email":"dev@example.test"}'\n`,
+		{ mode: 0o700 },
+	);
+	writeFileSync(
+		join(bin, "codex"),
+		`#!/bin/bash\nif [[ -n "$TEST_LOGGED_OUT" ]]; then echo "Not logged in" >&2; exit 1; fi\necho "Logged in using ChatGPT" >&2\n`,
+		{ mode: 0o700 },
+	);
 	writeFileSync(
 		join(root, "manifest.json"),
 		JSON.stringify({ schemaVersion: 1, runtimeUser: userInfo().username }),
@@ -60,7 +76,7 @@ const fixture = () => {
 			join(root, "metadata.json"),
 		);
 	writeFileSync(join(root, "inspect.sh"), script);
-	const inspect = (paths = [repo], error = "") => {
+	const inspect = (paths = [repo], error = "", loggedOut = false) => {
 		execFileSync("bash", [join(root, "inspect.sh")], {
 			env: {
 				...process.env,
@@ -68,6 +84,7 @@ const fixture = () => {
 				ZUSE_SNAPSHOT_PATHS: JSON.stringify(paths),
 				ZUSE_SNAPSHOT_RESULT: join(root, "result.json"),
 				TEST_GIT_ERROR: error,
+				TEST_LOGGED_OUT: loggedOut ? "1" : "",
 			},
 			stdio: "pipe",
 		});
@@ -99,6 +116,21 @@ test.each([
 ])("inspection distinguishes %s", (error, status) => {
 	const { repo, inspect } = fixture();
 	expect(inspect([repo], error).repositories[0].gitAccess).toBe(status);
+});
+test("inspection reports the GitHub user and agent accounts without tokens", () => {
+	const { repo, inspect } = fixture();
+	const result = inspect();
+	expect(result.github).toEqual({ state: "authenticated", login: "octo-cat" });
+	expect(result.agents).toEqual([
+		{ providerId: "claude", state: "detected", account: "dev@example.test" },
+		{ providerId: "codex", state: "detected", account: "ChatGPT" },
+	]);
+	const signedOut = inspect([repo], "", true);
+	expect(signedOut.github).toEqual({ state: "authentication-required" });
+	expect(signedOut.agents).toEqual([
+		{ providerId: "claude", state: "authentication-required" },
+		{ providerId: "codex", state: "authentication-required" },
+	]);
 });
 test("invalid explicit paths fail instead of choosing a different repository", () => {
 	const { root, inspect } = fixture();

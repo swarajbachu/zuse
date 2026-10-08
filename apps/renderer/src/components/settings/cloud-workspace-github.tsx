@@ -198,7 +198,7 @@ export function CloudWorkspaceGithub({
 	);
 }
 
-function GithubMark({
+export function GithubMark({
 	className = "size-3.5",
 }: {
 	readonly className?: string;

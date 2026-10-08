@@ -1,5 +1,7 @@
 import {
 	CloudSnapshotImportRequest,
+	SnapshotAgentAccess,
+	SnapshotGithubAccess,
 	WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
 import type { SandboxProviderAdapter } from "@zuse/sandbox-providers";
@@ -64,6 +66,56 @@ export const snapshotRepositoryLayout = (
 	};
 };
 
+/** Login status recorded by the last inspection; malformed rows are dropped. */
+export const snapshotLogins = (build: CloudProjectBuildRecord) => {
+	const checkedAt = build.updatedAtMs;
+	const agents = (
+		Array.isArray(build.settings?.nativeAgents)
+			? build.settings.nativeAgents
+			: []
+	).flatMap((row) => {
+		const decoded = Schema.decodeUnknownOption(
+			SnapshotAgentAccess.mapFields((fields) => ({
+				...fields,
+				checkedAt: Schema.optional(Schema.Number),
+			})),
+		)(row);
+		return decoded._tag === "Some"
+			? [
+					{
+						providerId: decoded.value.providerId,
+						state: decoded.value.state,
+						...(decoded.value.account === undefined
+							? {}
+							: { account: decoded.value.account.slice(0, 120) }),
+						checkedAt,
+					},
+				]
+			: [];
+	});
+	const github = Schema.decodeUnknownOption(
+		SnapshotGithubAccess.mapFields((fields) => ({
+			...fields,
+			checkedAt: Schema.optional(Schema.Number),
+		})),
+	)(build.settings?.nativeGithub);
+	return {
+		...(agents.length > 0 ? { agents } : {}),
+		...(github._tag === "Some"
+			? {
+					github: {
+						state: github.value.state,
+						...(github.value.login !== undefined &&
+						/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u.test(github.value.login)
+							? { login: github.value.login }
+							: {}),
+						checkedAt,
+					},
+				}
+			: {}),
+	};
+};
+
 const Inspection = Schema.Struct({
 	error: Schema.optional(Schema.String),
 	runtimeHome: Schema.optional(
@@ -72,7 +124,17 @@ const Inspection = Schema.Struct({
 	wireProtocolVersion: Schema.optional(Schema.Number),
 	truncated: Schema.Boolean,
 	agents: Schema.Array(
-		Schema.Struct({ providerId: Schema.String, state: Schema.String }),
+		Schema.Struct({
+			providerId: Schema.String,
+			state: Schema.String,
+			account: Schema.optional(Schema.String),
+		}),
+	),
+	github: Schema.optional(
+		Schema.Struct({
+			state: Schema.String,
+			login: Schema.optional(Schema.String),
+		}),
 	),
 	repositories: Schema.Array(
 		Schema.Struct({
@@ -362,11 +424,12 @@ export const reconcileSnapshotImport = Effect.fn("reconcileSnapshotImport")(
 				runtimeHome: result.runtimeHome,
 				repositories,
 				nativeAgents: result.agents,
+				nativeGithub: result.github,
 				discoveryTruncated: result.truncated,
 			},
 			logText: result.truncated
 				? "Discovery reached its limit. Add explicit repository paths to inspect other locations."
-				: "Snapshot inspected. Agent access is verified when a workspace starts.",
+				: "Snapshot inspected. Repositories, GitHub and agent logins were checked.",
 			nextActionAtMs: Number.MAX_SAFE_INTEGER,
 			revision: build.revision + 1,
 			updatedAtMs: nowMs,

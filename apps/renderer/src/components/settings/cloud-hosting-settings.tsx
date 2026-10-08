@@ -1,5 +1,8 @@
 import "@zuse/i18n/english/settings";
-import type { CloudAccountImage } from "@zuse/contracts";
+import type {
+	CloudAccountImage,
+	CloudProviderConnection,
+} from "@zuse/contracts";
 import { useMessages } from "@zuse/i18n/react";
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -9,6 +12,7 @@ import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
 import {
 	CloudProviderConnectForm,
+	CloudProviderDisconnectDialog,
 	CloudProviderKeyPanel,
 	useCloudProviderConnections,
 } from "./cloud-provider-keys.tsx";
@@ -28,6 +32,7 @@ export function CloudHostingSettings({
 	canManageBilling,
 	canManageProviders,
 	activeMode,
+	selectedProviderId,
 	snapshot,
 	busy,
 	onCheckout,
@@ -39,6 +44,8 @@ export function CloudHostingSettings({
 	readonly canManageBilling: boolean;
 	readonly canManageProviders: boolean;
 	readonly activeMode: CloudHostingMode | null;
+	/** Provider new workspaces use; its connected key overrides Zuse hosting. */
+	readonly selectedProviderId: string | null;
 	readonly snapshot: CloudAccountImage | null;
 	readonly busy: string | null;
 	readonly onCheckout: () => void;
@@ -67,6 +74,12 @@ export function CloudHostingSettings({
 			</Badge>
 		) : null;
 	const snapshotConfig = snapshot?.snapshot;
+	// A connected key replaces Zuse hosting for that provider until disconnected.
+	const overridingKey = keys.active.find(
+		(connection) => connection.providerId === selectedProviderId,
+	);
+	const [switchTarget, setSwitchTarget] =
+		useState<CloudProviderConnection | null>(null);
 
 	return (
 		<CloudSettingsGroup
@@ -76,13 +89,29 @@ export function CloudHostingSettings({
 			<CloudSettingsRow
 				title={message("settings:cloud_hosting_zuse")}
 				description={
-					paidSubscription === true
-						? message("settings:cloud_hosting_zuse_subscribed_description")
-						: message("settings:cloud_hosting_zuse_description")
+					paidSubscription === true && overridingKey !== undefined
+						? message("settings:cloud_hosting_zuse_overridden", {
+								provider: cloudProviderLabel(overridingKey.providerId),
+							})
+						: paidSubscription === true
+							? message("settings:cloud_hosting_zuse_subscribed_description")
+							: message("settings:cloud_hosting_zuse_description")
 				}
 				action={
 					<>
 						{inUse("zuse")}
+						{paidSubscription === true &&
+						overridingKey !== undefined &&
+						canManageProviders ? (
+							<Button
+								size="xs"
+								variant="ghost"
+								className={COMPACT_CLOUD_ACTION}
+								onClick={() => setSwitchTarget(overridingKey)}
+							>
+								{message("settings:cloud_hosting_switch_to_zuse")}
+							</Button>
+						) : null}
 						{paidSubscription === null ? (
 							<Badge variant="outline">
 								{loading
@@ -127,7 +156,7 @@ export function CloudHostingSettings({
 							})
 						: message("settings:cloud_hosting_own_key_description")
 				}
-				status={inUse("provider")}
+				status={overridingKey === undefined ? null : inUse("provider")}
 				actionLabel={
 					keys.active.length > 0
 						? message("settings:cloud_hosting_manage")
@@ -190,6 +219,13 @@ export function CloudHostingSettings({
 					)}
 				</HostingOption>
 			) : null}
+			<CloudProviderDisconnectDialog
+				keys={keys}
+				target={switchTarget}
+				switchToZuse
+				onClose={() => setSwitchTarget(null)}
+				onChanged={onChanged}
+			/>
 		</CloudSettingsGroup>
 	);
 }

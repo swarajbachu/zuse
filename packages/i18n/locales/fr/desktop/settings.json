@@ -1245,5 +1245,22 @@
 	"snapshot_agent_logins_help": "Activé : Claude Code et Codex utilisent les connexions déjà présentes dans l’instantané. Désactivé : les nouveaux espaces utilisent les comptes d’agents connectés dans Zuse.",
 	"snapshot_github_login_help": "Activé : Git et gh utilisent les identifiants déjà présents dans l’instantané. Désactivé : Zuse fournit l’accès via votre compte GitHub connecté.",
 	"snapshot_agent_logins_switch": "Utiliser les connexions de l’instantané",
-	"snapshot_github_login_switch": "Utiliser les identifiants de l’instantané"
+	"snapshot_github_login_switch": "Utiliser les identifiants de l’instantané",
+	"snapshot_login_unchecked": "Pas encore vérifié. Enregistrez les paramètres de l’instantané pour vérifier.",
+	"snapshot_github_signed_in": "Connecté avec gh dans votre instantané",
+	"snapshot_github_missing_tool": "GitHub CLI n’est pas installé dans l’instantané",
+	"snapshot_github_signed_out": "Non connecté. Exécutez gh auth login sur la machine source, puis enregistrez un nouvel instantané.",
+	"snapshot_login_unavailable": "Impossible de vérifier cette connexion",
+	"snapshot_agent_missing_tool": "Non installé dans l’instantané",
+	"snapshot_agent_signed_in": "Connecté dans votre instantané",
+	"snapshot_agent_signed_out": "Non connecté. Connectez-vous sur la machine source, puis enregistrez un nouvel instantané.",
+	"snapshot_login_signed_in": "Connecté",
+	"snapshot_login_signed_out": "Déconnecté",
+	"snapshot_login_not_installed": "Non installé",
+	"snapshot_login_unknown": "Inconnu",
+	"cloud_hosting_zuse_overridden": "Abonné, mais votre clé {{provider}} est utilisée à la place.",
+	"cloud_hosting_switch_to_zuse": "Utiliser Zuse Cloud",
+	"cloud_hosting_switch_to_zuse_title": "Passer à Zuse Cloud ?",
+	"cloud_hosting_switch_to_zuse_description": "Cela déconnecte votre clé {{provider}} : les nouveaux espaces s’exécutent sur Zuse Cloud avec votre abonnement. Les espaces existants conservent la clé pour le nettoyage. Pour réutiliser votre compte ou votre instantané, reconnectez la clé et enregistrez l’instantané.",
+	"snapshot_check_title": "Vérification de l’instantané"
 }

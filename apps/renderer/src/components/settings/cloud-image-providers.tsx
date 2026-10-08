@@ -6,6 +6,7 @@ import { useId, useState } from "react";
 import boatLogo from "../../assets/cloud-providers/boat.svg";
 import boxdLogo from "../../assets/cloud-providers/boxd.svg";
 import e2bLogo from "../../assets/cloud-providers/e2b.png";
+import { cloudImageStatusMessage } from "../../lib/cloud-image-status.ts";
 import {
 	cloudProviderLabel,
 	orderedCloudProviders,
@@ -55,7 +56,7 @@ export function CloudImageProviders({
 						: "warning"
 			}
 		>
-			{message(`settings:cloud_images_state_${image?.state ?? "checking"}`)}
+			{message(cloudImageStatusMessage(image))}
 		</Badge>
 	);
 	const providerName = (providerId: string) => (
@@ -150,9 +151,11 @@ export function CloudImageProviders({
 						<DialogTitle>
 							{selected === null
 								? ""
-								: message("settings:cloud_images_view_logs", {
-										provider: cloudProviderLabel(selected),
-									})}
+								: selectedImage?.source === "custom-snapshot"
+									? message("settings:snapshot_id_label")
+									: message("settings:cloud_images_view_logs", {
+											provider: cloudProviderLabel(selected),
+										})}
 						</DialogTitle>
 						<DialogDescription className="sr-only">
 							{message("settings:cloud_images_details_description")}
@@ -163,6 +166,7 @@ export function CloudImageProviders({
 							<CloudImageBuildHistory
 								key={selected}
 								builds={selectedImage.builds}
+								latestSource={selectedImage.source}
 								expandLatest
 							/>
 						) : (

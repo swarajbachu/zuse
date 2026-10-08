@@ -1241,5 +1241,22 @@
 	"snapshot_agent_logins_help": "켬: Claude Code와 Codex가 스냅샷의 기존 로그인을 사용합니다. 끔: 새 작업 공간이 Zuse에서 연결한 에이전트 계정을 사용합니다.",
 	"snapshot_github_login_help": "켬: Git과 gh가 스냅샷의 기존 인증 정보를 사용합니다. 끔: 연결된 GitHub 계정을 통해 Zuse가 액세스를 제공합니다.",
 	"snapshot_agent_logins_switch": "스냅샷의 로그인 사용",
-	"snapshot_github_login_switch": "스냅샷의 인증 정보 사용"
+	"snapshot_github_login_switch": "스냅샷의 인증 정보 사용",
+	"snapshot_login_unchecked": "아직 확인되지 않았습니다. 스냅샷 설정을 저장하면 확인합니다.",
+	"snapshot_github_signed_in": "스냅샷에서 gh로 로그인됨",
+	"snapshot_github_missing_tool": "스냅샷에 GitHub CLI가 설치되어 있지 않습니다",
+	"snapshot_github_signed_out": "로그인되지 않았습니다. 원본 머신에서 gh auth login을 실행한 다음 새 스냅샷을 저장하세요.",
+	"snapshot_login_unavailable": "이 로그인을 확인할 수 없습니다",
+	"snapshot_agent_missing_tool": "스냅샷에 설치되어 있지 않음",
+	"snapshot_agent_signed_in": "스냅샷에서 로그인됨",
+	"snapshot_agent_signed_out": "로그인되지 않았습니다. 원본 머신에서 로그인한 다음 새 스냅샷을 저장하세요.",
+	"snapshot_login_signed_in": "로그인됨",
+	"snapshot_login_signed_out": "로그아웃됨",
+	"snapshot_login_not_installed": "설치 안 됨",
+	"snapshot_login_unknown": "알 수 없음",
+	"cloud_hosting_zuse_overridden": "구독 중이지만 대신 {{provider}} 키가 사용되고 있습니다.",
+	"cloud_hosting_switch_to_zuse": "Zuse Cloud 사용",
+	"cloud_hosting_switch_to_zuse_title": "Zuse Cloud로 전환할까요?",
+	"cloud_hosting_switch_to_zuse_description": "{{provider}} 키 연결이 해제되고 새 작업 공간은 구독 중인 Zuse Cloud에서 실행됩니다. 기존 작업 공간은 정리를 위해 키를 유지합니다. 내 계정이나 스냅샷을 다시 사용하려면 키를 다시 연결하고 스냅샷을 저장하세요.",
+	"snapshot_check_title": "스냅샷 확인"
 }

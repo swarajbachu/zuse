@@ -7,6 +7,7 @@ import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts
 import {
 	reconcileSnapshotImport,
 	snapshotBuildCompatible,
+	snapshotLogins,
 	snapshotRepositoryLayout,
 } from "../../src/cloud-snapshot.ts";
 import {
@@ -239,4 +240,47 @@ describe("custom snapshot import", () => {
 			}).pipe(Effect.provide(layer)),
 		);
 	});
+});
+
+test("snapshot login status keeps recorded accounts and drops malformed rows", () => {
+	const recorded = build({
+		updatedAtMs: 42,
+		settings: {
+			...build().settings,
+			nativeAgents: [
+				{
+					providerId: "claude",
+					state: "detected",
+					account: "dev@example.test",
+				},
+				{ providerId: "codex", state: "authentication-required" },
+				{ providerId: "unknown", state: "detected" },
+				"not-a-row",
+			],
+			nativeGithub: { state: "authenticated", login: "octo-cat" },
+		},
+	});
+	expect(snapshotLogins(recorded)).toEqual({
+		agents: [
+			{
+				providerId: "claude",
+				state: "detected",
+				account: "dev@example.test",
+				checkedAt: 42,
+			},
+			{ providerId: "codex", state: "authentication-required", checkedAt: 42 },
+		],
+		github: { state: "authenticated", login: "octo-cat", checkedAt: 42 },
+	});
+	expect(
+		snapshotLogins(
+			build({
+				settings: {
+					...build().settings,
+					nativeGithub: { state: "authenticated", login: "bad login!" },
+				},
+			}),
+		).github,
+	).toEqual({ state: "authenticated", checkedAt: expect.any(Number) });
+	expect(snapshotLogins(build())).toEqual({});
 });

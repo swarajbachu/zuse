@@ -234,8 +234,23 @@ export const SnapshotAgentAccess = Schema.Struct({
 		"missing-tool",
 	]),
 	checkedAt: Schema.Number,
+	/** Non-secret account label reported by the agent CLI, such as an email. */
+	account: Schema.optional(Schema.String),
 });
 export type SnapshotAgentAccess = typeof SnapshotAgentAccess.Type;
+
+/** GitHub CLI login found on a custom snapshot when it was inspected. */
+export const SnapshotGithubAccess = Schema.Struct({
+	state: Schema.Literals([
+		"authenticated",
+		"authentication-required",
+		"missing-tool",
+		"unavailable",
+	]),
+	login: Schema.optional(Schema.String),
+	checkedAt: Schema.Number,
+});
+export type SnapshotGithubAccess = typeof SnapshotGithubAccess.Type;
 
 export const CloudSnapshotConfiguration = Schema.Struct({
 	agentAuthentication: Schema.optional(Schema.Literals(["native", "zuse"])),
@@ -243,6 +258,8 @@ export const CloudSnapshotConfiguration = Schema.Struct({
 	snapshotId: Schema.String,
 	runtimeUser: Schema.String,
 	revision: Schema.String,
+	agents: Schema.optional(Schema.Array(SnapshotAgentAccess)),
+	github: Schema.optional(SnapshotGithubAccess),
 	repositories: Schema.Array(
 		Schema.Struct({
 			projectId: Schema.String,
@@ -345,6 +362,7 @@ export class CloudAccountImageProvider extends Schema.Class<CloudAccountImagePro
 export class CloudAccountImageBuildAttempt extends Schema.Class<CloudAccountImageBuildAttempt>(
 	"CloudAccountImageBuildAttempt",
 )({
+	source: Schema.optional(Schema.Literals(["managed", "custom-snapshot"])),
 	buildId: Schema.String,
 	state: CloudProjectBuildState,
 	mode: CloudAccountImageBuildMode,

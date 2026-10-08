@@ -67,3 +67,24 @@ it("distinguishes provider billing from the environment installed on the machine
 	expect(markup).toContain("Your custom snapshot");
 	expect(markup).toContain("Zuse image");
 });
+
+it("labels custom snapshot inspection without claiming an image build", () => {
+	const markup = renderToStaticMarkup(
+		<CloudImageProviders
+			providers={[{ providerId: "boxd", displayName: "boxd" }]}
+			images={[
+				{
+					providerId: "boxd",
+					source: "custom-snapshot",
+					state: "building",
+					repositories: [],
+					providers: [],
+					builds: [],
+					updatedAt: 1,
+				},
+			]}
+		/>,
+	);
+	expect(markup).toContain("Inspecting snapshot");
+	expect(markup).not.toContain(">Building<");
+});

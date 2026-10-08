@@ -1241,5 +1241,22 @@
 	"snapshot_agent_logins_help": "An: Claude Code und Codex nutzen die Anmeldungen im Snapshot. Aus: Neue Workspaces nutzen die in Zuse verbundenen Agentenkonten.",
 	"snapshot_github_login_help": "An: Git und gh nutzen die Zugangsdaten im Snapshot. Aus: Zuse stellt den Zugriff über Ihr verbundenes GitHub-Konto bereit.",
 	"snapshot_agent_logins_switch": "Anmeldungen aus dem Snapshot verwenden",
-	"snapshot_github_login_switch": "Zugangsdaten aus dem Snapshot verwenden"
+	"snapshot_github_login_switch": "Zugangsdaten aus dem Snapshot verwenden",
+	"snapshot_login_unchecked": "Noch nicht geprüft. Speichern Sie die Snapshot-Einstellungen, um zu prüfen.",
+	"snapshot_github_signed_in": "Mit gh in Ihrem Snapshot angemeldet",
+	"snapshot_github_missing_tool": "GitHub CLI ist im Snapshot nicht installiert",
+	"snapshot_github_signed_out": "Nicht angemeldet. Führen Sie gh auth login auf der Quellmaschine aus und speichern Sie dann einen neuen Snapshot.",
+	"snapshot_login_unavailable": "Diese Anmeldung konnte nicht geprüft werden",
+	"snapshot_agent_missing_tool": "Im Snapshot nicht installiert",
+	"snapshot_agent_signed_in": "In Ihrem Snapshot angemeldet",
+	"snapshot_agent_signed_out": "Nicht angemeldet. Melden Sie sich auf der Quellmaschine an und speichern Sie dann einen neuen Snapshot.",
+	"snapshot_login_signed_in": "Angemeldet",
+	"snapshot_login_signed_out": "Abgemeldet",
+	"snapshot_login_not_installed": "Nicht installiert",
+	"snapshot_login_unknown": "Unbekannt",
+	"cloud_hosting_zuse_overridden": "Abonniert, aber stattdessen wird Ihr {{provider}}-Schlüssel verwendet.",
+	"cloud_hosting_switch_to_zuse": "Zuse Cloud verwenden",
+	"cloud_hosting_switch_to_zuse_title": "Zu Zuse Cloud wechseln?",
+	"cloud_hosting_switch_to_zuse_description": "Dadurch wird Ihr {{provider}}-Schlüssel getrennt und neue Workspaces laufen mit Ihrem Abonnement auf Zuse Cloud. Bestehende Workspaces behalten den Schlüssel zum Aufräumen. Um Ihr eigenes Konto oder Ihren Snapshot erneut zu nutzen, verbinden Sie den Schlüssel wieder und speichern den Snapshot.",
+	"snapshot_check_title": "Snapshot-Prüfung"
 }

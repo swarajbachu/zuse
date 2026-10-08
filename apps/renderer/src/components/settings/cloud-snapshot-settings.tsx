@@ -6,7 +6,10 @@ import { ChevronRight, Info } from "lucide-react";
 import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { cn } from "~/lib/utils";
 import { refreshCloudImages } from "../../lib/cloud-image-monitor.ts";
-import { loadCloudImage } from "../../lib/cloud-workspace-session-cache.ts";
+import {
+	loadCloudImage,
+	peekCloudImage,
+} from "../../lib/cloud-workspace-session-cache.ts";
 import { runCloudControl } from "../../lib/control-plane-client.ts";
 import { Button } from "../ui/button.tsx";
 import {
@@ -31,18 +34,29 @@ export function CloudSnapshotSettings({
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 	const fieldId = useId();
-	const initialized = useRef(false);
+	const [cachedImage] = useState(() => peekCloudImage("boxd"));
+	const cachedSnapshot = cachedImage?.snapshot;
+	const initialized = useRef(cachedSnapshot !== undefined);
 	const changed = useRef(onChanged);
 	changed.current = onChanged;
-	const [image, setImage] = useState<CloudAccountImage | null>(null);
-	const [snapshotId, setSnapshotId] = useState("");
-	const [runtimeUser, setRuntimeUser] = useState("boxd");
-	const [paths, setPaths] = useState<readonly string[]>([]);
+	const [image, setImage] = useState<CloudAccountImage | null>(
+		cachedImage ?? null,
+	);
+	const [snapshotId, setSnapshotId] = useState(
+		cachedSnapshot?.snapshotId ?? "",
+	);
+	const [runtimeUser, setRuntimeUser] = useState(
+		cachedSnapshot?.runtimeUser ?? "boxd",
+	);
+	const [paths, setPaths] = useState<readonly string[]>(
+		() =>
+			cachedSnapshot?.repositories.map((repository) => repository.path) ?? [],
+	);
 	const [agentAuthentication, setAgentAuthentication] = useState<
 		"native" | "zuse"
-	>("native");
+	>(cachedSnapshot?.agentAuthentication ?? "native");
 	const [gitAuthentication, setGitAuthentication] = useState<"native" | "zuse">(
-		"native",
+		cachedSnapshot?.gitAuthentication ?? "native",
 	);
 	const [pathsOpen, setPathsOpen] = useState(false);
 	const [saving, setSaving] = useState(false);

@@ -1241,5 +1241,22 @@
 	"snapshot_agent_logins_help": "⟦ÔÔn: Clààüüdëë Côôdëë àànd Côôdëëx üüsëë thëë lôôgïïns ààlrëëààdy ôôn thëë snààpshôôt. ÔÔff: nëëw wôôrkspààcëës üüsëë thëë ààgëënt ààccôôüünts yôôüü côônnëëctëëd ïïn Züüsëë.⟧",
 	"snapshot_github_login_help": "⟦ÔÔn: Gïït àànd gh üüsëë thëë crëëdëëntïïààls ààlrëëààdy ôôn thëë snààpshôôt. ÔÔff: Züüsëë prôôvïïdëës ààccëëss thrôôüügh yôôüür côônnëëctëëd GïïtHüüb ààccôôüünt.⟧",
 	"snapshot_agent_logins_switch": "⟦ÜÜsëë lôôgïïns frôôm snààpshôôt⟧",
-	"snapshot_github_login_switch": "⟦ÜÜsëë crëëdëëntïïààls frôôm snààpshôôt⟧"
+	"snapshot_github_login_switch": "⟦ÜÜsëë crëëdëëntïïààls frôôm snààpshôôt⟧",
+	"snapshot_login_unchecked": "⟦Nôôt chëëckëëd yëët. Sààvëë thëë snààpshôôt sëëttïïngs tôô chëëck.⟧",
+	"snapshot_github_signed_in": "⟦Sïïgnëëd ïïn wïïth gh ôôn yôôüür snààpshôôt⟧",
+	"snapshot_github_missing_tool": "⟦GïïtHüüb CLÏÏ ïïsn’t ïïnstààllëëd ôôn thëë snààpshôôt⟧",
+	"snapshot_github_signed_out": "⟦Nôôt sïïgnëëd ïïn. Rüün gh ààüüth lôôgïïn ôôn thëë sôôüürcëë mààchïïnëë, thëën sààvëë àà nëëw snààpshôôt.⟧",
+	"snapshot_login_unavailable": "⟦Côôüüldn’t chëëck thïïs lôôgïïn⟧",
+	"snapshot_agent_missing_tool": "⟦Nôôt ïïnstààllëëd ôôn thëë snààpshôôt⟧",
+	"snapshot_agent_signed_in": "⟦Sïïgnëëd ïïn ôôn yôôüür snààpshôôt⟧",
+	"snapshot_agent_signed_out": "⟦Nôôt sïïgnëëd ïïn. Sïïgn ïïn ôôn thëë sôôüürcëë mààchïïnëë, thëën sààvëë àà nëëw snààpshôôt.⟧",
+	"snapshot_login_signed_in": "⟦Sïïgnëëd ïïn⟧",
+	"snapshot_login_signed_out": "⟦Sïïgnëëd ôôüüt⟧",
+	"snapshot_login_not_installed": "⟦Nôôt ïïnstààllëëd⟧",
+	"snapshot_login_unknown": "⟦ÜÜnknôôwn⟧",
+	"cloud_hosting_zuse_overridden": "⟦Süübscrïïbëëd, büüt yôôüür {{provider}} këëy ïïs üüsëëd ïïnstëëààd.⟧",
+	"cloud_hosting_switch_to_zuse": "⟦ÜÜsëë Züüsëë Clôôüüd⟧",
+	"cloud_hosting_switch_to_zuse_title": "⟦Swïïtch tôô Züüsëë Clôôüüd?⟧",
+	"cloud_hosting_switch_to_zuse_description": "⟦Thïïs dïïscôônnëëcts yôôüür {{provider}} këëy, sôô nëëw wôôrkspààcëës rüün ôôn Züüsëë Clôôüüd üündëër yôôüür süübscrïïptïïôôn. ËËxïïstïïng wôôrkspààcëës këëëëp thëë këëy fôôr clëëàànüüp. Tôô üüsëë yôôüür ôôwn ààccôôüünt ôôr cüüstôôm snààpshôôt ààgààïïn, rëëcôônnëëct thëë këëy àànd sààvëë thëë snààpshôôt.⟧",
+	"snapshot_check_title": "⟦Snààpshôôt chëëck⟧"
 }

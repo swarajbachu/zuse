@@ -62,6 +62,9 @@ import {
 	loadCloudProviderImages,
 	loadCloudProviders,
 	loadCloudWorkspaces,
+	peekCloudEntitlements,
+	peekCloudImage,
+	peekCloudProviders,
 } from "../../lib/cloud-workspace-session-cache.ts";
 import {
 	runCloudControl,
@@ -189,19 +192,33 @@ function ScopedCloudWorkspacePool({
 
 	const { isLoading: authLoading, isSignedIn, signIn, signingIn } = useAuth();
 	const [setupLoading, setSetupLoading] = useState(true);
-	const [entitlementSubscribed, setEntitlementSubscribed] = useState(false);
+	const [entitlementSubscribed, setEntitlementSubscribed] = useState(() => {
+		const cached = peekCloudEntitlements();
+		return (
+			peekCloudProviders()?.entitled ??
+			(cached === undefined ? false : hasCloudEntitlement(cached))
+		);
+	});
 	const [paidSubscription, setPaidSubscription] = useState<boolean | null>(
-		null,
+		() => {
+			const cached = peekCloudEntitlements();
+			return cached === undefined ? null : hasCloudEntitlement(cached);
+		},
 	);
 	const [serviceAvailable, setServiceAvailable] = useState(true);
 	const [providers, setProviders] = useState<
 		ReadonlyArray<CloudProviderOption>
-	>([]);
+	>(() => peekCloudProviders()?.providers ?? []);
 	const loadSequence = useRef(0);
 	const [projects, setProjects] = useState<ReadonlyArray<CloudProject>>([]);
 	const [providerImages, setProviderImages] = useState<
 		readonly CloudAccountImage[]
-	>([]);
+	>(() =>
+		(peekCloudProviders()?.providers ?? []).flatMap((provider) => {
+			const cached = peekCloudImage(provider.providerId);
+			return cached ? [cached] : [];
+		}),
+	);
 	useEffect(
 		() =>
 			subscribeCloudImages((images) =>
@@ -328,7 +345,6 @@ function ScopedCloudWorkspacePool({
 				} catch {
 					if (requestSequence !== loadSequence.current) return;
 					if (!loadedSubscribed) {
-						setPaidSubscription(null);
 						setError(
 							"Your Cloud Workspace subscription could not be verified.",
 						);
@@ -765,7 +781,7 @@ function ScopedCloudWorkspacePool({
 			: providers.find((provider) => provider.providerId === selectedProvider)
 						?.billingSource === "provider"
 				? "provider"
-				: paidSubscription === true
+				: paidSubscription === true && !setupLoading
 					? "zuse"
 					: null;
 	const repositoriesGroup =
@@ -855,6 +871,7 @@ function ScopedCloudWorkspacePool({
 					canManageBilling={canManageBilling}
 					canManageProviders={canManageProviders}
 					activeMode={activeHosting}
+					selectedProviderId={selectedProvider}
 					snapshot={
 						providerImages.find(
 							(image) =>
@@ -964,7 +981,7 @@ function ScopedCloudWorkspacePool({
 					{showsSection("agents", "auth") ? (
 						snapshotImage !== null &&
 						snapshotImage.snapshot?.agentAuthentication !== "zuse" ? (
-							<CloudSnapshotAgentAuthentication />
+							<CloudSnapshotAgentAuthentication image={snapshotImage} />
 						) : (
 							<CloudWorkspaceAuth />
 						)

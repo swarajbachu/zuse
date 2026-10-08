@@ -3,6 +3,7 @@ import type { CloudAccountImage, CloudProject } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { AlertTriangle, CircleX, LoaderCircle, RefreshCw } from "lucide-react";
 
+import { cloudImageStatusMessage } from "../../lib/cloud-image-status.ts";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
 import {
@@ -102,7 +103,7 @@ export function CloudImageReadiness({
 				}
 				action={
 					<Badge variant={state === "ready" ? "success" : "warning"}>
-						{state}
+						{uiMessage(cloudImageStatusMessage(image))}
 					</Badge>
 				}
 			/>

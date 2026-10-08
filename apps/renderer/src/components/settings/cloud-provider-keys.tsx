@@ -1,3 +1,8 @@
+import {
+	cacheCloudProviderConnections,
+	loadCloudProviderConnections,
+	peekCloudProviderConnections,
+} from "../../lib/cloud-workspace-session-cache.ts";
 import "@zuse/i18n/english/settings";
 import type {
 	CloudProviderConnection,
@@ -10,7 +15,10 @@ import { Check, ChevronRight, KeyRound } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/utils";
 import { cloudProviderLabel } from "../../lib/cloud-provider-presentation.ts";
-import { runCloudControl } from "../../lib/control-plane-client.ts";
+import {
+	runCloudControl,
+	subscribeControlPlaneSessionCache,
+} from "../../lib/control-plane-client.ts";
 import {
 	AlertDialog,
 	AlertDialogClose,
@@ -164,9 +172,13 @@ export type CloudProviderConnections = ReturnType<
 export function useCloudProviderConnections() {
 	const [connections, setConnections] = useState<
 		readonly CloudProviderConnection[] | null
-	>(null);
-	const [customSnapshotsEnabled, setCustomSnapshotsEnabled] = useState(false);
-	const [loading, setLoading] = useState(true);
+	>(() => peekCloudProviderConnections()?.connections ?? null);
+	const [customSnapshotsEnabled, setCustomSnapshotsEnabled] = useState(
+		() => peekCloudProviderConnections()?.customSnapshotsEnabled === true,
+	);
+	const [loading, setLoading] = useState(
+		() => peekCloudProviderConnections() === undefined,
+	);
 	const [loadError, setLoadError] = useState(false);
 	const mounted = useRef(true);
 	useEffect(() => {
@@ -176,34 +188,45 @@ export function useCloudProviderConnections() {
 		};
 	}, []);
 
-	const apply = useCallback((result: CloudProviderConnectionList) => {
+	const accept = useCallback((result: CloudProviderConnectionList) => {
 		if (!mounted.current) return;
 		setConnections(result.connections);
 		setCustomSnapshotsEnabled(result.customSnapshotsEnabled === true);
 		setLoadError(false);
 	}, []);
 
+	const apply = useCallback(
+		(result: CloudProviderConnectionList) => {
+			accept(result);
+			void cacheCloudProviderConnections(result).catch(() => undefined);
+		},
+		[accept],
+	);
 	const reload = useCallback(async () => {
-		setLoading(true);
+		setLoading(peekCloudProviderConnections() === undefined);
 		try {
-			apply(
-				await runCloudControl((client) =>
-					client["cloud.providerConnections.list"](),
-				),
-			);
+			accept(await loadCloudProviderConnections(true));
 		} catch {
 			if (mounted.current) setLoadError(true);
 		} finally {
 			if (mounted.current) setLoading(false);
 		}
-	}, [apply]);
+	}, [accept]);
 
 	useEffect(() => {
 		void reload();
 		const onFocus = () => void reload();
 		window.addEventListener("focus", onFocus);
-		return () => window.removeEventListener("focus", onFocus);
-	}, [reload]);
+		const unsubscribe = subscribeControlPlaneSessionCache((key) => {
+			if (key !== "cloud-workspace:connections") return;
+			const cached = peekCloudProviderConnections();
+			if (cached) accept(cached);
+		});
+		return () => {
+			window.removeEventListener("focus", onFocus);
+			unsubscribe();
+		};
+	}, [reload, accept]);
 
 	return {
 		connections,
@@ -406,24 +429,29 @@ export function CloudProviderConnectForm({
 	);
 }
 
-/** Connected keys, the connect form and disconnect confirmation. */
-export function CloudProviderKeyPanel({
+/** Confirms disconnecting a provider key; `switchToZuse` explains the fallback. */
+export function CloudProviderDisconnectDialog({
 	keys,
+	target,
+	switchToZuse = false,
+	onClose,
 	onChanged,
 }: {
 	readonly keys: CloudProviderConnections;
+	readonly target: CloudProviderConnection | null;
+	readonly switchToZuse?: boolean;
+	readonly onClose: () => void;
 	readonly onChanged: () => Promise<void>;
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
-	const [busy, setBusy] = useState<string | null>(null);
-	const [disconnectTarget, setDisconnectTarget] =
-		useState<CloudProviderConnection | null>(null);
-	const [disconnectError, setDisconnectError] = useState<string | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const provider = target === null ? "" : cloudProviderLabel(target.providerId);
 
 	const disconnect = async (connection: CloudProviderConnection) => {
-		if (busy !== null) return;
-		setBusy(`disconnect:${connection.connectionId}`);
-		setDisconnectError(null);
+		if (busy) return;
+		setBusy(true);
+		setError(null);
 		try {
 			keys.apply(
 				await runCloudControl((client) =>
@@ -432,22 +460,91 @@ export function CloudProviderKeyPanel({
 					}),
 				),
 			);
-			setDisconnectTarget(null);
+			onClose();
 			await onChanged();
 		} catch {
-			setDisconnectError(
-				uiMessage("settings:cloud_provider_keys_disconnect_failed"),
-			);
+			setError(uiMessage("settings:cloud_provider_keys_disconnect_failed"));
 		} finally {
-			setBusy(null);
+			setBusy(false);
 		}
 	};
 
-	const disconnectTargetName =
-		disconnectTarget === null
-			? ""
-			: cloudProviderLabel(disconnectTarget.providerId);
+	return (
+		<AlertDialog
+			open={target !== null}
+			onOpenChange={(open) => {
+				if (!open && !busy) {
+					setError(null);
+					onClose();
+				}
+			}}
+		>
+			<AlertDialogPopup className="max-w-sm">
+				<AlertDialogHeader>
+					<AlertDialogTitle>
+						{switchToZuse
+							? uiMessage("settings:cloud_hosting_switch_to_zuse_title")
+							: uiMessage("settings:cloud_provider_keys_disconnect_title", {
+									provider,
+								})}
+					</AlertDialogTitle>
+					<AlertDialogDescription>
+						{switchToZuse
+							? uiMessage("settings:cloud_hosting_switch_to_zuse_description", {
+									provider,
+								})
+							: uiMessage(
+									"settings:cloud_provider_keys_disconnect_description",
+									{ provider },
+								)}
+					</AlertDialogDescription>
+					{error === null ? null : (
+						<p role="alert" className="text-xs text-destructive">
+							{error}
+						</p>
+					)}
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogClose
+						render={
+							<Button
+								size="xs"
+								variant="ghost"
+								className={COMPACT_CLOUD_ACTION}
+							/>
+						}
+					>
+						{uiMessage("common:cancel")}
+					</AlertDialogClose>
+					<Button
+						size="xs"
+						variant={switchToZuse ? "default" : "destructive"}
+						className={COMPACT_CLOUD_ACTION}
+						loading={busy}
+						onClick={() => {
+							if (target !== null) void disconnect(target);
+						}}
+					>
+						{switchToZuse
+							? uiMessage("settings:cloud_hosting_switch_to_zuse")
+							: uiMessage("settings:cloud_provider_keys_disconnect")}
+					</Button>
+				</AlertDialogFooter>
+			</AlertDialogPopup>
+		</AlertDialog>
+	);
+}
 
+/** Connected keys, the connect form and disconnect confirmation. */
+export function CloudProviderKeyPanel({
+	keys,
+	onChanged,
+}: {
+	readonly keys: CloudProviderConnections;
+	readonly onChanged: () => Promise<void>;
+}) {
+	const [disconnectTarget, setDisconnectTarget] =
+		useState<CloudProviderConnection | null>(null);
 	return (
 		<>
 			{keys.active.length > 0 || keys.loadError || keys.connections === null ? (
@@ -455,72 +552,20 @@ export function CloudProviderKeyPanel({
 					connections={keys.connections}
 					loading={keys.loading}
 					loadError={keys.loadError}
-					busy={busy}
+					busy={disconnectTarget === null ? null : "disconnect"}
 					onRetry={() => void keys.reload()}
-					onDisconnect={(connection) => {
-						setDisconnectError(null);
-						setDisconnectTarget(connection);
-					}}
+					onDisconnect={setDisconnectTarget}
 				/>
 			) : null}
 			<div className="px-3 py-2.5">
 				<CloudProviderConnectForm keys={keys} onChanged={onChanged} />
 			</div>
-			<AlertDialog
-				open={disconnectTarget !== null}
-				onOpenChange={(open) => {
-					if (!open && busy === null) setDisconnectTarget(null);
-				}}
-			>
-				<AlertDialogPopup className="max-w-sm">
-					<AlertDialogHeader>
-						<AlertDialogTitle>
-							{uiMessage("settings:cloud_provider_keys_disconnect_title", {
-								provider: disconnectTargetName,
-							})}
-						</AlertDialogTitle>
-						<AlertDialogDescription>
-							{uiMessage(
-								"settings:cloud_provider_keys_disconnect_description",
-								{ provider: disconnectTargetName },
-							)}
-						</AlertDialogDescription>
-						{disconnectError === null ? null : (
-							<p role="alert" className="text-xs text-destructive">
-								{disconnectError}
-							</p>
-						)}
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogClose
-							render={
-								<Button
-									size="xs"
-									variant="ghost"
-									className={COMPACT_CLOUD_ACTION}
-								/>
-							}
-						>
-							{uiMessage("common:cancel")}
-						</AlertDialogClose>
-						<Button
-							size="xs"
-							variant="destructive"
-							className={COMPACT_CLOUD_ACTION}
-							loading={
-								disconnectTarget !== null &&
-								busy === `disconnect:${disconnectTarget.connectionId}`
-							}
-							onClick={() => {
-								if (disconnectTarget !== null)
-									void disconnect(disconnectTarget);
-							}}
-						>
-							{uiMessage("settings:cloud_provider_keys_disconnect")}
-						</Button>
-					</AlertDialogFooter>
-				</AlertDialogPopup>
-			</AlertDialog>
+			<CloudProviderDisconnectDialog
+				keys={keys}
+				target={disconnectTarget}
+				onClose={() => setDisconnectTarget(null)}
+				onChanged={onChanged}
+			/>
 		</>
 	);
 }

@@ -1241,5 +1241,22 @@
 	"snapshot_agent_logins_help": "On: Claude Code and Codex use the logins already on the snapshot. Off: new workspaces use the agent accounts you connected in Zuse.",
 	"snapshot_github_login_help": "On: Git and gh use the credentials already on the snapshot. Off: Zuse provides access through your connected GitHub account.",
 	"snapshot_agent_logins_switch": "Use logins from snapshot",
-	"snapshot_github_login_switch": "Use credentials from snapshot"
+	"snapshot_github_login_switch": "Use credentials from snapshot",
+	"snapshot_login_unchecked": "Not checked yet. Save the snapshot settings to check.",
+	"snapshot_github_signed_in": "Signed in with gh on your snapshot",
+	"snapshot_github_missing_tool": "GitHub CLI isn’t installed on the snapshot",
+	"snapshot_github_signed_out": "Not signed in. Run gh auth login on the source machine, then save a new snapshot.",
+	"snapshot_login_unavailable": "Couldn’t check this login",
+	"snapshot_agent_missing_tool": "Not installed on the snapshot",
+	"snapshot_agent_signed_in": "Signed in on your snapshot",
+	"snapshot_agent_signed_out": "Not signed in. Sign in on the source machine, then save a new snapshot.",
+	"snapshot_login_signed_in": "Signed in",
+	"snapshot_login_signed_out": "Signed out",
+	"snapshot_login_not_installed": "Not installed",
+	"snapshot_login_unknown": "Unknown",
+	"cloud_hosting_zuse_overridden": "Subscribed, but your {{provider}} key is used instead.",
+	"cloud_hosting_switch_to_zuse": "Use Zuse Cloud",
+	"cloud_hosting_switch_to_zuse_title": "Switch to Zuse Cloud?",
+	"cloud_hosting_switch_to_zuse_description": "This disconnects your {{provider}} key, so new workspaces run on Zuse Cloud under your subscription. Existing workspaces keep the key for cleanup. To use your own account or custom snapshot again, reconnect the key and save the snapshot.",
+	"snapshot_check_title": "Snapshot check"
 }

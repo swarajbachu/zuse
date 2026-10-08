@@ -8,7 +8,9 @@ import {
 	CloudAuthStatus,
 	CloudGithubStatus,
 	CloudProjectList,
+	CloudProviderConnectionList,
 	CloudProviderList,
+	EntitlementList,
 } from "@zuse/contracts";
 import { Schema } from "effect";
 
@@ -16,10 +18,12 @@ import {
 	invalidateControlPlaneCache,
 	peekControlPlaneCache,
 	runCachedControlPlane,
+	runCachedRead,
 } from "./control-plane-client.ts";
 
 const cloudWorkspaceCacheKeys = {
 	auth: "cloud-workspace:auth",
+	connections: "cloud-workspace:connections",
 	providers: "cloud-workspace:providers",
 	projects: "cloud-workspace:projects",
 	entitlements: "cloud-workspace:entitlements",
@@ -44,6 +48,39 @@ export const peekCloudGithub = () =>
 	peekControlPlaneCache(
 		cloudWorkspaceCacheKeys.github,
 		Schema.decodeUnknownSync(CloudGithubStatus),
+	);
+
+const decodeConnections = Schema.decodeUnknownSync(CloudProviderConnectionList);
+export const peekCloudProviderConnections = () =>
+	peekControlPlaneCache(cloudWorkspaceCacheKeys.connections, decodeConnections);
+export const loadCloudProviderConnections = (refresh = false) =>
+	runCachedControlPlane(
+		cloudWorkspaceCacheKeys.connections,
+		(client) => client["cloud.providerConnections.list"](),
+		{ refresh, maxAgeMs: 30_000, decode: decodeConnections },
+	);
+export const cacheCloudProviderConnections = (
+	value: CloudProviderConnectionList,
+) =>
+	runCachedRead(
+		cloudWorkspaceCacheKeys.connections,
+		() => Promise.resolve(value),
+		{ refresh: true, maxAgeMs: 30_000, decode: decodeConnections },
+	);
+export const peekCloudProviders = () =>
+	peekControlPlaneCache(
+		cloudWorkspaceCacheKeys.providers,
+		Schema.decodeUnknownSync(CloudProviderList),
+	);
+export const peekCloudEntitlements = () =>
+	peekControlPlaneCache(
+		cloudWorkspaceCacheKeys.entitlements,
+		Schema.decodeUnknownSync(EntitlementList),
+	);
+export const peekCloudImage = (providerId?: string) =>
+	peekControlPlaneCache(
+		cloudWorkspaceCacheKeys.image(providerId),
+		Schema.decodeUnknownSync(CloudAccountImageSchema),
 	);
 
 export const loadCloudProviders = (refresh = false) =>
@@ -71,7 +108,11 @@ export const loadCloudEntitlements = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.entitlements,
 		(client) => client["machines.entitlements"](),
-		{ refresh, maxAgeMs: 30_000 },
+		{
+			refresh,
+			maxAgeMs: 30_000,
+			decode: Schema.decodeUnknownSync(EntitlementList),
+		},
 	);
 
 export const loadCloudImage = (providerId?: string, refresh = false) =>

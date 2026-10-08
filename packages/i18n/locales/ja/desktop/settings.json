@@ -1241,5 +1241,22 @@
 	"snapshot_agent_logins_help": "オン：Claude Code と Codex はスナップショット内のログインを使います。オフ：新しいワークスペースは Zuse で接続したエージェントアカウントを使います。",
 	"snapshot_github_login_help": "オン：Git と gh はスナップショット内の認証情報を使います。オフ：接続済みの GitHub アカウントを通じて Zuse がアクセスを提供します。",
 	"snapshot_agent_logins_switch": "スナップショットのログインを使用",
-	"snapshot_github_login_switch": "スナップショットの認証情報を使用"
+	"snapshot_github_login_switch": "スナップショットの認証情報を使用",
+	"snapshot_login_unchecked": "未確認です。スナップショット設定を保存すると確認します。",
+	"snapshot_github_signed_in": "スナップショットで gh にサインイン済み",
+	"snapshot_github_missing_tool": "スナップショットに GitHub CLI がインストールされていません",
+	"snapshot_github_signed_out": "未サインインです。元のマシンで gh auth login を実行し、新しいスナップショットを保存してください。",
+	"snapshot_login_unavailable": "このログインを確認できませんでした",
+	"snapshot_agent_missing_tool": "スナップショットにインストールされていません",
+	"snapshot_agent_signed_in": "スナップショットでサインイン済み",
+	"snapshot_agent_signed_out": "未サインインです。元のマシンでサインインし、新しいスナップショットを保存してください。",
+	"snapshot_login_signed_in": "サインイン済み",
+	"snapshot_login_signed_out": "未サインイン",
+	"snapshot_login_not_installed": "未インストール",
+	"snapshot_login_unknown": "不明",
+	"cloud_hosting_zuse_overridden": "契約中ですが、代わりに {{provider}} キーが使われています。",
+	"cloud_hosting_switch_to_zuse": "Zuse Cloud を使用",
+	"cloud_hosting_switch_to_zuse_title": "Zuse Cloud に切り替えますか？",
+	"cloud_hosting_switch_to_zuse_description": "{{provider}} キーの接続を解除し、新しいワークスペースは契約中の Zuse Cloud で実行されます。既存のワークスペースはクリーンアップのためキーを保持します。自分のアカウントやスナップショットを再び使うには、キーを再接続してスナップショットを保存してください。",
+	"snapshot_check_title": "スナップショットの確認"
 }

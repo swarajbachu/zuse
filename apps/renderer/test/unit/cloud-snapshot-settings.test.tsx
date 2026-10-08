@@ -1,7 +1,11 @@
 import { CloudAccountImage } from "@zuse/contracts";
 import { activateLocale, prepareLocale } from "@zuse/i18n";
 import { renderToStaticMarkup } from "react-dom/server";
-import { expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
+import * as cloudCache from "../../src/lib/cloud-workspace-session-cache.ts";
+
+afterEach(() => vi.restoreAllMocks());
+
 import { CloudImageReadiness } from "../../src/components/settings/cloud-image-readiness.tsx";
 import { CloudSnapshotSettings } from "../../src/components/settings/cloud-snapshot-settings.tsx";
 
@@ -72,4 +76,40 @@ test("snapshot settings translate labels while preserving the installation comma
 	} finally {
 		await activateLocale("en");
 	}
+});
+
+test("opens the editor with locally cached snapshot fields before any request", () => {
+	vi.spyOn(cloudCache, "peekCloudImage").mockReturnValue(
+		new CloudAccountImage({
+			state: "ready",
+			source: "custom-snapshot",
+			providerId: "boxd",
+			repositories: [],
+			providers: [],
+			builds: [],
+			updatedAt: 1,
+			snapshot: {
+				snapshotId: "snap_cached",
+				runtimeUser: "developer",
+				revision: "saved",
+				repositories: [
+					{ projectId: "repo", path: "/srv/my repo", gitAccess: "readable" },
+				],
+				agentAuthentication: "zuse",
+				gitAuthentication: "native",
+			},
+		}),
+	);
+	const markup = renderToStaticMarkup(
+		<CloudSnapshotSettings connectionId="own-key" onChanged={async () => {}} />,
+	);
+	expect(markup).toContain('value="snap_cached"');
+	expect(markup).toContain('value="developer"');
+	expect(markup).toContain("Repository paths (1)");
+	expect(markup.match(/role="switch"[^>]*aria-checked="false"/g)).toHaveLength(
+		1,
+	);
+	expect(markup.match(/role="switch"[^>]*aria-checked="true"/g)).toHaveLength(
+		1,
+	);
 });

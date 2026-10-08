@@ -20,6 +20,7 @@ const render = (
 			canManageBilling={canManageBilling}
 			canManageProviders={canManageProviders}
 			activeMode={activeMode}
+			selectedProviderId={null}
 			snapshot={null}
 			busy={null}
 			onCheckout={vi.fn()}
@@ -47,7 +48,8 @@ it("keeps checkout secondary while the user's own hosting is in use", () => {
 	const markup = render(false, { activeMode: "provider" });
 	const subscribe = markup.match(/<button[^>]*>[^<]*Subscribe/)?.[0] ?? "";
 	expect(subscribe).not.toContain("bg-primary");
-	expect(markup.match(/In use/g)).toHaveLength(1);
+	// Own-account hosting is only marked in use once a key is actually connected.
+	expect(markup).not.toContain("In use");
 });
 it("respects billing and provider permissions while retaining status", () => {
 	expect(render(true, { canManageBilling: false })).not.toContain(
@@ -62,4 +64,12 @@ it("respects billing and provider permissions while retaining status", () => {
 it("keeps every visible control at the compact height", () => {
 	for (const control of render(false).match(/<button[^>]*>/g) ?? [])
 		expect(control).toContain("h-7");
+});
+it("does not offer switching to Zuse Cloud without a subscription and an overriding key", () => {
+	expect(render(true, { activeMode: "provider" })).not.toContain(
+		"Use Zuse Cloud",
+	);
+	expect(render(false, { activeMode: "provider" })).not.toContain(
+		"Use Zuse Cloud",
+	);
 });

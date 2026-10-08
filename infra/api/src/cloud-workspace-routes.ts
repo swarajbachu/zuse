@@ -113,6 +113,7 @@ import { runtimeControlPathAllowed } from "./cloud-runtime-control.ts";
 import {
 	importedSnapshot,
 	snapshotBuildCompatible,
+	snapshotLogins,
 	snapshotRepositoryLayout,
 	snapshotSettings,
 } from "./cloud-snapshot.ts";
@@ -762,6 +763,7 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 						gitAuthentication: snapshotSettings(active).gitAuthentication,
 						runtimeUser: snapshotSettings(active).runtimeUser,
 						revision: active.buildId,
+						...snapshotLogins(active),
 						repositories: active.settings?.repositories ?? [],
 					},
 				}
@@ -791,6 +793,9 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 		repositories,
 		providers,
 		builds: builds.slice(0, 12).map((build) => ({
+			source: importedSnapshot(build)
+				? ("custom-snapshot" as const)
+				: ("managed" as const),
 			buildId: build.buildId,
 			state: build.state,
 			mode: buildMode(build) ?? "update",

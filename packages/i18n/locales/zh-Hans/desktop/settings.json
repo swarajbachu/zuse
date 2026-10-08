@@ -1241,5 +1241,22 @@
 	"snapshot_agent_logins_help": "开启：Claude Code 和 Codex 使用快照中已有的登录信息。关闭：新工作区使用你在 Zuse 中连接的智能体账户。",
 	"snapshot_github_login_help": "开启：Git 和 gh 使用快照中已有的凭据。关闭：Zuse 通过你连接的 GitHub 账户提供访问。",
 	"snapshot_agent_logins_switch": "使用快照中的登录信息",
-	"snapshot_github_login_switch": "使用快照中的凭据"
+	"snapshot_github_login_switch": "使用快照中的凭据",
+	"snapshot_login_unchecked": "尚未检查。保存快照设置即可检查。",
+	"snapshot_github_signed_in": "已在快照中通过 gh 登录",
+	"snapshot_github_missing_tool": "快照中未安装 GitHub CLI",
+	"snapshot_github_signed_out": "未登录。请在源机器上运行 gh auth login，然后保存新快照。",
+	"snapshot_login_unavailable": "无法检查此登录",
+	"snapshot_agent_missing_tool": "快照中未安装",
+	"snapshot_agent_signed_in": "已在快照中登录",
+	"snapshot_agent_signed_out": "未登录。请在源机器上登录，然后保存新快照。",
+	"snapshot_login_signed_in": "已登录",
+	"snapshot_login_signed_out": "未登录",
+	"snapshot_login_not_installed": "未安装",
+	"snapshot_login_unknown": "未知",
+	"cloud_hosting_zuse_overridden": "已订阅，但当前使用的是你的 {{provider}} 密钥。",
+	"cloud_hosting_switch_to_zuse": "使用 Zuse Cloud",
+	"cloud_hosting_switch_to_zuse_title": "切换到 Zuse Cloud？",
+	"cloud_hosting_switch_to_zuse_description": "这会断开你的 {{provider}} 密钥，新工作区将使用你的订阅在 Zuse Cloud 上运行。现有工作区会保留该密钥用于清理。如需再次使用你自己的账户或快照，请重新连接密钥并保存快照。",
+	"snapshot_check_title": "快照检查"
 }
