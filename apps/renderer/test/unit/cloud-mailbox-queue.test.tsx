@@ -20,6 +20,7 @@ const prompt = Message.make({
 		annotations: [],
 	},
 });
+const status = { busy: true, label: "Preparing repository…" };
 const command = {
 	commandId: CommandId.make("message-send:waiting"),
 	kind: "messages.send",
@@ -34,10 +35,13 @@ describe("cloud mailbox queue", () => {
 			<CloudMailboxQueue
 				messages={[prompt]}
 				commands={[{ ...command, cancellable: true }]}
+				status={status}
 			/>,
 		);
+		expect(html.match(/role="status"/g)).toHaveLength(1);
+		expect(html).not.toContain("Waiting for agent");
 		for (const text of [
-			"Waiting for agent",
+			"Preparing repository…",
 			"Review these files",
 			"design.png",
 			"Cancel",
@@ -49,13 +53,16 @@ describe("cloud mailbox queue", () => {
 			<CloudMailboxQueue
 				messages={[prompt]}
 				commands={[{ ...command, cancellable: false }]}
+				status={status}
 			/>,
 		);
 		expect(html).not.toContain("<button");
 	});
 	it("leaves no empty tray once the runtime takes the prompt", () => {
 		expect(
-			renderToStaticMarkup(<CloudMailboxQueue messages={[]} commands={[]} />),
+			renderToStaticMarkup(
+				<CloudMailboxQueue messages={[]} commands={[]} status={status} />,
+			),
 		).toBe("");
 	});
 });

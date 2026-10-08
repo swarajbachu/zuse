@@ -20,6 +20,7 @@ import {
 	createHttpPluginClient,
 	setDefaultPluginClientFactory,
 } from "@zuse/agents/drivers/plugin-tools";
+import { checkSnapshotAgentAccess } from "@zuse/agents/drivers/snapshot-native-auth";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import {
 	type CloudMessageSendPayload,
@@ -69,6 +70,7 @@ import {
 	SealedProviderGrant,
 	type Session,
 	SessionId,
+	type SnapshotAgentAccess,
 	WIRE_PROTOCOL_VERSION,
 	WORKSPACE_GATEWAY_AUTH_EXPIRED_CLOSE,
 	WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE,
@@ -171,6 +173,47 @@ const writeOwnerOnlyFile = (
 		},
 		catch: () => fail("workspace_github_broker_state_failed"),
 	});
+
+/** Credential status is advisory; failed lookups must not stop event publishing. */
+export const trackSnapshotNativeAccess = <E, R, E2, R2>(input: {
+	readonly session: Effect.Effect<
+		{ readonly id: AgentSessionId; readonly providerId: string },
+		E,
+		R
+	>;
+	readonly history: (
+		id: AgentSessionId,
+	) => Effect.Effect<
+		ReadonlyArray<{ readonly content: MessageContent }>,
+		E2,
+		R2
+	>;
+	readonly outcome: string;
+	readonly access: Map<string, SnapshotAgentAccess>;
+}) =>
+	Effect.gen(function* () {
+		const session = yield* input.session;
+		const providerId = session.providerId;
+		if (providerId === "claude" || providerId === "codex") {
+			const history =
+				input.outcome === "error" ? yield* input.history(session.id) : [];
+			const previous = input.access.get(providerId);
+			const state = isProviderAuthenticationError(history.at(-1)?.content)
+				? previous?.state === "detected" ||
+					previous?.state === "verified" ||
+					previous?.state === "expired"
+					? "expired"
+					: "authentication-required"
+				: input.outcome === "completed"
+					? "verified"
+					: (previous?.state ?? "unavailable");
+			input.access.set(providerId, {
+				providerId,
+				state,
+				checkedAt: Date.now(),
+			});
+		}
+	}).pipe(Effect.ignore);
 
 export const writeGithubBrokerState = (
 	config: CloudWorkspaceRuntimeConfig,
@@ -291,10 +334,10 @@ const BootstrapResponse = Schema.Struct({
 	chatId: Schema.String,
 	initialSessionId: Schema.String,
 	codexAuthMode: Schema.optional(
-		Schema.Literals(["legacy-image", "broker-v1"]),
+		Schema.Literals(["legacy-image", "broker-v1", "snapshot-native"]),
 	),
 	providerAuthMode: Schema.optional(
-		Schema.Literals(["legacy-image", "broker-v1"]),
+		Schema.Literals(["legacy-image", "broker-v1", "snapshot-native"]),
 	),
 	launchIntent: Schema.optional(
 		Schema.Struct({
@@ -730,6 +773,7 @@ export const makeCloudRuntimeSummaryPublisher = Effect.fn(
 			readonly lastUserMessageAt?: number | null;
 			readonly activeSessionId: SessionId | null;
 			readonly sessionHeadVersion: number;
+			readonly nativeAgentAccess?: ReadonlyArray<SnapshotAgentAccess>;
 		},
 		CloudWorkspaceRuntimeError
 	>;
@@ -752,6 +796,7 @@ export const makeCloudRuntimeSummaryPublisher = Effect.fn(
 			readonly lastUserMessageAt?: number | null;
 			readonly activeSessionId: SessionId | null;
 			readonly sessionHeadVersion: number;
+			readonly nativeAgentAccess?: ReadonlyArray<SnapshotAgentAccess>;
 		},
 		summaryRevision: number,
 	) => new CloudWorkspaceRuntimeSummary({ ...snapshot, summaryRevision });
@@ -2466,7 +2511,10 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							setDefaultPluginClientFactory(undefined);
 						}),
 					);
-					if (bootstrap.providerAuthMode !== "broker-v1")
+					if (
+						bootstrap.providerAuthMode !== "broker-v1" &&
+						bootstrap.providerAuthMode !== "snapshot-native"
+					)
 						yield* installImageProviderSecrets(credentials);
 					yield* Effect.tryPromise({
 						try: async () => {
@@ -2485,14 +2533,22 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					yield* writeGithubBrokerState(config, runtimeCredential.credential);
 					yield* Effect.tryPromise({
 						try: () =>
-							configureCloudGitIdentity(
-								cloudRuntimeDataDirectory(),
-								bootstrap.gitIdentity,
-							),
+							process.env.ZUSE_SNAPSHOT_NATIVE === "1"
+								? Promise.resolve()
+								: configureCloudGitIdentity(
+										cloudRuntimeDataDirectory(),
+										bootstrap.gitIdentity,
+									),
 						catch: () => fail("workspace_git_identity_failed"),
 					});
 					const releaseGitExecution = runtimeGitExecution.install(
 						makeCloudGitExecution({
+							preferNativeGit:
+								process.env.ZUSE_SNAPSHOT_GIT_AUTH_MODE !== "zuse",
+							nativeRepositoryPath:
+								process.env.ZUSE_SNAPSHOT_NATIVE === "1"
+									? config.workspaceRoot
+									: undefined,
 							sql,
 							directory: cloudRuntimeDataDirectory(),
 							authHelperPath: "/var/lib/zuse/project-build/github-auth.sh",
@@ -2509,6 +2565,35 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						signingPrivateKey: signingKeyPair.privateKey,
 						state: runtimeCredential,
 					}).pipe(Effect.forkScoped({ startImmediately: true }));
+					const nativeAgentAccess = new Map<string, SnapshotAgentAccess>();
+					if (bootstrap.providerAuthMode === "snapshot-native") {
+						const uninstall = runtimeProviderCredentials.install(
+							async (providerId) => {
+								if (providerId !== "claude" && providerId !== "codex")
+									return null;
+								const state = await checkSnapshotAgentAccess(providerId);
+								nativeAgentAccess.set(providerId, {
+									providerId,
+									state,
+									checkedAt: Date.now(),
+								});
+								await writeFile(
+									join(
+										cloudRuntimeDataDirectory(),
+										`native-${providerId}-access.json`,
+									),
+									JSON.stringify({ providerId, state, checkedAt: Date.now() }),
+									{ mode: 0o600 },
+								);
+								if (state !== "detected" && state !== "verified")
+									throw new Error(
+										`${state === "authentication-required" || state === "expired" ? "Authentication required" : "Authentication check unavailable"}: ${providerId} snapshot status ${state}. ${state === "missing-tool" ? "Install this agent for the workspace development user." : "Sign in on this workspace, or select Zuse agent accounts in custom snapshot settings for new workspaces."}`,
+									);
+								return null;
+							},
+						);
+						yield* Effect.addFinalizer(() => Effect.sync(uninstall));
+					}
 					if (bootstrap.providerAuthMode === "broker-v1") {
 						if (bootstrap.zuseAccountId === undefined)
 							return yield* Effect.fail(fail("provider-auth-update-required"));
@@ -2845,6 +2930,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 										);
 						return {
 							title: chat.title,
+							nativeAgentAccess: [...nativeAgentAccess.values()],
 							lastActivityAt,
 							lastUserMessageAt: chat.lastUserMessageAt?.getTime() ?? null,
 							activeSessionId,
@@ -3494,6 +3580,20 @@ export const makeCloudWorkspaceRuntimeLayer = (
 									if (createdForWorkspace)
 										knownChatSessionIds.add(record.streamId);
 									if (!knownChatSessionIds.has(record.streamId)) return;
+									if (
+										bootstrap.providerAuthMode === "snapshot-native" &&
+										record.event._tag === "TurnSettled"
+									) {
+										yield* trackSnapshotNativeAccess({
+											session: sessions.getSession(
+												AgentSessionId.make(record.streamId),
+											),
+											history: (id) => messages.listMessages(id),
+											outcome: record.event.outcome,
+											access: nativeAgentAccess,
+										});
+									}
+
 									const reason: RuntimeSummaryReason | null =
 										record.event._tag === "SessionTitleSet"
 											? "title"

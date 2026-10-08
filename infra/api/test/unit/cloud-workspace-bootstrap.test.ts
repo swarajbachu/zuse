@@ -1413,7 +1413,10 @@ test("provider connections require account authentication and organization admin
 		const personal = await call("personal");
 		expect(personal.status).toBe(200);
 		expect(personal.headers.get("cache-control")).toBe("no-store");
-		expect(await personal.json()).toEqual({ connections: [] });
+		expect(await personal.json()).toEqual({
+			connections: [],
+			customSnapshotsEnabled: false,
+		});
 		expect((await call("organization:org_a")).status).toBe(200);
 		for (const deniedRole of ["member", "billing"]) {
 			role = deniedRole;
@@ -1521,6 +1524,113 @@ test("free provider keys pin image builds and cannot authorize managed compute",
 			mode: "rebuild",
 		});
 		expect(denied.status).toBe(403);
+	} finally {
+		await runtime.dispose();
+	}
+});
+
+test("custom snapshot imports are gated, subscription-free, connection-pinned and idempotent", async () => {
+	const runtime = await makeRuntime();
+	const records: ProviderConnectionRecord[] = [];
+	const connections = CloudProviderConnections.of({
+		list: (accountId) =>
+			Effect.succeed(
+				records.filter((record) => record.accountId === accountId),
+			),
+		save: (record) =>
+			Effect.sync(() => {
+				records.push(record);
+			}),
+		disconnect: () => Effect.void,
+	});
+	try {
+		const config = await runtime.runPromise(ApiConfiguration);
+		const fake = await runtime.runPromise(
+			(await runtime.runPromise(SandboxProviders)).get("fake"),
+		);
+		const own = {
+			...fake,
+			providerId: "boxd",
+			resolveSnapshotSource: () =>
+				Effect.succeed({ snapshotId: "immutable-snapshot", version: 3 }),
+		};
+		const providers = await runtime.runPromise(
+			makeSandboxProviders({
+				defaultProviderId: "boxd",
+				registrations: [{ adapter: { ...own, withCredentials: () => own } }],
+			}),
+		);
+		const call = (path: string, body?: unknown, enabled = true) =>
+			runtime.runPromise(
+				handleRequest(
+					new Request(`${ISSUER}${path}`, {
+						method: body === undefined ? "GET" : "POST",
+						headers: {
+							authorization: "Bearer test-token:alice",
+							"content-type": "application/json",
+						},
+						...(body === undefined ? {} : { body: JSON.stringify(body) }),
+					}),
+				).pipe(
+					Effect.provideService(ApiConfiguration, {
+						...config,
+						cloudBoxdCustomSnapshotsEnabled: enabled,
+					}),
+					Effect.provideService(CloudProviderConnections, connections),
+					Effect.provideService(SandboxProviders, providers),
+				),
+			);
+		expect(
+			(
+				await call(ApiPaths.cloudProviderConnections, {
+					providerId: "boxd",
+					apiKey: "own-key",
+				})
+			).status,
+		).toBe(200);
+		const connectionId = records[0]?.connectionId;
+		const body = {
+			connectionId,
+			snapshotId: "immutable-snapshot",
+			runtimeUser: "developer",
+			repositoryPaths: [],
+			idempotencyKey: "import-one",
+		};
+		expect((await call(ApiPaths.cloudSnapshotImport, body, false)).status).toBe(
+			409,
+		);
+		expect(
+			(
+				await call(ApiPaths.cloudSnapshotImport, {
+					...body,
+					connectionId: "someone-else",
+				})
+			).status,
+		).toBe(403);
+		expect((await call(ApiPaths.cloudSnapshotImport, body)).status).toBe(202);
+		expect((await call(ApiPaths.cloudSnapshotImport, body)).status).toBe(202);
+		expect(
+			(
+				await call(ApiPaths.cloudSnapshotImport, {
+					...body,
+					runtimeUser: "other",
+				})
+			).status,
+		).toBe(409);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		const builds = await runtime.runPromise(
+			store.listAccountBuilds("alice", "boxd"),
+		);
+		expect(builds).toHaveLength(1);
+		expect(builds[0]?.projectId).toBeNull();
+		expect(builds[0]?.settings).toMatchObject({
+			source: "custom-snapshot",
+			providerConnectionId: connectionId,
+			snapshotVersion: 3,
+		});
+		expect(await runtime.runPromise(store.listProjects("alice"))).toHaveLength(
+			0,
+		);
 	} finally {
 		await runtime.dispose();
 	}

@@ -215,6 +215,7 @@ jobs:
           path: |
             apps/server/dist-cloud/zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
             apps/server/dist-cloud/stable-manifest.json
+            apps/server/dist-cloud/zuse-snapshot-installer.tar.gz
           if-no-files-found: error
           retention-days: 1
 
@@ -254,4 +255,5 @@ jobs:
             --clobber
           gh release upload "$RELEASE_TAG" \
             "dist-cloud/stable-manifest.json" \
+            "dist-cloud/zuse-snapshot-installer.tar.gz" \
             --clobber

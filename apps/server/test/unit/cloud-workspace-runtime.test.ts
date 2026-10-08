@@ -53,6 +53,7 @@ import {
 	runtimeReadyPhaseOnGatewayOpen,
 	signRuntimeRenewalProof,
 	startCloudWorkspaceLaunchIntent,
+	trackSnapshotNativeAccess,
 	writeGithubBrokerState,
 } from "../../src/api/cloud-workspace-runtime.ts";
 
@@ -2058,4 +2059,33 @@ it.each([
 			yield* Fiber.interrupt(fiber);
 		}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
 	);
+});
+
+it.each([
+	"session",
+	"history",
+])("native %s lookup failure does not stop subsequent events", async (failure) => {
+	const access = new Map();
+	const session = { id: AgentSessionId.make("session"), providerId: "codex" };
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			yield* trackSnapshotNativeAccess({
+				session:
+					failure === "session"
+						? Effect.fail("lookup failed")
+						: Effect.succeed(session),
+				history: () => Effect.fail("history failed"),
+				outcome: "error",
+				access,
+			});
+			expect(access.size).toBe(0);
+			yield* trackSnapshotNativeAccess({
+				session: Effect.succeed(session),
+				history: () => Effect.succeed([]),
+				outcome: "completed",
+				access,
+			});
+		}),
+	);
+	expect(access.get("codex")?.state).toBe("verified");
 });

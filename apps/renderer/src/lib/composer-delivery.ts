@@ -8,6 +8,8 @@ import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
 export type WaitingCloudMessagePresentation = Readonly<{
 	commandId: PendingCommand["commandId"];
 	label: string;
+	/** True when delivery waits on the user rather than on cloud compute. */
+	blocked: boolean;
 	cancellable: boolean;
 }>;
 
@@ -21,7 +23,8 @@ export const cloudComposerSubmissionBlocked = (
 ): boolean =>
 	pendingCommands.some((command) => command.kind === "messages.send");
 
-const blockedCommandLabel = (command: PendingCommand): string => {
+/** The user-actionable reason a blocked send waits, if it has one. */
+const blockedCommandLabel = (command: PendingCommand): string | null => {
 	const presentation = cloudFailurePresentation({
 		category: command.category,
 		blockedUntil: command.blockedUntil,
@@ -37,7 +40,7 @@ const blockedCommandLabel = (command: PendingCommand): string => {
 		case "runtime-compatible":
 			return "Action required";
 	}
-	return "Waiting for agent";
+	return null;
 };
 
 export { isWaitingCloudSend };
@@ -47,16 +50,15 @@ export const waitingCloudMessagePresentation = (
 	pendingCommands: readonly PendingCommand[],
 ): WaitingCloudMessagePresentation | null => {
 	const command = pendingCommands.find(isWaitingCloudSend);
-	return command === undefined
-		? null
-		: {
-				commandId: command.commandId,
-				label:
-					command.deliveryPhase === "blocked"
-						? blockedCommandLabel(command)
-						: "Waiting for agent",
-				cancellable: command.cancellable === true,
-			};
+	if (command === undefined) return null;
+	const blockedLabel =
+		command.deliveryPhase === "blocked" ? blockedCommandLabel(command) : null;
+	return {
+		commandId: command.commandId,
+		label: blockedLabel ?? "Waiting for cloud",
+		blocked: blockedLabel !== null,
+		cancellable: command.cancellable === true,
+	};
 };
 
 /**

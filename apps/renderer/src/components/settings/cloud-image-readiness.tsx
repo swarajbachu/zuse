@@ -3,6 +3,7 @@ import type { CloudAccountImage, CloudProject } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { AlertTriangle, CircleX, LoaderCircle, RefreshCw } from "lucide-react";
 
+import { cloudImageStatusMessage } from "../../lib/cloud-image-status.ts";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
 import {
@@ -85,6 +86,28 @@ export function CloudImageReadiness({
 			/>
 		);
 
+	if (image.source === "custom-snapshot" || image.snapshot !== undefined)
+		return (
+			<CloudSettingsRow
+				title={
+					building
+						? uiMessage("settings:snapshot_checking")
+						: state === "ready"
+							? uiMessage("settings:snapshot_ready")
+							: uiMessage("settings:snapshot_attention")
+				}
+				description={
+					building
+						? uiMessage("settings:snapshot_discovering")
+						: uiMessage("settings:snapshot_manage_hint")
+				}
+				action={
+					<Badge variant={state === "ready" ? "success" : "warning"}>
+						{uiMessage(cloudImageStatusMessage(image))}
+					</Badge>
+				}
+			/>
+		);
 	if (state === "ready" && !starting) {
 		return (
 			<CloudSettingsRow

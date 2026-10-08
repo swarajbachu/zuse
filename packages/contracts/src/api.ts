@@ -113,6 +113,7 @@ export const ApiPaths = {
 	cloudAccountImage: "/v1/cloud/image",
 	cloudAccountImageDelete: "/v1/cloud/image/delete",
 	cloudAccountImageBuild: "/v1/cloud/image/build",
+	cloudSnapshotImport: "/v1/cloud/image/snapshot",
 	cloudProjectPrepare: (projectId: string) =>
 		`/v1/cloud/projects/${encodeURIComponent(projectId)}/prepare`,
 	cloudApiKeys: "/v1/cloud/api-keys",

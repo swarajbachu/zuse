@@ -51,6 +51,7 @@ export interface BoxdSandboxConfig {
 	readonly org?: string;
 	/** Snapshot every workspace-less create boots from. */
 	readonly templateSnapshot: string;
+	readonly runtimeUser?: string;
 	readonly templateVersion: string;
 	readonly machineSize?: BoxdMachineSize;
 	/** gRPC-web endpoint; defaults to production. */
@@ -459,7 +460,7 @@ export const makeBoxdSandboxProvider = (
 				providerSandboxId,
 				[
 					"timeout 90 systemctl is-system-running --wait >/dev/null 2>&1 || true",
-					`sudo -n install -d -m 0700 -o ${RUNTIME_USER} -g ${RUNTIME_USER} ${SECRETS_DIRECTORY}`,
+					`sudo -n install -d -m 0700 -o ${shellQuote(config.runtimeUser ?? RUNTIME_USER)} -g "$(id -gn ${shellQuote(config.runtimeUser ?? RUNTIME_USER)})" ${SECRETS_DIRECTORY}`,
 				].join(" && "),
 				120_000,
 			);
@@ -479,10 +480,10 @@ export const makeBoxdSandboxProvider = (
 		yield* runCommand(
 			providerSandboxId,
 			[
-				`sudo -n -u ${RUNTIME_USER} -H bash -c ${shellQuote(
+				`sudo -n -u ${shellQuote(config.runtimeUser ?? RUNTIME_USER)} -H bash -c ${shellQuote(
 					"cd / && timeout 30 zuse --version >/dev/null 2>&1",
 				)}`,
-				`sudo -n systemd-run --quiet --collect --wait --uid=${RUNTIME_USER} -- /bin/true >/dev/null 2>&1`,
+				`sudo -n systemd-run --quiet --collect --wait --uid=${shellQuote(config.runtimeUser ?? RUNTIME_USER)} -- /bin/true >/dev/null 2>&1`,
 				"true",
 			].join("; "),
 		).pipe(Effect.ignore);
@@ -516,6 +517,7 @@ export const makeBoxdSandboxProvider = (
 	const allocate = Effect.fn("BoxdSandboxProvider.allocate")(function* (input: {
 		readonly providerLabel: string;
 		readonly snapshot: string;
+		readonly snapshotVersion?: number;
 		readonly sizeId?: string;
 		readonly timeoutSeconds: number;
 		readonly env: Readonly<Record<string, string>>;
@@ -597,6 +599,14 @@ export const makeBoxdSandboxProvider = (
 				),
 			),
 		);
+		if (
+			input.snapshotVersion !== undefined &&
+			(usable.source?.id !== input.snapshot ||
+				usable.source.version !== input.snapshotVersion)
+		) {
+			yield* kill(created.id);
+			return yield* providerError("rejected");
+		}
 		yield* applySize(usable, size);
 		yield* prepareRuntime(created.id);
 		yield* primeRuntime(created.id);
@@ -705,9 +715,7 @@ export const makeBoxdSandboxProvider = (
 			const directory = path.slice(0, path.lastIndexOf("/")) || "/";
 			const install = yield* runCommand(
 				providerSandboxId,
-				`(sudo -n -u ${shellQuote(owner)} mkdir -p ${shellQuote(directory)} 2>/dev/null || sudo -n install -d -m 0755 ${shellQuote(directory)}) && sudo -n install -m 600 -o ${shellQuote(owner)} -g ${shellQuote(
-					owner,
-				)} ${shellQuote(stagingPath)} ${shellQuote(path)} && sudo -n rm -f ${shellQuote(stagingPath)}`,
+				`(sudo -n -u ${shellQuote(owner)} mkdir -p ${shellQuote(directory)} 2>/dev/null || sudo -n install -d -m 0755 ${shellQuote(directory)}) && sudo -n install -m 600 -o ${shellQuote(owner)} -g "$(id -gn ${shellQuote(owner)})" ${shellQuote(stagingPath)} ${shellQuote(path)} && sudo -n rm -f ${shellQuote(stagingPath)}`,
 			);
 			if (install.exitCode !== 0) return yield* providerError("transient");
 		},
@@ -1045,6 +1053,7 @@ export const makeBoxdSandboxProvider = (
 				apiKey: credentials.apiKey,
 				templateSnapshot: credentials.templateId ?? config.templateSnapshot,
 				org: credentials.organization,
+				runtimeUser: credentials.runtimeUser,
 			}),
 		providerId: BOXD_PROVIDER_ID,
 		displayName: "boxd",
@@ -1111,10 +1120,24 @@ export const makeBoxdSandboxProvider = (
 			}),
 		// Account images are snapshots; a restore boots into the captured
 		// state in milliseconds with its memory intact.
+		resolveSnapshotSource: (snapshotId) =>
+			call("snapshots.get", () =>
+				client.snapshots.get(
+					snapshotId,
+					org === undefined ? undefined : { org },
+				),
+			).pipe(
+				Effect.flatMap((info) =>
+					info.status === "ready" && info.version !== null
+						? Effect.succeed({ snapshotId: info.id, version: info.version })
+						: providerError("rejected"),
+				),
+			),
 		fork: (input) =>
 			allocate({
 				providerLabel: input.providerLabel,
 				snapshot: input.snapshotId,
+				snapshotVersion: input.snapshotVersion,
 				sizeId: input.sizeId,
 				timeoutSeconds: input.timeoutSeconds,
 				env: input.env,

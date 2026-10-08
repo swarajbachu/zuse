@@ -49,6 +49,7 @@ import {
 	type CloudProviderConnectionInput,
 	CloudProviderConnectionList,
 	CloudProviderList,
+	type CloudSnapshotImportRequest,
 	CloudTranscriptCheckpointResult,
 	CloudTranscriptMessagePageResult,
 	CloudWorkspace,
@@ -190,6 +191,9 @@ export interface MachineControlServiceShape {
 		CloudProviderConnectionList,
 		MachineControlError
 	>;
+	readonly importCloudSnapshot: (
+		input: CloudSnapshotImportRequest,
+	) => Effect.Effect<CloudAccountImage, MachineControlError>;
 	readonly saveCloudProviderConnection: (
 		input: CloudProviderConnectionInput,
 	) => Effect.Effect<CloudProviderConnectionList, MachineControlError>;
@@ -629,6 +633,8 @@ export const MachineControlServiceLive: Layer.Layer<
 			plugins: (input) => request("/v1/plugins", PluginResponse, "POST", input),
 			cloudProviderConnections: () =>
 				request(ApiPaths.cloudProviderConnections, CloudProviderConnectionList),
+			importCloudSnapshot: (input) =>
+				request(ApiPaths.cloudSnapshotImport, CloudAccountImage, "POST", input),
 			saveCloudProviderConnection: (input) =>
 				request(
 					ApiPaths.cloudProviderConnections,

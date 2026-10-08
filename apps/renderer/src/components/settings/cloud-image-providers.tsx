@@ -6,6 +6,7 @@ import { useId, useState } from "react";
 import boatLogo from "../../assets/cloud-providers/boat.svg";
 import boxdLogo from "../../assets/cloud-providers/boxd.svg";
 import e2bLogo from "../../assets/cloud-providers/e2b.png";
+import { cloudImageStatusMessage } from "../../lib/cloud-image-status.ts";
 import {
 	cloudProviderLabel,
 	orderedCloudProviders,
@@ -55,7 +56,7 @@ export function CloudImageProviders({
 						: "warning"
 			}
 		>
-			{message(`settings:cloud_images_state_${image?.state ?? "checking"}`)}
+			{message(cloudImageStatusMessage(image))}
 		</Badge>
 	);
 	const providerName = (providerId: string) => (
@@ -96,6 +97,15 @@ export function CloudImageProviders({
 										className="accent-primary"
 									/>
 									{providerName(provider.providerId)}
+									{provider.billingSource ? (
+										<span className="text-[11px] text-muted-foreground">
+											{message(
+												provider.billingSource === "provider"
+													? "settings:cloud_hosting_provider_billed"
+													: "settings:cloud_hosting_zuse_billed",
+											)}
+										</span>
+									) : null}
 								</label>
 							) : null}
 							<button
@@ -108,6 +118,15 @@ export function CloudImageProviders({
 								onClick={() => setSelected(provider.providerId)}
 							>
 								{!onSelectProvider ? providerName(provider.providerId) : null}
+								{image ? (
+									<span className="text-[11px] text-muted-foreground">
+										{message(
+											image?.source === "custom-snapshot"
+												? "settings:cloud_hosting_own_snapshot"
+												: "settings:cloud_hosting_zuse_image",
+										)}
+									</span>
+								) : null}
 								{status(image)}
 								<span className="text-[11px] text-muted-foreground">
 									{message("settings:diagnostics_pane_open_logs")}
@@ -132,9 +151,11 @@ export function CloudImageProviders({
 						<DialogTitle>
 							{selected === null
 								? ""
-								: message("settings:cloud_images_view_logs", {
-										provider: cloudProviderLabel(selected),
-									})}
+								: selectedImage?.source === "custom-snapshot"
+									? message("settings:snapshot_id_label")
+									: message("settings:cloud_images_view_logs", {
+											provider: cloudProviderLabel(selected),
+										})}
 						</DialogTitle>
 						<DialogDescription className="sr-only">
 							{message("settings:cloud_images_details_description")}
@@ -145,6 +166,7 @@ export function CloudImageProviders({
 							<CloudImageBuildHistory
 								key={selected}
 								builds={selectedImage.builds}
+								latestSource={selectedImage.source}
 								expandLatest
 							/>
 						) : (
