@@ -53,12 +53,7 @@ import {
 } from "./cloud-workspace-info.tsx";
 import { SubagentAvatar } from "./subagent-identity.tsx";
 import { BranchMenuButton } from "./top-bar.tsx";
-import {
-	Menu,
-	MenuItem,
-	MenuPopup,
-	MenuTrigger,
-} from "./ui/menu.tsx";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu.tsx";
 import {
 	PreviewCard,
 	PreviewCardPopup,
