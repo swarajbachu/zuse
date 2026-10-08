@@ -13,10 +13,12 @@ import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
-import { DateTime, Effect, FileSystem, Layer } from "effect";
+import { DateTime, Effect, FileSystem, Layer, Path } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ApiActivityPublisher } from "../../api/activity-publisher.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
+import { writeContextCheckpoint } from "../../context/checkpoint.ts";
+import { resolveSessionCwd } from "../../context/context-files.ts";
 import { ModelCatalogService } from "../../model-catalog/services/model-catalog-service.ts";
 import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
 import { makeReactorEffectJournal } from "../../provider/reactor-effect-journal.ts";
@@ -128,6 +130,7 @@ const ConversationRuntimeLive = Layer.effect(
 		const ndjson = yield* NdjsonLogger;
 		const worktrees = yield* WorktreeService;
 		const fs = yield* FileSystem.FileSystem;
+		const pathSvc = yield* Path.Path;
 		const repositorySettings = yield* RepositorySettingsService;
 		const ptys = yield* PtyService;
 		const git = yield* GitService;
@@ -189,6 +192,69 @@ const ConversationRuntimeLive = Layer.effect(
 					Effect.suspend(() => queueRuntime.flushAfterIdle(sessionId)),
 				shutdownQueueSession: (sessionId): Effect.Effect<void> =>
 					Effect.suspend(() => queueRuntime.shutdown(sessionId)),
+				onContextCompaction: (sessionId, event) =>
+					Effect.gen(function* () {
+						const session = yield* lookupSession(sessionId).pipe(
+							Effect.catch(() => Effect.succeed(null)),
+						);
+						if (session === null) return;
+						const cwd = yield* resolveSessionCwd(sql, fs, sessionId).pipe(
+							Effect.catch(() => Effect.succeed(null)),
+						);
+						if (cwd === null) return;
+						const gitState = yield* Effect.all(
+							{
+								status: git.status(session.projectId, session.worktreeId),
+								changes: git.changes(session.projectId, session.worktreeId),
+							},
+							{ concurrency: 2 },
+						).pipe(Effect.catch(() => Effect.succeed(null)));
+						const userRows = yield* sql<{
+							readonly content_json: string;
+						}>`
+							SELECT content_json FROM messages
+							WHERE session_id = ${sessionId} AND role = 'user'
+							ORDER BY created_at DESC LIMIT 1
+						`.pipe(Effect.orElseSucceed(() => []));
+						let lastUserMessage: string | null = null;
+						const raw = userRows[0]?.content_json;
+						if (raw !== undefined) {
+							try {
+								const content = JSON.parse(raw) as {
+									readonly _tag?: string;
+									readonly text?: unknown;
+								};
+								if (
+									(content._tag === "user" || content._tag === "user_rich") &&
+									typeof content.text === "string"
+								)
+									lastUserMessage = content.text;
+							} catch {
+								lastUserMessage = null;
+							}
+						}
+						yield* writeContextCheckpoint({
+							fs,
+							path: pathSvc,
+							cwd,
+							writtenAt: yield* currentTimestamp,
+							session: {
+								id: session.id,
+								chatId: session.chatId,
+								providerId: session.providerId,
+								model: session.model,
+								worktreeId: session.worktreeId,
+							},
+							compaction: {
+								itemId: event.itemId,
+								beforeTokens: event.beforeTokens,
+								afterTokens: event.afterTokens,
+								durationMs: event.durationMs,
+							},
+							git: gitState,
+							lastUserMessage,
+						}).pipe(Effect.catch(() => Effect.void));
+					}),
 			});
 		const {
 			beginTurn,

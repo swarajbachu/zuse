@@ -1,5 +1,6 @@
 /** Owns provider-event subscriptions and durable turn settlement. */
 import type {
+	AgentEvent,
 	AgentItemId,
 	AgentTurnId,
 	MessageContent,
@@ -75,6 +76,15 @@ export interface ConversationEventRuntimeOptions {
 		sessionId: SessionId,
 		itemId: AgentItemId,
 	) => Effect.Effect<boolean>;
+	/**
+	 * Session-level hook fired when a provider finishes compacting context.
+	 * Runs forked on the service scope so a slow or failed write never
+	 * blocks the event loop. Errors are contained by the implementation.
+	 */
+	readonly onContextCompaction?: (
+		sessionId: SessionId,
+		event: Extract<AgentEvent, { readonly _tag: "ContextCompaction" }>,
+	) => Effect.Effect<void>;
 	readonly ignoreError: (providerId: ProviderId, message: string) => boolean;
 	readonly isDuplicateToolUse: (
 		sessionId: SessionId,
@@ -241,6 +251,18 @@ export const makeConversationEventRuntime = Effect.fn(
 									if (event._tag === "GoalCleared") {
 										yield* options.publishGoal(sessionId, null);
 										return;
+									}
+									if (
+										event._tag === "ContextCompaction" &&
+										event.status === "completed" &&
+										options.onContextCompaction !== undefined
+									) {
+										yield* Effect.forkIn(
+											options
+												.onContextCompaction(sessionId, event)
+												.pipe(Effect.catch(() => Effect.void)),
+											options.scope,
+										);
 									}
 									if (
 										event._tag === "Error" &&

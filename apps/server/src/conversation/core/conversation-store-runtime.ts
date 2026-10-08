@@ -1,6 +1,7 @@
 import { canonicalizeToolInput } from "@zuse/agents/kernel/tool-input";
 import {
 	type AgentDefinition,
+	type AgentEvent,
 	AgentTurnId,
 	type Chat,
 	type FolderId,
@@ -55,6 +56,15 @@ export interface ConversationStoreRuntimeOptions {
 	readonly runSessionReactors: Effect.Effect<void>;
 	readonly flushQueueAfterIdle: (sessionId: SessionId) => Effect.Effect<void>;
 	readonly shutdownQueueSession: (sessionId: SessionId) => Effect.Effect<void>;
+	/**
+	 * Optional side effect run when a provider completes a context
+	 * compaction — used to persist a resumable checkpoint into `.context/`.
+	 * Errors are contained by the implementation.
+	 */
+	readonly onContextCompaction?: (
+		sessionId: SessionId,
+		event: Extract<AgentEvent, { readonly _tag: "ContextCompaction" }>,
+	) => Effect.Effect<void>;
 }
 
 export interface ConversationStoreRuntime {
@@ -675,6 +685,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 			),
 		ignoreError: () => false,
 		isDuplicateToolUse,
+		onContextCompaction: options.onContextCompaction,
 		persist: (sessionId, turnId, content, providerItemIdentity) =>
 			Effect.gen(function* () {
 				const checkpoint =
