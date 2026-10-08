@@ -14,7 +14,10 @@ import { pr } from "../github-fixture.ts";
 
 const folder = FolderId.make("github-api-test");
 
-test("direct API status preserves same-account state, revokes changed branch/account, and binds mutations to the local head", async () => {
+test.each([
+	false,
+	true,
+])("direct API status preserves identity and head checks with failed branch cleanup: %s", async (deleteBranch) => {
 	const cwd = mkdtempSync(join(tmpdir(), "zuse-github-api-"));
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -26,6 +29,8 @@ test("direct API status preserves same-account state, revokes changed branch/acc
 		resolveCredential: async () => ({ token }),
 		fetch: async (_url, init) => {
 			if (offline) throw new TypeError("offline");
+			if (init?.method === "DELETE")
+				return Response.json({ message: "Branch protected" }, { status: 403 });
 			const { query, variables } = JSON.parse(String(init?.body));
 			if (query.startsWith("mutation")) {
 				mutations.push(variables.input);
@@ -95,7 +100,19 @@ test("direct API status preserves same-account state, revokes changed branch/acc
 					checksComplete: true,
 					headSha: head,
 				});
-				yield* service.mergePr(folder, "merge", "squash", false, null);
+				writeFileSync(join(cwd, "untracked.txt"), "keep local changes");
+				const merged = yield* service.mergePr(
+					folder,
+					"merge",
+					"squash",
+					deleteBranch,
+					null,
+				);
+				expect(merged.output).toBe(
+					deleteBranch
+						? "Pull request merged; the remote branch could not be deleted."
+						: "Pull request merged.",
+				);
 				expect(mutations).toEqual([
 					{
 						pullRequestId: "PR_1",

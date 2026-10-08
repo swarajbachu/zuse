@@ -139,24 +139,7 @@ describe("renderer Git workspace ClientBus adapter", () => {
 							},
 						]);
 					},
-					"git.prState": () =>
-						Effect.succeed({
-							state: "none",
-							branch: "feature",
-							baseBranch: "main",
-							additions: 0,
-							deletions: 0,
-							number: null,
-							url: null,
-							isDraft: false,
-							checks: "none",
-							mergeable: "unknown",
-							checksTotal: 0,
-							checksRunning: 0,
-							checksPassing: 0,
-							checksFailing: 0,
-							autoMergeEnabled: false,
-						}),
+					"git.prState": () => Effect.fail(new Error("PR refresh unavailable")),
 					"git.reviewSummary": () =>
 						Effect.sync(() => {
 							reviewSummaryLoads += 1;

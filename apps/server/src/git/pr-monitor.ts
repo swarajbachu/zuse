@@ -101,38 +101,38 @@ export const GitPrMonitorLive = Layer.effect(
 					const previous = refreshes.get(identity);
 					if (previous && !force) return previous;
 					let sharedRefresh: Effect.Effect<void>;
+					const token = state.beginPrRefresh(identity);
 					const program = Effect.gen(function* () {
 						if (force) failures.delete(identity);
-						const token = state.beginPrRefresh(identity);
 						const observed = yield* git.prState(folderId, worktreeId, {
 							interactive: force || (visibility.get(identity) ?? 0) > 0,
 							force,
 						});
-						if (
-							observed.prCapability &&
-							observed.prCapability !== "available" &&
-							observed.prCapability !== "rate_limited"
-						)
-							failures.set(identity, (failures.get(identity) ?? 0) + 1);
-						else if (observed.prCapability !== "rate_limited")
-							failures.delete(identity);
+						const count =
+							observed.prCapability === "rate_limited"
+								? (failures.get(identity) ?? 0)
+								: observed.prCapability && observed.prCapability !== "available"
+									? (failures.get(identity) ?? 0) + 1
+									: 0;
 						const committed = state.commitPrRefresh(token, {
 							value: GitPrInfo.make({
 								...observed,
-								monitoringPaused: (failures.get(identity) ?? 0) >= 8,
+								monitoringPaused: count >= 8,
 							}),
 							nextPollAt:
 								Date.now() +
 								prMonitorDelay(observed, (visibility.get(identity) ?? 0) > 0),
 						});
-						if (committed) publishers.get(identity)?.();
+						if (committed) {
+							failures.set(identity, count);
+							publishers.get(identity)?.();
+						}
 					}).pipe(
 						Effect.catch(() =>
 							Effect.sync(() => {
 								const count = (failures.get(identity) ?? 0) + 1;
-								failures.set(identity, count);
 								const cached = state.getPrSnapshot(identity);
-								state.setPrSnapshot(identity, {
+								const committed = state.commitPrRefresh(token, {
 									value: GitPrInfo.make({
 										...(cached?.value ?? emptyPrSnapshot(null)),
 										stale: true,
@@ -141,7 +141,10 @@ export const GitPrMonitorLive = Layer.effect(
 									}),
 									nextPollAt: Date.now() + 60_000,
 								});
-								publishers.get(identity)?.();
+								if (committed) {
+									failures.set(identity, count);
+									publishers.get(identity)?.();
+								}
 							}),
 						),
 						Effect.ensuring(
@@ -226,6 +229,16 @@ export const GitPrMonitorLive = Layer.effect(
 			snapshot: (folderId, worktreeId, branch, scopeKey) => {
 				const identity = scopedIdentity(folderId, worktreeId, scopeKey);
 				const cached = state.getPrSnapshot(identity);
+				// Bind an initial read failure to the first locally observed branch without losing the error.
+				if (
+					cached?.value.branch === null &&
+					branch !== null &&
+					cached.value.prCapability === "unknown"
+				) {
+					const value = GitPrInfo.make({ ...cached.value, branch });
+					state.setPrSnapshot(identity, { ...cached, value });
+					return value;
+				}
 				if (cached && cached.value.branch !== branch) {
 					state.setPrSnapshot(identity, {
 						value: emptyPrSnapshot(branch),

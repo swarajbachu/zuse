@@ -845,7 +845,7 @@ export const refreshGitPrDetails = async (ref: ExecutionRef): Promise<void> => {
 				folderId: ref.folderId,
 				worktreeId: ref.worktreeId,
 			}),
-		);
+		).catch(() => undefined);
 	await refreshGitWorkspace(ref);
 	await hydrateGitPrDetails(ref, true);
 };

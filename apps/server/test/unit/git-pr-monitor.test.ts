@@ -188,3 +188,33 @@ test("members monitoring the same checkout have independent status authority", a
 		}).pipe(Effect.provide(layer(() => Effect.succeed(pr)))),
 	);
 });
+
+test("initial thrown errors survive snapshot reads and pause after eight failures", async () => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const monitor = yield* GitPrMonitor;
+			for (let i = 0; i < 8; i++) {
+				yield* monitor.refresh(folder, null);
+				expect(monitor.snapshot(folder, null, "feature")).toMatchObject({
+					branch: "feature",
+					prCapability: "unknown",
+					stale: true,
+					monitoringPaused: i === 7,
+				});
+			}
+			expect(monitor.snapshot(folder, null, "other")).toMatchObject({
+				branch: "other",
+				prCapability: "available",
+			});
+		}).pipe(
+			Effect.provide(
+				layer(
+					() =>
+						Effect.fail(new Error("Git failed")) as unknown as ReturnType<
+							GitService["Service"]["prState"]
+						>,
+				),
+			),
+		),
+	);
+});

@@ -450,3 +450,110 @@ test("waiting checks use the shared pending classification and keep detail reads
 		f.close();
 	}
 });
+
+test("an inaccessible repository alias does not poison other PRs in the batch", async () => {
+	const client = new GitHubClient({
+		resolveCredential: async () => ({ token: "test" }),
+		fetch: async () =>
+			Response.json({
+				data: { p0: { pullRequest: pr() }, p1: null },
+				errors: [{ type: "NOT_FOUND", message: "Unavailable", path: ["p1"] }],
+			}),
+	});
+	const reader = new GitHubPullRequests(client);
+	const results = await settle(
+		Promise.allSettled([
+			reader.read(repo, 1, signal()),
+			reader.read({ ...repo, repo: "denied" }, 2, signal()),
+		]),
+	);
+	expect(results[0].status).toBe("fulfilled");
+	expect(results[1]).toMatchObject({
+		status: "rejected",
+		reason: { kind: "access" },
+	});
+	reader.close();
+	client.close();
+});
+
+test.each([
+	"UNAUTHORIZED",
+	"RATE_LIMITED",
+])("%s still rejects the entire batch", async (type) => {
+	const client = new GitHubClient({
+		resolveCredential: async () => ({ token: "test" }),
+		fetch: async () =>
+			Response.json({
+				data: { p0: { pullRequest: pr() }, p1: { pullRequest: pr() } },
+				errors: [{ type, message: type, path: ["p1"] }],
+			}),
+	});
+	const reader = new GitHubPullRequests(client);
+	const results = await settle(
+		Promise.allSettled([
+			reader.read(repo, 1, signal()),
+			reader.read(repo, 2, signal()),
+		]),
+	);
+	expect(results.every((result) => result.status === "rejected")).toBe(true);
+	reader.close();
+	client.close();
+});
+
+test("foreground and background reads can overlap without rejecting either observation", async () => {
+	let finish: ((value: Response) => void) | undefined;
+	let calls = 0;
+	const client = new GitHubClient({
+		resolveCredential: async () => ({ token: "test" }),
+		fetch: async () => {
+			if (++calls === 1)
+				return new Promise<Response>((resolve) => {
+					finish = resolve;
+				});
+			return Response.json({
+				data: { p0: { pullRequest: pr({ title: "newer" }) } },
+			});
+		},
+	});
+	const reader = new GitHubPullRequests(client);
+	const older = reader.read(repo, 1, signal(), {
+		force: true,
+		interactive: false,
+	});
+	await vi.advanceTimersByTimeAsync(20);
+	const newer = await settle(reader.read(repo, 1, signal(), { force: true }));
+	finish?.(
+		Response.json({ data: { p0: { pullRequest: pr({ title: "older" }) } } }),
+	);
+	expect((await older).title).toBe("older");
+	expect(newer.title).toBe("newer");
+	await vi.advanceTimersByTimeAsync(120_000);
+	expect(
+		(await settle(reader.read(repo, 1, signal(), { interactive: false })))
+			.title,
+	).toBe("newer");
+	reader.close();
+	client.close();
+});
+
+test("mutation invalidation still rejects a pending observation", async () => {
+	let finish: ((value: Response) => void) | undefined;
+	const client = new GitHubClient({
+		resolveCredential: async () => ({ token: "test" }),
+		fetch: async () =>
+			new Promise<Response>((resolve) => {
+				finish = resolve;
+			}),
+	});
+	const reader = new GitHubPullRequests(client);
+	const result = reader.read(repo, 1, signal()).catch((error) => error);
+	await vi.advanceTimersByTimeAsync(20);
+	reader.invalidate();
+	finish?.(Response.json({ data: { p0: { pullRequest: pr() } } }));
+	expect(await result).toMatchObject({
+		kind: "unknown",
+		message: expect.stringContaining("superseded"),
+	});
+	reader.close();
+	client.close();
+});

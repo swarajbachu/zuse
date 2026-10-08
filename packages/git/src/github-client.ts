@@ -84,16 +84,23 @@ type Budget = {
 	estimatedCost: number;
 };
 
+export type GitHubGraphQLError = {
+	message?: string;
+	type?: string;
+	path?: ReadonlyArray<string | number>;
+};
+
 export type GitHubResponse = {
 	status: number;
 	headers: Headers;
 	body: string;
 };
 
+/** Stable host/account identity for caches and quota reservations, without retaining the token in keys. */
 export const credentialFingerprint = (host: string, token: string): string =>
 	createHash("sha256").update(`${host}\0${token}`).digest("hex");
 
-/** API roots are derived from the trusted repository host, never response links. */
+/** Resolve the REST root from the trusted repository host, never response links. */
 export function githubApiRoot(host: string): string {
 	if (!/^[a-zA-Z0-9.-]+(?::\d+)?$/.test(host))
 		throw new GitHubFailure("unknown", "Invalid GitHub host.");
@@ -311,6 +318,7 @@ export class GitHubClient {
 		estimatedCost?: number;
 		signal: AbortSignal;
 		maxBytes?: number;
+		allowPartialGraphqlErrors?: boolean;
 	}): Promise<GitHubResponse> {
 		if (this.closed)
 			throw new GitHubFailure("offline", "GitHub client stopped.");
@@ -417,7 +425,7 @@ export class GitHubClient {
 			}
 			let payload: {
 				message?: string;
-				errors?: Array<{ message?: string; type?: string }>;
+				errors?: GitHubGraphQLError[];
 				data?: {
 					rateLimit?: {
 						cost: number;
@@ -505,7 +513,12 @@ export class GitHubClient {
 					undefined,
 					response.status,
 				);
+			const partial =
+				input.api === "graphql" &&
+				input.allowPartialGraphqlErrors &&
+				response.ok;
 			if (
+				!partial &&
 				payload.errors?.some(
 					(error) => error.type === "FORBIDDEN" || error.type === "NOT_FOUND",
 				)
@@ -516,7 +529,10 @@ export class GitHubClient {
 					undefined,
 					response.status,
 				);
-			if ((!response.ok && response.status !== 304) || payload.errors?.length)
+			if (
+				(!response.ok && response.status !== 304) ||
+				(!partial && payload.errors?.length)
+			)
 				throw new GitHubFailure(
 					"unknown",
 					messages || `GitHub returned HTTP ${response.status}.`,
@@ -549,6 +565,26 @@ export class GitHubClient {
 		signal: AbortSignal,
 		interactive = true,
 	): Promise<T> {
+		return (
+			await this.graphqlResponse<T>(
+				credential,
+				query,
+				variables,
+				signal,
+				interactive,
+			)
+		).data;
+	}
+
+	/** Preserve per-alias read errors for batching; authentication and quota failures always throw. */
+	async graphqlResponse<T>(
+		credential: GitHubCredential,
+		query: string,
+		variables: Record<string, unknown>,
+		signal: AbortSignal,
+		interactive = true,
+		allowPartialGraphqlErrors = false,
+	): Promise<{ data: T; errors?: GitHubGraphQLError[] }> {
 		// All query documents in this package use an outer selection ending at the final brace.
 		const document = query.trimStart().startsWith("mutation")
 			? query
@@ -561,15 +597,18 @@ export class GitHubClient {
 			body: { query: document, variables },
 			signal,
 			interactive,
+			allowPartialGraphqlErrors,
 		});
 		try {
 			const value = JSON.parse(response.body);
+			if (allowPartialGraphqlErrors && value?.errors?.length && !value.data)
+				return { data: {} as T, errors: value.errors };
 			if (!value?.data || typeof value.data !== "object")
 				throw new GitHubFailure(
 					"unknown",
 					"GitHub returned incomplete GraphQL data.",
 				);
-			return value.data as T;
+			return { data: value.data as T, errors: value.errors };
 		} catch {
 			throw new GitHubFailure("unknown", "GitHub returned invalid JSON.");
 		}

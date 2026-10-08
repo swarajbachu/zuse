@@ -71,6 +71,7 @@ if (process.env.ZUSE_STATUS_PROBE === "1") {
 		const page = await browser.newPage();
 		const errors = [];
 		page.on("pageerror", (error) => errors.push(error.message));
+		await page.clock.install();
 		await page.goto(url);
 		await page
 			.getByRole("button", { name: "GitHub offline · Cached status" })
@@ -114,6 +115,14 @@ if (process.env.ZUSE_STATUS_PROBE === "1") {
 			await page.keyboard.press("Escape");
 			await page.keyboard.press("Escape");
 		}
+
+		await page.clock.fastForward(60_001);
+		assert.equal(
+			await page
+				.getByRole("button", { name: "GitHub rate limited · Refresh paused" })
+				.isDisabled(),
+			false,
+		);
 
 		assert.deepEqual(errors, []);
 		if (process.env.ZUSE_STATUS_SCREENSHOT)

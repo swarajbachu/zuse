@@ -576,15 +576,31 @@ export const WorktreeServiceLive = Layer.effect(
 			const hasPullRequest = repository
 				? yield* Effect.tryPromise({
 						try: (signal) =>
-							pullRequests.discover(repository, current, signal, true, true),
-						catch: (error) =>
-							fail(
-								"git-failed",
-								error instanceof GitHubFailure
-									? error.message
-									: "Could not verify GitHub branch state.",
+							pullRequests.discover(
+								repository,
+								current,
+								signal,
+								true,
+								true,
+								repository.owner,
 							),
-					}).pipe(Effect.map((number) => number !== null))
+						catch: (error) => error,
+					}).pipe(
+						Effect.map((number) => number !== null),
+						Effect.catch((error) =>
+							error instanceof GitHubFailure &&
+							(error.kind === "authentication" || error.kind === "offline")
+								? Effect.succeed(false)
+								: Effect.fail(
+										fail(
+											"git-failed",
+											error instanceof GitHubFailure
+												? error.message
+												: "Could not verify GitHub branch state.",
+										),
+									),
+						),
+					)
 				: false;
 			// A fresh worktree branch is created from origin/<base> and Git may
 			// automatically retain that base as its upstream. That does not mean

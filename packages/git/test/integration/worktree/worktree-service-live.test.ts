@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
 	GitHubClient,
 	GitHubClientService,
+	GitHubFailure,
 } from "../../../src/github-client.ts";
 import {
 	PokemonAssignment,
@@ -306,6 +307,27 @@ describe("WorktreeServiceLive", () => {
 		expect(git(created.path, "rev-parse", "HEAD")).toBe(
 			git(clone, "rev-parse", "HEAD"),
 		);
+	});
+
+	test.each([
+		"authentication",
+		"offline",
+	] as const)("renames unpublished branches despite %s GitHub failures", async (kind) => {
+		const created = await run((service) => service.create(projectId));
+		git(
+			repositoryRoot,
+			"remote",
+			"add",
+			"origin",
+			"https://github.com/acme/app.git",
+		);
+		vi.spyOn(github, "credential").mockRejectedValue(
+			new GitHubFailure(kind, "Unavailable"),
+		);
+		const renamed = await run((service) =>
+			service.renameBranch(created.id, "offline-name", "automatic"),
+		);
+		expect(renamed.branch).toBe("offline-name");
 	});
 
 	test("renames a pending branch automatically exactly once", async () => {

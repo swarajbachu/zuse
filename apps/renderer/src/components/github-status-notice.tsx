@@ -2,7 +2,7 @@ import "@zuse/i18n/english/projects";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import type { GitPrInfo } from "@zuse/contracts";
 import { useMessages } from "@zuse/i18n/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { gitHubStatusMessageKey } from "../lib/git-pr-state.ts";
 import { refreshGitPrDetails } from "../lib/git-workspace-client-bus.ts";
 
@@ -18,8 +18,16 @@ export function GitHubStatusNotice({
 	const { message } = useMessages("projects");
 	const key = gitHubStatusMessageKey(pr);
 	const label = key ? message(key) : null;
+	const retryAtMs = pr?.retryAt?.getTime() ?? 0;
+	const [, setClock] = useState(0);
+	useEffect(() => {
+		const remaining = retryAtMs - Date.now();
+		if (remaining <= 0) return;
+		const timer = setTimeout(() => setClock((tick) => tick + 1), remaining);
+		return () => clearTimeout(timer);
+	}, [retryAtMs]);
 	if (!label) return null;
-	const waiting = (pr?.retryAt?.getTime() ?? 0) > Date.now();
+	const waiting = retryAtMs > Date.now();
 	return (
 		<button
 			type="button"

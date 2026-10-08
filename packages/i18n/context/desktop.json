@@ -15810,7 +15810,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/git-pr-state.ts",
-				"line": 66
+				"line": 67
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -15820,7 +15820,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/git-pr-state.ts",
-				"line": 69
+				"line": 70
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -15830,7 +15830,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/git-pr-state.ts",
-				"line": 71
+				"line": 72
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -15840,7 +15840,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/git-pr-state.ts",
-				"line": 73
+				"line": 74
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -15850,7 +15850,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/git-pr-state.ts",
-				"line": 75
+				"line": 76
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -15860,7 +15860,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/git-pr-state.ts",
-				"line": 77
+				"line": 78
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -15870,7 +15870,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/git-pr-state.ts",
-				"line": 79
+				"line": 80
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -15880,7 +15880,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/git-pr-state.ts",
-				"line": 83
+				"line": 84
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -15890,7 +15890,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/git-pr-state.ts",
-				"line": 84
+				"line": 85
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -15900,7 +15900,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/git-pr-state.ts",
-				"line": 86
+				"line": 87
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -15910,7 +15910,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/github-status-notice.tsx",
-				"line": 38
+				"line": 46
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

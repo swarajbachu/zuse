@@ -2450,6 +2450,7 @@ export const GitServiceLive = Layer.effect(
 								return !arm && action !== "disable-auto";
 							});
 							pullRequests.invalidate();
+							let remoteBranchDeleted = true;
 							// Branch deletion follows confirmed immediate merge only, never an armed queue.
 							if (
 								merged &&
@@ -2457,18 +2458,24 @@ export const GitServiceLive = Layer.effect(
 								!pr.isCrossRepository &&
 								pr.viewerCanDeleteHeadRef
 							) {
-								yield* githubEffect(folderId, async (signal) => {
-									const credential = await github.credential(
-										repository,
-										signal,
-									);
-									await github.rest(
-										credential,
-										`repos/${repository.owner}/${repository.repo}/git/refs/heads/${encodeURIComponent(pr.headRefName)}`,
-										signal,
-										{ method: "DELETE", interactive: true },
-									);
-								});
+								remoteBranchDeleted = yield* githubEffect(
+									folderId,
+									async (signal) => {
+										const credential = await github.credential(
+											repository,
+											signal,
+										);
+										await github.rest(
+											credential,
+											`repos/${repository.owner}/${repository.repo}/git/refs/heads/${encodeURIComponent(pr.headRefName)}`,
+											signal,
+											{ method: "DELETE", interactive: true },
+										);
+									},
+								).pipe(
+									Effect.as(true),
+									Effect.catch(() => Effect.succeed(false)),
+								);
 								const base =
 									pr.headRepository?.defaultBranchRef?.name ?? pr.baseRefName;
 								if (
@@ -2504,8 +2511,9 @@ export const GitServiceLive = Layer.effect(
 									}
 									if (!remote)
 										return {
-											output:
-												"Pull request merged; no matching remote for local branch cleanup.",
+											output: remoteBranchDeleted
+												? "Pull request merged; no matching remote for local branch cleanup."
+												: "Pull request merged; remote branch deletion failed and no matching remote is available for local cleanup.",
 										};
 									yield* runUnlocked(folderId, cwd, ["fetch", remote, base]);
 									yield* runUnlocked(folderId, cwd, [
@@ -2525,7 +2533,9 @@ export const GitServiceLive = Layer.effect(
 									action === "disable-auto"
 										? "Auto-merge disabled."
 										: merged
-											? "Pull request merged."
+											? remoteBranchDeleted
+												? "Pull request merged."
+												: "Pull request merged; the remote branch could not be deleted."
 											: "Auto-merge enabled.",
 							};
 						}),

@@ -58,6 +58,7 @@ export function resolveGitPrState(
 	};
 }
 
+/** Resolve the freshness explanation shared by all PR surfaces; translate at render time. */
 export function gitHubStatusMessageKey(
 	pr: GitPrInfo | null,
 ): MessageKey | null {

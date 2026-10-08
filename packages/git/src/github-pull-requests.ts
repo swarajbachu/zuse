@@ -160,17 +160,30 @@ class GitHubBatch {
 			entry.signal.addEventListener("abort", abort, { once: true });
 		const query = `query { ${queue.entries.map((entry, i) => `p${i}: ${entry.selection}`).join("\n")} }`;
 		void this.client
-			.graphql<Record<string, unknown>>(
+			.graphqlResponse<Record<string, unknown>>(
 				queue.credential,
 				query,
 				{},
 				controller.signal,
 				queue.interactive,
+				true,
 			)
 			.then(
-				(data) =>
+				({ data, errors }) =>
 					queue.entries.forEach((entry, i) => {
-						if (!data || !(`p${i}` in data))
+						const error = errors?.find(
+							(error) => !error.path?.length || error.path[0] === `p${i}`,
+						);
+						if (error)
+							entry.reject(
+								new GitHubFailure(
+									error.type === "FORBIDDEN" || error.type === "NOT_FOUND"
+										? "access"
+										: "unknown",
+									error.message ?? "GitHub could not read this resource.",
+								),
+							);
+						else if (!data || !(`p${i}` in data))
 							entry.reject(
 								new GitHubFailure(
 									"unknown",
@@ -206,6 +219,7 @@ const repositorySelection = (repo: GitHubRepository, inner: string): string =>
 const prefix = (repo: GitHubRepository): string =>
 	`repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`;
 
+/** Fingerprint status and feedback independently so unchanged detail reads can be skipped. */
 export function prRevisions(pr: GitHubPr): {
 	statusRevision: string;
 	remarksRevision: string;
@@ -546,7 +560,7 @@ export class GitHubPullRequests {
 			observedAt: this.client.now,
 		};
 		signal.throwIfAborted();
-		if (epoch !== this.epoch || this.authorities.get(key) !== authority)
+		if (epoch !== this.epoch)
 			throw new GitHubFailure(
 				"unknown",
 				"GitHub observation was superseded. Refresh to retry.",
@@ -564,6 +578,8 @@ export class GitHubPullRequests {
 				"unknown",
 				"GitHub check data changed during pagination. Refresh to retry.",
 			);
+		// An overlapping read may return its valid result, but cannot replace a newer cache observation.
+		if (this.authorities.get(key) !== authority) return value;
 		this.cache.set(key, {
 			value,
 			at: this.client.now,
