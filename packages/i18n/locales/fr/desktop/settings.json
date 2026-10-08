@@ -1180,7 +1180,7 @@
 	"snapshot_refresh_error": "Impossible d’actualiser l’état de l’instantané. Rouvrez les paramètres pour réessayer.",
 	"snapshot_inspect_error": "Impossible d’inspecter l’instantané. Vérifiez son ID, l’utilisateur Linux et les autorisations de la clé Boxd.",
 	"snapshot_id_label": "Instantané",
-	"snapshot_id_placeholder": "ID de l’instantané",
+	"snapshot_id_placeholder": "Nom ou ID de l’instantané",
 	"snapshot_user_label": "Utilisateur Linux",
 	"snapshot_remove": "Supprimer",
 	"snapshot_add_path": "Ajouter un chemin de dépôt",

@@ -3772,8 +3772,6 @@ const routeCloudWorkspaceRequestWithAccess = (
 				.pipe(
 					Effect.mapError(() => badRequest("snapshot_not_ready_or_accessible")),
 				);
-			if (source.snapshotId !== body.snapshotId)
-				return yield* badRequest("snapshot_id_required");
 			const created = yield* store.createBuild({
 				buildId: yield* randomToken("image", 12),
 				projectId: null,
@@ -3784,7 +3782,8 @@ const routeCloudWorkspaceRequestWithAccess = (
 				settings: {
 					source: "custom-snapshot",
 					snapshotVersion: source.version,
-					snapshot: body,
+					// Resolve names once; retries and launches retain this source generation.
+					snapshot: { ...body, snapshotId: source.snapshotId },
 					providerConnectionId: provider.connectionId,
 				},
 				state: "queued",

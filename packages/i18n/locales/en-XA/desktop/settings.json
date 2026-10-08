@@ -1176,7 +1176,7 @@
 	"snapshot_refresh_error": "⟦Côôüüld nôôt rëëfrëësh snààpshôôt stààtüüs. Rëëôôpëën sëëttïïngs tôô rëëtry.⟧",
 	"snapshot_inspect_error": "⟦Côôüüld nôôt ïïnspëëct thëë snààpshôôt. Chëëck ïïts ÏÏD, Lïïnüüx üüsëër, àànd Bôôxd këëy pëërmïïssïïôôns.⟧",
 	"snapshot_id_label": "⟦Snààpshôôt⟧",
-	"snapshot_id_placeholder": "⟦Snààpshôôt ÏÏD⟧",
+	"snapshot_id_placeholder": "⟦Snààpshôôt nààmëë ôôr ID⟧",
 	"snapshot_user_label": "⟦Lïïnüüx üüsëër⟧",
 	"snapshot_remove": "⟦Rëëmôôvëë⟧",
 	"snapshot_add_path": "⟦ÀÀdd rëëpôôsïïtôôry pààth⟧",

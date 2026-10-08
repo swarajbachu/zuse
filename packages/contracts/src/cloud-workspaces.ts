@@ -208,6 +208,7 @@ export const CloudSnapshotImportRequest = Schema.Struct({
 	connectionId: Schema.NonEmptyString,
 	agentAuthentication: Schema.optional(Schema.Literals(["native", "zuse"])),
 	gitAuthentication: Schema.optional(Schema.Literals(["native", "zuse"])),
+	/** Boxd name or ID on input; saved configurations contain the resolved ID. */
 	snapshotId: Schema.String.check(
 		Schema.isMinLength(1),
 		Schema.isMaxLength(512),

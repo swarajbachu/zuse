@@ -1176,7 +1176,7 @@
 	"snapshot_refresh_error": "스냅샷 상태를 새로 고칠 수 없습니다. 설정을 다시 열어 재시도하세요.",
 	"snapshot_inspect_error": "스냅샷을 검사할 수 없습니다. ID, Linux 사용자 및 Boxd 키 권한을 확인하세요.",
 	"snapshot_id_label": "스냅샷",
-	"snapshot_id_placeholder": "스냅샷 ID",
+	"snapshot_id_placeholder": "스냅샷 이름 또는 ID",
 	"snapshot_user_label": "Linux 사용자",
 	"snapshot_remove": "제거",
 	"snapshot_add_path": "저장소 경로 추가",

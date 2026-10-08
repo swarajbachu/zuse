@@ -35,12 +35,12 @@ The CLI command requires a package release containing snapshot installation and 
 
 The installer prints the username to enter in Zuse. It installs an isolated Zuse runtime and Node executable, SQLite support, and SSH dependencies. It does not replace your development Node installation, ask for repository paths, enroll a workspace, or start a persistent agent. It can be rerun for the same user. It refuses to initialize over an existing Zuse workspace database.
 
-Create a new Boxd snapshot after installation. Use its **ID**, not a mutable snapshot name. Avoid updating that snapshot in place: create a new snapshot and select its new ID in Zuse. Zuse pins the captured version and rejects a launch if Boxd restores a different version.
+Create a new Boxd snapshot after installation. Enter its **name or ID** in Zuse. Names are resolved to the snapshot ID and captured version when saved; later name changes do not retarget existing configurations. Avoid updating that snapshot in place: create a new snapshot and select it in Zuse. Zuse rejects a launch if Boxd restores a different version.
 
 ## Connect and discover repositories
 
 1. Sign in to Zuse and connect your Boxd API key in Cloud settings. You can do this during onboarding without subscribing.
-2. Enter the snapshot ID and the Linux user printed by the installer.
+2. Enter the snapshot name or ID and the Linux user printed by the installer.
 3. Leave repository paths empty for automatic discovery, or add absolute paths to Git checkout roots. Paths containing spaces are supported.
 4. Choose **Use snapshot**. This starts a disposable machine on your Boxd account, inspects it, and removes the inspection machine. Zuse never deletes your source snapshot.
 5. Select a discovered repository and start a workspace. No Zuse account-image build is needed.
@@ -67,7 +67,7 @@ On the original base machine, run:
 npx zusehq@latest snapshot update
 ```
 
-Add `--user developer` when running directly as root. This reruns the same setup with the latest published runtime, preserving your development tools, repositories, and native credentials. Create a new Boxd snapshot afterward and select its new ID in Zuse; existing workspaces keep their pinned snapshot configuration.
+Add `--user developer` when running directly as root. This reruns the same setup with the latest published runtime, preserving your development tools, repositories, and native credentials. Create a new Boxd snapshot afterward and select its new name or ID in Zuse; existing workspaces keep their pinned snapshot configuration.
 
 Both commands require administrator privileges for system setup. When started as your development user, the installer uses sudo and retains that username. When started directly as root, `--user` identifies the existing non-root development user who will run Zuse and whose repositories and agent logins will be used.
 
