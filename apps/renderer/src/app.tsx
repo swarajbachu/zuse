@@ -1,3 +1,4 @@
+import { ErrorBoundary } from "./components/ui/error-boundary.tsx";
 import { useCloudOnboarding } from "./hooks/use-cloud-onboarding.ts";
 import { SurfaceFallback } from "./shell/surface-fallback.tsx";
 import "@zuse/i18n/english/shell";
@@ -187,9 +188,11 @@ export function App({ onReady }: { readonly onReady?: () => void }) {
 	return (
 		<>
 			{!isHostedProduct() && onboardingCompleted ? (
-				<Suspense fallback={null}>
-					<ModelCatalogUpdates />
-				</Suspense>
+				<ErrorBoundary fallback={null}>
+					<Suspense fallback={null}>
+						<ModelCatalogUpdates />
+					</Suspense>
+				</ErrorBoundary>
 			) : null}
 			<ReadyApp
 				onboardingCompleted={isHostedProduct() || onboardingCompleted}
@@ -197,9 +200,11 @@ export function App({ onReady }: { readonly onReady?: () => void }) {
 				cloudOnboarding={cloudOnboarding}
 			/>
 			{onboardingCompleted && canConfigureCloud ? (
-				<Suspense fallback={null}>
-					<CloudBuildMonitor key={workspace.key} />
-				</Suspense>
+				<ErrorBoundary fallback={null} resetKey={workspace.key}>
+					<Suspense fallback={null}>
+						<CloudBuildMonitor key={workspace.key} />
+					</Suspense>
+				</ErrorBoundary>
 			) : null}
 		</>
 	);
