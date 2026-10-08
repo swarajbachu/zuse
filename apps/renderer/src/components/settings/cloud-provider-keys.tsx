@@ -181,15 +181,19 @@ export function useCloudProviderConnections() {
 	);
 	const [loadError, setLoadError] = useState(false);
 	const mounted = useRef(true);
+	const reloadVersion = useRef(0);
 	useEffect(() => {
 		mounted.current = true;
 		return () => {
 			mounted.current = false;
+			reloadVersion.current += 1;
 		};
 	}, []);
 
 	const accept = useCallback((result: CloudProviderConnectionList) => {
 		if (!mounted.current) return;
+		reloadVersion.current += 1;
+		setLoading(false);
 		setConnections(result.connections);
 		setCustomSnapshotsEnabled(result.customSnapshotsEnabled === true);
 		setLoadError(false);
@@ -203,13 +207,17 @@ export function useCloudProviderConnections() {
 		[accept],
 	);
 	const reload = useCallback(async () => {
+		const version = ++reloadVersion.current;
 		setLoading(peekCloudProviderConnections() === undefined);
 		try {
-			accept(await loadCloudProviderConnections(true));
+			const result = await loadCloudProviderConnections(true);
+			if (version === reloadVersion.current) accept(result);
 		} catch {
-			if (mounted.current) setLoadError(true);
+			if (mounted.current && version === reloadVersion.current)
+				setLoadError(true);
 		} finally {
-			if (mounted.current) setLoading(false);
+			if (mounted.current && version === reloadVersion.current)
+				setLoading(false);
 		}
 	}, [accept]);
 
