@@ -42,7 +42,7 @@ export const successPage = async (
 	const html = renderIntegrationPage({
 		integration: "Slack",
 		description: connected
-			? "Your Zuse account is connected. Choose your repository and agent in Slack."
+			? `Your Zuse account is connected to ${profile?.connection?.organizationName ?? "Personal"}. Choose your repository and agent in Slack.`
 			: "Zuse is installed. Return to Slack and connect your account privately.",
 		status: connected ? "Connected" : "Installed",
 		hint: token
@@ -136,15 +136,55 @@ export const promptConnection = async (
 	});
 };
 
+const expiredConnectionLink = () =>
+	page(
+		"<h1>Connection link expired</h1><p>Reopen Zuse’s Home tab or mention Zuse for a new private connection button.</p>",
+		401,
+	);
+
+const claimConnectionLink = async (
+	env: AppEnv,
+	installation: Installation,
+	userId: string,
+	token: string,
+): Promise<boolean> => {
+	const login = await env.store.authenticate(token, "login", true);
+	return (
+		login !== null &&
+		login.team_id === installation.teamId &&
+		login.generation === installation.generation &&
+		login.owner_id === userId
+	);
+};
+
 const beginSignIn = async (
 	env: AppEnv,
 	installation: Installation,
 	userId: string,
 	channel?: string,
 	pendingRequest?: PendingConnectionRequest,
+	loginToken?: string,
+	confirmed = false,
 ) => {
 	const profile = await env.store.member(installation, userId);
-	if (profile.connection)
+	if (profile.connection) {
+		// Reading a private link must never enqueue work or consume its token.
+		if (!confirmed) {
+			if (!loginToken) return successPage(env, installation, true, userId);
+			const response = page(
+				`<h1>Your account is connected</h1><p>Continue to notify Slack and resume any saved request.</p><form method="post" action="/slack/account/connect?token=${htmlEscape(loginToken)}"><button>Continue in Slack</button></form>`,
+			);
+			response.headers.append(
+				"set-cookie",
+				cookie("__Host-zuse-slack-retry", loginToken, 600),
+			);
+			return response;
+		}
+		if (
+			loginToken &&
+			!(await claimConnectionLink(env, installation, userId, loginToken))
+		)
+			return expiredConnectionLink();
 		return connectionComplete(
 			env,
 			installation,
@@ -153,12 +193,14 @@ const beginSignIn = async (
 			channel,
 			pendingRequest,
 		);
+	}
 	const verifier = randomSecret();
 	const state = await env.store.session(
 		"workos",
 		installation,
 		JSON.stringify({
 			verifier,
+			loginToken,
 			revision: profile.revision,
 			channel,
 			pendingRequest,
@@ -191,6 +233,71 @@ const beginSignIn = async (
 	return redirect(
 		target.toString(),
 		cookie("__Host-zuse-slack-account", state, 600),
+	);
+};
+
+interface PendingSignIn {
+	readonly loginToken?: string;
+	readonly revision: number;
+	readonly channel?: string;
+	readonly pendingRequest?: PendingConnectionRequest;
+}
+
+const finishSignIn = async (
+	env: AppEnv,
+	installation: Installation,
+	userId: string,
+	accountId: string,
+	pending: PendingSignIn,
+	organization?: { id: string; name: string },
+) => {
+	const profile = await env.store.member(installation, userId);
+	if (profile.connection || profile.revision !== pending.revision)
+		return page(
+			"<h1>Connection changed</h1><p>Return to Slack and start again.</p>",
+			409,
+		);
+	// Link previews and browser retries must not consume admission before sign-in.
+	// After verified authentication, only one attempt can claim this Slack link.
+	if (
+		pending.loginToken &&
+		!(await claimConnectionLink(env, installation, userId, pending.loginToken))
+	)
+		return expiredConnectionLink();
+	const cloud = env.cloud(accountId, organization?.id);
+	const webhook = await registerWebhook(
+		cloud,
+		`${appOrigin(env)}/slack/webhook/${installation.teamId}/${installation.generation}/${userId}`,
+	);
+	if (
+		!(await env.store.saveMember(installation, userId, {
+			...profile,
+			connection: {
+				accountId,
+				...(organization
+					? {
+							organizationId: organization.id,
+							organizationName: organization.name,
+						}
+					: {}),
+				webhookId: webhook.webhook.webhookId,
+				webhookSecret: webhook.secret,
+			},
+		}))
+	) {
+		await deleteWebhook(cloud, webhook.webhook.webhookId);
+		return page(
+			"<h1>Connection changed</h1><p>Return to Slack and retry.</p>",
+			409,
+		);
+	}
+	return connectionComplete(
+		env,
+		installation,
+		userId,
+		webhook.webhook.webhookId,
+		pending.channel,
+		pending.pendingRequest,
 	);
 };
 
@@ -278,18 +385,22 @@ export const accountRoutes = async (
 		);
 		return response;
 	}
-	if (request.method === "GET" && url.pathname === "/slack/account/connect") {
-		const login = await env.store.authenticate(
-			url.searchParams.get("token") ?? "",
-			"login",
-			true,
-		);
+	if (
+		(request.method === "GET" || request.method === "POST") &&
+		url.pathname === "/slack/account/connect"
+	) {
+		const token = url.searchParams.get("token") ?? "";
+		if (
+			request.method === "POST" &&
+			(request.headers.get("origin") !== appOrigin(env) ||
+				!token ||
+				readCookie(request, "__Host-zuse-slack-retry") !== token)
+		)
+			return new Response("invalid origin or retry session", { status: 403 });
+		const login = await env.store.authenticate(token, "login");
 		const installation = login ? await env.store.get(login.team_id) : null;
 		if (!login || !installation || installation.generation !== login.generation)
-			return page(
-				"<h1>Connection link expired</h1><p>Reopen Zuse’s Home tab or mention Zuse for a new private connection button.</p>",
-				401,
-			);
+			return expiredConnectionLink();
 		const { channel, pendingRequest } = JSON.parse(login.payload || "{}");
 		return beginSignIn(
 			env,
@@ -297,6 +408,8 @@ export const accountRoutes = async (
 			login.owner_id,
 			channel,
 			pendingRequest,
+			token,
+			request.method === "POST",
 		);
 	}
 	// Compatibility with already-issued installer setup sessions. No raw model/agent form.
@@ -352,11 +465,8 @@ export const accountRoutes = async (
 			"<h1>Connection cancelled or expired</h1><p>Your account was not connected. Return to Slack to try again.</p>",
 			400,
 		);
-	const pending = JSON.parse(session.payload) as {
+	const pending = JSON.parse(session.payload) as PendingSignIn & {
 		verifier: string;
-		revision: number;
-		channel?: string;
-		pendingRequest?: PendingConnectionRequest;
 	};
 	const profile = await env.store.member(installation, session.owner_id);
 	if (profile.connection || profile.revision !== pending.revision)
@@ -364,35 +474,17 @@ export const accountRoutes = async (
 			"<h1>Connection changed</h1><p>Return to Slack and start again.</p>",
 			409,
 		);
-	const { accountId } = await env.identity.exchange(code, pending.verifier);
-	const cloud = env.cloud(accountId);
-	const webhook = await registerWebhook(
-		cloud,
-		`${appOrigin(env)}/slack/webhook/${installation.teamId}/${installation.generation}/${session.owner_id}`,
+	const { accountId, organization } = await env.identity.exchange(
+		code,
+		pending.verifier,
 	);
-	if (
-		!(await env.store.saveMember(installation, session.owner_id, {
-			...profile,
-			connection: {
-				accountId,
-				webhookId: webhook.webhook.webhookId,
-				webhookSecret: webhook.secret,
-			},
-		}))
-	) {
-		await deleteWebhook(cloud, webhook.webhook.webhookId);
-		return page(
-			"<h1>Connection changed</h1><p>Return to Slack and retry.</p>",
-			409,
-		);
-	}
-	const response = await connectionComplete(
+	const response = await finishSignIn(
 		env,
 		installation,
 		session.owner_id,
-		webhook.webhook.webhookId,
-		pending.channel,
-		pending.pendingRequest,
+		accountId,
+		pending,
+		organization,
 	);
 	response.headers.append(
 		"set-cookie",

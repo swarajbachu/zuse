@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
-import { chromium } from "@playwright/test";
+import { chromium, expect } from "@playwright/test";
 import { createServer } from "vite-plus";
 
 const root = resolve(import.meta.dirname, "../..");
@@ -99,7 +99,7 @@ const catalog=[
  entry('cloudflare','Cloudflare Docs','Search Cloudflare documentation from your agents.','cloudflare.com',true),
  ...Array.from({length:60},(_,i)=>entry('tool-'+i,'Tool '+i,'An example MCP server number '+i+'.','example'+i+'.test')),
 ];
-let connections=location.pathname.startsWith('/__plugins-settings')?[{id:'c-linear',pluginId:'linear',label:'Linear',owner:'user',state:'connected',createdAt:1,enabled:true}]:[];
+let connections=location.pathname.startsWith('/__plugins-settings')?[{id:'c-linear',pluginId:'linear',label:'Linear',owner:'user',state:'connected',createdAt:1,enabled:true},{id:'c-personal',pluginId:'linear',label:'Personal',owner:'user',state:'connected',createdAt:1,enabled:true}]:[];
 import {useCallback,useEffect,useState} from 'react';
 const listeners=new Set();
 const snapshot=()=>({kind:'snapshot',tenantId:'personal:fixture',tenants:[{id:'personal:fixture',kind:'personal',name:'Personal'}],catalog,connections,endpoint:''});
@@ -183,6 +183,53 @@ try {
 		.click();
 	await page.getByRole("heading", { name: "Information" }).waitFor();
 	await shot("plugins-detail-connected");
+	await page
+		.getByRole("textbox", { name: "Connection name" })
+		.fill(" cloudflare docs ");
+	await expect(
+		page.getByRole("button", { name: "Connect another account", exact: true }),
+	).toBeDisabled();
+	await page
+		.getByText(
+			"This name is already in use. Choose a different connection name.",
+			{ exact: true },
+		)
+		.waitFor();
+	await page.getByRole("textbox", { name: "Connection name" }).press("Enter");
+	await expect(
+		page.getByRole("button", { name: "Disconnect", exact: true }),
+	).toHaveCount(1);
+	await page.getByRole("textbox", { name: "Connection name" }).fill("Personal");
+	await page
+		.getByRole("button", { name: "Connect another account", exact: true })
+		.click();
+	await page
+		.getByRole("button", { name: "Disconnect", exact: true })
+		.nth(1)
+		.waitFor();
+	assert.match(
+		await page
+			.getByRole("button", { name: "Disconnect", exact: true })
+			.nth(1)
+			.locator("..")
+			.innerText(),
+		/Personal/,
+	);
+	await shot("plugins-multiple-accounts");
+	const personalRow = page
+		.getByRole("button", { name: "Disconnect", exact: true })
+		.locator("..")
+		.filter({ hasText: "Personal" });
+	await personalRow
+		.getByRole("button", { name: "Disconnect", exact: true })
+		.click();
+	await expect(personalRow).toHaveCount(0);
+	await expect(
+		page.getByRole("button", { name: "Disconnect", exact: true }),
+	).toHaveCount(1);
+	await expect(
+		page.getByRole("button", { name: "Disconnect", exact: true }).locator(".."),
+	).toContainText("Cloudflare Docs");
 	await page.getByRole("button", { name: "Disconnect", exact: true }).click();
 	await page.getByRole("button", { name: "Connect", exact: true }).waitFor();
 	await page.getByRole("button", { name: "Plugins", exact: true }).click();
@@ -225,19 +272,28 @@ try {
 	});
 	settings.on("pageerror", (error) => errors.push(error.message));
 	await settings.goto("http://127.0.0.1:15834/__plugins-settings");
-	await settings.getByRole("switch", { name: "Linear" }).waitFor();
+	await settings.getByRole("switch", { name: "Linear", exact: true }).waitFor();
+	await settings
+		.getByRole("switch", { name: "Linear / Personal", exact: true })
+		.waitFor();
 	await settings.waitForTimeout(400);
 	if (shots)
 		await settings.screenshot({ path: `${shots}/settings-plugins.png` });
-	await settings.getByRole("switch", { name: "Linear" }).click();
+	await settings.getByRole("switch", { name: "Linear", exact: true }).click();
 	await settings.waitForFunction(
 		() => window.lastPluginToggle?.enabled === false,
 	);
 	assert.equal(
 		await settings
-			.getByRole("switch", { name: "Linear" })
+			.getByRole("switch", { name: "Linear", exact: true })
 			.getAttribute("aria-checked"),
 		"false",
+	);
+	assert.equal(
+		await settings
+			.getByRole("switch", { name: "Linear / Personal", exact: true })
+			.getAttribute("aria-checked"),
+		"true",
 	);
 	await settings.getByRole("tab", { name: /MCPs/ }).click();
 	await settings.getByText("github", { exact: true }).waitFor();

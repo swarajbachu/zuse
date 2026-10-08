@@ -29,6 +29,9 @@ const ConnectionRecordFields = {
 	serverPublicKey: Schema.optional(Schema.String),
 	transportCertificatePin: Schema.optional(Schema.String),
 	nearbyServiceName: Schema.optional(Schema.String),
+	/** Address the Mac was paired on, kept while a temporary proxy route is in use. */
+	pairedHost: Schema.optional(Schema.String),
+	pairedPort: Schema.optional(Schema.Number),
 	routeGeneration: Schema.optional(Schema.Number),
 	pathType: Schema.optional(LocalPathType),
 	refreshAccountGrant: Schema.optional(Schema.Boolean),
@@ -68,6 +71,14 @@ export const connectionStorageKey = (
 	identity: string,
 ): string => `${source}:${identity}`;
 
+const isLoopbackHost = (host: string): boolean =>
+	host === "127.0.0.1" || host === "::1" || host === "localhost";
+
+const wsBaseUrlFor = (host: string, port: number): string =>
+	wsBaseUrlForHttpBase(
+		`http://${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${port}`,
+	);
+
 export const replaceDiscoveredRoute = (
 	record: ConnectionRecord,
 	route: {
@@ -79,11 +90,13 @@ export const replaceDiscoveredRoute = (
 	},
 ): ConnectionRecord => ({
 	...record,
+	// The first non-proxy address is the paired one; never lose it to a proxy.
+	...(record.pairedHost === undefined && !isLoopbackHost(record.host)
+		? { pairedHost: record.host, pairedPort: record.port }
+		: {}),
 	host: route.host.trim(),
 	port: route.port,
-	wsBaseUrl: wsBaseUrlForHttpBase(
-		`http://${route.host.trim().includes(":") && !route.host.trim().startsWith("[") ? `[${route.host.trim()}]` : route.host.trim()}:${route.port}`,
-	),
+	wsBaseUrl: wsBaseUrlFor(route.host.trim(), route.port),
 	pathType: route.pathType,
 	...(route.nearbyServiceName === undefined
 		? {}
@@ -94,6 +107,31 @@ export const replaceDiscoveredRoute = (
 	routeGeneration: (record.routeGeneration ?? 0) + 1,
 	updatedAt: Date.now(),
 });
+
+/**
+ * A proxy route dies with its proxy (network change, backgrounding, Bonjour
+ * churn). Fall back to the paired LAN address so a running Mac stays reachable.
+ */
+export const restorePairedRoute = (
+	record: ConnectionRecord,
+): ConnectionRecord => {
+	const { pairedHost, pairedPort } = record;
+	if (
+		pairedHost === undefined ||
+		pairedPort === undefined ||
+		!isLoopbackHost(record.host)
+	)
+		return record;
+	return {
+		...record,
+		host: pairedHost,
+		port: pairedPort,
+		wsBaseUrl: wsBaseUrlFor(pairedHost, pairedPort),
+		pathType: "lan",
+		routeGeneration: (record.routeGeneration ?? 0) + 1,
+		updatedAt: Date.now(),
+	};
+};
 
 export const connectionSupports = (
 	record: ConnectionRecord | undefined,

@@ -11,7 +11,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-
+import { PreSettingsAppearanceController } from "../lib/appearance-mode.tsx";
 import {
 	BrowserSessionError,
 	createBrowserSessionConnection,
@@ -32,6 +32,9 @@ import {
 	retryRendererRpcConnection,
 	subscribeRendererRpcConnection,
 } from "../lib/rpc-client.ts";
+import { AccessScreen } from "./access-screen.tsx";
+import { Button } from "./ui/button.tsx";
+import { Input } from "./ui/input.tsx";
 
 type AccessState =
 	| { readonly status: "loading" }
@@ -140,83 +143,73 @@ function AccessCard({
 		}
 	};
 	return (
-		<div className="flex h-dvh w-screen items-center justify-center bg-background px-6 text-foreground">
-			<main
-				aria-busy={loading}
-				aria-live="polite"
-				className="w-full max-w-md rounded-xl border border-border/70 bg-card p-4 shadow-overlay-sm"
-			>
-				<p className="text-xs font-medium text-muted-foreground">
-					{uiMessage("shell:browser_access_gate_zuse_serve")}
-				</p>
-				<h1
-					className="mt-1.5 font-heading text-lg font-semibold outline-none"
-					ref={headingRef}
-					tabIndex={-1}
-				>
-					{loading
-						? uiMessage(
-								"shell:browser_access_gate_connecting_to_your_environment",
-							)
-						: state.title}
-				</h1>
-				<p className="mt-1.5 text-xs leading-5 text-muted-foreground">
-					{loading
-						? uiMessage(
-								"shell:browser_access_gate_authentication_and_connection_recovery_happen_automatically",
-							)
-						: state.description}
-				</p>
-				{!loading && state.pairingAllowed ? (
-					<form className="mt-4 space-y-2" onSubmit={submitPairing}>
-						<label className="block text-xs font-medium" htmlFor="pairing-code">
-							{uiMessage("shell:browser_access_gate_pairing_code")}
-						</label>
-						<div className="flex gap-2">
-							<input
-								autoCapitalize="characters"
-								autoComplete="one-time-code"
-								className="h-7 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 font-mono text-xs uppercase outline-none focus-visible:ring-2 focus-visible:ring-ring"
-								disabled={pairing}
-								id="pairing-code"
-								maxLength={256}
-								onChange={(event) => setCode(event.target.value)}
-								placeholder={uiMessage("shell:browser_access_gate_abcd_efgh")}
-								value={code}
-							/>
-							<button
-								className="h-7 rounded-md bg-primary px-2.5 font-medium text-primary-foreground text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-								disabled={pairing || code.trim().length === 0}
-								type="submit"
-							>
-								{pairing
-									? uiMessage("shell:browser_access_gate_connecting")
-									: uiMessage("common:connect")}
-							</button>
-						</div>
-						<p className="text-[11px] leading-4 text-muted-foreground">
-							{uiMessage(
-								"shell:browser_access_gate_enter_the_code_shown_on_the_other_computer_in_its_serve_terminal_or_se",
-							)}
+		<AccessScreen
+			description={
+				loading
+					? uiMessage(
+							"shell:browser_access_gate_authentication_and_connection_recovery_happen_automatically",
+						)
+					: state.description
+			}
+			footer={
+				!loading && state.pairingAllowed
+					? uiMessage(
+							"shell:browser_access_gate_enter_the_code_shown_on_the_other_computer_in_its_serve_terminal_or_se",
+						)
+					: undefined
+			}
+			headingRef={headingRef}
+			loaderLabel={uiMessage(
+				"shell:browser_access_gate_connecting_to_your_environment",
+			)}
+			loading={loading}
+			title={
+				loading
+					? uiMessage(
+							"shell:browser_access_gate_connecting_to_your_environment",
+						)
+					: state.title
+			}
+		>
+			{!loading && state.pairingAllowed ? (
+				<form className="flex flex-col gap-2" onSubmit={submitPairing}>
+					<label className="font-medium text-xs" htmlFor="pairing-code">
+						{uiMessage("shell:browser_access_gate_pairing_code")}
+					</label>
+					<div className="flex gap-2">
+						<Input
+							aria-invalid={pairingError !== null || undefined}
+							autoCapitalize="characters"
+							autoComplete="one-time-code"
+							className="flex-1 font-mono uppercase tracking-widest"
+							disabled={pairing}
+							id="pairing-code"
+							maxLength={256}
+							onChange={(event) => setCode(event.target.value)}
+							placeholder={uiMessage("shell:browser_access_gate_abcd_efgh")}
+							spellCheck={false}
+							value={code}
+						/>
+						<Button
+							disabled={code.trim().length === 0}
+							loading={pairing}
+							type="submit"
+						>
+							{uiMessage("common:connect")}
+						</Button>
+					</div>
+					{pairingError !== null ? (
+						<p className="text-destructive text-xs" role="alert">
+							{pairingError}
 						</p>
-						{pairingError !== null ? (
-							<p className="text-xs text-destructive" role="alert">
-								{pairingError}
-							</p>
-						) : null}
-					</form>
-				) : null}
-				{!loading && state.retryable && (
-					<button
-						className="mt-5 inline-flex h-7 items-center justify-center rounded-md bg-primary px-2.5 font-medium text-primary-foreground text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-						onClick={retry}
-						type="button"
-					>
-						{uiMessage("shell:browser_access_gate_try_again")}
-					</button>
-				)}
-			</main>
-		</div>
+					) : null}
+				</form>
+			) : !loading && state.retryable ? (
+				<Button className="w-full" onClick={retry}>
+					{uiMessage("shell:browser_access_gate_try_again")}
+				</Button>
+			) : undefined}
+		</AccessScreen>
 	);
 }
 
@@ -262,60 +255,71 @@ function HostedAccessCard({
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "shell"]);
 
-	const title =
-		state.status === "loading"
-			? uiMessage("shell:hosted_opening_zuse")
-			: state.status === "signedOut"
-				? uiMessage("shell:hosted_your_cloud_agents_anywhere")
-				: uiMessage("shell:hosted_could_not_open_zuse");
+	const [redirecting, setRedirecting] = useState<"sign-in" | "sign-up" | null>(
+		null,
+	);
+	const [signInError, setSignInError] = useState<string | null>(null);
+	const startSignIn = (screenHint: "sign-in" | "sign-up") => {
+		setRedirecting(screenHint);
+		setSignInError(null);
+		beginHostedSignIn(screenHint).catch(() => {
+			setRedirecting(null);
+			setSignInError(uiMessage("shell:hosted_connection_retry"));
+		});
+	};
+	const loading = state.status === "loading";
 	return (
-		<div className="flex min-h-dvh w-full items-center justify-center bg-background px-4 py-8 text-foreground">
-			<main
-				aria-busy={state.status === "loading"}
-				aria-live="polite"
-				className="w-full max-w-md rounded-xl border border-border/70 bg-card p-4 shadow-overlay-sm"
-			>
-				<p className="text-sm font-medium text-muted-foreground">
-					{uiMessage("shell:browser_access_gate_zuse")}
-				</p>
-				<h1 className="mt-1.5 font-heading text-lg font-semibold">{title}</h1>
-				{state.status === "loading" ? (
-					<p className="mt-2 text-sm leading-6 text-muted-foreground">
-						{uiMessage("shell:hosted_signing_in_to_your_cloud_workspace")}
-					</p>
-				) : null}
-				{state.status === "signedOut" ? (
-					<>
-						<p className="mt-2 text-sm leading-6 text-muted-foreground">
-							{uiMessage(
+		<AccessScreen
+			description={
+				state.status === "loading"
+					? uiMessage("shell:hosted_signing_in_to_your_cloud_workspace")
+					: state.status === "signedOut"
+						? uiMessage(
 								"shell:hosted_sign_in_to_set_up_cloud_agents_connect_repositories_and_start_chatting",
-							)}
+							)
+						: state.description
+			}
+			loaderLabel={uiMessage("shell:hosted_opening_zuse")}
+			loading={loading}
+			title={
+				state.status === "loading"
+					? uiMessage("shell:hosted_opening_zuse")
+					: state.status === "signedOut"
+						? uiMessage("shell:hosted_your_cloud_agents_anywhere")
+						: uiMessage("shell:hosted_could_not_open_zuse")
+			}
+		>
+			{state.status === "signedOut" ? (
+				<>
+					<Button
+						className="w-full"
+						disabled={redirecting !== null}
+						loading={redirecting === "sign-in"}
+						onClick={() => startSignIn("sign-in")}
+					>
+						{uiMessage("common:signIn")}
+					</Button>
+					<Button
+						className="w-full"
+						disabled={redirecting !== null}
+						loading={redirecting === "sign-up"}
+						onClick={() => startSignIn("sign-up")}
+						variant="outline"
+					>
+						{uiMessage("shell:hosted_create_account")}
+					</Button>
+					{signInError !== null ? (
+						<p className="text-destructive text-xs" role="alert">
+							{signInError}
 						</p>
-						<button
-							className="mt-4 h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring"
-							onClick={() => void beginHostedSignIn()}
-							type="button"
-						>
-							{uiMessage("common:signIn")}
-						</button>
-					</>
-				) : null}
-				{state.status === "error" ? (
-					<>
-						<p className="mt-2 text-sm leading-6 text-muted-foreground">
-							{state.description}
-						</p>
-						<button
-							className="mt-4 h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring"
-							onClick={retry}
-							type="button"
-						>
-							{uiMessage("shell:browser_access_gate_try_again")}
-						</button>
-					</>
-				) : null}
-			</main>
-		</div>
+					) : null}
+				</>
+			) : state.status === "error" ? (
+				<Button className="w-full" onClick={retry}>
+					{uiMessage("shell:browser_access_gate_try_again")}
+				</Button>
+			) : undefined}
+		</AccessScreen>
 	);
 }
 
@@ -379,7 +383,12 @@ function HostedAccessGate({ children }: { readonly children: ReactNode }) {
 		return watchHostedAccountChanges();
 	}, [connect]);
 	if (state.status !== "ready") {
-		return <HostedAccessCard retry={() => void connect()} state={state} />;
+		return (
+			<>
+				<PreSettingsAppearanceController />
+				<HostedAccessCard retry={() => void connect()} state={state} />
+			</>
+		);
 	}
 	return (
 		<>
@@ -437,7 +446,10 @@ function DirectBrowserAccessGate({
 
 	if (state.status !== "ready")
 		return (
-			<AccessCard pair={pair} retry={() => void connect()} state={state} />
+			<>
+				<PreSettingsAppearanceController />
+				<AccessCard pair={pair} retry={() => void connect()} state={state} />
+			</>
 		);
 	return (
 		<>

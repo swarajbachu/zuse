@@ -17,7 +17,7 @@ import {
 } from "./ui/alert-dialog.tsx";
 import { Button } from "./ui/button.tsx";
 
-/** Forget a computer here without deleting its remote projects or data. */
+/** Unregister account computers; preserve projects and data on the host. */
 export function RemoveComputerButton({
 	entry,
 }: {
@@ -28,8 +28,8 @@ export function RemoveComputerButton({
 		(state) => state.activeEnvironmentId,
 	);
 	const remove = useEnvironmentCatalogStore((state) => state.remove);
-	const hideApiEnvironment = useEnvironmentCatalogStore(
-		(state) => state.hideApiEnvironment,
+	const removeApiEnvironment = useEnvironmentCatalogStore(
+		(state) => state.removeApiEnvironment,
 	);
 	const [open, setOpen] = useState(false);
 	const [busy, setBusy] = useState(false);
@@ -45,7 +45,7 @@ export function RemoveComputerButton({
 		setError(null);
 		try {
 			if (entry.connectionKind === "api") {
-				await hideApiEnvironment(entry.environmentId);
+				await removeApiEnvironment(entry.environmentId);
 			} else if (entry.profileId !== null) {
 				await remove(entry.profileId);
 			} else {
@@ -92,7 +92,9 @@ export function RemoveComputerButton({
 						</AlertDialogTitle>
 						<AlertDialogDescription>
 							{message(
-								"providers:add_computer_dialog_zuse_will_forget_this_computer_on_this_device_projects_and_d_sentence",
+								entry.connectionKind === "api"
+									? "providers:remove_computer_account_description"
+									: "providers:add_computer_dialog_zuse_will_forget_this_computer_on_this_device_projects_and_d_sentence",
 								{ value: entry.label },
 							)}
 						</AlertDialogDescription>

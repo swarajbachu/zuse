@@ -1,9 +1,23 @@
-// Boxd has no usage settlement source yet. Keep this policy shared by runtime
-// placement and deployment validation until its billing integration exists.
+/** Paid boxd placement requires an explicit provider cutover at whole-second precision. */
+export const boxdBillingConfigured = (
+	enabled: string | undefined,
+	cutover: string | undefined,
+): boolean => {
+	const timestamp = Date.parse(cutover ?? "");
+	return (
+		enabled === "true" &&
+		Number.isSafeInteger(timestamp) &&
+		timestamp > 0 &&
+		timestamp % 1000 === 0
+	);
+};
+
+// Boxd billing requires an explicit opt-in to completed USD provider estimates.
 export const supportsSandboxBilling = (
 	providerId: string,
 	billingEnforced: boolean,
-): boolean => !billingEnforced || providerId !== "boxd";
+	boxdBillingEnabled = false,
+): boolean => !billingEnforced || providerId !== "boxd" || boxdBillingEnabled;
 
 export const availableSandboxProviders = (
 	providers: ReadonlyArray<{
@@ -13,6 +27,7 @@ export const availableSandboxProviders = (
 	}>,
 	sandbox: boolean,
 	billingEnforced: boolean,
+	boxdBillingEnabled = false,
 ): Set<string> =>
 	new Set(
 		providers
@@ -20,7 +35,11 @@ export const availableSandboxProviders = (
 				(provider) =>
 					provider.advertised &&
 					(sandbox || provider.productionReady) &&
-					supportsSandboxBilling(provider.providerId, billingEnforced),
+					supportsSandboxBilling(
+						provider.providerId,
+						billingEnforced,
+						boxdBillingEnabled,
+					),
 			)
 			.map((provider) => provider.providerId),
 	);

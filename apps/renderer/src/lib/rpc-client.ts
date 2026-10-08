@@ -27,6 +27,7 @@ import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import type { RpcBridge } from "./bridge.ts";
 import { requestBrowserWebSocketUrl } from "./browser-session.ts";
 import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
+import { cloudSummaryForEnvironment } from "./cloud-workspace-catalog.ts";
 import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";
 import { isPlatformOnline, subscribePlatformOnline } from "./network-status.ts";
@@ -665,14 +666,26 @@ export const getControlPlaneRpcClient = async (
 export const getCloudWorkspaceScope = (
 	workspaceId: string,
 ): WorkspaceScope | undefined =>
-	cloudWorkspaceRegistrations.get(workspaceId)?.workspaceScope;
+	cloudWorkspaceRegistrations.get(workspaceId)?.workspaceScope ??
+	cloudSummaryForEnvironment(workspaceId)?.workspaceScope;
 
-/** Local/legacy device connections remain Personal until explicitly enrolled. */
+/**
+ * This desktop's own server. It serves every workspace: each of its projects
+ * records an owning workspace, and `scopeEnvironmentShell` shows only the
+ * projects of the selected one.
+ */
+export const isDesktopLocalEnvironment = (environmentId: string): boolean =>
+	!isHostedProduct() &&
+	(environmentId === LOCAL_ENVIRONMENT_KEY ||
+		environmentId === localEnvironmentId);
+
+/** Remote device connections (SSH, tailnet, paired) remain Personal. */
 export const environmentBelongsToWorkspace = (
 	environmentId: string,
 	scope: WorkspaceScope = rendererWorkspaceSnapshot().scope,
 ): boolean =>
-	(environmentId === LOCAL_ENVIRONMENT_KEY && isHostedProduct()) ||
+	environmentId === LOCAL_ENVIRONMENT_KEY ||
+	isDesktopLocalEnvironment(environmentId) ||
 	workspaceScopeKey(
 		getCloudWorkspaceScope(environmentId) ?? { kind: "personal" },
 	) === workspaceScopeKey(scope);

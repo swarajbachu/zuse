@@ -21,7 +21,10 @@ beforeEach(() => {
 	clearControlPlaneSessionCache();
 	vi.useFakeTimers();
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+	vi.useRealTimers();
+	vi.unstubAllGlobals();
+});
 
 it("loads funded organization placement without requesting private billing records", async () => {
 	const entitlements = vi.fn(() => Effect.fail({ code: "not-allowed" }));
@@ -116,4 +119,63 @@ it("keeps placement visible while refreshing stale display data in the backgroun
 	expect((await loadCloudWorkspacePlacement()).images[0]?.state).toBe(
 		"outdated",
 	);
+});
+
+it("restores provider display state locally and replaces it after disconnect", async () => {
+	const storage = new Map<string, string>();
+	vi.stubGlobal("window", {
+		localStorage: {
+			getItem: (key: string) => storage.get(key) ?? null,
+			setItem: (key: string, value: string) => storage.set(key, value),
+			removeItem: (key: string) => storage.delete(key),
+		},
+	});
+	const { setControlPlaneCacheAccount } = await import(
+		"../../src/lib/control-plane-client.ts"
+	);
+	const { cacheCloudProviderConnections, peekCloudProviderConnections } =
+		await import("../../src/lib/cloud-workspace-session-cache.ts");
+	setControlPlaneCacheAccount("cached-hosting-account");
+	const connected = {
+		connections: [
+			{ connectionId: "key", providerId: "boxd", active: true, createdAt: 1 },
+		],
+		customSnapshotsEnabled: true,
+	};
+	await cacheCloudProviderConnections(connected);
+	clearControlPlaneSessionCache();
+	expect(peekCloudProviderConnections()).toMatchObject(connected);
+	await cacheCloudProviderConnections({
+		connections: [],
+		customSnapshotsEnabled: true,
+	});
+	clearControlPlaneSessionCache();
+	expect(peekCloudProviderConnections()?.connections).toEqual([]);
+	setControlPlaneCacheAccount("another-hosting-account");
+	expect(peekCloudProviderConnections()).toBeUndefined();
+	setControlPlaneCacheAccount(null);
+});
+it("restores a last known billing display while a refresh is pending", async () => {
+	const storage = new Map<string, string>();
+	vi.stubGlobal("window", {
+		localStorage: {
+			getItem: (key: string) => storage.get(key) ?? null,
+			setItem: (key: string, value: string) => storage.set(key, value),
+			removeItem: (key: string) => storage.delete(key),
+		},
+	});
+	const { setControlPlaneCacheAccount } = await import(
+		"../../src/lib/control-plane-client.ts"
+	);
+	const { peekCloudEntitlements } = await import(
+		"../../src/lib/cloud-workspace-session-cache.ts"
+	);
+	setControlPlaneCacheAccount("billing-display-account");
+	vi.mocked(getControlPlaneRpcClient).mockResolvedValue({
+		"machines.entitlements": () => Effect.succeed({ entitlements: [] }),
+	} as unknown as Awaited<ReturnType<typeof getControlPlaneRpcClient>>);
+	await loadCloudEntitlements();
+	clearControlPlaneSessionCache();
+	expect(peekCloudEntitlements()).toEqual({ entitlements: [] });
+	setControlPlaneCacheAccount(null);
 });

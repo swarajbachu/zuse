@@ -26,10 +26,10 @@ export const policyOptions = [
 	},
 	{
 		value: "installer",
-		text: { type: "plain_text", text: "Only me, using my connected account" },
+		text: { type: "plain_text", text: "Only the installer can run tasks" },
 	},
 	{
 		value: "shared",
-		text: { type: "plain_text", text: "Whole team uses my connected account" },
+		text: { type: "plain_text", text: "Everyone uses the installer’s account" },
 	},
 ];

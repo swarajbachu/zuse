@@ -60,5 +60,9 @@
 	"plugins_skills_personal": "Persönlich",
 	"plugins_skills_project": "Projekt",
 	"plugins_skills_codex_note": "Codex-Schalter werden in der Codex-Konfiguration gespeichert und gelten auch außerhalb von Zuse.",
-	"plugins_skills_loading": "Skills werden geladen…"
+	"plugins_skills_loading": "Skills werden geladen…",
+	"plugins_connection_name": "Verbindungsname",
+	"plugins_connection_name_placeholder": "Arbeit, privat oder Firmenname",
+	"plugins_connect_another": "Weiteres Konto verbinden",
+	"plugins_connection_name_exists": "Dieser Name wird bereits verwendet. Wähle einen anderen Verbindungsnamen."
 }

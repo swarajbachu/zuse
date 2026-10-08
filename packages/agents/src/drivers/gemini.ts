@@ -46,6 +46,7 @@ import {
 	orchestrationMcpPromptHint,
 } from "./orchestration-tools.ts";
 import { applyPlanModePrefix } from "./planMode.ts";
+import { pluginCliEnv } from "./plugin-tools.ts";
 
 /**
  * Live-only handle for one Gemini conversation. Mirrors the Grok/Codex/Claude
@@ -195,20 +196,6 @@ export const startGeminiSession = (
 
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 
-		// Shared context for the ACP fs/* and terminal/* handlers so file writes
-		// and command execution are gated through PermissionService + RuntimeMode,
-		// exactly like Claude/Codex. `currentMode` is read live.
-		const acpHandlerContext = makeAcpPermissionContext({
-			executionEnv: input.executionEnv,
-			cwd,
-			sessionId,
-			projectId: input.folderId,
-			requestPermission: (kind, options) =>
-				requestPermission(sessionId, kind, options),
-			getRuntimeMode,
-			getPermissionMode: () => currentMode,
-		});
-
 		const mcpGatewaySession = yield* issueProviderMcpSession({
 			providerId: "gemini",
 			sessionId,
@@ -219,6 +206,23 @@ export const startGeminiSession = (
 			getRuntimeMode,
 			getPermissionMode: () => currentMode,
 			orchestrationTools,
+		});
+		const executionEnv = {
+			...input.executionEnv,
+			...pluginCliEnv(mcpGatewaySession.endpoint, mcpGatewaySession.token),
+		};
+		// Shared context for the ACP fs/* and terminal/* handlers so file writes
+		// and command execution are gated through PermissionService + RuntimeMode,
+		// exactly like Claude/Codex. `currentMode` is read live.
+		const acpHandlerContext = makeAcpPermissionContext({
+			executionEnv,
+			cwd,
+			sessionId,
+			projectId: input.folderId,
+			requestPermission: (kind, options) =>
+				requestPermission(sessionId, kind, options),
+			getRuntimeMode,
+			getPermissionMode: () => currentMode,
 		});
 
 		const stdioMcpFallback = makeStdioMcpFallback({
@@ -270,7 +274,7 @@ export const startGeminiSession = (
 				cwd,
 				env: {
 					...process.env,
-					...input.executionEnv,
+					...executionEnv,
 					...(apiKey !== null ? { GEMINI_API_KEY: apiKey } : {}),
 				},
 				stdio: ["pipe", "pipe", "pipe"],

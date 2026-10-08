@@ -7,13 +7,10 @@ import { workspace } from "../../fixtures/cloud";
 const state = vi.hoisted(() => ({
 	draft: { text: "", attachments: [], goalMode: false } as ComposerDraft,
 	create: vi.fn(),
-	consent: vi.fn(),
 	send: vi.fn(),
+	optimistic: vi.fn(),
 	saved: vi.fn(),
 	clear: vi.fn(),
-}));
-vi.mock("~/lib/ai-sharing-consent", () => ({
-	requestAiSharingConsent: state.consent,
 }));
 vi.mock("~/rpc/api-client", () => ({
 	cloudControlClient: {
@@ -27,6 +24,9 @@ vi.mock("~/rpc/api-client", () => ({
 vi.mock("~/rpc/actions", () => ({
 	makeTextInput: (text: string) => ({ text }),
 	sendCloudMessage: (input: unknown) => state.send(input),
+}));
+vi.mock("~/store/messages", () => ({
+	addOptimisticMessage: (...args: unknown[]) => state.optimistic(...args),
 }));
 vi.mock("~/store/composer-drafts", () => ({
 	composerDraft: () => state.draft,
@@ -73,7 +73,6 @@ const launch = () => {
 };
 describe("mobile initial cloud launch intent", () => {
 	beforeEach(() => {
-		state.consent.mockResolvedValue(true);
 		setCloudCatalogAccount(null);
 		setCloudCatalogAccount("account-1");
 		state.draft = { text: "", attachments: [], goalMode: false };
@@ -88,7 +87,7 @@ describe("mobile initial cloud launch intent", () => {
 			result: new Promise(() => undefined),
 		});
 	});
-	test("persists identity before creating compute and clears only after durable acceptance", async () => {
+	test("opens the chat once compute exists, before the first message is accepted", async () => {
 		let accepted!: () => void;
 		state.send.mockReturnValue({
 			accepted: new Promise<void>((resolve) => {
@@ -96,15 +95,23 @@ describe("mobile initial cloud launch intent", () => {
 			}),
 			result: new Promise(() => undefined),
 		});
-		const request = launchMobileCloudChat(input);
-		await vi.waitFor(() => expect(state.send).toHaveBeenCalled());
-		expect(state.clear).not.toHaveBeenCalled();
-		accepted();
-		expect(await request).toEqual({
+		state.optimistic.mockReset();
+		// Returns while the sandbox still boots; the prompt is shown at once.
+		expect(await launchMobileCloudChat(input)).toEqual({
 			connectionKey: "cloud:workspace-1",
 			sessionId: "session-1",
 		});
-		expect(state.clear).toHaveBeenCalledTimes(1);
+		expect(state.optimistic).toHaveBeenCalledWith(
+			expect.stringContaining("session-1"),
+			expect.objectContaining({
+				role: "user",
+				content: expect.objectContaining({ text: "Fix the tests" }),
+			}),
+		);
+		// The recoverable draft is cleared only after durable acceptance.
+		expect(state.clear).not.toHaveBeenCalled();
+		accepted();
+		await vi.waitFor(() => expect(state.clear).toHaveBeenCalledTimes(1));
 		expect(state.create.mock.calls[0]?.[0]).toMatchObject({
 			runtimeMode: "full-access",
 			initialMessageDelivery: "mailbox-v1",
@@ -130,16 +137,6 @@ describe("mobile initial cloud launch intent", () => {
 		await expect(launchMobileCloudChat(input)).rejects.toThrow(
 			"Sign in to this account",
 		);
-		expect(state.send).not.toHaveBeenCalled();
-		expect(state.clear).not.toHaveBeenCalled();
-	});
-
-	test("does not create or send cloud data when sharing is declined", async () => {
-		state.consent.mockResolvedValue(false);
-		await expect(launchMobileCloudChat(input)).rejects.toThrow(
-			"Data sharing was cancelled",
-		);
-		expect(state.create).not.toHaveBeenCalled();
 		expect(state.send).not.toHaveBeenCalled();
 		expect(state.clear).not.toHaveBeenCalled();
 	});

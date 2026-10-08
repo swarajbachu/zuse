@@ -8,7 +8,10 @@ import {
 	type CloudMailboxCoordinatorApi,
 	coordinateCloudMailboxResponse,
 } from "../../src/cloud-mailbox-coordinator.ts";
-import { attachCloudMailboxCommandDirective } from "../../src/cloud-mailbox-directive.ts";
+import {
+	attachCloudMailboxBillingDirective,
+	attachCloudMailboxCommandDirective,
+} from "../../src/cloud-mailbox-directive.ts";
 import { hyperdrivePoolConfig } from "../../src/hyperdrive.ts";
 
 describe("api worker database lifecycle", () => {
@@ -96,6 +99,98 @@ const coordinatorApi = (
 });
 
 describe("api worker mailbox saga", () => {
+	test.each([
+		false,
+		true,
+	])("keeps origin approval on mailbox errors (approved=%s)", async (approved) => {
+		const response = new Response(JSON.stringify({ commandId: "command-1" }), {
+			headers: approved
+				? {
+						"access-control-allow-origin": "https://code-staging.zuse.sh",
+						vary: "Origin",
+					}
+				: {},
+		});
+		attachCloudMailboxCommandDirective(response, {
+			action: "enqueue",
+			workspaceId: "workspace-1",
+			accountId: "account-1",
+		});
+		const fetch = vi.fn(async () => new Response("{}"));
+		const result = await coordinateCloudMailboxResponse({
+			response,
+			mailboxes: { idFromName: (name) => name, get: () => ({ fetch }) },
+			mailboxEnabled: false,
+			api: coordinatorApi(),
+			context: { waitUntil: () => undefined },
+		});
+		expect(result?.status).toBe(409);
+		expect(result?.headers.get("access-control-allow-origin")).toBe(
+			approved ? "https://code-staging.zuse.sh" : null,
+		);
+		expect(await result?.json()).toEqual({
+			code: "cloud-command-mailbox-disabled",
+		});
+		expect(fetch).not.toHaveBeenCalled();
+	});
+	test.each([
+		"enqueue",
+		"status",
+		"watch",
+	] as const)("preserves approved browser CORS on %s responses", async (action) => {
+		const routeResponse = new Response(
+			JSON.stringify({ commandId: "command-1", afterRevision: 0 }),
+			{
+				headers: {
+					"access-control-allow-origin": "https://code-staging.zuse.sh",
+					"access-control-allow-credentials": "true",
+					"access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+					"access-control-allow-headers": "authorization, content-type",
+					vary: "Origin",
+				},
+			},
+		);
+		attachCloudMailboxCommandDirective(
+			routeResponse,
+			action === "enqueue"
+				? { action, workspaceId: "workspace-1", accountId: "account-1" }
+				: { action, workspaceId: "workspace-1" },
+		);
+		if (action !== "enqueue")
+			attachCloudMailboxBillingDirective(routeResponse, {
+				policy: "available",
+				accountId: "account-1",
+			});
+		const result = await coordinateCloudMailboxResponse({
+			response: routeResponse,
+			mailboxes: {
+				idFromName: (name) => name,
+				get: () => ({
+					fetch: async () =>
+						new Response("{}", {
+							status: action === "enqueue" ? 202 : 200,
+							headers: {
+								"content-type": "application/json",
+								vary: "Accept-Encoding",
+							},
+						}),
+				}),
+			},
+			mailboxEnabled: true,
+			api: coordinatorApi(),
+			context: { waitUntil: (promise) => void promise },
+		});
+		expect(result?.status).toBe(action === "enqueue" ? 202 : 200);
+		expect(result?.headers.get("access-control-allow-origin")).toBe(
+			"https://code-staging.zuse.sh",
+		);
+		expect(result?.headers.get("access-control-allow-credentials")).toBe(
+			"true",
+		);
+		expect(result?.headers.get("vary")).toContain("Origin");
+		expect(result?.headers.get("vary")).toContain("Accept-Encoding");
+		expect(await result?.text()).toBe("{}");
+	});
 	test("accepts before wake and schedules workspace reconciliation", async () => {
 		const internalRequests: Array<string> = [];
 		const committed = new Response(

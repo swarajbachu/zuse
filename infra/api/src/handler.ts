@@ -23,6 +23,8 @@ import {
 	routeCloudBillingRequest,
 } from "./cloud-billing-routes.ts";
 import { resolveResourceProvider } from "./cloud-provider-connections.ts";
+import { importedSnapshot } from "./cloud-snapshot.ts";
+import { queueAccountSnapshotDeletion } from "./cloud-snapshot-storage.ts";
 import {
 	type CloudWorkspaceRouteContext,
 	routeCloudWorkspaceRequest,
@@ -880,10 +882,13 @@ const route = (
 			) {
 				return json({ ok: true, cleanupPending: true }, 202);
 			}
+			if (yield* queueAccountSnapshotDeletion(principal.accountId, nowMs))
+				return json({ ok: true, cleanupPending: true }, 202);
 			const cloudProjects = yield* cloudStore.listProjects(principal.accountId);
 			for (const project of cloudProjects) {
 				for (const build of yield* cloudStore.listBuilds(project.projectId)) {
-					if (build.snapshotId === undefined) continue;
+					if (build.snapshotId === undefined || importedSnapshot(build))
+						continue;
 					const provider = yield* resolveResourceProvider(build).pipe(
 						Effect.mapError(() =>
 							serviceUnavailable("cloud_provider_unavailable"),

@@ -73,6 +73,13 @@ Usage:
   zuse serve logout [--data-dir <path>]
   zuse serve uninstall [--data-dir <path>]
 
+Agent controls (JSON output):
+  zuse commands                 Discover commands and usage
+  zuse workspace --help         Cloud computers and lifecycle
+  zuse chat --help              Sidebar chats and worktrees
+  zuse session --help           Agent tabs, messages, and queues
+  zuse preview --help           Publish or remove a workspace port URL
+
 Commands:
   start       Start Zuse Serve (default)
   status      Show service, tunnel, agent, and reachability status

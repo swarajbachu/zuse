@@ -222,6 +222,29 @@ test("persists across Worker restarts and isolates subjects and tenants", async 
 		expect((await a.request(command)).body.id).toBe(connected.body.id);
 		const search = await a.request(undefined, { action: "search", query: "" });
 		expect(search.body).toHaveLength(1);
+		expect((await a.request(undefined, { action: "list" })).body).toEqual([
+			{
+				connectionId: connected.body.connectionId,
+				pluginId: "cloudflare",
+				label: "Docs",
+			},
+		]);
+		expect(
+			(
+				await a.request(undefined, {
+					action: "search",
+					query: "  Cloudflare   ECHO ",
+				})
+			).body,
+		).toEqual(search.body);
+		expect(
+			(
+				await a.request(undefined, {
+					action: "search",
+					query: "cloudflare nonexistent",
+				})
+			).body,
+		).toEqual([]);
 		// Turning a connection off hides its tools without dropping credentials.
 		const connectionId = connected.body.connectionId;
 		expect(
@@ -236,6 +259,7 @@ test("persists across Worker restarts and isolates subjects and tenants", async 
 		expect(
 			(await a.request(undefined, { action: "search", query: "" })).body,
 		).toEqual([]);
+		expect((await a.request(undefined, { action: "list" })).body).toEqual([]);
 		await a.request({ action: "setEnabled", connectionId, enabled: true });
 		// The plugin id matches every tool, whatever the tool is called.
 		expect(

@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +9,7 @@ import { Effect, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, expect, test, vi } from "vitest";
 import {
+	checkNativeGitAccess,
 	makeCloudGitExecution,
 	prepareGitExecution,
 } from "../../src/api/cloud-git-execution.ts";
@@ -182,4 +184,145 @@ test("cloud startup waits for its resolver and fails closed after disposal", asy
 	expect(
 		await makeRuntimeGitExecution().resolve("local-session"),
 	).toBeUndefined();
+});
+
+test("managed Git fallback rewrites SSH only in the agent process and preserves native config", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "native git-"));
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () =>
+			Response.json({
+				token: "test-token",
+				expiresAtMs: Date.now() + 60000,
+				identity: { name: "Alice", email: "alice@example.test" },
+			}),
+		),
+	);
+	try {
+		execFileSync("git", ["init", "-q", directory]);
+		execFileSync("git", [
+			"-C",
+			directory,
+			"remote",
+			"add",
+			"origin",
+			"git@github.com:acme/repo.git",
+		]);
+		execFileSync("git", [
+			"-C",
+			directory,
+			"config",
+			"credential.helper",
+			"native-helper",
+		]);
+		const execution = await prepareGitExecution({
+			directory,
+			nativeRepositoryPath: directory,
+			authHelperPath,
+			key: "native-fallback",
+			context: { actor: { subject: "alice", membershipId: "a" } },
+			credentialUrl: "https://api.test/token",
+			credential: "runtime",
+		});
+		const git = (args: string[], env = process.env) =>
+			execFileSync("git", ["-C", directory, ...args], {
+				env,
+				encoding: "utf8",
+			}).trim();
+		expect(
+			git(["remote", "get-url", "origin"], {
+				...process.env,
+				...execution.env,
+			}),
+		).toBe("https://github.com/acme/repo.git");
+		expect(git(["remote", "get-url", "origin"])).toBe(
+			"git@github.com:acme/repo.git",
+		);
+		expect(git(["config", "credential.helper"])).toBe("native-helper");
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test("native Git honors the repository SSH command and never silently borrows a managed identity", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "native-access-"));
+	const runtime = ManagedRuntime.make(
+		layer({ filename: join(directory, "db.sqlite") }),
+	);
+	const fetch = vi.fn();
+	vi.stubGlobal("fetch", fetch);
+	try {
+		execFileSync("git", ["init", "-q", directory]);
+		execFileSync("git", [
+			"-C",
+			directory,
+			"remote",
+			"add",
+			"origin",
+			"git@github.com:acme/repo.git",
+		]);
+		const ssh = join(directory, "native-ssh");
+		await writeFile(
+			ssh,
+			"#!/bin/sh\necho 'Permission denied (publickey)' >&2\nexit 1\n",
+			{ mode: 0o700 },
+		);
+		execFileSync("git", ["-C", directory, "config", "core.sshCommand", ssh]);
+		const resolve = makeCloudGitExecution({
+			nativeRepositoryPath: directory,
+			sql: await runtime.runPromise(SqlClient.SqlClient),
+			directory,
+			authHelperPath,
+			credentialUrl: "https://api.test/token",
+			credential: () => "runtime",
+			initialSessionId: "session",
+		});
+		await expect(resolve("session")).rejects.toThrow("Authentication required");
+		expect(fetch).not.toHaveBeenCalled();
+	} finally {
+		await runtime.dispose();
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test.each([
+	"environment",
+	"config",
+])("native Git check suppresses %s askpass prompts", async (source) => {
+	const directory = await mkdtemp(join(tmpdir(), "git-askpass-"));
+	const server = createServer((_request, response) => {
+		response.writeHead(401);
+		response.end();
+	});
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	try {
+		const address = server.address();
+		if (!address || typeof address === "string")
+			throw new Error("No test server port");
+		const git = (...args: string[]) =>
+			execFileSync("git", ["-C", directory, ...args]);
+		git("init", "-q");
+		git("remote", "add", "origin", `http://127.0.0.1:${address.port}/repo`);
+		git("config", "credential.helper", "");
+		const helper = join(directory, "askpass");
+		const marker = join(directory, "prompted");
+		await writeFile(helper, `#!/bin/sh\ntouch '${marker}'\nexit 1\n`, {
+			mode: 0o700,
+		});
+		if (source === "environment") vi.stubEnv("GIT_ASKPASS", helper);
+		else {
+			vi.stubEnv("GIT_ASKPASS", undefined);
+			git("config", "core.askPass", helper);
+		}
+		expect(await checkNativeGitAccess(directory)).toBe(
+			"authentication-required",
+		);
+		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
+	} finally {
+		vi.unstubAllEnvs();
+		await new Promise<void>((resolve, reject) =>
+			server.close((error) => (error ? reject(error) : resolve())),
+		);
+		await rm(directory, { recursive: true, force: true });
+	}
 });

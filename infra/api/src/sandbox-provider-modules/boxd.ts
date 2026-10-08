@@ -19,6 +19,7 @@ const ActivationEnvironment = Schema.Struct({
 });
 const BoxdEnvironment = Schema.Struct({
 	BOXD_API_KEY: ConfiguredString,
+	BOXD_BILLING_ENABLED: Schema.optionalKey(Schema.Literals(["true", "false"])),
 	BOXD_ORG: Schema.optionalKey(ConfiguredString),
 	BOXD_BASE_URL: Schema.optionalKey(HttpsUrl),
 	BOXD_TEMPLATE_SNAPSHOT: ConfiguredString,
@@ -46,6 +47,7 @@ export const BoxdSandboxProviderModule: SandboxProviderModule = {
 			adapter: makeBoxdSandboxProvider({
 				apiKey: Redacted.make(config.BOXD_API_KEY),
 				org: config.BOXD_ORG,
+				billingUsageEnabled: config.BOXD_BILLING_ENABLED === "true",
 				templateSnapshot: config.BOXD_TEMPLATE_SNAPSHOT,
 				templateVersion: config.BOXD_TEMPLATE_VERSION,
 				machineSize: config.BOXD_MACHINE_SIZE as BoxdMachineSize | undefined,

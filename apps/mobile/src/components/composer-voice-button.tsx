@@ -12,7 +12,6 @@ import { File } from "expo-file-system";
 import { Mic, Square, X } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { AppState, Modal, Pressable, Text, View } from "react-native";
-import { requestAiSharingConsent } from "~/lib/ai-sharing-consent";
 import { stopRecorderOnUnmount } from "~/lib/audio-recorder-lifecycle";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { requestFeaturePermission } from "~/lib/device-permissions";
@@ -240,14 +239,6 @@ export function ComposerVoiceButton({
 			return;
 		startingRef.current = true;
 		try {
-			if (
-				!(await requestAiSharingConsent({
-					recipient: "OpenAI",
-					scope: connection.key ?? `${connection.host}:${connection.port}`,
-					destination: "voice",
-				}))
-			)
-				return;
 			if (
 				!(await requestFeaturePermission(
 					requestRecordingPermissionsAsync,

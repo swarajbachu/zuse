@@ -48,6 +48,7 @@ import {
 	orchestrationMcpPromptHint,
 } from "./orchestration-tools.ts";
 import { applyPlanModePrefix } from "./planMode.ts";
+import { pluginCliEnv } from "./plugin-tools.ts";
 
 /**
  * Live-only handle for one Kiro conversation. Mirrors the Gemini/Grok/Claude
@@ -149,16 +150,6 @@ export const startKiroSession = (
 
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 
-		const acpHandlerContext = makeAcpPermissionContext({
-			cwd,
-			sessionId,
-			projectId: input.folderId,
-			requestPermission: (kind, options) =>
-				requestPermission(sessionId, kind, options),
-			getRuntimeMode,
-			getPermissionMode: () => currentMode,
-		});
-
 		const mcpGatewaySession = yield* issueProviderMcpSession({
 			providerId: "kiro",
 			sessionId,
@@ -169,6 +160,20 @@ export const startKiroSession = (
 			getRuntimeMode,
 			getPermissionMode: () => currentMode,
 			orchestrationTools,
+		});
+		const executionEnv = {
+			...input.executionEnv,
+			...pluginCliEnv(mcpGatewaySession.endpoint, mcpGatewaySession.token),
+		};
+		const acpHandlerContext = makeAcpPermissionContext({
+			executionEnv,
+			cwd,
+			sessionId,
+			projectId: input.folderId,
+			requestPermission: (kind, options) =>
+				requestPermission(sessionId, kind, options),
+			getRuntimeMode,
+			getPermissionMode: () => currentMode,
 		});
 
 		const stdioMcpFallback = makeStdioMcpFallback({
@@ -227,7 +232,10 @@ export const startKiroSession = (
 		try {
 			child = spawn(kiroPath, spawnArgs, {
 				cwd,
-				env: { ...process.env },
+				env: {
+					...process.env,
+					...executionEnv,
+				},
 				stdio: ["pipe", "pipe", "pipe"],
 			});
 		} catch (cause) {

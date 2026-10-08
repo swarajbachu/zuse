@@ -304,6 +304,8 @@
 	"projects_sidebar_upgrade": "升級",
 	"projects_sidebar_plan_cloud": "Cloud",
 	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud 方案 · 管理帳單",
+	"project_setup_dialog_in_other_workspace": "此資料夾已是另一個工作區中的專案。要移到這裡嗎？其聊天會一併移動。",
+	"project_setup_dialog_move_here": "移到這裡",
 	"projects_sidebar_threads": "執行緒",
 	"projects_sidebar_no_threads_yet": "尚無執行緒",
 	"projects_sidebar_start_a_chat_to_see_it_here": "在任一專案中開始聊天即可在此查看。",

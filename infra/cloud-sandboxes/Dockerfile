@@ -5,7 +5,7 @@ ENV ZUSE_PROVISION_DIR=/tmp/zuse-provision
 
 # Shared runtime/layout installation lives in provision.sh. E2B also installs
 # pinned agents; the Boat publisher preserves its provider-bundled agents.
-COPY --chmod=0755 provision.sh /tmp/zuse-provision/provision.sh
+COPY --chmod=0755 install-grok.sh provision.sh /tmp/zuse-provision/
 
 RUN /tmp/zuse-provision/provision.sh packages
 

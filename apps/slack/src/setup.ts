@@ -33,7 +33,7 @@ export const oauth = async (
 		target.search = new URLSearchParams({
 			client_id: env.SLACK_CLIENT_ID,
 			scope:
-				"chat:write,files:read,channels:history,groups:history,app_mentions:read,im:history",
+				"chat:write,reactions:write,files:read,channels:history,groups:history,app_mentions:read,im:history",
 			user_scope: "channels:history,groups:history",
 			redirect_uri: `${appOrigin(env)}/slack/oauth/callback`,
 			state,
@@ -156,7 +156,9 @@ const setupPage = async (
 		return page(
 			`<h1>Connect from Slack</h1><p>Open Zuse’s Home tab to connect your account before creating automations.</p>`,
 		);
-	const { projects } = await listProjects(env.cloud(connected.accountId));
+	const { projects } = await listProjects(
+		env.cloud(connected.accountId, connected.organizationId),
+	);
 	content += `<p>Manage your account and repository defaults in Zuse’s Home tab in Slack.</p>`;
 	content +=
 		"<h2>Your automations</h2><p>Trigger: Better Stack production error or error spike. Action: investigate in Zuse and post results in the same Slack thread.</p>";
@@ -235,7 +237,9 @@ export const settings = async (
 	let credentials = installation.credentials;
 	if (url.pathname === "/slack/setup/project") {
 		const projectId = formValue(form, "projectId");
-		const { projects } = await listProjects(env.cloud(zuse.accountId));
+		const { projects } = await listProjects(
+			env.cloud(zuse.accountId, zuse.organizationId),
+		);
 		if (
 			!projects.some(
 				(project) =>
@@ -276,7 +280,9 @@ export const settings = async (
 				400,
 			);
 		}
-		const { projects } = await listProjects(env.cloud(zuse.accountId));
+		const { projects } = await listProjects(
+			env.cloud(zuse.accountId, zuse.organizationId),
+		);
 		if (
 			!projects.some(
 				(project) =>

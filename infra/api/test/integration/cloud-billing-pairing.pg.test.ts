@@ -109,3 +109,132 @@ it.skipIf(!connectionString)(
 	},
 	30_000,
 );
+
+it.skipIf(!connectionString)(
+	"retains boxd machine ownership and commits concurrent exports once",
+	async () => {
+		const pool = new Pool({ connectionString });
+		const runtime = ManagedRuntime.make(
+			CloudBillingStorePg.pipe(
+				Layer.provide(
+					PgClient.layerFrom(
+						PgClient.fromPool({
+							acquire: Effect.acquireRelease(Effect.succeed(pool), (p) =>
+								Effect.promise(() => p.end()),
+							),
+						}),
+					),
+				),
+			),
+		);
+		const id = `boxd-${crypto.randomUUID()}`;
+		const now = Date.now();
+		try {
+			const store = await runtime.runPromise(CloudBillingStore);
+			const observation = {
+				provider: "boxd",
+				providerSandboxId: id,
+				accountId: id,
+				resourceKind: "workspace" as const,
+				resourceId: id,
+				observedAtMs: now,
+				vcpuCount: 1,
+				memoryMib: 4096,
+			};
+			await runtime.runPromise(store.recordRuntimeObservation(observation));
+			expect(
+				await runtime.runPromise(store.getRuntimeObservation("boxd", id)),
+			).toEqual(observation);
+			expect(
+				await runtime.runPromise(store.getRuntimeObservation("box", id)),
+			).toBeNull();
+			await runtime.runPromise(
+				store.ensurePeriod({
+					periodId: id,
+					accountId: id,
+					status: "active",
+					periodStartMs: now - 60_000,
+					periodEndMs: now + 60_000,
+					nowMs: now,
+				}),
+			);
+			await runtime.runPromise(
+				store.recordProviderEvent({
+					provider: "boxd",
+					eventId: id,
+					type: "boxd.usage.window",
+					providerResourceId: id,
+					payload: {},
+					receivedAtMs: now,
+					expiresAtMs: now + 60_000,
+				}),
+			);
+			const batch = {
+				provider: "boxd",
+				eventId: id,
+				providerExecutionId: id,
+				finalizedAtMs: now,
+				usage: [
+					{
+						entryId: id,
+						providerEventId: id,
+						startedAt: now - 60_000,
+						endedAt: now,
+						providerCostMicros: 123,
+						periodId: id,
+						accountId: id,
+						resourceKind: "workspace" as const,
+						resourceId: id,
+						provider: "boxd",
+						providerExecutionId: id,
+						vcpuCount: 1,
+						memoryMib: 4096,
+						status: "confirmed" as const,
+						nowMs: now,
+					},
+				],
+			};
+			const results = await Promise.all([
+				runtime.runPromise(store.recordProviderExecutionBatch(batch)),
+				runtime.runPromise(store.recordProviderExecutionBatch(batch)),
+			]);
+			expect(results.filter(Boolean)).toHaveLength(1);
+			expect(
+				(await runtime.runPromise(store.listUsage(id, undefined, 10))).items,
+			).toHaveLength(1);
+			const exported = await pool.query(
+				"SELECT payload FROM api_cloud_usage_outbox WHERE payload->>'accountId'=$1",
+				[id],
+			);
+			expect(exported.rows).toHaveLength(1);
+			expect(exported.rows[0].payload.metadata.measurement).toBe(
+				"completed-provider-estimate",
+			);
+		} finally {
+			await pool.query(
+				"DELETE FROM api_cloud_usage_outbox WHERE payload->>'accountId'=$1",
+				[id],
+			);
+			for (const table of [
+				"api_cloud_billing_outbox",
+				"api_cloud_billing_ledger",
+				"api_cloud_billing_usage",
+				"api_cloud_billing_periods",
+				"api_provider_event_finalizations",
+				"api_provider_usage_events",
+				"api_cloud_runtime_observations",
+			]) {
+				const column =
+					table === "api_provider_event_finalizations" ||
+					table === "api_provider_usage_events"
+						? "event_id"
+						: table === "api_cloud_runtime_observations"
+							? "provider_sandbox_id"
+							: "account_id";
+				await pool.query(`DELETE FROM ${table} WHERE ${column}=$1`, [id]);
+			}
+			await runtime.dispose();
+		}
+	},
+	30_000,
+);

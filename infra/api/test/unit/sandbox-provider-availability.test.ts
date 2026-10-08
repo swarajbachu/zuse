@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { availableSandboxProviders } from "../../src/sandbox-provider-availability.ts";
+import {
+	availableSandboxProviders,
+	boxdBillingConfigured,
+} from "../../src/sandbox-provider-availability.ts";
 
 const providers = [
 	{ providerId: "box", advertised: true, productionReady: true },
@@ -10,6 +13,17 @@ const providers = [
 ];
 
 describe("sandbox placement availability", () => {
+	test("requires an explicit valid boxd cutover before paid placement", () => {
+		expect(boxdBillingConfigured("true", "2026-10-06T00:00:00Z")).toBe(true);
+		for (const cutover of [undefined, "invalid", "2026-10-06T00:00:00.001Z"])
+			expect(boxdBillingConfigured("true", cutover)).toBe(false);
+		expect(boxdBillingConfigured("false", "2026-10-06T00:00:00Z")).toBe(false);
+	});
+	test("allows billing-enforced boxd only with completed-cost opt-in", () => {
+		expect([
+			...availableSandboxProviders(providers, false, true, true),
+		]).toEqual(["box", "e2b", "boxd"]);
+	});
 	test.each([
 		false,
 		true,

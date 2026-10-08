@@ -61,14 +61,9 @@ stage_globals() {
 }
 
 stage_grok() {
-	# Shared by every provider; Boat does not supply Grok.
-	mkdir -p /opt/grok
-	# Reviewed installer digest; upstream changes fail closed until reviewed.
-	curl --proto '=https' --proto-redir '=https' -fsSL --max-time 60 https://x.ai/cli/install.sh -o /tmp/install-grok.sh
-	printf '%s  %s\n' '7fd6fdc75d9418b2e58356726fcbf1ae849416f773925da07d0ccc7a60d3e791' /tmp/install-grok.sh | sha256sum --check --status
-	HOME=/opt/grok GROK_BIN_DIR=/usr/local/bin bash /tmp/install-grok.sh 1.0.13
-	grok --version
-	rm /tmp/install-grok.sh
+  source "$provision_dir/install-grok.sh"
+  mkdir -p /opt/grok
+  HOME=/opt/grok GROK_BIN_DIR=/usr/local/bin install_grok
 }
 
 stage_runtime() {

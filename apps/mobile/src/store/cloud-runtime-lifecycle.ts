@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useEffect } from "react";
 import { AppState } from "react-native";
+import { cloudLifecycle } from "~/lib/cloud-lifecycle";
 import { resetCloudRuntime } from "~/rpc/cloud-runtime";
 import { disposeConnection } from "~/rpc/connection";
 import { authAccountAtom } from "./auth";
@@ -30,11 +31,24 @@ export function useCloudRuntimeLifecycle(): void {
 		setCloudCatalogAccount(accountId);
 		if (accountId === null) return;
 		let active = AppState.currentState !== "background";
+		let lastRefresh = 0;
 		const refresh = () => {
-			if (active) void refreshCloudCatalog();
+			if (!active) return;
+			lastRefresh = Date.now();
+			void refreshCloudCatalog();
 		};
 		refresh();
-		const timer = setInterval(refresh, 10_000);
+		// Every 10s normally; every 2s while a workspace boots or resumes so
+		// the setup steps advance like desktop's live watch.
+		const timer = setInterval(() => {
+			const starting = appAtomRegistry
+				.get(cloudCatalogAtom)
+				.chats.some((summary) => {
+					const lifecycle = cloudLifecycle(summary);
+					return lifecycle === "starting" || lifecycle === "resuming";
+				});
+			if (starting || Date.now() - lastRefresh >= 10_000) refresh();
+		}, 2_000);
 		const subscription = AppState.addEventListener("change", (state) => {
 			active = state === "active";
 			refresh();

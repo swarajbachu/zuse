@@ -60,5 +60,9 @@
 	"plugins_skills_personal": "個人",
 	"plugins_skills_project": "專案",
 	"plugins_skills_codex_note": "Codex 的開關儲存在 Codex 本身的設定中，因此在 Zuse 之外也會生效。",
-	"plugins_skills_loading": "正在載入技能…"
+	"plugins_skills_loading": "正在載入技能…",
+	"plugins_connection_name": "連線名稱",
+	"plugins_connection_name_placeholder": "工作、個人或公司名稱",
+	"plugins_connect_another": "連接另一個帳號",
+	"plugins_connection_name_exists": "此名稱已被使用。請選擇其他連線名稱。"
 }

@@ -2,11 +2,13 @@ import * as Path from "node:path";
 import {
 	Folder,
 	FolderId,
+	PERSONAL_WORKSPACE_KEY,
 	WorkspaceDuplicatePathError,
 	WorkspaceInvalidPathError,
+	WorkspaceKey,
 	WorkspaceNotFoundError,
 } from "@zuse/contracts";
-import { Effect, FileSystem, Layer, PubSub, Stream } from "effect";
+import { Effect, FileSystem, Layer, PubSub, Schema, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
 import { prepareProjectRegistration } from "../project-registration.ts";
@@ -17,7 +19,10 @@ interface ProjectRow {
 	readonly path: string;
 	readonly name: string;
 	readonly created_at: string;
+	readonly workspace_key: string;
 }
+
+const isWorkspaceKey = Schema.is(WorkspaceKey);
 
 const rowToFolder = (row: ProjectRow): Folder =>
 	Folder.make({
@@ -25,6 +30,10 @@ const rowToFolder = (row: ProjectRow): Folder =>
 		path: row.path,
 		name: row.name,
 		addedAt: new Date(row.created_at),
+		// A malformed stored key must never widen visibility; treat it as Personal.
+		workspaceKey: isWorkspaceKey(row.workspace_key)
+			? row.workspace_key
+			: PERSONAL_WORKSPACE_KEY,
 	});
 
 const SELECTED_KEY = "selectedProjectId";
@@ -39,7 +48,7 @@ export const WorkspaceServiceLive = Layer.effect(
 		const list: WorkspaceService["Service"]["list"] = () =>
 			Effect.gen(function* () {
 				const rows = yield* sql<ProjectRow>`
-          SELECT id, path, name, created_at
+          SELECT id, path, name, created_at, workspace_key
           FROM projects
           ORDER BY created_at ASC
         `.pipe(Effect.orDie);
@@ -49,7 +58,7 @@ export const WorkspaceServiceLive = Layer.effect(
 		const findById: WorkspaceService["Service"]["findById"] = (folderId) =>
 			Effect.gen(function* () {
 				const rows = yield* sql<ProjectRow>`
-          SELECT id, path, name, created_at
+          SELECT id, path, name, created_at, workspace_key
           FROM projects
           WHERE id = ${folderId}
           LIMIT 1
@@ -57,9 +66,10 @@ export const WorkspaceServiceLive = Layer.effect(
 				return rows.length > 0 ? rowToFolder(rows[0]!) : null;
 			});
 
-		const add: WorkspaceService["Service"]["add"] = (rawPath) =>
+		const add: WorkspaceService["Service"]["add"] = (rawPath, options) =>
 			Effect.gen(function* () {
 				const resolved = Path.resolve(rawPath);
+				const workspaceKey = options?.workspaceKey ?? PERSONAL_WORKSPACE_KEY;
 
 				const stat = yield* fs.stat(resolved).pipe(
 					Effect.mapError(
@@ -79,12 +89,36 @@ export const WorkspaceServiceLive = Layer.effect(
 					);
 				}
 
-				const dupes = yield* sql<{ id: string }>`
-          SELECT id FROM projects WHERE path = ${resolved} LIMIT 1
+				const dupes = yield* sql<ProjectRow>`
+          SELECT id, path, name, created_at, workspace_key
+          FROM projects WHERE path = ${resolved} LIMIT 1
         `.pipe(Effect.orDie);
-				if (dupes.length > 0) {
+				const existing = dupes[0];
+				if (existing !== undefined) {
+					const folder = rowToFolder(existing);
+					if (
+						options?.moveFrom !== undefined &&
+						options.moveFrom !== workspaceKey
+					) {
+						// Compare-and-swap: a concurrent move or re-add leaves the row alone.
+						const moved = yield* sql<{ id: string }>`
+              UPDATE projects
+              SET workspace_key = ${workspaceKey}, updated_at = ${new Date().toISOString()}
+              WHERE id = ${existing.id} AND workspace_key = ${options.moveFrom}
+              RETURNING id
+            `.pipe(Effect.orDie);
+						if (moved.length > 0) {
+							yield* PubSub.publish(changes, yield* list());
+							return Folder.make({ ...folder, workspaceKey });
+						}
+					}
 					return yield* Effect.fail(
-						new WorkspaceDuplicatePathError({ path: resolved }),
+						new WorkspaceDuplicatePathError({
+							path: resolved,
+							...(folder.workspaceKey === workspaceKey
+								? {}
+								: { folderId: folder.id, workspaceKey: folder.workspaceKey }),
+						}),
 					);
 				}
 
@@ -103,11 +137,17 @@ export const WorkspaceServiceLive = Layer.effect(
 				const nowIso = now.toISOString();
 
 				yield* sql`
-          INSERT INTO projects (id, path, name, created_at, updated_at)
-          VALUES (${id}, ${resolved}, ${name}, ${nowIso}, ${nowIso})
+          INSERT INTO projects (id, path, name, created_at, updated_at, workspace_key)
+          VALUES (${id}, ${resolved}, ${name}, ${nowIso}, ${nowIso}, ${workspaceKey})
         `.pipe(Effect.orDie);
 
-				const folder = Folder.make({ id, path: resolved, name, addedAt: now });
+				const folder = Folder.make({
+					id,
+					path: resolved,
+					name,
+					addedAt: now,
+					workspaceKey,
+				});
 				yield* PubSub.publish(changes, yield* list());
 				return folder;
 			});

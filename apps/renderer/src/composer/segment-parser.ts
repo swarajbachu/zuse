@@ -64,16 +64,18 @@ export const parseComposerInput = (
 					originalName: c.meta.originalName,
 				});
 				break;
-			case "plugin":
-				// Every driver forwards context annotations, so a mention needs no
-				// provider-specific wiring: it tells the agent which plugin to use.
-				if (!plugins.has(c.meta.pluginId)) {
-					plugins.add(c.meta.pluginId);
-					annotations.push(
-						pluginMentionContext({ id: c.meta.pluginId, name: c.meta.name }),
-					);
+			case "plugin": {
+				const annotation = pluginMentionContext({
+					id: c.meta.pluginId,
+					name: c.meta.name,
+					connectionId: c.meta.connectionId,
+				});
+				if (!plugins.has(annotation.id)) {
+					plugins.add(annotation.id);
+					annotations.push(annotation);
 				}
 				break;
+			}
 		}
 	}
 

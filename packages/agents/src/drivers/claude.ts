@@ -27,7 +27,6 @@ import {
 } from "@zuse/contracts";
 import { fractionToPercent } from "@zuse/utils/usage-values";
 import { type Cause, Effect, Queue, Stream } from "effect";
-
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type {
 	ProviderDriverEvent,
@@ -49,6 +48,7 @@ import {
 	startCompactSnapshot,
 } from "./compact.ts";
 import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
+import { pluginCliEnv } from "./plugin-tools.ts";
 
 /**
  * User MCP servers → SDK external-server config entries. Tools surface as
@@ -1847,7 +1847,11 @@ export const startClaudeSession = (
 				: credential;
 		const env = applyClaudeCredentialEnv(
 			applyClaudeWorktreeEnv(
-				scrubInheritedClaudeMarkers({ ...process.env, ...input.executionEnv }),
+				scrubInheritedClaudeMarkers({
+					...process.env,
+					...input.executionEnv,
+					...pluginCliEnv(mcpGatewaySession.endpoint, mcpGatewaySession.token),
+				}),
 				cwd,
 			),
 			managedCredential,

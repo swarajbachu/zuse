@@ -56,9 +56,14 @@ export const composerSnapshotFromInput = (
 	for (const annotation of input.annotations) {
 		if (!("_tag" in annotation) || annotation._tag !== "context") continue;
 		if (!annotation.id.startsWith("plugin:")) continue;
+		const [pluginId, connectionId] = annotation.id
+			.slice("plugin:".length)
+			.split(":");
+		if (!pluginId) continue;
 		addToken(`@${annotation.label}`, {
 			kind: "plugin",
-			pluginId: annotation.id.slice("plugin:".length),
+			pluginId,
+			...(connectionId ? { connectionId } : {}),
 			name: annotation.label,
 			domain: "",
 		});

@@ -269,3 +269,21 @@ test("sharing uses the existing control transport and preserves revision and mem
 		{ path: ApiPaths.cloudSharingDefaults, method: "PUT", body: defaults },
 	]);
 });
+
+test("saved image deletion targets an exact snapshot identity for safe retries", async () => {
+	const calls: Array<{ path: string; method?: string; body?: unknown }> = [];
+	const client = makeCloudControlClient((path, _schema, method, body) => {
+		calls.push({ path, method, body });
+		return Effect.die("captured");
+	});
+	const input = { snapshotId: "zuse-image-old" };
+	await Effect.runPromiseExit(client["cloud.image.delete"](input));
+	await Effect.runPromiseExit(client["cloud.image.delete"](input));
+	expect(calls).toEqual(
+		Array(2).fill({
+			path: ApiPaths.cloudAccountImageDelete,
+			method: "POST",
+			body: input,
+		}),
+	);
+});

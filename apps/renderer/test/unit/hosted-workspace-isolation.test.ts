@@ -39,6 +39,8 @@ it("isolates the hosted virtual project catalog on workspace switches without re
 	selectRendererWorkspace({ kind: "organization", organizationId: "org-b" });
 	expect(rendererResourceCacheNamespace(environmentId)).not.toBe(organization);
 	vi.stubEnv("VITE_ZUSE_HOSTED", "0");
-	expect(environmentBelongsToWorkspace(environmentId)).toBe(false);
+	// The desktop's own server serves every workspace; its projects record
+	// their owner and reads are scoped per project, not per cache namespace.
+	expect(environmentBelongsToWorkspace(environmentId)).toBe(true);
 	expect(rendererResourceCacheNamespace(environmentId)).toBeUndefined();
 });

@@ -56,6 +56,7 @@ const server = await createServer({
 					export const subscribeControlPlaneSessionCache = () => () => {};
 					export const runCloudControl = (run) => run(new Proxy({}, {get: (_, method) => () => {
 						window.authCalls.push(method);
+						if (window.authReplies?.[method]) return Promise.resolve(window.authReplies[method]);
 						return new Promise((resolve, reject) => { window.rejectAuth = () => reject(new Error('offline')); });
 					}}));
 				`;
@@ -126,6 +127,68 @@ try {
 	]);
 	await page.evaluate(() => window.rejectAuth());
 	await dialog.getByRole("alert").waitFor();
+	// A resolved RPC containing a failed verification must not close the dialog.
+	await page.evaluate(async () => {
+		const key = await crypto.subtle.generateKey(
+			{
+				name: "RSA-OAEP",
+				modulusLength: 2048,
+				publicExponent: new Uint8Array([1, 0, 1]),
+				hash: "SHA-256",
+			},
+			true,
+			["encrypt", "decrypt"],
+		);
+		window.authReplies = {
+			"cloud.auth.provision": {
+				providers: [],
+				encryptionKeyId: "test",
+				encryptionPublicJwk: JSON.stringify(
+					await crypto.subtle.exportKey("jwk", key.publicKey),
+				),
+			},
+			"cloud.auth.configure": {
+				providerId: "claude",
+				state: "expired",
+				errorCode: "authentication-required",
+			},
+		};
+	});
+	await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+	await dialog.waitFor({ state: "hidden" });
+	await connect.first().click();
+	await dialog
+		.getByLabel("Setup token", { exact: true })
+		.fill("sk-ant-oat01-example");
+	await dialog
+		.getByRole("button", { name: "Save and verify", exact: false })
+		.click();
+	await dialog.getByRole("alert").waitFor();
+	assert.equal(await dialog.isVisible(), true);
+	assert.ok(
+		(await page.evaluate(() => window.authCalls)).includes(
+			"cloud.auth.configure",
+		),
+	);
+	assert.equal(
+		await dialog.getByLabel("Setup token", { exact: true }).inputValue(),
+		"sk-ant-oat01-example",
+	);
+	assert.match(
+		await dialog.getByRole("alert").innerText(),
+		/verification failed/,
+	);
+	await page.evaluate(() => {
+		window.authReplies["cloud.auth.configure"] = {
+			providerId: "claude",
+			state: "connected",
+		};
+	});
+	await dialog
+		.getByRole("button", { name: "Save and verify", exact: false })
+		.click();
+	await dialog.waitFor({ state: "hidden" });
+
 	assert.deepEqual(errors, []);
 	console.log(
 		"PASS: Connect opens during stalled status; device login starts directly, shows failures and allows retry; API keys provision on save.",

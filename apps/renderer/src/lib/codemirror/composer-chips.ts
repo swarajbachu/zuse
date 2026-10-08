@@ -46,6 +46,7 @@ export type ChipMeta =
 	| {
 			readonly kind: "plugin";
 			readonly pluginId: string;
+			readonly connectionId?: string;
 			readonly name: string;
 			readonly domain: string;
 	  };
@@ -203,7 +204,7 @@ const chipKey = (meta: ChipMeta): string => {
 		case "image":
 			return `image:${meta.id}`;
 		case "plugin":
-			return `plugin:${meta.pluginId}`;
+			return `plugin:${meta.pluginId}:${meta.connectionId ?? ""}`;
 	}
 };
 

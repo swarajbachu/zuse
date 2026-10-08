@@ -16,9 +16,11 @@ import type { Socket as SocketNs } from "effect/unstable/socket";
  * token) and hands the plain ticket to the desktop's ProxyCommand bridge.
  */
 
-const SSH_TICKET_FILE = "/home/zuse/.zuse-ssh-ticket";
+const SSH_TICKET_FILE =
+	process.env.ZUSE_SSH_TICKET_FILE ?? "/home/zuse/.zuse-ssh-ticket";
 const SSHD_BINARY = "/usr/sbin/sshd";
-const SSHD_CONFIG_FILE = "/home/zuse/.ssh/sshd_config";
+const SSHD_CONFIG_FILE =
+	process.env.ZUSE_SSHD_CONFIG_FILE ?? "/home/zuse/.ssh/sshd_config";
 
 const sha256Hex = (value: string): string =>
 	createHash("sha256").update(value).digest("hex");

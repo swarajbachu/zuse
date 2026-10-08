@@ -260,11 +260,11 @@ export default function PrivacyPage() {
 						Providers and third parties
 					</h2>
 					<p className="mt-2">
-						Mobile asks before sharing messages, selected attachments and
-						workspace context with the chosen agent/model services. Dictation
-						sends audio to OpenAI for transcription through the connected
-						environment or directly from the device. Sharing choices last for
-						the app session and can be reset in Settings. Provider privacy
+						When you send a message, Zuse shares it, your selected attachments
+						and relevant workspace context with the agent and model services
+						you chose, through your connected computer or cloud workspace.
+						Dictation sends audio to OpenAI for transcription through the
+						connected environment or directly from the device. Provider privacy
 						policies apply. Zuse relies on third parties only where a feature
 						requires them. These can include WorkOS for account authentication,
 						the analytics processor for the limited analytics described above,

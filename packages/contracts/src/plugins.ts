@@ -135,6 +135,7 @@ export const PluginsRequestRpc = Rpc.make("plugins.request", {
 });
 
 export const PluginToolRequest = Schema.Union([
+	Schema.Struct({ action: Schema.Literal("list") }),
 	Schema.Struct({ action: Schema.Literal("search"), query: Schema.String }),
 	Schema.Struct({ action: Schema.Literal("schema"), address: Schema.String }),
 	Schema.Struct({
@@ -147,9 +148,20 @@ export type PluginToolRequest = typeof PluginToolRequest.Type;
 
 export const PLUGIN_MCP_TOOLS = [
 	{
+		name: "plugins_list",
+		description:
+			"List enabled, connected Zuse plugins and account labels. Optional: search directly when you already know the service or task.",
+		inputSchema: {
+			type: "object",
+			properties: {},
+			required: [],
+			additionalProperties: false,
+		},
+	},
+	{
 		name: "plugins_search",
 		description:
-			"Find tools in the user's connected plugins. Search before requesting a tool schema.",
+			"Search the user's connected Zuse plugins directly by service and task, for example 'linear issue'. No listing or empty query is needed first. Returns exact tool addresses; use plugins_schema then plugins_call.",
 		inputSchema: {
 			type: "object",
 			properties: { query: { type: "string" } },

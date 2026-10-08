@@ -304,6 +304,8 @@
 	"projects_sidebar_upgrade": "업그레이드",
 	"projects_sidebar_plan_cloud": "Cloud",
 	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud 요금제 · 결제 관리",
+	"project_setup_dialog_in_other_workspace": "이 폴더는 이미 다른 워크스페이스의 프로젝트입니다. 여기로 옮길까요? 채팅도 함께 옮겨집니다.",
+	"project_setup_dialog_move_here": "여기로 이동",
 	"projects_sidebar_threads": "스레드",
 	"projects_sidebar_no_threads_yet": "아직 스레드가 없습니다",
 	"projects_sidebar_start_a_chat_to_see_it_here": "프로젝트에서 채팅을 시작하면 여기에 표시됩니다.",

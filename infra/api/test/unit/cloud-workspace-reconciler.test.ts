@@ -84,7 +84,7 @@ test.each([
 			const store = yield* CloudWorkspaceStore;
 			const build = yield* store.getBuild(workspace.buildId);
 			if (build === null) throw new Error("Missing build");
-			const project = yield* store.getProject(build.projectId);
+			const project = yield* store.getProject(build.projectId ?? "");
 			if (project === null) throw new Error("Missing project");
 			yield* store.saveProject({ ...project, state: "preparing" });
 			yield* store.saveBuild({
@@ -116,7 +116,7 @@ test.each([
 			if (code === "rejected") {
 				expect(result?.providerSandboxId).toBeUndefined();
 				expect(yield* provider.inspect("source-snapshot-error")).toBeNull();
-				expect((yield* store.getProject(build.projectId))?.state).toBe(
+				expect((yield* store.getProject(build.projectId ?? ""))?.state).toBe(
 					"failed",
 				);
 			}
@@ -689,7 +689,7 @@ describe("cloud workspace reconciler", () => {
 			"/var/lib/zuse/workspace/credentials-ready",
 		);
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
-			'exec node "$runtime" serve >> "$log" 2>&1',
+			`exec "\${ZUSE_RUNTIME_NODE:-node}" "$runtime" serve >> "$log" 2>&1`,
 		);
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).not.toContain("nohup");
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).not.toContain("</dev/null &");

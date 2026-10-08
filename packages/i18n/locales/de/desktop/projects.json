@@ -304,6 +304,8 @@
 	"projects_sidebar_upgrade": "Upgraden",
 	"projects_sidebar_plan_cloud": "Cloud",
 	"projects_sidebar_plan_cloud_tooltip": "Zuse-Cloud-Tarif · Abrechnung verwalten",
+	"project_setup_dialog_in_other_workspace": "Dieser Ordner ist bereits ein Projekt in einem anderen Arbeitsbereich. Hierher verschieben? Seine Chats werden mit verschoben.",
+	"project_setup_dialog_move_here": "Hierher verschieben",
 	"projects_sidebar_threads": "Threads",
 	"projects_sidebar_no_threads_yet": "Noch keine Threads",
 	"projects_sidebar_start_a_chat_to_see_it_here": "Starten Sie einen Chat in einem Projekt, um ihn hier zu sehen.",

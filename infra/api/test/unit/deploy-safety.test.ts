@@ -161,18 +161,29 @@ else process.exit(2);
 		"secret",
 		"auth-provider",
 		"billing",
+		"paid-billing-ready",
 		"ready",
 		"boxd-only-ready",
 		"boxd-only-disabled-auth",
 		"boxd-only-default-auth",
 	])("checks enabled boxd prerequisites before deployment: %s", async (scenario) => {
 		const boxdOnly = scenario.startsWith("boxd-only-");
-		const ready = scenario === "ready" || scenario === "boxd-only-ready";
+		const ready =
+			scenario === "ready" ||
+			scenario === "boxd-only-ready" ||
+			scenario === "paid-billing-ready";
 		const directory = await mkdtemp(join(tmpdir(), "zuse-deploy-test-"));
 		try {
 			const config = parse(await readFile(productionWranglerConfigUrl, "utf8"));
 			config.vars.CLOUD_BILLING_ENFORCEMENT_ENABLED =
-				scenario === "billing" ? "true" : "false";
+				scenario === "billing" || scenario === "paid-billing-ready"
+					? "true"
+					: "false";
+			if (scenario === "billing") config.vars.BOXD_BILLING_ENABLED = "false";
+			if (scenario === "paid-billing-ready") {
+				config.vars.BOXD_BILLING_ENABLED = "true";
+				config.vars.BOXD_BILLING_CUTOVER_AT = "2026-10-06T17:15:42Z";
+			}
 			// The login authority may only name an enabled adapter.
 			config.vars.BOXD_ADAPTER_ENABLED =
 				scenario === "auth-provider" ? "false" : "true";

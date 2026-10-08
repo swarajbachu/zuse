@@ -140,5 +140,6 @@
 	"update_to_latest": "Update {{name}} to the latest version",
 	"sign_in_failed": "Sign-in failed.",
 	"sign_in_incomplete": "Sign-in ended before completion.",
-	"update_incomplete": "Update ended before completion."
+	"update_incomplete": "Update ended before completion.",
+	"remove_computer_account_description": "Remove {{value}} from your account and free its computer slot. Remote access through Zuse will stop. Projects and data on the computer are kept."
 }

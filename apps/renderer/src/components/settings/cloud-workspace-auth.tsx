@@ -315,7 +315,7 @@ export function CloudWorkspaceAuth() {
 				throw new Error("Cloud authentication is not ready");
 			}
 			const ciphertext = await sealSecret(encryptionPublicJwk, secret);
-			await runCloudControl((client) =>
+			const configured = await runCloudControl((client) =>
 				client["cloud.auth.configure"]({
 					providerId: selectedProvider,
 					method,
@@ -331,6 +331,9 @@ export function CloudWorkspaceAuth() {
 						: {}),
 				}),
 			);
+			if (configured.state !== "connected") {
+				throw new Error("Agent credential verification failed");
+			}
 			setSecret("");
 			setSelectedProvider(null);
 			void refresh();

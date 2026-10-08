@@ -36,6 +36,11 @@ export const markSessionTurnStartFailed = (sessionKey: string): void => {
 	setSessionTurnActivity(sessionKey, "idle");
 };
 
+/** A cloud send waiting in the mailbox has not started a turn yet. */
+export const markSessionTurnWaiting = (sessionKey: string): void => {
+	setSessionTurnActivity(sessionKey, "idle");
+};
+
 /** The session timeline is authoritative once its projection arrives. */
 export const syncSessionTurnActivity = (
 	sessionKey: string,

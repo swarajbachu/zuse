@@ -10,23 +10,52 @@ vi.mock("../../src/store/environment-catalog.ts", () => ({
 		selector: (value: { activeEnvironmentId: string }) => unknown,
 	) => selector({ activeEnvironmentId: state.environmentId }),
 }));
-vi.mock("../../src/lib/environment-shell-client-bus.ts", () => ({
-	useEnvironmentShellResource: (environmentId: string | null) => {
-		state.requested.push(environmentId);
-		return {
-			data:
-				environmentId === null
-					? null
-					: {
-							folders: [{ name: "Secret repository" }],
-							chatsByProject: { repo: [{ title: "Secret chat" }] },
-							sessionsByProject: {},
-							originsByFolder: {},
-							creationOperationsByProject: {},
-						},
-		};
-	},
-}));
+vi.mock("../../src/lib/environment-shell-client-bus.ts", async () => {
+	// Exercise the real workspace filter that the shell bus applies to reads.
+	const { scopeEnvironmentShell } = await import(
+		"../../src/lib/environment-shell-scope.ts"
+	);
+	const { rendererWorkspaceSnapshot } = await import(
+		"../../src/lib/renderer-workspace.ts"
+	);
+	const shell = {
+		folders: [
+			{ id: "repo", name: "Secret repository" },
+			{
+				id: "org-repo",
+				name: "Org repository",
+				workspaceKey: "organization:org-a",
+			},
+		],
+		chatsByProject: {
+			repo: [{ title: "Secret chat" }],
+			"org-repo": [{ title: "Org chat" }],
+		},
+		sessionsByProject: {},
+		originsByFolder: {},
+		creationOperationsByProject: {},
+	} as never;
+	return {
+		useEnvironmentShellResource: (
+			environmentId: string | null,
+			_activation: string,
+			workspaces: "selected" | "all" = "selected",
+		) => {
+			state.requested.push(environmentId);
+			if (environmentId === null) return { data: null };
+			return {
+				data:
+					workspaces === "all"
+						? shell
+						: scopeEnvironmentShell(
+								environmentId,
+								shell,
+								rendererWorkspaceSnapshot().scope,
+							),
+			};
+		},
+	};
+});
 
 import {
 	useActiveEnvironmentEntities,
@@ -41,7 +70,7 @@ import { registerCloudWorkspace } from "../../src/lib/rpc-client.ts";
 
 const Content = ({ background = false }: { background?: boolean }) => {
 	const visible = useActiveEnvironmentEntities();
-	const explicit = useEnvironmentEntities("local", background);
+	const explicit = useEnvironmentEntities("local", background, "all");
 	const entities = background ? explicit : visible;
 	return (
 		<div>
@@ -62,12 +91,17 @@ beforeEach(() => {
 	state.requested = [];
 });
 
-it("hides Personal chat and repository data immediately in an organization", () => {
-	expect(renderToStaticMarkup(<Content />)).toContain("Secret chat");
+it("shows only the selected workspace's projects from this desktop", () => {
+	const personal = renderToStaticMarkup(<Content />);
+	expect(personal).toContain("Secret chat");
+	expect(personal).not.toContain("Org");
 	selectRendererWorkspace({ kind: "organization", organizationId: "org-a" });
-	state.requested = [];
+	const org = renderToStaticMarkup(<Content />);
+	expect(org).toContain("Org repository");
+	expect(org).toContain("Org chat");
+	expect(org).not.toContain("Secret");
+	selectRendererWorkspace({ kind: "organization", organizationId: "org-b" });
 	expect(renderToStaticMarkup(<Content />)).toBe("<div></div>");
-	expect(state.requested.every((ref) => ref === null)).toBe(true);
 	selectRendererWorkspace({ kind: "personal" });
 	expect(renderToStaticMarkup(<Content />)).toContain("Secret repository");
 });

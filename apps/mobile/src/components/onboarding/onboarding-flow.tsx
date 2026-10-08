@@ -31,7 +31,7 @@ const setupInstructions = {
 		],
 		[
 			"Check agent authentication",
-			"In phone Settings, open Cloud Authentication to check the agent accounts used by your cloud chats.",
+			"In phone Settings, open Cloud Providers to check the agent accounts used by your cloud chats.",
 		],
 	],
 	local: [
@@ -96,16 +96,16 @@ export function OnboardingFlow({ replay = false }: { replay?: boolean }) {
 						: "Sign in on your phone.";
 	const detail =
 		step === 0
-			? "Choose local work on your computer or hosted cloud sandboxes. You can use both and add the other from Settings anytime."
+			? "Local or cloud. You can use both and add the other later."
 			: step === 1
 				? local
-					? "Install and open Zuse on your computer. This path connects your phone to work running there."
-					: "Agents run in hosted environments, not on your computer. No desktop pairing, Zuse Serve, or shared Wi-Fi is needed."
+					? "Install and open Zuse on your computer."
+					: "Agents run in hosted environments. No desktop pairing or shared Wi-Fi needed."
 				: step === 2
-					? "Do these steps in the desktop app. Keep this guide open on your phone."
+					? "Do these steps in the desktop app."
 					: local
-						? "Create a pairing code in the desktop app, then scan it here."
-						: "Sign in to access your hosted cloud sandboxes.";
+						? "Create a pairing code on desktop, then scan it here."
+						: "Sign in to reach your cloud sandboxes.";
 	return (
 		<View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
 			<View className="min-h-12 flex-row items-center justify-between px-5">
@@ -128,16 +128,21 @@ export function OnboardingFlow({ replay = false }: { replay?: boolean }) {
 						</Text>
 					)}
 				</Pressable>
-				<Button variant="ghost" disabled={busy} onPress={() => run(finish)}>
-					Set up later
+				<Button
+					size="sm"
+					variant="ghost"
+					disabled={busy}
+					onPress={() => run(finish)}
+				>
+					Skip
 				</Button>
 			</View>
 			<ScrollView
 				key={step}
 				contentInsetAdjustmentBehavior="never"
-				contentContainerStyle={{ flexGrow: 1, padding: 24, paddingTop: 32 }}
+				contentContainerStyle={{ flexGrow: 1, padding: 24, paddingTop: 20 }}
 			>
-				<View className="mx-auto w-full max-w-[380px] gap-8">
+				<View className="mx-auto w-full max-w-[380px] gap-7">
 					<View className="gap-3">
 						<Text className="font-sans-bold text-xs tracking-[1px] text-accent">
 							STEP {step + 1} OF {path === "cloud" ? 2 : 4} ·{" "}
@@ -145,11 +150,11 @@ export function OnboardingFlow({ replay = false }: { replay?: boolean }) {
 						</Text>
 						<Text
 							accessibilityRole="header"
-							className="font-sans-bold text-[32px] leading-[38px] tracking-[-0.8px] text-foreground"
+							className="font-sans-bold text-[28px] leading-[34px] tracking-[-0.6px] text-foreground"
 						>
 							{title}
 						</Text>
-						<Text className="font-sans text-base leading-6 text-muted-foreground">
+						<Text className="font-sans text-[15px] leading-[21px] text-muted-foreground">
 							{detail}
 						</Text>
 					</View>
@@ -159,20 +164,16 @@ export function OnboardingFlow({ replay = false }: { replay?: boolean }) {
 								items={[
 									[
 										"Download Zuse",
-										"On your computer, open zuse.sh and download the desktop app for your platform.",
+										"On your computer, download it from zuse.sh.",
 									],
-									[
-										"Install and open it",
-										"Finish installation, then launch Zuse. Leave it open while you connect your phone.",
-									],
+									["Install and open it", "Launch Zuse and leave it open."],
 								]}
 							/>
 							<Button variant="secondary" onPress={() => run(copyDownload)}>
-								{copied ? "Download link copied" : "Copy desktop download link"}
+								{copied ? "Link Copied" : "Copy Download Link"}
 							</Button>
 							<Text className="text-sm leading-5 text-muted-foreground">
-								Already installed? Open Zuse on your computer and continue
-								below.
+								Already installed? Open it and continue.
 							</Text>
 						</>
 					) : null}
@@ -211,16 +212,15 @@ export function OnboardingFlow({ replay = false }: { replay?: boolean }) {
 									</View>
 									<Text className="text-sm leading-5 text-muted-foreground">
 										{value === "cloud"
-											? "Run agents in hosted cloud environments. Sign in to your Zuse account; your computer does not need to stay on."
-											: "Pair directly on the same Wi-Fi. No account needed. Best when your computer is nearby."}
+											? "Hosted environments. Your computer can stay off."
+											: "Pair on the same Wi-Fi. No account needed."}
 									</Text>
 								</Pressable>
 							))}
 							<Text className="text-sm leading-5 text-muted-foreground">
-								Choosing local does not lock you out of cloud. Later, open
-								Settings → Remote access to sign in. To add local pairing, use
-								Settings → Connections. Only local work needs your computer
-								awake with Zuse running.
+								{
+									"Add the other anytime in Settings → Remote access or Settings → Connections."
+								}
 							</Text>
 						</View>
 					) : null}
@@ -230,8 +230,7 @@ export function OnboardingFlow({ replay = false }: { replay?: boolean }) {
 							<Instructions items={setupInstructions[path]} />
 							{local ? (
 								<Text className="rounded-2xl bg-card-elevated p-4 text-sm leading-5 text-foreground">
-									Before restarting: running agents will stop. Finish or pause
-									your work first.
+									Restarting stops running agents. Finish or pause work first.
 								</Text>
 							) : null}
 						</>
@@ -250,7 +249,7 @@ export function OnboardingFlow({ replay = false }: { replay?: boolean }) {
 									],
 									[
 										"Scan from this phone",
-										"Tap Scan QR code below, then point at the desktop code. Scanning uses the camera; connecting to your desktop uses local network access.",
+										"Tap Scan QR Code below and point at the desktop code.",
 									],
 								]}
 							/>
@@ -290,40 +289,33 @@ export function OnboardingFlow({ replay = false }: { replay?: boolean }) {
 			>
 				{step < 3 && !cloudReady ? (
 					<Button
-						className="h-14"
 						disabled={step === 0 && path === null}
 						onPress={() => setStep((value) => Math.min(3, value + 1))}
 					>
 						{step === 0
 							? "Continue"
 							: step === 1
-								? "Zuse is open on my computer"
+								? "Zuse Is Open"
 								: local
-									? "Local access is on"
+									? "Local Access Is On"
 									: "Continue"}
 					</Button>
 				) : local ? (
 					<>
-						<Button
-							className="h-14"
-							onPress={() => router.push("/connect/scan")}
-						>
-							Scan QR code
+						<Button onPress={() => router.push("/connect/scan")}>
+							Scan QR Code
 						</Button>
 						<Button
+							size="sm"
 							variant="ghost"
 							onPress={() => router.push("/connect/nearby")}
 						>
-							Find nearby Mac instead
+							Find Nearby Mac
 						</Button>
 					</>
 				) : (
-					<Button
-						className="h-14"
-						disabled={busy}
-						onPress={() => run(connectCloud)}
-					>
-						{busy ? "Signing in…" : account ? "Open my inbox" : "Sign in"}
+					<Button disabled={busy} onPress={() => run(connectCloud)}>
+						{busy ? "Signing In…" : account ? "Open Inbox" : "Sign In"}
 					</Button>
 				)}
 			</View>

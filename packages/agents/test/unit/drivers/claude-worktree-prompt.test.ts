@@ -17,7 +17,7 @@ describe("workspace instructions", () => {
 		expect(prompt).not.toContain("scratch notes");
 		expect(prompt).not.toContain("final response");
 		expect(prompt).not.toContain("unrelated tasks");
-		expect(prompt.split("\n")).toHaveLength(8);
+		expect(prompt).toContain("Zuse's system plugins by default");
 	});
 
 	it("pins Claude's launch environment to the effective session cwd", () => {

@@ -1,17 +1,56 @@
-import { EnvironmentId } from "@zuse/contracts";
+import { emptyResourceView } from "@zuse/client-runtime/resource-state";
+import { EnvironmentId, Folder, FolderId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { afterEach, expect, test, vi } from "vitest";
+
+const folder = (id: string, workspaceKey?: string) =>
+	Folder.make({
+		id: FolderId.make(id),
+		path: `/repos/${id}`,
+		name: id,
+		addedAt: new Date(0),
+		...(workspaceKey === undefined ? {} : { workspaceKey }),
+	});
+
+// This desktop's server returns every workspace's projects in one shell.
+const shell = vi.hoisted(() => ({ data: null as unknown }));
 
 vi.mock("../../src/lib/runtime-operation-client.ts", () => ({
 	runtimeOperationClient: async () => ({
 		"connect.describe": () =>
 			Effect.succeed({
-				environmentId: EnvironmentId.make("personal-laptop"),
+				environmentId: EnvironmentId.make("this-desktop"),
 				label: "Laptop",
 			}),
 		"environments.list": () => Effect.succeed({ environments: [] }),
 	}),
 }));
+vi.mock("../../src/lib/environment-shell-client-bus.ts", async (original) => {
+	const actual =
+		await original<
+			typeof import("../../src/lib/environment-shell-client-bus.ts")
+		>();
+	const { scopeEnvironmentShellView } = await import(
+		"../../src/lib/environment-shell-scope.ts"
+	);
+	const { rendererWorkspaceSnapshot } = await import(
+		"../../src/lib/renderer-workspace.ts"
+	);
+	const view = () => ({ ...emptyResourceView(), data: shell.data });
+	return {
+		...actual,
+		retainEnvironmentShell: () => ({
+			lease: { release: () => undefined, activate: () => undefined },
+		}),
+		subscribeEnvironmentShell: () => () => undefined,
+		environmentShellSnapshot: (ref: { environmentId: string }) =>
+			scopeEnvironmentShellView(
+				ref.environmentId,
+				view() as never,
+				rendererWorkspaceSnapshot().scope,
+			),
+	};
+});
 
 import { observeRendererAccount } from "../../src/lib/renderer-account.ts";
 import { selectRendererWorkspace } from "../../src/lib/renderer-workspace.ts";
@@ -24,15 +63,21 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-test("organization startup discovers the laptop without activating its Personal projects", async () => {
+test("organization startup shows only this desktop's projects linked to the organization", async () => {
 	vi.stubGlobal("location", new URL("http://localhost:3000"));
 	vi.stubGlobal("window", {});
+	shell.data = {
+		folders: [
+			folder("personal-repo"),
+			folder("org-repo", "organization:org-test"),
+		],
+		originsByFolder: {},
+		chatsByProject: { "personal-repo": [], "org-repo": [] },
+		sessionsByProject: { "personal-repo": [], "org-repo": [] },
+		creationOperationsByProject: {},
+	};
 	observeRendererAccount("test-user");
 	selectRendererWorkspace({ kind: "organization", organizationId: "org-test" });
-	useWorkspaceStore.setState({
-		error: "This environment belongs to another workspace.",
-		loading: false,
-	});
 	useEnvironmentCatalogStore.setState({
 		initialized: false,
 		initializing: false,
@@ -42,18 +87,18 @@ test("organization startup discovers the laptop without activating its Personal 
 	await expect(
 		useEnvironmentCatalogStore.getState().initialize(),
 	).resolves.toBeUndefined();
-	expect(useEnvironmentCatalogStore.getState().initialized).toBe(true);
 	expect(useEnvironmentCatalogStore.getState().initializationError).toBeNull();
-	expect(
-		useEnvironmentCatalogStore
-			.getState()
-			.entries.some((entry) => entry.environmentId === "personal-laptop"),
-	).toBe(true);
-	expect(environmentBelongsToWorkspace("personal-laptop")).toBe(false);
+	expect(environmentBelongsToWorkspace("this-desktop")).toBe(true);
+	expect(useWorkspaceStore.getState().folders.map((f) => f.id)).toEqual([
+		"org-repo",
+	]);
+
+	// Switching workspace re-projects the same desktop for the new owner.
+	selectRendererWorkspace({ kind: "personal" });
+	expect(useWorkspaceStore.getState().folders.map((f) => f.id)).toEqual([
+		"personal-repo",
+	]);
+	expect(useWorkspaceStore.getState().selectedFolderId).toBe("personal-repo");
+	selectRendererWorkspace({ kind: "organization", organizationId: "other" });
 	expect(useWorkspaceStore.getState().folders).toEqual([]);
-	await expect(
-		useEnvironmentCatalogStore.getState().activate("personal-laptop"),
-	).rejects.toThrow("This environment belongs to another workspace.");
-	expect(useWorkspaceStore.getState().loading).toBe(false);
-	expect(useWorkspaceStore.getState().error).toBeNull();
 });

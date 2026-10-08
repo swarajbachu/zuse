@@ -33,6 +33,58 @@ zuse model list
 
 `zuse commands` returns the supported command manifest. List projects and models before creating work so automation uses IDs and choices returned by the connected server.
 
+## Cloud computers and previews
+
+Cloud runtimes include `zuse` and discover their local credentials automatically.
+You do not need to log in or pass a token from an agent running inside a workspace.
+
+```bash
+zuse workspace projects
+zuse workspace providers
+zuse workspace list
+zuse workspace create --project <cloud-project-id> --sandbox-provider <id> \
+  --provider <agent-id> --model <model-id> --prompt-file ./task.md \
+  --idempotency-key <unique-operation-id>
+zuse workspace status <workspace-id>
+zuse session list --cloud-workspace <workspace-id>
+zuse session create --cloud-workspace <workspace-id> --chat <chat-id> \
+  --provider <agent-id> --prompt "Review the current changes."
+```
+
+`workspace create` provisions a separate cloud computer. `chat create` creates a
+chat/worktree on the selected computer; `session create` adds a conversation tab.
+Cloud project IDs come from `workspace projects`; local project IDs come from
+`project list`. `--sandbox-provider` chooses compute; `--provider` chooses the agent.
+When there is exactly one cloud project or compute provider, it is inferred.
+The base branch defaults to the cloud project's default branch. Creation returns
+workspace, chat, and initial session IDs; poll `workspace status` until ready
+before controlling its sessions.
+
+Use `workspace rename <workspace-id> --title <name>` to rename its sidebar chat.
+Lifecycle commands are `workspace pause|resume|restart|archive|unarchive|delete`.
+Pass a workspace ID or use the current cloud workspace. Deletion requires
+`--confirm`. Reuse `--idempotency-key` when retrying creation or lifecycle actions.
+
+Start a website or static-file HTTP server, then expose its port:
+
+```bash
+zuse preview list
+zuse preview set --port 8123
+zuse preview delete --port 8123
+```
+
+`preview set` returns the provider's HTTPS URL. Anyone holding the URL can access
+that port. It does not start the HTTP server. Pass `--cloud-workspace <id>` to
+select another computer. `preview delete --all` removes all preview routes;
+failed or unsupported revocation returns an error. Pausing a computer does not
+revoke its URLs. `preview list` lists listening servers, not published URLs.
+
+The CLI retains structured JSON output. `zuse help` and command `--help` work
+without a running server. Cross-workspace delegation uses the current runtime's
+rotating credential and is limited to orchestration operations in its personal
+account. Organization runtimes reject account-level delegation rather than
+impersonating a member; their local chat/session commands still work.
+
 ## JSON contract
 
 Every agent command writes exactly one JSON object to standard output. Success uses:
@@ -296,7 +348,7 @@ zuse session list \
   --project <project-id>
 ```
 
-`ZUSE_WS_URL`, `ZUSE_TOKEN`, `ZUSE_PORT`, `ZUSE_USER_DATA_DIR`, `ZUSE_DEV_INSTANCE`, and `ZUSE_DEV_CLI_ACCESS_FILE` are available for controlled automation environments. Do not print tokens, embed them in prompts, or commit them to the repository. Prefer environment-based secret injection where shell-history exposure matters.
+`ZUSE_WS_URL`, `ZUSE_TOKEN`, `ZUSE_PORT`, `ZUSE_USER_DATA`, `ZUSE_CLI_ACCESS_FILE`, `ZUSE_USER_DATA_DIR`, `ZUSE_DEV_INSTANCE`, and `ZUSE_DEV_CLI_ACCESS_FILE` are available for controlled automation environments. Do not print tokens, embed them in prompts, or commit them to the repository. Prefer environment-based secret injection where shell-history exposure matters.
 
 ## Reliable automation sequence
 
@@ -308,3 +360,16 @@ zuse session list \
 6. Use `session read` for progress and `session send` for follow-up instructions.
 
 For deciding when work needs an isolated workspace rather than a shared session tab, continue with [Agent orchestration](/composer/orchestration/).
+
+## Connected plugins
+
+Inside a Zuse agent session, the CLI automatically uses that session's connected plugins and permissions:
+
+```sh
+zuse plugins list
+zuse plugins search --query "linear issue"
+zuse plugins schema --address <returned-address>
+zuse plugins call --address <returned-address> --arguments-json '{"id":"TEAM-123"}'
+```
+
+Search directly by service and task; listing plugins first is optional. Use the returned schema to construct the call arguments (the example above is illustrative). Calls follow session approval and plan-mode rules. Connect or reauthenticate services in **Settings → Integrations**. An ordinary terminal outside an agent session has no plugin session credential; use the agent's plugin tools there instead.

@@ -304,6 +304,8 @@
 	"projects_sidebar_upgrade": "アップグレード",
 	"projects_sidebar_plan_cloud": "Cloud",
 	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud プラン · 請求を管理",
+	"project_setup_dialog_in_other_workspace": "このフォルダーは既に別のワークスペースのプロジェクトです。ここに移動しますか？チャットも一緒に移動します。",
+	"project_setup_dialog_move_here": "ここに移動",
 	"projects_sidebar_threads": "スレッド",
 	"projects_sidebar_no_threads_yet": "スレッドはまだありません",
 	"projects_sidebar_start_a_chat_to_see_it_here": "いずれかのプロジェクトでチャットを開始すると、ここに表示されます。",

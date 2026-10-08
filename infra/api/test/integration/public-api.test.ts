@@ -3,6 +3,8 @@ import {
 	CLOUD_COMMAND_PROTOCOL_VERSION,
 	CLOUD_RUNTIME_API_ASSETS_CAPABILITY,
 	CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY,
+	CloudAuthProviderStatus,
+	CloudAuthStatus,
 } from "@zuse/contracts";
 import { MachineProvidersFake } from "@zuse/machine-providers/testing";
 import {
@@ -14,7 +16,12 @@ import { InstallationStore } from "@zuse/slack/installations";
 import { runnerEnv } from "@zuse/slack/runner";
 import type { AppEnv as SlackEnv, AppJob as SlackJob } from "@zuse/slack/types";
 import { isSlackWebhookTarget } from "@zuse/slack/webhook-target";
-import { base64UrlToBytes } from "@zuse/utils/cloud-transcript-crypto";
+import {
+	base64UrlToBytes,
+	cloudTranscriptAdditionalData,
+	encryptCloudTranscript,
+	sha256Base64Url,
+} from "@zuse/utils/cloud-transcript-crypto";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { exportJWK, generateKeyPair } from "jose";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -29,6 +36,10 @@ import {
 } from "../../src/api-webhook-dispatch.ts";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
 import { takeCloudMailboxDirective } from "../../src/cloud-mailbox-directive.ts";
+import {
+	openCloudTranscriptKey,
+	putCloudTranscriptObject,
+} from "../../src/cloud-transcript.ts";
 import {
 	CloudWorkspaceLaunchIntentCipher,
 	CloudWorkspaceLaunchIntentCipherLive,
@@ -100,6 +111,7 @@ const makeRuntime = async (
 	cloudBillingEnforcementEnabled = false,
 	cloudBrokerEnrollmentEnabled = false,
 	sandboxLayer?: Layer.Layer<SandboxProviders>,
+	organizationWorkspacesEnabled = false,
 ) => {
 	const mint = await generateKeyPair("EdDSA", { extractable: true });
 	const objects = new Map<string, string>();
@@ -114,6 +126,10 @@ const makeRuntime = async (
 		cloudDataEncryptionKey: Redacted.make(
 			"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 		),
+		organizationWorkspacesEnabled,
+		workosApiKey: organizationWorkspacesEnabled
+			? Redacted.make("test-workos")
+			: undefined,
 		cloudBillingEnforcementEnabled,
 		cloudCodexAuthBrokerEnrollmentEnabled: cloudBrokerEnrollmentEnabled,
 		cloudProviderAuthBrokerEnrollmentEnabled: cloudBrokerEnrollmentEnabled,
@@ -154,7 +170,10 @@ const makeRuntime = async (
 			keepAliveTimeoutSeconds: 86_400,
 		}),
 		Layer.succeed(MachineControlConfiguration, {
-			allowlistedAccountIds: new Set([ACCOUNT]),
+			allowlistedAccountIds: new Set([
+				ACCOUNT,
+				...(organizationWorkspacesEnabled ? ["organization:org_team"] : []),
+			]),
 			manualEntitlementsEnabled: true,
 			liveCheckoutEnabled: false,
 			enrollmentTtlMs: 30 * 60 * 1_000,
@@ -196,12 +215,13 @@ const json = async <T>(response: Response, status: number): Promise<T> => {
 const seedReadyProject = async (
 	runtime: Runtime,
 	store: CloudWorkspaceStoreApi,
+	ownerId = ACCOUNT,
 ): Promise<void> => {
 	const now = Date.now();
 	await runtime.runPromise(
 		store.connectProject({
 			projectId: "project-1",
-			accountId: ACCOUNT,
+			accountId: ownerId,
 			repositoryIdentity: "github.com/acme/app",
 			repositoryUrl: "https://github.com/acme/app.git",
 			displayName: "acme/app",
@@ -221,7 +241,7 @@ const seedReadyProject = async (
 		store.createBuild({
 			buildId: "build-1",
 			projectId: "project-1",
-			accountId: ACCOUNT,
+			accountId: ownerId,
 			provider: PROVIDER_ID,
 			snapshotId: "snapshot-1",
 			templateVersion: "test-template",
@@ -293,6 +313,225 @@ const stageRuntimeCredential = async (
 };
 
 describe("public API (/v1/api)", () => {
+	test("surfaces a matching missing CLI error from older runtimes without inventing settlement", async () => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			await seedReadyProject(runtime, store);
+			const secret = await createApiKey(runtime);
+			const headers = {
+				authorization: `Bearer ${secret}`,
+				"content-type": "application/json",
+			};
+			const created = await json<{ workspace: { workspaceId: string } }>(
+				await serve(runtime, "/v1/api/workspaces", {
+					method: "POST",
+					headers,
+					body: JSON.stringify({
+						agent: "grok",
+						model: "grok-build",
+						prompt: "what is the app about?",
+					}),
+				}),
+				201,
+			);
+			const workspace = await runtime.runPromise(
+				store.getWorkspace(created.workspace.workspaceId),
+			);
+			if (!workspace?.wrappedTranscriptKey)
+				throw new Error("Missing workspace key");
+			const [submitted] = await runtime.runPromise(
+				store.listApiMessages(workspace.workspaceId, 0, 100),
+			);
+			if (!submitted?.turnId) throw new Error("Missing turn");
+			const key = await runtime.runPromise(
+				openCloudTranscriptKey(
+					ACCOUNT,
+					workspace.workspaceId,
+					workspace.wrappedTranscriptKey,
+				),
+			);
+			const runtimeMessageId = `launch:${workspace.workspaceId}:message`;
+			let version = 0;
+			const checkpoint = async (
+				turnId = submitted.turnId,
+				userId = runtimeMessageId,
+				generation = 1,
+				status = "error",
+				corrupt = false,
+				message = "Grok CLI not found on PATH. Install Grok and try again.",
+				settled = false,
+				truncateUser = false,
+			) => {
+				version++;
+				const cursor = { epoch: "epoch-1", version };
+				const payload = {
+					schemaVersion: 1,
+					workspaceId: workspace.workspaceId,
+					sessionId: workspace.initialSessionId,
+					cursor,
+					projection: {
+						messages: [
+							...(truncateUser
+								? []
+								: [
+										{
+											id: userId,
+											sessionId: workspace.initialSessionId,
+											role: "user",
+											content: {
+												_tag: "user",
+												text: "what is the app about?",
+												goal: false,
+											},
+											createdAt: new Date(submitted.createdAtMs).toISOString(),
+										},
+									]),
+							{
+								id: "error-1",
+								sessionId: workspace.initialSessionId,
+								role: "system",
+								content: {
+									_tag: "error",
+									message,
+								},
+								createdAt: new Date(submitted.createdAtMs + 1).toISOString(),
+							},
+						],
+						status,
+						currentTurn: settled ? null : { turnId, phase: "running" },
+						queue: { items: [], paused: false },
+						permissionMode: "default",
+						runtimeMode: "full-access",
+						interactions: [],
+					},
+				};
+				const ciphertext = await encryptCloudTranscript({
+					encodedKey: key,
+					additionalData: cloudTranscriptAdditionalData({
+						workspaceId: workspace.workspaceId,
+						sessionId: workspace.initialSessionId,
+						epoch: cursor.epoch,
+						version,
+						schemaVersion: 1,
+					}),
+					plaintext: new TextEncoder().encode(JSON.stringify(payload)),
+				});
+				const objectKey = `checkpoint-${version}`;
+				await runtime.runPromise(
+					putCloudTranscriptObject(objectKey, ciphertext),
+				);
+				await runtime.runPromise(
+					store.saveTranscriptCheckpoint({
+						workspaceId: workspace.workspaceId,
+						sessionId: workspace.initialSessionId,
+						runtimeGeneration: generation,
+						streamEpoch: cursor.epoch,
+						streamVersion: version,
+						objectKey,
+						ciphertextSha256: corrupt
+							? "invalid"
+							: await sha256Base64Url(ciphertext),
+						ciphertextBytes: ciphertext.length,
+						createdAtMs: Date.now(),
+					}),
+				);
+			};
+			const poll = () =>
+				serve(runtime, `/v1/api/workspaces/${workspace.workspaceId}/messages`, {
+					headers,
+				}).then((response) => json<Record<string, unknown>>(response, 200));
+			await checkpoint();
+			expect(await poll()).toMatchObject({
+				startupFailure: { turnId: submitted.turnId, agent: "grok" },
+			});
+			expect(
+				await runtime.runPromise(
+					store.listApiMessages(workspace.workspaceId, 0, 100),
+				),
+			).toHaveLength(1);
+			for (const message of [
+				"Authentication expired. Sign in again.",
+				"Model unavailable",
+				"Agent process exited unexpectedly",
+			]) {
+				await checkpoint(
+					submitted.turnId,
+					runtimeMessageId,
+					1,
+					"error",
+					false,
+					message,
+					true,
+				);
+				expect(await poll()).toMatchObject({
+					turnFailure: {
+						turnId: submitted.turnId,
+						agent: "grok",
+						code: "agent_error",
+						message,
+					},
+				});
+			}
+			await checkpoint(
+				submitted.turnId,
+				runtimeMessageId,
+				1,
+				"error",
+				false,
+				"Agent process exited unexpectedly",
+				false,
+				true,
+			);
+			expect(await poll()).toMatchObject({
+				turnFailure: { turnId: submitted.turnId, code: "agent_error" },
+			});
+			await checkpoint(
+				submitted.turnId,
+				runtimeMessageId,
+				1,
+				"error",
+				false,
+				"Agent process exited unexpectedly",
+				true,
+				true,
+			);
+			expect(await poll()).not.toHaveProperty("turnFailure");
+			await checkpoint("different-turn");
+			expect(await poll()).not.toHaveProperty("startupFailure");
+			await checkpoint(submitted.turnId, "different-user-message");
+			expect(await poll()).not.toHaveProperty("startupFailure");
+			await checkpoint(submitted.turnId, runtimeMessageId, 1, "running");
+			expect(await poll()).not.toHaveProperty("startupFailure");
+			await checkpoint(submitted.turnId, runtimeMessageId, 1, "error", true);
+			expect(await poll()).not.toHaveProperty("startupFailure");
+			await checkpoint(submitted.turnId, runtimeMessageId, 2);
+			expect(await poll()).not.toHaveProperty("startupFailure");
+			const explicit = await runtime.runPromise(
+				routeAccountWorkspaceRequest(
+					new Request(`${ISSUER}/v1/api/workspaces`, {
+						method: "POST",
+						headers,
+						body: JSON.stringify({}),
+					}),
+					ACCOUNT,
+					{ requireExplicitAgent: true },
+				).pipe(
+					Effect.catch((error) =>
+						Effect.succeed(
+							Response.json({ code: error.code }, { status: error.status }),
+						),
+					),
+				),
+			);
+			if (!explicit) throw new Error("Missing response");
+			expect(await json(explicit, 400)).toMatchObject({
+				code: "agent_and_model_required",
+			});
+		} finally {
+			await runtime.dispose();
+		}
+	});
 	test("generated cloud branches remain distinct when mascot names repeat, while retries and explicit branches stay stable", async () => {
 		const runtime = await makeRuntime();
 		try {
@@ -1388,8 +1627,159 @@ describe("public API (/v1/api)", () => {
 		}
 	});
 
-	test("links Slack only to a verified WorkOS account, without a customer API key", async () => {
-		const runtime = await makeRuntime();
+	test("scopes Slack work to the organization, preserves its actor and rejects revoked membership", async () => {
+		const runtime = await makeRuntime(false, false, undefined, true);
+		try {
+			let active = true;
+			let actorId = ACCOUNT;
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async (input: string | URL | Request) => {
+					const url = String(input);
+					if (url.includes("organization_memberships"))
+						return Response.json({
+							data: active
+								? [
+										{
+											id: "om_actor",
+											user_id: actorId,
+											organization_id: "org_team",
+											status: "active",
+											role: { slug: "member" },
+										},
+									]
+								: [],
+							list_metadata: { after: null },
+						});
+					if (url.endsWith("/organizations/org_team"))
+						return Response.json({ id: "org_team", name: "Team" });
+					throw new Error(`unexpected URL ${url}`);
+				}),
+			);
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			await seedReadyProject(runtime, store, "organization:org_team");
+			const call = (path: string, init?: RequestInit) =>
+				runtime
+					.runPromise(
+						routeAccountWorkspaceRequest(
+							new Request(ISSUER + path, init),
+							actorId,
+							{ organizationId: "org_team", githubBot: true },
+						).pipe(
+							Effect.catch((error) =>
+								Effect.succeed(
+									Response.json({ code: error.code }, { status: error.status }),
+								),
+							),
+						),
+					)
+					.then((response) => {
+						if (!response) throw new Error("missing response");
+						return response;
+					});
+			expect(await json(await call("/v1/api/providers"), 200)).toMatchObject({
+				entitled: true,
+				providers: [
+					expect.objectContaining({
+						providerId: expect.any(String),
+						displayName: expect.any(String),
+					}),
+				],
+			});
+			expect(await json(await call("/v1/api/projects"), 200)).toMatchObject({
+				projects: [{ projectId: "project-1" }],
+			});
+			const created = await json<{ workspace: { workspaceId: string } }>(
+				await call("/v1/api/workspaces", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						projectId: "project-1",
+						agent: "codex",
+						model: "gpt-5",
+						prompt: "Investigate",
+						idempotencyKey: "org-start",
+					}),
+				}),
+				201,
+			);
+			const workspaceId = created.workspace.workspaceId;
+			const workspace = await runtime.runPromise(
+				store.getWorkspace(workspaceId),
+			);
+			expect(workspace?.accountId).toBe("organization:org_team");
+			expect(workspace?.requestConfig.sharingPolicy).toMatchObject({
+				creatorSubject: ACCOUNT,
+				creatorMembershipId: "om_actor",
+			});
+			await json(
+				await call(`/v1/api/workspaces/${workspaceId}/messages`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ text: "Follow up" }),
+				}),
+				200,
+			);
+			await stageRuntimeCredential(runtime, store, workspaceId, "org-runtime", [
+				CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY,
+			]);
+			const commands = await json<{ commands: { actor?: unknown }[] }>(
+				await serve(
+					runtime,
+					`/v1/cloud/workspaces/${workspaceId}/runtime/commands`,
+					{ headers: { authorization: "Bearer org-runtime" } },
+				),
+				200,
+			);
+			expect(commands.commands[0]?.actor).toEqual({
+				subject: ACCOUNT,
+				membershipId: "om_actor",
+			});
+			await runtime.runPromise(
+				store.updateWorkspaceSharing({
+					workspaceId,
+					accountId: "organization:org_team",
+					expectedRevision: 0,
+					sharing: { audience: "organization", permission: "view", grants: [] },
+					nowMs: Date.now(),
+				}),
+			);
+			actorId = "another_user";
+			expect(
+				(
+					await call(`/v1/api/workspaces/${workspaceId}/messages`, {
+						method: "POST",
+						body: JSON.stringify({ text: "View-only denied" }),
+					})
+				).status,
+			).toBe(403);
+			expect((await call(`/v1/api/workspaces/${workspaceId}`)).status).toBe(
+				200,
+			);
+			active = false;
+			expect((await call("/v1/api/projects")).status).toBe(403);
+			expect(
+				(
+					await call(`/v1/api/workspaces/${workspaceId}/messages`, {
+						method: "POST",
+						body: JSON.stringify({ text: "Denied" }),
+					})
+				).status,
+			).toBe(403);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
+	test.each([
+		{ orgId: undefined, enabled: false },
+		{ orgId: "org_team", enabled: true },
+		{ orgId: "org_team", enabled: false },
+	])("links Slack to verified account: $orgId, organizations enabled=$enabled", async ({
+		orgId,
+		enabled,
+	}) => {
+		const runtime = await makeRuntime(false, false, undefined, enabled);
 		await seedReadyProject(
 			runtime,
 			await runtime.runPromise(CloudWorkspaceStore),
@@ -1409,10 +1799,36 @@ describe("public API (/v1/api)", () => {
 			},
 		};
 		await installations.install(installation);
+		let active = true;
+		if (orgId)
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async (input: string | URL | Request) => {
+					const url = String(input);
+					if (url.includes("organization_memberships"))
+						return Response.json({
+							data: active
+								? [
+										{
+											id: "om_actor",
+											user_id: ACCOUNT,
+											organization_id: orgId,
+											status: "active",
+											role: { slug: "member" },
+										},
+									]
+								: [],
+							list_metadata: { after: null },
+						});
+					if (url.endsWith(`/organizations/${orgId}`))
+						return Response.json({ id: orgId, name: "Team" });
+					throw new Error(`unexpected URL ${url}`);
+				}),
+			);
 		let valid = false;
 		const verify = vi.fn(() =>
 			valid
-				? Effect.succeed({ accountId: ACCOUNT, orgId: undefined })
+				? Effect.succeed({ accountId: ACCOUNT, orgId })
 				: Effect.fail(unauthorized("invalid_workos_token")),
 		);
 		const exchangeToken = vi.fn(() =>
@@ -1471,6 +1887,14 @@ describe("public API (/v1/api)", () => {
 			expect((await finish(await begin())).status).toBe(503);
 			expect((await installations.get("T1"))?.credentials.zuse).toBeUndefined();
 			valid = true;
+			if (orgId && enabled) {
+				active = false;
+				expect((await finish(await begin())).status).toBe(503);
+				expect(
+					(await installations.member(installation, "U1")).connection,
+				).toBeNull();
+				active = true;
+			}
 			expect((await finish(await begin())).status).toBe(200);
 			expect(verify).toHaveBeenCalledWith("exchanged-token");
 			expect(exchangeToken).toHaveBeenCalledWith(
@@ -1486,6 +1910,8 @@ describe("public API (/v1/api)", () => {
 				await installations.member(installed, installed.ownerId)
 			).connection;
 			expect(connected?.accountId).toBe(ACCOUNT);
+			expect(connected?.organizationId).toBe(enabled ? orgId : undefined);
+			if (orgId && !enabled) expect(fetch).not.toHaveBeenCalled();
 			expect(JSON.stringify(connected)).not.toMatch(
 				/exchanged-token|discard-me|apiKey/u,
 			);
@@ -1499,6 +1925,70 @@ describe("public API (/v1/api)", () => {
 		const runtime = await makeRuntime();
 		const store = await runtime.runPromise(CloudWorkspaceStore);
 		await seedReadyProject(runtime, store);
+		await runtime.runPromise(
+			store.claimCloudAuthAuthority({
+				accountId: ACCOUNT,
+				provider: "e2b",
+				candidateStorageIncarnationId: "inc-1",
+				toolchainVersion: "v1",
+				leaseOwner: "owner",
+				nowMs: Date.now(),
+				leaseExpiresAtMs: Date.now() + 1000,
+			}),
+		);
+		const authority = await runtime.runPromise(
+			store.completeCloudAuthAuthorityProvisioning({
+				accountId: ACCOUNT,
+				providerSandboxId: "auth-vm",
+				storageIncarnationId: "inc-1",
+				toolchainVersion: "v1",
+				leaseOwner: "owner",
+				nowMs: Date.now(),
+			}),
+		);
+		if (!authority) throw new Error("Expected auth authority");
+		await runtime.runPromise(
+			store.saveCloudAuthStatus({
+				accountId: ACCOUNT,
+				expectedRevision: authority.revision,
+				status: new CloudAuthStatus({
+					authorityState: "ready",
+					providers: [
+						new CloudAuthProviderStatus({
+							providerId: "codex",
+							state: "connected",
+						}),
+					],
+				}),
+			}),
+		);
+
+		const agentsResponse = await runtime.runPromise(
+			routeAccountWorkspaceRequest(
+				new Request(`${ISSUER}/v1/api/agents`),
+				ACCOUNT,
+			),
+		);
+		if (!agentsResponse) throw new Error("Expected agent availability");
+		expect(await agentsResponse.json()).toEqual({ agents: ["codex"] });
+
+		expect(
+			await runtime.runPromise(
+				routeAccountWorkspaceRequest(
+					new Request(`${ISSUER}/v1/api/workspaces`, {
+						method: "POST",
+						body: JSON.stringify({
+							projectId: "project-1",
+							agent: "claude",
+							model: "claude-sonnet-5-5",
+						}),
+					}),
+					ACCOUNT,
+					{ requireExplicitAgent: true },
+				).pipe(Effect.catch((error) => Effect.succeed(error.code))),
+			),
+		).toBe("agent_not_available");
+
 		const webhookResponse = await runtime.runPromise(
 			routeAccountWorkspaceRequest(
 				new Request(`${ISSUER}/v1/api/webhooks`, {

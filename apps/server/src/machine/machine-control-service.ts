@@ -8,6 +8,8 @@ import {
 } from "@zuse/client-runtime/cloud-control-client";
 import { controlApiErrorCode } from "@zuse/client-runtime/control-api-error";
 import { makeOrganizationAutoJoinControlClient } from "@zuse/client-runtime/organization-control-client";
+import { resolveAccountApiUrl } from "../api/api-url.ts";
+import { RuntimeCloudControl } from "./runtime-cloud-control.ts";
 
 export { streamCloudWorkspaceLifecycle } from "@zuse/client-runtime/cloud-control-client";
 
@@ -24,6 +26,7 @@ import {
 	type ChatSharingUpdate,
 	CloudAccountImage,
 	type CloudAccountImageBuildRequest,
+	type CloudAccountImageDeleteRequest,
 	CloudApiKey,
 	CloudApiKeyCreated,
 	CloudApiKeyList,
@@ -46,6 +49,7 @@ import {
 	type CloudProviderConnectionInput,
 	CloudProviderConnectionList,
 	CloudProviderList,
+	type CloudSnapshotImportRequest,
 	CloudTranscriptCheckpointResult,
 	CloudTranscriptMessagePageResult,
 	CloudWorkspace,
@@ -81,7 +85,6 @@ import {
 	type OrganizationRoleInput,
 	type PluginRequest,
 	PluginResponse,
-	PRODUCTION_API_URL,
 	WIRE_PROTOCOL_VERSION,
 	WORKSPACE_API_PREFIX,
 	WORKSPACE_SCOPE_HEADER,
@@ -127,6 +130,9 @@ export interface MachineControlServiceShape {
 	) => Effect.Effect<void, MachineControlError>;
 	readonly cloudAccountImage: (
 		providerId?: string,
+	) => Effect.Effect<CloudAccountImage, MachineControlError>;
+	readonly deleteCloudAccountImage: (
+		input: CloudAccountImageDeleteRequest,
 	) => Effect.Effect<CloudAccountImage, MachineControlError>;
 	readonly buildCloudAccountImage: (
 		input: CloudAccountImageBuildRequest,
@@ -185,6 +191,9 @@ export interface MachineControlServiceShape {
 		CloudProviderConnectionList,
 		MachineControlError
 	>;
+	readonly importCloudSnapshot: (
+		input: CloudSnapshotImportRequest,
+	) => Effect.Effect<CloudAccountImage, MachineControlError>;
 	readonly saveCloudProviderConnection: (
 		input: CloudProviderConnectionInput,
 	) => Effect.Effect<CloudProviderConnectionList, MachineControlError>;
@@ -343,6 +352,9 @@ export interface MachineControlServiceShape {
 		ApiEnvironmentList,
 		MachineControlError
 	>;
+	readonly removeEnvironment: (
+		environmentId: EnvironmentId,
+	) => Effect.Effect<void, MachineControlError>;
 	readonly connectEnvironment: (
 		environmentId: EnvironmentId,
 	) => Effect.Effect<ApiConnectGrant, MachineControlError>;
@@ -362,9 +374,7 @@ export class MachineControlService extends Context.Service<
 	MachineControlServiceShape
 >()("zuse/MachineControlService") {}
 
-export const resolveMachineApiUrl = (
-	env: Readonly<Record<string, string | undefined>> = process.env,
-): string => (env.ZUSE_API_URL ?? PRODUCTION_API_URL).replace(/\/+$/u, "");
+export { resolveAccountApiUrl as resolveMachineApiUrl } from "../api/api-url.ts";
 
 export const mapApiErrorCode = (
 	status: number,
@@ -382,7 +392,8 @@ export const MachineControlServiceLive: Layer.Layer<
 	Effect.gen(function* () {
 		const auth = yield* AuthService;
 		const runtimeRole = yield* MachineRuntimeRole;
-		const apiUrl = resolveMachineApiUrl();
+		const runtimeControl = yield* Effect.serviceOption(RuntimeCloudControl);
+		const apiUrl = resolveAccountApiUrl();
 		if (runtimeRole === "control-plane") {
 			setDefaultPluginClientFactory(async () => {
 				const session = await Effect.runPromise(auth.getSession());
@@ -431,26 +442,39 @@ export const MachineControlServiceLive: Layer.Layer<
 					workspaceScope === "personal"
 						? path
 						: `${WORKSPACE_API_PREFIX}${workspaceScope.slice(13)}${path}`;
-				if (runtimeRole !== "control-plane") {
-					return yield* Effect.fail(new MachineControlError("not-allowed"));
-				}
-				const token = yield* auth
-					.getAccessToken()
-					.pipe(Effect.mapError(() => new MachineControlError("not-allowed")));
-				const response = yield* Effect.tryPromise({
-					try: () =>
-						fetch(`${apiUrl}${scopedPath}`, {
-							method,
-							headers: {
-								[WORKSPACE_SCOPE_HEADER]: workspaceScope,
-								authorization: `Bearer ${token}`,
-								...(body === undefined
-									? {}
-									: { "content-type": "application/json" }),
-							},
-							body: body === undefined ? undefined : JSON.stringify(body),
-						}),
-					catch: () => new MachineControlError("provider-unavailable"),
+				const response = yield* Effect.gen(function* () {
+					if (runtimeRole !== "control-plane") {
+						const transport =
+							runtimeControl._tag === "Some"
+								? runtimeControl.value.current
+								: null;
+						if (workspaceScope !== "personal" || transport === null)
+							return yield* Effect.fail(new MachineControlError("not-allowed"));
+						return yield* Effect.tryPromise({
+							try: () => transport.request(path, method, body),
+							catch: () => new MachineControlError("provider-unavailable"),
+						});
+					}
+					const token = yield* auth
+						.getAccessToken()
+						.pipe(
+							Effect.mapError(() => new MachineControlError("not-allowed")),
+						);
+					return yield* Effect.tryPromise({
+						try: () =>
+							fetch(`${apiUrl}${scopedPath}`, {
+								method,
+								headers: {
+									[WORKSPACE_SCOPE_HEADER]: workspaceScope,
+									authorization: `Bearer ${token}`,
+									...(body === undefined
+										? {}
+										: { "content-type": "application/json" }),
+								},
+								body: body === undefined ? undefined : JSON.stringify(body),
+							}),
+						catch: () => new MachineControlError("provider-unavailable"),
+					});
 				});
 				if (!response.ok) {
 					const payload = yield* Effect.promise(
@@ -529,6 +553,13 @@ export const MachineControlServiceLive: Layer.Layer<
 						: `${ApiPaths.cloudAccountImage}?providerId=${encodeURIComponent(providerId)}`,
 					CloudAccountImage,
 				),
+			deleteCloudAccountImage: (input) =>
+				request(
+					ApiPaths.cloudAccountImageDelete,
+					CloudAccountImage,
+					"POST",
+					input,
+				),
 			buildCloudAccountImage: (input) =>
 				request(
 					ApiPaths.cloudAccountImageBuild,
@@ -602,6 +633,8 @@ export const MachineControlServiceLive: Layer.Layer<
 			plugins: (input) => request("/v1/plugins", PluginResponse, "POST", input),
 			cloudProviderConnections: () =>
 				request(ApiPaths.cloudProviderConnections, CloudProviderConnectionList),
+			importCloudSnapshot: (input) =>
+				request(ApiPaths.cloudSnapshotImport, CloudAccountImage, "POST", input),
 			saveCloudProviderConnection: (input) =>
 				request(
 					ApiPaths.cloudProviderConnections,
@@ -807,6 +840,24 @@ export const MachineControlServiceLive: Layer.Layer<
 			entitlements: () =>
 				request(ApiPaths.billingEntitlements, EntitlementList),
 			environments: () => request(ApiPaths.environments, ApiEnvironmentList),
+			removeEnvironment: (environmentId) =>
+				request(
+					ApiPaths.unlink,
+					Schema.Struct({ ok: Schema.Boolean }),
+					"POST",
+					{ environmentId },
+				).pipe(
+					Effect.asVoid,
+					Effect.timeoutOrElse({
+						duration: "15 seconds",
+						orElse: () =>
+							Effect.fail(new MachineControlError("provider-unavailable")),
+					}),
+					Effect.catchIf(
+						(error) => error.code === "not-found",
+						() => Effect.void,
+					),
+				),
 			connectEnvironment: (environmentId) =>
 				Effect.gen(function* () {
 					if (runtimeRole !== "control-plane") {

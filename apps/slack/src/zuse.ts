@@ -6,6 +6,7 @@ export interface ZuseClientConfig {
 	readonly workspaceDefaults?: {
 		readonly agent?: string;
 		readonly model?: string;
+		readonly providerId?: string;
 		readonly projectId?: string;
 	};
 }
@@ -77,6 +78,7 @@ export interface ZuseWorkspace {
 	readonly workspaceId: string;
 	readonly branch: string;
 	readonly state: string;
+	readonly statusCode?: string;
 	readonly startupPhase: string;
 	readonly agentStatus: "working" | "idle" | "unknown";
 	readonly latestSeq: number;
@@ -140,17 +142,29 @@ export const getWorkspace = (
 	request(config, `/v1/api/workspaces/${encodeURIComponent(workspaceId)}`, {
 		method: "GET",
 	});
+export const listProviders = (
+	config: ZuseClientConfig,
+): Promise<{ providers: { providerId: string; displayName: string }[] }> =>
+	request(config, "/v1/api/providers", { method: "GET" });
 export const listProjects = (
 	config: ZuseClientConfig,
 ): Promise<{ projects: ZuseProject[] }> =>
 	request(config, "/v1/api/projects", { method: "GET" });
+export interface ZuseTurnFailure {
+	readonly turnId: string;
+	readonly agent: string;
+	readonly code: string;
+	readonly message: string;
+}
 export const readTurn = async (
 	config: ZuseClientConfig,
 	workspaceId: string,
 	messageId: string,
 	afterSeq: number,
 ) => {
-	const { messages } = await request<{
+	const { messages, startupFailure, turnFailure } = await request<{
+		startupFailure?: { turnId: string; agent: string };
+		turnFailure?: ZuseTurnFailure;
 		messages: {
 			messageId: string;
 			turnId?: string;
@@ -176,7 +190,17 @@ export const readTurn = async (
 					message.outcome,
 			)
 		: undefined;
-	return { turnId, result, requestStatus: submitted?.status };
+	return {
+		turnId,
+		result,
+		requestStatus: submitted?.status,
+		turnFailure:
+			turnFailure && turnFailure.turnId === turnId
+				? turnFailure
+				: startupFailure && startupFailure.turnId === turnId
+					? { ...startupFailure, code: "agent_not_installed", message: "" }
+					: undefined,
+	};
 };
 export const registerWebhook = (
 	config: ZuseClientConfig,
@@ -260,4 +284,21 @@ export const uploadAsset = async (
 		},
 	);
 	return asset;
+};
+
+export const listAgents = async (
+	config: ZuseClientConfig,
+): Promise<{ agents: string[] }> => {
+	const result = await request<{ agents?: unknown }>(config, "/v1/api/agents", {
+		method: "GET",
+	});
+	if (
+		!Array.isArray(result.agents) ||
+		!result.agents.every((agent) => typeof agent === "string")
+	)
+		throw new ZuseApiError(
+			503,
+			JSON.stringify({ code: "agent_availability_unavailable" }),
+		);
+	return { agents: result.agents };
 };

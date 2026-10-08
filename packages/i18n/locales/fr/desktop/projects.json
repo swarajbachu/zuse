@@ -310,6 +310,8 @@
 	"projects_sidebar_upgrade": "Passer à Cloud",
 	"projects_sidebar_plan_cloud": "Cloud",
 	"projects_sidebar_plan_cloud_tooltip": "Forfait Zuse Cloud · Gérer la facturation",
+	"project_setup_dialog_in_other_workspace": "Ce dossier est déjà un projet dans un autre espace de travail. Le déplacer ici ? Ses discussions seront déplacées avec lui.",
+	"project_setup_dialog_move_here": "Déplacer ici",
 	"projects_sidebar_threads": "Fils",
 	"projects_sidebar_no_threads_yet": "Aucun fil pour le moment",
 	"projects_sidebar_start_a_chat_to_see_it_here": "Démarrez une discussion dans un projet pour la voir ici.",

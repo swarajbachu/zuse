@@ -5,6 +5,7 @@ import {
 	type WorktreeId,
 } from "@zuse/contracts";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { isCloudProjectFolder } from "../lib/cloud-project-folders.ts";
 import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
@@ -183,10 +184,18 @@ export const useActiveContext = (): ActiveContext => {
 		sessionId,
 	});
 	const cloudWorkspaceId = cloudSummary?.workspaceId ?? null;
-	const visible = environmentBelongsToWorkspace(
-		cloudWorkspaceId ?? activeEnvironmentId,
-		workspace.scope,
-	);
+	// This desktop serves every workspace; a selection from another workspace
+	// must not expose its checkout before the store is re-projected.
+	const { folders: scopedFolders } = useActiveEnvironmentEntities();
+	const visible =
+		environmentBelongsToWorkspace(
+			cloudWorkspaceId ?? activeEnvironmentId,
+			workspace.scope,
+		) &&
+		(cloudWorkspaceId !== null ||
+			selectedFolderId === null ||
+			isCloudProjectFolder(selectedFolderId) ||
+			scopedFolders.some((folder) => folder.id === selectedFolderId));
 	const worktreePath = useWorktreesStore((s) => {
 		if (selectedFolderId === null || activeWorktreeId === null) return null;
 		const list = s.byProject[selectedFolderId] ?? EMPTY_WORKTREES;

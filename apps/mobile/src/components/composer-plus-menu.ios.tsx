@@ -39,7 +39,7 @@ export function ComposerPlusMenu({
 				label={
 					<Image
 						systemName={sf("plus")}
-						size={20}
+						size={17}
 						color={colors.fg}
 						modifiers={[frame({ width: 40, height: 40 })]}
 					/>

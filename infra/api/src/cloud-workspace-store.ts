@@ -7,6 +7,7 @@ import {
 	type CloudProjectState,
 	type CloudWorkspaceDesiredState,
 	type CloudWorkspaceState,
+	SnapshotAgentAccess,
 	type TurnSettlementOutcome,
 	WorkspaceSettings,
 	type WorkspaceSettingsUpdate,
@@ -100,7 +101,8 @@ export interface CloudAuthAuthorityClaim {
 
 export interface CloudProjectBuildRecord {
 	readonly buildId: string;
-	readonly projectId: string;
+	/** Imported account snapshots can be inspected before discovering any project. */
+	readonly projectId: string | null;
 	readonly accountId: string;
 	readonly provider: string;
 	readonly providerSandboxId?: string;
@@ -227,6 +229,7 @@ export interface CloudWorkspaceLaunchIntentRecord {
  * revisions so reconciler writes cannot regress a newer runtime summary.
  */
 export interface CloudWorkspaceRuntimeSummaryRecord {
+	readonly nativeAgentAccess?: ReadonlyArray<SnapshotAgentAccess>;
 	readonly workspaceId: string;
 	readonly runtimeGeneration: number;
 	readonly summaryRevision: number;
@@ -1990,6 +1993,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 				Ref.modify(state, (current) => {
 					const existing = [...current.builds.values()].find(
 						(candidate) =>
+							candidate.accountId === build.accountId &&
 							candidate.projectId === build.projectId &&
 							candidate.provider === build.provider &&
 							candidate.idempotencyKey === build.idempotencyKey,
@@ -4023,7 +4027,7 @@ const projectFromRow = (row: Row): CloudProjectRecord => ({
 });
 const buildFromRow = (row: Row): CloudProjectBuildRecord => ({
 	buildId: String(row.build_id),
-	projectId: String(row.project_id),
+	projectId: row.project_id == null ? null : String(row.project_id),
 	accountId: String(row.account_id),
 	provider: String(row.provider),
 	providerSandboxId: optionalString(row.provider_sandbox_id),
@@ -4120,6 +4124,12 @@ const launchIntentFromRow = (
 const runtimeSummaryFromRow = (
 	row: Row,
 ): CloudWorkspaceRuntimeSummaryRecord => ({
+	nativeAgentAccess:
+		row.native_agent_access == null
+			? undefined
+			: Schema.decodeUnknownSync(Schema.Array(SnapshotAgentAccess))(
+					row.native_agent_access,
+				),
 	workspaceId: String(row.workspace_id),
 	runtimeGeneration: numberValue(row.runtime_generation),
 	summaryRevision: numberValue(row.summary_revision),
@@ -4577,7 +4587,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						Effect.flatMap((rows) =>
 							rows.length > 0
 								? Effect.succeed(buildFromRow(rows[0] as Row))
-								: sql`SELECT * FROM api_cloud_project_builds WHERE project_id=${b.projectId} AND provider=${b.provider} AND idempotency_key=${b.idempotencyKey}`.pipe(
+								: sql`SELECT * FROM api_cloud_project_builds WHERE account_id=${b.accountId} AND project_id IS NOT DISTINCT FROM ${b.projectId} AND provider=${b.provider} AND idempotency_key=${b.idempotencyKey}`.pipe(
 										Effect.map((found) => buildFromRow(found[0] as Row)),
 									),
 						),
@@ -4593,7 +4603,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				),
 			getActiveAccountBuild: (accountId, provider) =>
 				orDie(
-					sql`SELECT * FROM api_cloud_project_builds WHERE account_id=${accountId} AND provider=${provider} AND state='ready' ORDER BY updated_at DESC LIMIT 1`.pipe(
+					sql`SELECT * FROM api_cloud_project_builds b WHERE account_id=${accountId} AND provider=${provider} AND state='ready' AND NOT EXISTS (SELECT 1 FROM api_cloud_snapshots s WHERE s.provider = b.provider AND s.snapshot_id = b.snapshot_id AND s.state IN ('deleting', 'deleted')) ORDER BY updated_at DESC LIMIT 1`.pipe(
 						Effect.map((rows) =>
 							rows[0] ? buildFromRow(rows[0] as Row) : null,
 						),
@@ -5346,14 +5356,15 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 					Effect.gen(function* () {
 						const rows = yield* sql`
 							INSERT INTO api_cloud_workspace_runtime_summaries
-								(workspace_id, runtime_generation, summary_revision, title, last_activity_at, last_user_message_at, active_session_id, session_head_version, updated_at)
-							SELECT ${input.workspaceId}, ${input.runtimeGeneration}, ${input.summaryRevision}, ${input.title}, ${input.lastActivityAtMs}, ${input.lastUserMessageAtMs ?? null}, ${input.activeSessionId}, ${input.sessionHeadVersion}, ${input.updatedAtMs}
+								(workspace_id, runtime_generation, summary_revision, title, last_activity_at, last_user_message_at, active_session_id, session_head_version, updated_at, native_agent_access)
+							SELECT ${input.workspaceId}, ${input.runtimeGeneration}, ${input.summaryRevision}, ${input.title}, ${input.lastActivityAtMs}, ${input.lastUserMessageAtMs ?? null}, ${input.activeSessionId}, ${input.sessionHeadVersion}, ${input.updatedAtMs}, ${JSON.stringify(input.nativeAgentAccess ?? [])}::jsonb
 							FROM api_cloud_workspaces AS workspace
 							WHERE workspace.workspace_id=${input.workspaceId}
 								AND COALESCE((workspace.request_config->>'runtimeGeneration')::bigint, 1)=${input.runtimeGeneration}
 							ON CONFLICT (workspace_id) DO UPDATE SET
 								runtime_generation=EXCLUDED.runtime_generation,
 								summary_revision=EXCLUDED.summary_revision,
+ native_agent_access=EXCLUDED.native_agent_access,
 								title=EXCLUDED.title,
 								last_user_message_at=COALESCE(EXCLUDED.last_user_message_at, api_cloud_workspace_runtime_summaries.last_user_message_at),
 								last_activity_at=CASE

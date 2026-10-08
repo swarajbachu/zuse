@@ -59,6 +59,7 @@ import {
 } from "./compact.ts";
 import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
 import { applyPlanModePrefix } from "./planMode.ts";
+import { pluginCliEnv } from "./plugin-tools.ts";
 
 const SUPPORTED_CODEX_IMAGE_MIME = new Set([
 	"image/png",
@@ -1538,6 +1539,10 @@ export const startCodexSession = (
 						...process.env,
 						...input.executionEnv,
 						ZUSE_MCP_TOKEN: mcpGatewaySession.token,
+						...pluginCliEnv(
+							mcpGatewaySession.endpoint,
+							mcpGatewaySession.token,
+						),
 					},
 					mcp: {
 						transport: "http",

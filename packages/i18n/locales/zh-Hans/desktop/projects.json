@@ -304,6 +304,8 @@
 	"projects_sidebar_upgrade": "升级",
 	"projects_sidebar_plan_cloud": "Cloud",
 	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud 套餐 · 管理账单",
+	"project_setup_dialog_in_other_workspace": "此文件夹已是另一个工作区中的项目。要移到这里吗？其聊天会一并移动。",
+	"project_setup_dialog_move_here": "移到这里",
 	"projects_sidebar_threads": "线程",
 	"projects_sidebar_no_threads_yet": "暂无线程",
 	"projects_sidebar_start_a_chat_to_see_it_here": "在任意项目中开始聊天即可在此查看。",

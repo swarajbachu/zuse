@@ -34,6 +34,7 @@ import {
 	ApiEnvironmentsRpc,
 	ApiRevokeClientRpc,
 	EnvironmentConnectRpc,
+	EnvironmentRemoveRpc,
 	EnvironmentsListRpc,
 } from "./api.ts";
 import {
@@ -80,6 +81,7 @@ import {
 } from "./cloud-github.ts";
 import {
 	CloudAccountImageBuildRpc,
+	CloudAccountImageDeleteRpc,
 	CloudAccountImageStatusRpc,
 	CloudChatsListRpc,
 	CloudChatsWatchRpc,
@@ -101,6 +103,7 @@ import {
 	CloudSharingDefaultsUpdateRpc,
 	CloudSharingGetRpc,
 	CloudSharingUpdateRpc,
+	CloudSnapshotImportRpc,
 	CloudTranscriptCheckpointGetRpc,
 	CloudTranscriptMessagePageGetRpc,
 	CloudWorkspaceDataKeyRpc,
@@ -472,6 +475,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	ApiStatusRpc,
 	ApiUnlinkRpc,
 	EnvironmentsListRpc,
+	EnvironmentRemoveRpc,
 	EnvironmentConnectRpc,
 	CloudBillingSummaryRpc,
 	CloudBillingUsageRpc,
@@ -488,9 +492,11 @@ export const MemoizeRpcs = RpcGroup.make(
 	CloudGithubDisconnectRpc,
 	CloudAccountImageStatusRpc,
 	CloudAccountImageBuildRpc,
+	CloudAccountImageDeleteRpc,
 	CloudProvidersRpc,
 	CloudProviderConnectionsListRpc,
 	CloudProviderConnectionsSaveRpc,
+	CloudSnapshotImportRpc,
 	CloudProviderConnectionsDisconnectRpc,
 	CloudProjectsListRpc,
 	CloudProjectsConnectRpc,

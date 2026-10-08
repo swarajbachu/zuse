@@ -1,13 +1,23 @@
 import type { CloudAccountImage } from "@zuse/contracts";
 
-/** Requests can finish out of order. Build revisions, not arrival order, win. */
+/** Newer build revisions win; only complete responses may remove a provider. */
 export const reconcileCloudImages = (
 	current: readonly CloudAccountImage[],
 	incoming: readonly CloudAccountImage[],
+	complete = true,
 ): readonly CloudAccountImage[] => {
 	const revision = (image: CloudAccountImage) =>
 		Math.max(image.updatedAt, ...image.builds.map((build) => build.updatedAt));
-	return incoming.map((image) => {
+	const images = complete
+		? incoming
+		: [
+				...incoming,
+				...current.filter(
+					(image) =>
+						!incoming.some((item) => item.providerId === image.providerId),
+				),
+			];
+	return images.map((image) => {
 		const previous = current.find(
 			(item) => item.providerId === image.providerId,
 		);
@@ -16,13 +26,7 @@ export const reconcileCloudImages = (
 };
 
 /** Readiness for a particular repository, not just a completed setup wizard. */
-export const cloudImageReadyForProject = (
-	image: CloudAccountImage | undefined,
-	projectId: string | undefined,
-): boolean =>
-	projectId !== undefined &&
-	(image?.state === "ready" || image?.state === "outdated") &&
-	image.repositories.some((repository) => repository.projectId === projectId);
+export { cloudImageReadyForProject } from "@zuse/client-runtime/cloud-sandbox-providers";
 
 /** A group is ready only when every currently available provider is ready. */
 export const cloudImageGroupStatus = (

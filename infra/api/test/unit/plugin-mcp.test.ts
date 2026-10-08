@@ -23,6 +23,12 @@ test("branded tenant MCP endpoint discovers and invokes through the bound owner"
 	const list = await servePluginMcp(request("tools/list", {}), identity, host);
 	expect(list.status).toBe(200);
 	expect(await list.text()).toContain("plugins_call");
+	await servePluginMcp(
+		request("tools/call", { name: "plugins_list", arguments: {} }),
+		identity,
+		host,
+	);
+	expect(tools).toHaveBeenCalledWith(identity, { action: "list" });
 	const call = await servePluginMcp(
 		request("tools/call", {
 			name: "plugins_search",

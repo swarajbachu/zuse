@@ -37,7 +37,7 @@ describe("ChatWorkingRow cloud delivery", () => {
 			/>,
 		);
 
-		expect(markup).toContain("Waiting for agent");
+		expect(markup).toContain("Waiting for cloud");
 		expect(timelineRetain).not.toHaveBeenCalled();
 	});
 });

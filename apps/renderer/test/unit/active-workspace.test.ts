@@ -88,9 +88,21 @@ vi.mock("../../src/lib/environment-shell-client-bus.ts", () => ({
 				: null,
 	}),
 }));
-vi.mock("../../src/lib/environment-entity-hooks.ts", () => ({
-	useActiveEnvironmentEntities: () => state.entities,
-}));
+vi.mock("../../src/lib/environment-entity-hooks.ts", async () => {
+	const { rendererWorkspaceSnapshot } = await import(
+		"../../src/lib/renderer-workspace.ts"
+	);
+	return {
+		// The real hook scopes this desktop's projects; "project" is Personal.
+		useActiveEnvironmentEntities: () => ({
+			...state.entities,
+			folders:
+				rendererWorkspaceSnapshot().scope.kind === "personal"
+					? [{ id: "project" }]
+					: [],
+		}),
+	};
+});
 const { useActiveContext, useActiveWorkspaceRoot } = await import(
 	"../../src/store/active-workspace.ts"
 );

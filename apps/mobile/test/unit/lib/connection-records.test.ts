@@ -7,6 +7,7 @@ import {
 	decodeConnectionRecords,
 	refreshConnectionDescriptor,
 	replaceDiscoveredRoute,
+	restorePairedRoute,
 } from "../../../src/lib/connection-records";
 
 describe("connection record persistence", () => {
@@ -237,6 +238,46 @@ describe("connection record persistence", () => {
 			pathType: "apple-peer",
 			routeGeneration: 4,
 		});
+	});
+
+	test("returns a proxied Mac to its paired address when the proxy is gone", () => {
+		const [paired] = decodeConnectionRecords([
+			{
+				key: "paired:env-1",
+				source: "paired",
+				host: "192.168.29.189",
+				port: 9345,
+				wsBaseUrl: "ws://192.168.29.189:9345/rpc",
+				label: "Mac",
+				updatedAt: 1,
+			},
+		]);
+		if (paired === undefined) throw new Error("paired record missing");
+		const proxied = replaceDiscoveredRoute(paired, {
+			host: "127.0.0.1",
+			port: 54789,
+			pathType: "lan",
+		});
+		// A second proxy must not overwrite the remembered paired address.
+		const reproxied = replaceDiscoveredRoute(proxied, {
+			host: "127.0.0.1",
+			port: 54790,
+			pathType: "lan",
+		});
+		expect(reproxied).toMatchObject({
+			host: "127.0.0.1",
+			pairedHost: "192.168.29.189",
+			pairedPort: 9345,
+		});
+		expect(restorePairedRoute(reproxied)).toMatchObject({
+			host: "192.168.29.189",
+			port: 9345,
+			wsBaseUrl: "ws://192.168.29.189:9345/rpc",
+			pathType: "lan",
+			routeGeneration: (reproxied.routeGeneration ?? 0) + 1,
+		});
+		// Already on a real address, or nothing remembered: unchanged.
+		expect(restorePairedRoute(paired)).toBe(paired);
 	});
 
 	test("does not rewrite an unchanged connection description", () => {

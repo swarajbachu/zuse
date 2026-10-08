@@ -13,6 +13,26 @@ import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { registerFolder, useWorkspaceStore } from "../store/workspace.ts";
 import { overlayEnvironmentShell } from "./environment-entities.ts";
 import { dispatchEnvironmentShellCommand } from "./environment-shell-client-bus.ts";
+import { newProjectWorkspaceKey } from "./environment-shell-scope.ts";
+
+/** The folder is already a project owned by a different workspace. */
+export class ProjectInOtherWorkspaceError extends Error {
+	constructor(
+		readonly path: string,
+		readonly workspaceKey: string,
+	) {
+		super("This folder is already added to another workspace.");
+	}
+}
+
+const otherWorkspaceOwner = (cause: unknown): string | null => {
+	if (typeof cause !== "object" || cause === null) return null;
+	const record = cause as Record<string, unknown>;
+	return record._tag === "WorkspaceDuplicatePathError" &&
+		typeof record.workspaceKey === "string"
+		? record.workspaceKey
+		: null;
+};
 
 const messageOf = (cause: unknown): string => {
 	if (typeof cause === "object" && cause !== null) {
@@ -38,6 +58,10 @@ const run = async <Payload, Result>(
 			})
 		).result;
 	} catch (cause) {
+		const owner = otherWorkspaceOwner(cause);
+		const path = (payload as { readonly path?: unknown }).path;
+		if (owner !== null && typeof path === "string")
+			throw new ProjectInOtherWorkspaceError(path, owner);
 		throw new Error(messageOf(cause));
 	}
 };
@@ -48,12 +72,15 @@ const registerResult = async (
 ): Promise<void> => {
 	const catalog = useEnvironmentCatalogStore.getState();
 	overlayEnvironmentShell(EnvironmentIdSchema.make(environmentId), (shell) => {
-		if (
-			shell.folders.some(
-				(existing) =>
-					existing.id === folder.id || existing.path === folder.path,
-			)
-		)
+		if (shell.folders.some((existing) => existing.id === folder.id))
+			// A moved project keeps its id; adopt its new owner immediately.
+			return {
+				...shell,
+				folders: shell.folders.map((existing) =>
+					existing.id === folder.id ? folder : existing,
+				),
+			};
+		if (shell.folders.some((existing) => existing.path === folder.path))
 			return shell;
 		return {
 			...shell,
@@ -86,12 +113,20 @@ export const pickEnvironmentFolder = async (
 export const addEnvironmentFolder = async (
 	environmentId: string,
 	path: string,
+	options: { readonly moveFrom?: string } = {},
 ): Promise<Folder> => {
-	const folder = await run<{ readonly path: string }, Folder>(
-		environmentId,
-		"workspace.add",
-		{ path },
-	);
+	const folder = await run<
+		{
+			readonly path: string;
+			readonly workspaceKey?: string;
+			readonly moveFrom?: string;
+		},
+		Folder
+	>(environmentId, "workspace.add", {
+		path,
+		workspaceKey: newProjectWorkspaceKey(environmentId),
+		moveFrom: options.moveFrom,
+	});
 	await registerResult(environmentId, folder);
 	return folder;
 };
@@ -102,9 +137,17 @@ export const cloneEnvironmentProject = async (
 	parent: string,
 ): Promise<Folder> => {
 	const folder = await run<
-		{ readonly url: string; readonly parent: string },
+		{
+			readonly url: string;
+			readonly parent: string;
+			readonly workspaceKey?: string;
+		},
 		Folder
-	>(environmentId, "workspace.cloneRepo", { url, parent });
+	>(environmentId, "workspace.cloneRepo", {
+		url,
+		parent,
+		workspaceKey: newProjectWorkspaceKey(environmentId),
+	});
 	await registerResult(environmentId, folder);
 	return folder;
 };
@@ -118,11 +161,13 @@ export const createEnvironmentProject = async (
 		readonly alsoCreateGithubRepo: boolean;
 	},
 ): Promise<Folder> => {
-	const folder = await run<typeof input, Folder>(
-		environmentId,
-		"workspace.createProject",
-		input,
-	);
+	const folder = await run<
+		typeof input & { readonly workspaceKey?: string },
+		Folder
+	>(environmentId, "workspace.createProject", {
+		...input,
+		workspaceKey: newProjectWorkspaceKey(environmentId),
+	});
 	await registerResult(environmentId, folder);
 	return folder;
 };

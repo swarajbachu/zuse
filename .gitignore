@@ -66,3 +66,6 @@ apps/renderer/hugeicons-migrate-backup-*/
 apps/renderer/hugeicons-migration-report-*.html
 .gstack/
 .pstack/
+
+# Cloud runtime and orchestration CLI bundles
+dist-cloud/
