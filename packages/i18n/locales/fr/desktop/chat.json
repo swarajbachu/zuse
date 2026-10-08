@@ -686,5 +686,7 @@
 	"provider_sign_in_tray_sign_in_to_continue": "Connectez-vous pour poursuivre cette conversation.",
 	"chat_landing_choose_a_project_in_the_sidebar": "Choisissez un projet dans la barre latérale pour démarrer une nouvelle conversation.",
 	"chat_landing_add_a_project_to_start": "Ajoutez un projet pour démarrer votre première conversation.",
-	"chat_landing_add_project": "Ajouter un projet"
+	"chat_landing_add_project": "Ajouter un projet",
+	"message_row_ui_spec_generated": "UI générée",
+	"message_row_ui_spec_could_not_render": "Impossible d'afficher ce bloc d'interface — la spec brute est affichée"
 }

@@ -13,6 +13,7 @@ import {
 	defaultModelFor,
 	type FolderId,
 	type Message,
+	type MessageContent,
 	PROVIDER_IDS,
 	type ProviderId,
 	type ResolvedModelCatalog,
@@ -24,11 +25,16 @@ import {
 	type WorktreeCreateSource,
 	type WorktreeId,
 } from "@zuse/contracts";
+import {
+	UI_SPEC_VERSION,
+	validateGenerativeUiSpec,
+} from "@zuse/utils/generative-ui";
 import { type Context, Effect } from "effect";
 import {
 	messageContentToText,
 	orchestrationErrorText,
 } from "./conversation-message-mapping.ts";
+import type { PersistedMessage } from "./conversation-store-types.ts";
 
 export interface ConversationOrchestrationContext {
 	readonly sessionId: SessionId;
@@ -93,6 +99,14 @@ export interface ConversationOrchestrationDependencies {
 		projectId: FolderId,
 		includeArchived: boolean,
 	) => Effect.Effect<ReadonlyArray<Session>, unknown>;
+	/**
+	 * Persist one message content block onto the calling session's timeline.
+	 * `emit_ui` uses it to append validated `ui_spec` blocks mid-turn.
+	 */
+	readonly persistMessage: (
+		sessionId: SessionId,
+		content: MessageContent,
+	) => Effect.Effect<PersistedMessage, unknown>;
 }
 
 export const makeConversationOrchestration = (
@@ -430,6 +444,37 @@ export const makeConversationOrchestration = (
 					model: context.model,
 					autonomyLevel,
 				}),
+			emitUi: (input) => {
+				// Validate before touching the timeline so a bad spec comes back as
+				// a fixable tool error instead of a degraded transcript block.
+				const validation = validateGenerativeUiSpec(input.spec);
+				if (!validation.ok) {
+					return Promise.resolve({
+						ok: false as const,
+						error: validation.error,
+					});
+				}
+				return run(
+					dependencies
+						.persistMessage(context.sessionId, {
+							_tag: "ui_spec",
+							spec: input.spec,
+							version: UI_SPEC_VERSION,
+						})
+						.pipe(
+							Effect.map((persisted) => ({
+								ok: true as const,
+								messageId: persisted.message.id as string,
+							})),
+							Effect.catch((error) =>
+								Effect.succeed({
+									ok: false as const,
+									error: orchestrationErrorText(error),
+								}),
+							),
+						),
+				);
+			},
 		};
 		return {
 			deps: toolDependencies,

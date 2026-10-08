@@ -357,6 +357,8 @@
 	"message_row_reconnecting": "⟦Rëëcôônnëëctïïng⟧",
 	"message_row_provider_error": "⟦Prôôvïïdëër ëërrôôr⟧",
 	"message_row_open_provider_settings": "⟦ÔÔpëën Prôôvïïdëër Sëëttïïngs⟧",
+	"message_row_ui_spec_generated": "⟦Gëënëërààtëëd ÜÜÏÏ⟧",
+	"message_row_ui_spec_could_not_render": "⟦Côôüüld nôôt rëëndëër thïïs ÜÜÏÏ blôôck — shôôwïïng thëë rààw spëëc⟧",
 	"nearby_pairing_approval_is_this_you_trying_to_connect": "⟦ÏÏs thïïs yôôüü tryïïng tôô côônnëëct?⟧",
 	"nearby_pairing_approval_confirm_these_words_match_the_ones_shown_on_your_phone": "⟦Côônfïïrm thëësëë wôôrds mààtch thëë ôônëës shôôwn ôôn yôôüür phôônëë.⟧",
 	"nearby_pairing_approval_block_device": "⟦Blôôck dëëvïïcëë⟧",

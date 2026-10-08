@@ -684,5 +684,7 @@
 	"provider_sign_in_tray_sign_in_to_continue": "登入以繼續此聊天。",
 	"chat_landing_choose_a_project_in_the_sidebar": "在側邊欄中選擇一個專案以開始新聊天。",
 	"chat_landing_add_a_project_to_start": "新增一個專案以開始你的第一次聊天。",
-	"chat_landing_add_project": "新增專案"
+	"chat_landing_add_project": "新增專案",
+	"message_row_ui_spec_generated": "產生的 UI",
+	"message_row_ui_spec_could_not_render": "無法轉譯此 UI 區塊 — 顯示原始 spec"
 }

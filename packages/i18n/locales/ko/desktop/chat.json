@@ -684,5 +684,7 @@
 	"provider_sign_in_tray_sign_in_to_continue": "이 채팅을 계속하려면 로그인하세요.",
 	"chat_landing_choose_a_project_in_the_sidebar": "사이드바에서 프로젝트를 선택해 새 채팅을 시작하세요.",
 	"chat_landing_add_a_project_to_start": "프로젝트를 추가해 첫 채팅을 시작하세요.",
-	"chat_landing_add_project": "프로젝트 추가"
+	"chat_landing_add_project": "프로젝트 추가",
+	"message_row_ui_spec_generated": "생성된 UI",
+	"message_row_ui_spec_could_not_render": "이 UI 블록을 렌더링할 수 없습니다 — 원시 스펙을 표시합니다"
 }

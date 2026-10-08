@@ -29,7 +29,8 @@
 		"./reaper": "./src/reaper.ts",
 		"./linux-memory": "./src/linux-memory.ts",
 		"./canonical-json": "./src/canonical-json.ts",
-		"./feature-access": "./src/feature-access.ts"
+		"./feature-access": "./src/feature-access.ts",
+		"./generative-ui": "./src/generative-ui.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",
@@ -38,8 +39,10 @@
 		"test:integration": "vitest run test/integration --passWithNoTests"
 	},
 	"dependencies": {
+		"@openuidev/lang-core": "0.3.0",
 		"fflate": "0.8.2",
-		"effect": "catalog:"
+		"effect": "catalog:",
+		"zod": "^4.0.0"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",
