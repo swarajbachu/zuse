@@ -306,6 +306,17 @@
 	"projects_sidebar_plan_cloud_tooltip": "⟦Züüsëë Clôôüüd plààn · Màànààgëë bïïllïïng⟧",
 	"project_setup_dialog_in_other_workspace": "⟦Thïïs fôôldëër ïïs ààlrëëààdy àà prôôjëëct ïïn àànôôthëër wôôrkspààcëë. Môôvëë ïït hëërëë? ÏÏts chààts môôvëë wïïth ïït.⟧",
 	"project_setup_dialog_move_here": "⟦Môôvëë hëërëë⟧",
+	"github_observation_monitoring_paused": "⟦GïïtHüüb môônïïtôôrïïng pààüüsëëd · Rëëtry⟧",
+	"github_observation_authentication": "⟦Rëëcôônnëëct GïïtHüüb⟧",
+	"github_observation_access": "⟦GïïtHüüb ààccëëss üünààvààïïlààblëë⟧",
+	"github_observation_rate_limited": "⟦GïïtHüüb rààtëë lïïmïïtëëd · Rëëfrëësh pààüüsëëd⟧",
+	"github_observation_offline": "⟦GïïtHüüb ôôfflïïnëë · Cààchëëd stààtüüs⟧",
+	"github_observation_timeout": "⟦GïïtHüüb tïïmëëd ôôüüt · Cààchëëd stààtüüs⟧",
+	"github_observation_unavailable": "⟦GïïtHüüb stààtüüs üünààvààïïlààblëë⟧",
+	"github_observation_loading": "⟦Lôôààdïïng GïïtHüüb stààtüüs…⟧",
+	"github_observation_cached": "⟦Cààchëëd GïïtHüüb stààtüüs⟧",
+	"github_observation_incomplete_checks": "⟦Chëëcks ààrëë ïïncôômplëëtëë⟧",
+	"github_observation_refreshing": "⟦Rëëfrëëshïïng GïïtHüüb…⟧",
 	"projects_sidebar_threads": "⟦Thrëëààds⟧",
 	"projects_sidebar_no_threads_yet": "⟦Nôô thrëëààds yëët⟧",
 	"projects_sidebar_start_a_chat_to_see_it_here": "⟦Stààrt àà chààt ïïn ààny prôôjëëct tôô sëëëë ïït hëërëë.⟧",
@@ -331,5 +342,6 @@
 	"diff_pane_tree_view": "⟦Shôôw ààs trëëëë⟧",
 	"diff_pane_list_view": "⟦Shôôw ààs lïïst⟧",
 	"pr_pane_show_more": "⟦Shôôw môôrëë⟧",
-	"pr_pane_show_less": "⟦Shôôw lëëss⟧"
+	"pr_pane_show_less": "⟦Shôôw lëëss⟧",
+	"pr_pane_merge_blocked_stale": "⟦GïïtHüüb stààtüüs màày bëë ôôüüt ôôf dààtëë. Rëëfrëësh bëëfôôrëë mëërgïïng.⟧"
 }

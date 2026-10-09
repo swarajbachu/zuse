@@ -306,6 +306,17 @@
 	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud 요금제 · 결제 관리",
 	"project_setup_dialog_in_other_workspace": "이 폴더는 이미 다른 워크스페이스의 프로젝트입니다. 여기로 옮길까요? 채팅도 함께 옮겨집니다.",
 	"project_setup_dialog_move_here": "여기로 이동",
+	"github_observation_monitoring_paused": "GitHub 모니터링 일시 중지 · 재시도",
+	"github_observation_authentication": "GitHub 다시 연결",
+	"github_observation_access": "GitHub에 접근할 수 없음",
+	"github_observation_rate_limited": "GitHub 요청 한도 초과 · 새로 고침 일시 중지",
+	"github_observation_offline": "GitHub 오프라인 · 캐시된 상태",
+	"github_observation_timeout": "GitHub 시간 초과 · 캐시된 상태",
+	"github_observation_unavailable": "GitHub 상태를 확인할 수 없음",
+	"github_observation_loading": "GitHub 상태 불러오는 중…",
+	"github_observation_cached": "캐시된 GitHub 상태",
+	"github_observation_incomplete_checks": "검사가 불완전함",
+	"github_observation_refreshing": "GitHub 새로 고침 중…",
 	"projects_sidebar_threads": "스레드",
 	"projects_sidebar_no_threads_yet": "아직 스레드가 없습니다",
 	"projects_sidebar_start_a_chat_to_see_it_here": "프로젝트에서 채팅을 시작하면 여기에 표시됩니다.",
@@ -331,5 +342,6 @@
 	"diff_pane_tree_view": "트리로 보기",
 	"diff_pane_list_view": "목록으로 보기",
 	"pr_pane_show_more": "더 보기",
-	"pr_pane_show_less": "간단히 보기"
+	"pr_pane_show_less": "간단히 보기",
+	"pr_pane_merge_blocked_stale": "GitHub 상태가 오래되었을 수 있습니다. 병합하기 전에 새로 고치세요."
 }

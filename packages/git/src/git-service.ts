@@ -126,6 +126,7 @@ export interface GitServiceShape {
 	readonly prState: (
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
+		options?: { readonly interactive?: boolean; readonly force?: boolean },
 	) => Effect.Effect<GitPrInfo, GitFailure>;
 	readonly prDetails: (
 		folderId: FolderId,

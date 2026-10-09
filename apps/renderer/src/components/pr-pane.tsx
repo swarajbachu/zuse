@@ -8,6 +8,7 @@ import {
 } from "../lib/pr-checks.ts";
 import { useGitPrState } from "../lib/use-git-pr-state.ts";
 import { GitHubAvatar } from "./github-avatar.tsx";
+import { GitHubStatusNotice } from "./github-status-notice.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
 import "@zuse/i18n/english/chat";
 import "@zuse/i18n/english/projects";
@@ -242,6 +243,9 @@ export function PrPane({
 		<div className="flex min-h-0 flex-1 flex-col">
 			{effectivePr === null ? (
 				<div className="min-h-0 flex-1 overflow-y-auto pt-3">
+					<div className="px-3">
+						<GitHubStatusNotice pr={pr} executionRef={executionRef} />
+					</div>
 					{refreshError}
 					<NoPrState
 						branch={status.branch}
@@ -831,10 +835,11 @@ function PrHeader({
 		<header className="flex h-11 shrink-0 items-center gap-2 px-4">
 			<PrStateBadge pr={pr} />
 			{number !== null ? (
-				<span className="tabular-nums text-[11px] text-muted-foreground">
+				<span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
 					#{number}
 				</span>
 			) : null}
+			<GitHubStatusNotice pr={pr} executionRef={executionRef} />
 			<div className="ml-auto flex shrink-0 items-center gap-0.5">
 				{url ? (
 					<button
@@ -877,6 +882,8 @@ function mergeBlockerMessage(
 	uiMessage: UiMessage,
 ): string {
 	switch (blocker) {
+		case "stale":
+			return uiMessage("projects:pr_pane_merge_blocked_stale");
 		case "conflicts":
 			return uiMessage("projects:pr_pane_merge_blocked_conflicts");
 		case "checks-failing":

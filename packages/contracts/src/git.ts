@@ -167,6 +167,7 @@ export const GitWorkspaceChangesRpc = Rpc.make("git.workspaceChanges", {
 	payload: Schema.Struct({
 		folderId: FolderId,
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		visible: Schema.optional(Schema.Boolean),
 	}),
 	success: Schema.Struct({ revision: Schema.Number }),
 	error: GitErrors,
@@ -191,8 +192,8 @@ export const GitOriginRpc = Rpc.make("git.origin", {
 
 /**
  * State of the GitHub PR (if any) opened from the folder's current HEAD branch
- * against its upstream. `gh pr view --json state,additions,deletions,...` is
- * the source of truth — when `gh` is missing or no PR exists, this returns
+ * against its upstream. The shared direct GitHub client is
+ * the source of truth — when no PR exists, this returns
  * `{ state: "none" }` and the renderer falls back to a plain timestamp.
  */
 export const GitPrState = Schema.Literals(["none", "open", "closed", "merged"]);
@@ -200,7 +201,7 @@ export type GitPrState = typeof GitPrState.Type;
 
 /**
  * Aggregated CI rollup status for the PR's HEAD commit.
- *   none    — PR has no required checks, or `gh` couldn't read the rollup.
+ *   none    — PR has no required checks, or no rollup exists. Incomplete observations remain pending.
  *   pending — at least one check still running / queued.
  *   success — all checks passed.
  *   failure — at least one check failed (cancelled / errored counts as fail).
@@ -217,6 +218,7 @@ export const GitPrCapability = Schema.Literals([
 	"available",
 	"missing_cli",
 	"authentication",
+	"access",
 	"offline",
 	"timeout",
 	"rate_limited",
@@ -225,10 +227,10 @@ export const GitPrCapability = Schema.Literals([
 export type GitPrCapability = typeof GitPrCapability.Type;
 
 /**
- * Merge-conflict state from `gh pr view --json mergeable`.
+ * Merge-conflict state from the GitHub API.
  *   clean       — GitHub says the PR is mergeable.
  *   conflicting — at least one path in the branch conflicts with the base.
- *   unknown     — GitHub hasn't computed it yet, no PR exists, or `gh` couldn't read it.
+ *   unknown     — GitHub hasn't computed it yet, no PR exists, or the observation is incomplete.
  */
 export const GitPrMergeable = Schema.Literals([
 	"clean",
@@ -307,13 +309,20 @@ export class GitPrInfo extends Schema.Class<GitPrInfo>("GitPrInfo")({
 	autoMergeEnabled: Schema.Boolean,
 	prCapability: Schema.optional(GitPrCapability),
 	stale: Schema.optional(Schema.Boolean),
+	monitoringPaused: Schema.optional(Schema.Boolean),
+	headSha: Schema.optional(Schema.NullOr(Schema.String)),
+	statusRevision: Schema.optional(Schema.String),
+	remarksRevision: Schema.optional(Schema.String),
+	observedAt: Schema.optional(Schema.DateFromString),
+	retryAt: Schema.optional(Schema.NullOr(Schema.DateFromString)),
+	checksComplete: Schema.optional(Schema.Boolean),
 }) {}
 
 export const GitPrStateRpc = Rpc.make("git.prState", {
 	payload: Schema.Struct({
 		folderId: FolderId,
 		/**
-		 * When set, runs `gh pr view` inside the worktree's path so the result
+		 * When set, resolves the GitHub repository from the worktree's path so the result
 		 * reflects the worktree's branch — each worktree has its own branch,
 		 * each branch has its own PR (or none).
 		 */
@@ -434,7 +443,7 @@ export const GitReviewIdentityRpc = Rpc.make("git.reviewIdentity", {
 
 /**
  * Lightweight PR row for the "Create from…" picker. One entry per open PR from
- * `gh pr list`. `headRefName` is the PR's branch — the picker checks it out
+ * the shared GitHub client. `headRefName` is the PR's branch — the picker checks it out
  * into a worktree and pins the new chat to it. `updatedAt` drives the "most
  * recently touched first" ordering the picker shows.
  */
@@ -470,9 +479,8 @@ export class GitIssueSummary extends Schema.Class<GitIssueSummary>(
 }) {}
 
 /**
- * List open PRs via `gh pr list`. Collapses to an empty array when `gh` is
- * missing / unauthenticated / the repo has no GitHub remote — the picker just
- * shows an empty PRs tab rather than surfacing an error.
+ * List open PRs via the shared GitHub client. No GitHub remote yields an empty
+ * list; authentication, access and network failures remain explicit errors.
  */
 export const GitListPrsRpc = Rpc.make("git.listPrs", {
 	payload: Schema.Struct({ folderId: FolderId }),
@@ -480,7 +488,7 @@ export const GitListPrsRpc = Rpc.make("git.listPrs", {
 	error: GitErrors,
 });
 
-/** List open issues via `gh issue list`. Same graceful degradation as listPrs. */
+/** List open issues via the shared GitHub client. */
 export const GitListIssuesRpc = Rpc.make("git.listIssues", {
 	payload: Schema.Struct({ folderId: FolderId }),
 	success: Schema.Array(GitIssueSummary),
@@ -488,7 +496,7 @@ export const GitListIssuesRpc = Rpc.make("git.listIssues", {
 });
 
 /**
- * Render a single issue (`gh issue view`) as Markdown so it can be written to
+ * Render a single issue (GitHub REST API) as Markdown so it can be written to
  * `.context/files/` and attached to a new chat as an `@`-file. The server does
  * the JSON→Markdown formatting so both drivers get identical text.
  */
@@ -505,7 +513,7 @@ export const GitIssueMarkdownRpc = Rpc.make("git.issueMarkdown", {
 
 /**
  * Captured CI failure artifact. The server pulled logs for every failing
- * check via `gh run view --log-failed`, concatenated them with run-name
+ * check via GitHub Actions REST endpoints, concatenated them with run-name
  * dividers, and wrote them to `.zuse/failing-checks-<ts>.txt` inside the
  * worktree. The renderer attaches `relPath` to the composer so the agent can
  * read it as `@<relPath>`.

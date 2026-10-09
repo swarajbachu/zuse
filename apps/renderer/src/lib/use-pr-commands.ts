@@ -10,6 +10,7 @@ import { dispatchGitWorkspaceCommand } from "./git-workspace-client-bus.ts";
 export type PrStatusTarget = "ready" | "draft" | "closed" | "open";
 export type PrMergeAction = "merge" | "enable-auto" | "disable-auto";
 export type PrMergeBlocker =
+	| "stale"
 	| "conflicts"
 	| "checks-failing"
 	| "checks-running"
@@ -17,11 +18,14 @@ export type PrMergeBlocker =
 
 /** Why an immediate merge is unavailable, or null when GitHub allows it. */
 export const prMergeBlocker = (
-	pr: Pick<GitPrInfo, "mergeable" | "checks">,
+	pr: Pick<GitPrInfo, "mergeable" | "checks" | "stale" | "checksComplete">,
 ): PrMergeBlocker | null => {
+	if (pr.stale === true) return "stale";
 	if (pr.mergeable === "conflicting") return "conflicts";
 	if (pr.checks === "failure") return "checks-failing";
-	if (pr.checks === "pending") return "checks-running";
+	// Incomplete check data cannot prove the rollup is green yet.
+	if (pr.checks === "pending" || pr.checksComplete === false)
+		return "checks-running";
 	if (pr.mergeable !== "clean") return "not-mergeable";
 	return null;
 };

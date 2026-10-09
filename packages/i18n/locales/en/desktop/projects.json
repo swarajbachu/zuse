@@ -306,6 +306,17 @@
 	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud plan · Manage billing",
 	"project_setup_dialog_in_other_workspace": "This folder is already a project in another workspace. Move it here? Its chats move with it.",
 	"project_setup_dialog_move_here": "Move here",
+	"github_observation_monitoring_paused": "GitHub monitoring paused · Retry",
+	"github_observation_authentication": "Reconnect GitHub",
+	"github_observation_access": "GitHub access unavailable",
+	"github_observation_rate_limited": "GitHub rate limited · Refresh paused",
+	"github_observation_offline": "GitHub offline · Cached status",
+	"github_observation_timeout": "GitHub timed out · Cached status",
+	"github_observation_unavailable": "GitHub status unavailable",
+	"github_observation_loading": "Loading GitHub status…",
+	"github_observation_cached": "Cached GitHub status",
+	"github_observation_incomplete_checks": "Checks are incomplete",
+	"github_observation_refreshing": "Refreshing GitHub…",
 	"projects_sidebar_threads": "Threads",
 	"projects_sidebar_no_threads_yet": "No threads yet",
 	"projects_sidebar_start_a_chat_to_see_it_here": "Start a chat in any project to see it here.",
@@ -331,5 +342,6 @@
 	"diff_pane_tree_view": "Show as tree",
 	"diff_pane_list_view": "Show as list",
 	"pr_pane_show_more": "Show more",
-	"pr_pane_show_less": "Show less"
+	"pr_pane_show_less": "Show less",
+	"pr_pane_merge_blocked_stale": "GitHub status may be out of date. Refresh before merging."
 }

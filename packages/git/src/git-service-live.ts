@@ -13,14 +13,10 @@ import {
 	GitIssueSummary,
 	GitNotARepoError,
 	GitNotInstalledError,
-	GitOriginInfo,
 	GitPrCheckRun,
-	GitPrComment,
 	GitPrDetails,
 	GitPrFile,
 	GitPrInfo,
-	GitPrReview,
-	type GitPrReviewState,
 	GitPrSummary,
 	GitResetRemotePreview,
 	GitReviewFile,
@@ -39,8 +35,6 @@ import {
 	collectActionsRunIds,
 	isFailedCheckRollup,
 	metadataForRollupEntry,
-	type PrCheckRollupEntry,
-	parseActionsJobsResponse,
 } from "@zuse/git/check-runs";
 import { GitService } from "@zuse/git/git-service";
 import {
@@ -59,21 +53,27 @@ import {
 	ChildProcess as Command,
 	ChildProcessSpawner as CommandExecutor,
 } from "effect/unstable/process";
-import {
-	checkAvatarKey,
-	PR_AVATARS_QUERY,
-	parsePrAvatars,
-} from "./pr-avatars.ts";
+import { parseRemoteUrl, resolveGitHubRepository } from "./git-remote.ts";
 import {
 	feedbackComments,
 	feedbackReviews,
-	PR_REVIEW_THREADS_QUERY,
 	parseFeedbackPages,
 	parseReviewThreads,
 } from "./pr-feedback.ts";
+
+export { parseRemoteUrl } from "./git-remote.ts";
+
+import {
+	GitHubClient,
+	GitHubClientService,
+	GitHubFailure,
+	GitHubRequestScope,
+	githubExecutionEnvironment,
+} from "./github-client.ts";
+import { type GitHubPr, GitHubPullRequests } from "./github-pull-requests.ts";
 import { RepositoryLocator } from "./repository-locator.ts";
 import {
-	buildCreateReviewCommentArgs,
+	buildCreateReviewCommentBody,
 	parseReviewIdentity,
 } from "./review-comment.ts";
 import {
@@ -408,61 +408,6 @@ const parseReviewStats = (out: string): ReadonlyMap<string, ReviewStat> => {
 //   https://github.com/owner/repo[.git]
 // Returns null for anything we can't confidently parse (file:// remotes,
 // custom transports, etc.) — the caller treats null as "no origin info".
-const safeCloneUrl = (raw: string): string | null => {
-	const trimmed = raw.trim();
-	if (/^[\w.-]+@[\w.-]+:[^\s]+$/.test(trimmed)) return trimmed;
-	try {
-		const parsed = new URL(trimmed);
-		if (
-			!(
-				parsed.protocol === "http:" ||
-				parsed.protocol === "https:" ||
-				parsed.protocol === "ssh:"
-			)
-		)
-			return null;
-		parsed.password = "";
-		if (parsed.protocol !== "ssh:") parsed.username = "";
-		parsed.search = "";
-		parsed.hash = "";
-		return parsed.toString();
-	} catch {
-		return null;
-	}
-};
-
-export const parseRemoteUrl = (url: string): GitOriginInfo | null => {
-	const cloneUrl = safeCloneUrl(url);
-	const cleaned = (cloneUrl ?? url).replace(/\.git\/?$/, "");
-	const scp = /^[\w.-]+@([\w.-]+):([\w.-]+)\/([\w.-]+)$/.exec(cleaned);
-	if (scp) {
-		const [, host, owner, repo] = scp;
-		if (host !== undefined && owner !== undefined && repo !== undefined) {
-			return GitOriginInfo.make({
-				host,
-				owner,
-				repo,
-				cloneUrl: cloneUrl ?? undefined,
-			});
-		}
-	}
-	const proto =
-		/^(?:https?|ssh):\/\/(?:[\w.-]+@)?([\w.-]+)\/([\w.-]+)\/([\w.-]+)$/.exec(
-			cleaned,
-		);
-	if (proto) {
-		const [, host, owner, repo] = proto;
-		if (host !== undefined && owner !== undefined && repo !== undefined) {
-			return GitOriginInfo.make({
-				host,
-				owner,
-				repo,
-				cloneUrl: cloneUrl ?? undefined,
-			});
-		}
-	}
-	return null;
-};
 
 /**
  * Collapse `gh`'s `statusCheckRollup` into the wire's four-state aggregate.
@@ -554,6 +499,31 @@ export const GitServiceLive = Layer.effect(
 		const executor = yield* CommandExecutor.ChildProcessSpawner;
 		const fs = yield* FileSystem.FileSystem;
 		const path = yield* Path.Path;
+		const providedGitHub = yield* GitHubClientService;
+		const github = providedGitHub ?? new GitHubClient();
+		const pullRequests = new GitHubPullRequests(github);
+		yield* Effect.addFinalizer(() =>
+			Effect.sync(() => {
+				pullRequests.close();
+				if (!providedGitHub) github.close();
+			}),
+		);
+		const lastPr = new Map<string, { identity: string; value: GitPrInfo }>();
+		const githubEffect = <T>(
+			folderId: FolderId,
+			read: (signal: AbortSignal) => Promise<T>,
+		) =>
+			Effect.tryPromise({
+				try: read,
+				catch: (error) =>
+					new GitCommandError({
+						folderId,
+						reason:
+							error instanceof GitHubFailure
+								? `${error.kind}: ${error.message}`
+								: "GitHub operation failed.",
+					}),
+			});
 		const commandLocks = new Map<string, Semaphore.Semaphore>();
 		const commandLock = (cwd: string): Semaphore.Semaphore => {
 			const existing = commandLocks.get(cwd);
@@ -608,7 +578,16 @@ export const GitServiceLive = Layer.effect(
 							"diff.autoRefreshIndex=false",
 							...args,
 						],
-						{ cwd },
+						{
+							cwd,
+							env: yield* githubExecutionEnvironment.pipe(
+								Effect.mapError(
+									(error) =>
+										new GitCommandError({ folderId, reason: error.message }),
+								),
+							),
+							extendEnv: true,
+						},
 					);
 					const proc = yield* executor.spawn(cmd);
 					const stdout = yield* collectText(proc.stdout);
@@ -788,19 +767,16 @@ export const GitServiceLive = Layer.effect(
 						? stackPullRequestsQuery(parsed, repository.owner, repository.repo)
 						: null;
 					if (!repository || !query) return parsed;
-					const metadata = yield* ghRun(folderId, cwd, [
-						"api",
-						"--hostname",
-						repository.host,
-						"graphql",
-						"-f",
-						`query=${query}`,
-					]).pipe(
-						Effect.catchTags({
-							GitCommandError: () => Effect.succeed(""),
-							GitNotInstalledError: () => Effect.succeed(""),
-						}),
-					);
+					const credentialScope = (yield* GitHubRequestScope) ?? undefined;
+					const metadata = yield* githubEffect(folderId, async (signal) => {
+						const credential = await github.credential(
+							{ ...repository, cwd, credentialScope },
+							signal,
+						);
+						return JSON.stringify({
+							data: await github.graphql(credential, query, {}, signal),
+						});
+					}).pipe(Effect.catch(() => Effect.succeed("")));
 					return withStackPullRequests(parsed, metadata);
 				}),
 			);
@@ -939,10 +915,7 @@ export const GitServiceLive = Layer.effect(
 				),
 			);
 
-		// Run `gh ...` in `cwd`. Same shape as `run` but uses the GitHub CLI.
-		// Missing `gh` (ENOENT) maps to GitNotInstalled — the caller catches it
-		// and falls back to "no PR" so the renderer doesn't pop an error toast on
-		// machines without `gh`.
+		// gh-stack owns local stack mutations; all API enrichment uses the shared client.
 		const ghRun = (
 			folderId: FolderId,
 			cwd: string,
@@ -951,7 +924,16 @@ export const GitServiceLive = Layer.effect(
 		) =>
 			Effect.scoped(
 				Effect.gen(function* () {
-					const cmd = Command.make("gh", args, { cwd });
+					const cmd = Command.make("gh", args, {
+						cwd,
+						env: yield* githubExecutionEnvironment.pipe(
+							Effect.mapError(
+								(error) =>
+									new GitCommandError({ folderId, reason: error.message }),
+							),
+						),
+						extendEnv: true,
+					});
 					const proc = yield* executor.spawn(cmd);
 					const [stdout, stderr, exitCode] = yield* Effect.all(
 						[collectText(proc.stdout), collectText(proc.stderr), proc.exitCode],
@@ -984,227 +966,207 @@ export const GitServiceLive = Layer.effect(
 				),
 			);
 
-		const currentPrView = (
+		const githubRepository = (folderId: FolderId, cwd: string) =>
+			resolveGitHubRepository(cwd, (args) => run(folderId, cwd, args));
+		const githubHead = (folderId: FolderId, cwd: string, branch: string) =>
+			Effect.gen(function* () {
+				const remote = (yield* run(folderId, cwd, [
+					"config",
+					"--get",
+					`branch.${branch}.remote`,
+				]).pipe(Effect.catch(() => Effect.succeed("origin")))).trim();
+				const merge = (yield* run(folderId, cwd, [
+					"config",
+					"--get",
+					`branch.${branch}.merge`,
+				]).pipe(Effect.catch(() => Effect.succeed(""))))
+					.trim()
+					.replace(/^refs\/heads\//, "");
+				const url = yield* run(folderId, cwd, [
+					"remote",
+					"get-url",
+					remote,
+				]).pipe(Effect.catch(() => Effect.succeed("")));
+				return {
+					branch: merge && branch.endsWith(`/${merge}`) ? merge : branch,
+					owner: parseRemoteUrl(url.trim())?.owner,
+				};
+			});
+		const currentPr = (
 			folderId: FolderId,
 			cwd: string,
-			fields: string,
-			strict = false,
-		): Effect.Effect<string, GitNotInstalledError | GitCommandError> =>
+			options: { interactive?: boolean; force?: boolean } = {},
+		) =>
 			Effect.gen(function* () {
-				const read = (candidate: string | null) =>
-					ghRun(
-						folderId,
-						cwd,
-						candidate === null
-							? ["pr", "view", "--json", fields]
-							: ["pr", "view", candidate, "--json", fields],
-					).pipe(
-						Effect.catchTag("GitCommandError", (error) => {
-							const reason = error.reason.toLowerCase();
-							const noPullRequest =
-								reason.includes("no pull requests found") ||
-								reason.includes("no pull request found") ||
-								reason.includes("could not resolve to a pullrequest");
-							return !strict || noPullRequest
-								? Effect.succeed("")
-								: Effect.fail(error);
-						}),
-					);
-
-				const direct = yield* read(null);
-				if (direct.trim().length > 0) return direct;
-
-				const candidates: string[] = [];
-				const addCandidate = (value: string) => {
-					const candidate = value.trim();
-					if (
-						candidate.length === 0 ||
-						candidate === "HEAD" ||
-						candidates.includes(candidate)
-					) {
-						return;
-					}
-					candidates.push(candidate);
-				};
-				const addRefCandidate = (value: string) => {
-					const ref = value.trim();
-					addCandidate(ref);
-					const slash = ref.indexOf("/");
-					if (slash !== -1) addCandidate(ref.slice(slash + 1));
-				};
-
-				const branch = yield* run(folderId, cwd, [
+				const repository = yield* githubRepository(folderId, cwd);
+				const branch = (yield* run(folderId, cwd, [
 					"rev-parse",
 					"--abbrev-ref",
 					"HEAD",
-				]).pipe(
-					Effect.catchTags({
-						GitCommandError: () => Effect.succeed(""),
-						GitNotARepoError: () => Effect.succeed(""),
-					}),
+				])).trim();
+				if (!repository || branch === "HEAD") return null;
+				const head = yield* githubHead(folderId, cwd, branch);
+				const number = yield* githubEffect(folderId, (signal) =>
+					pullRequests.discover(
+						repository,
+						head.branch,
+						signal,
+						options.interactive,
+						options.force,
+						head.owner,
+					),
 				);
-				addRefCandidate(branch);
-
-				const upstream = yield* run(folderId, cwd, [
-					"rev-parse",
-					"--abbrev-ref",
-					"--symbolic-full-name",
-					"@{upstream}",
-				]).pipe(
-					Effect.catchTags({
-						GitCommandError: () => Effect.succeed(""),
-						GitNotARepoError: () => Effect.succeed(""),
-					}),
+				if (number === null) return null;
+				const pr = yield* githubEffect(folderId, (signal) =>
+					pullRequests.read(repository, number, signal, options),
 				);
-				addRefCandidate(upstream);
-
-				for (const candidate of candidates) {
-					const stdout = yield* read(candidate);
-					if (stdout.trim().length > 0) return stdout;
-				}
-				return "";
+				return { repository, pr, branch };
 			});
-
-		const prState: GitService["Service"]["prState"] = (folderId, worktreeId) =>
+		const emptyPr = (
+			branch: string | null,
+			capability: GitPrInfo["prCapability"] = "available",
+		): GitPrInfo =>
+			GitPrInfo.make({
+				nodeId: null,
+				state: "none",
+				branch,
+				baseBranch: null,
+				additions: 0,
+				deletions: 0,
+				number: null,
+				url: null,
+				isDraft: false,
+				checks: "none",
+				mergeable: "unknown",
+				checksTotal: 0,
+				checksRunning: 0,
+				checksPassing: 0,
+				checksFailing: 0,
+				autoMergeEnabled: false,
+				prCapability: capability,
+				stale: capability !== "available",
+				checksComplete: false,
+			});
+		const infoFromPr = (pr: GitHubPr): GitPrInfo => {
+			const counts = countChecks(pr.statusCheckRollup);
+			return GitPrInfo.make({
+				nodeId: pr.id,
+				state:
+					pr.state === "OPEN"
+						? "open"
+						: pr.state === "MERGED"
+							? "merged"
+							: "closed",
+				branch: pr.headRefName,
+				baseBranch: pr.baseRefName,
+				headSha: pr.headRefOid,
+				additions: pr.additions,
+				deletions: pr.deletions,
+				number: pr.number,
+				url: pr.url,
+				isDraft: pr.isDraft,
+				checks: aggregateChecks(pr.statusCheckRollup),
+				checkRuns: pr.statusCheckRollup.map(checkRunFromRollup),
+				mergeable: mapMergeable(pr.mergeable),
+				checksTotal: counts.total,
+				checksRunning: counts.running,
+				checksPassing: counts.passing,
+				checksFailing: counts.failing,
+				autoMergeEnabled: pr.autoMergeRequest != null,
+				prCapability: "available",
+				stale: false,
+				statusRevision: pr.statusRevision,
+				remarksRevision: pr.remarksRevision,
+				observedAt: new Date(pr.observedAt),
+				checksComplete: pr.checksComplete,
+			});
+		};
+		const prState: GitService["Service"]["prState"] = (
+			folderId,
+			worktreeId,
+			options = {},
+		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
-					const empty = (
-						prCapability: GitPrInfo["prCapability"] = "available",
-					): GitPrInfo =>
-						GitPrInfo.make({
-							nodeId: null,
-							state: "none",
-							branch: null,
-							baseBranch: null,
-							additions: 0,
-							deletions: 0,
-							number: null,
-							url: null,
-							isDraft: false,
-							checks: "none",
-							mergeable: "unknown",
-							checksTotal: 0,
-							checksRunning: 0,
-							checksPassing: 0,
-							checksFailing: 0,
-							autoMergeEnabled: false,
-							prCapability,
-							stale: false,
-						});
-
-					const prView = yield* currentPrView(
-						folderId,
-						cwd,
-						"id,state,additions,deletions,number,url,headRefName,baseRefName,isDraft,statusCheckRollup,mergeable,autoMergeRequest",
-						true,
-					).pipe(Effect.result);
-					if (prView._tag === "Failure") {
-						if (prView.failure._tag === "GitNotInstalledError") {
-							return empty("missing_cli");
-						}
-						const reason = prView.failure.reason.toLowerCase();
-						return empty(
-							reason.includes("auth") || reason.includes("login")
-								? "authentication"
-								: reason.includes("rate limit")
-									? "rate_limited"
-									: reason.includes("timed out") || reason.includes("timeout")
-										? "timeout"
-										: reason.includes("network") || reason.includes("connect")
-											? "offline"
-											: "unknown",
-						);
+					const branch = (yield* run(folderId, cwd, [
+						"rev-parse",
+						"--abbrev-ref",
+						"HEAD",
+					])).trim();
+					const repository = yield* githubRepository(folderId, cwd);
+					if (!repository || branch === "HEAD") {
+						lastPr.delete(`${cwd}\0${(yield* GitHubRequestScope)?.key ?? ""}`);
+						return emptyPr(branch === "HEAD" ? null : branch);
 					}
-					const stdout = prView.success;
-
-					if (stdout.trim().length === 0) return empty();
-
-					let parsed: {
-						id?: string;
-						state?: string;
-						additions?: number;
-						deletions?: number;
-						number?: number;
-						url?: string;
-						headRefName?: string;
-						baseRefName?: string;
-						isDraft?: boolean;
-						mergeable?: string;
-						autoMergeRequest?: unknown;
-						statusCheckRollup?: ReadonlyArray<PrCheckRollupEntry>;
-					};
-					try {
-						parsed = JSON.parse(stdout) as typeof parsed;
-					} catch {
-						return empty("unknown");
-					}
-
-					// gh returns "OPEN" / "CLOSED" / "MERGED"; map to the wire literal.
-					const raw = (parsed.state ?? "").toLowerCase();
-					const state: GitPrInfo["state"] =
-						raw === "open"
-							? "open"
-							: raw === "merged"
-								? "merged"
-								: raw === "closed"
-									? "closed"
-									: "none";
-
-					// statusCheckRollup is a heterogeneous array — gh actions use
-					// `status` + `conclusion`, external checks use `state`. We collapse
-					// both into a four-state aggregate.
-					const rollup = parsed.statusCheckRollup ?? [];
-					const checks: GitPrInfo["checks"] = aggregateChecks(rollup);
-					const counts = countChecks(rollup);
-
-					return GitPrInfo.make({
-						nodeId: parsed.id ?? null,
-						checkRuns: rollup.map(checkRunFromRollup),
-						state,
-						branch: parsed.headRefName ?? null,
-						baseBranch: parsed.baseRefName ?? null,
-						additions:
-							typeof parsed.additions === "number" ? parsed.additions : 0,
-						deletions:
-							typeof parsed.deletions === "number" ? parsed.deletions : 0,
-						number: typeof parsed.number === "number" ? parsed.number : null,
-						url: parsed.url ?? null,
-						isDraft: parsed.isDraft === true,
-						checks,
-						mergeable: mapMergeable(parsed.mergeable),
-						checksTotal: counts.total,
-						checksRunning: counts.running,
-						checksPassing: counts.passing,
-						checksFailing: counts.failing,
-						// gh emits `autoMergeRequest: null` when no auto-merge is queued,
-						// and an object describing the pending merge when one is.
-						autoMergeEnabled:
-							parsed.autoMergeRequest !== null &&
-							parsed.autoMergeRequest !== undefined,
-						prCapability: "available",
-						stale: false,
+					const cacheKey = `${cwd}\0${repository.credentialScope?.key ?? ""}`;
+					const head = yield* githubHead(folderId, cwd, branch);
+					return yield* Effect.tryPromise({
+						try: async (signal) => {
+							let identity: string | undefined;
+							try {
+								const credential = await github.credential(repository, signal);
+								identity = JSON.stringify([
+									credential.fingerprint,
+									repository.host,
+									repository.owner,
+									repository.repo,
+									branch,
+								]);
+								if (lastPr.get(cacheKey)?.identity !== identity)
+									lastPr.delete(cacheKey);
+								const number = await pullRequests.discover(
+									repository,
+									head.branch,
+									signal,
+									options.interactive,
+									options.force,
+									head.owner,
+								);
+								const value =
+									number === null
+										? emptyPr(branch)
+										: infoFromPr(
+												await pullRequests.read(
+													repository,
+													number,
+													signal,
+													options,
+												),
+											);
+								if (lastPr.size >= 512)
+									lastPr.delete(lastPr.keys().next().value ?? "");
+								const snapshot = GitPrInfo.make({ ...value, branch });
+								lastPr.set(cacheKey, { identity, value: snapshot });
+								return snapshot;
+							} catch (error) {
+								if (signal.aborted) throw error;
+								const failure =
+									error instanceof GitHubFailure
+										? error
+										: new GitHubFailure("unknown", "GitHub refresh failed.");
+								const previous = lastPr.get(cacheKey);
+								const value =
+									previous &&
+									previous.identity === identity &&
+									failure.kind !== "authentication"
+										? previous.value
+										: emptyPr(branch);
+								return GitPrInfo.make({
+									...value,
+									prCapability: failure.kind,
+									stale: true,
+									retryAt: failure.retryAt ? new Date(failure.retryAt) : null,
+								});
+							}
+						},
+						catch: () =>
+							new GitCommandError({
+								folderId,
+								reason: "GitHub refresh was interrupted.",
+							}),
 					});
 				}),
 			);
-
-		// Map gh's review state vocabulary (`APPROVED`, `CHANGES_REQUESTED`, ...)
-		// to the wire's lowercase literal. Anything we don't recognize collapses
-		// to "commented" — gh sometimes emits review entries with no state when
-		// the review is just inline comments without a top-level summary verdict.
-		const mapReviewState = (raw: string): GitPrReviewState => {
-			switch (raw.toUpperCase()) {
-				case "APPROVED":
-					return "approved";
-				case "CHANGES_REQUESTED":
-					return "changes_requested";
-				case "DISMISSED":
-					return "dismissed";
-				case "PENDING":
-					return "pending";
-				default:
-					return "commented";
-			}
-		};
 
 		const mapMergeable = (raw: string | undefined): GitPrInfo["mergeable"] => {
 			switch ((raw ?? "").toUpperCase()) {
@@ -1248,70 +1210,38 @@ export const GitServiceLive = Layer.effect(
 		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
-					const prOutput = yield* currentPrView(
-						folderId,
-						cwd,
-						"number,headRefOid",
-					);
-					let pr: { number?: number; headRefOid?: string };
-					try {
-						pr = JSON.parse(prOutput) as typeof pr;
-					} catch {
+					const current = yield* currentPr(folderId, cwd, { force: true });
+					if (!current)
 						return yield* Effect.fail(
 							new GitCommandError({
 								folderId,
 								reason: "No pull request is available for this branch.",
 							}),
 						);
-					}
-					if (
-						typeof pr.number !== "number" ||
-						typeof pr.headRefOid !== "string" ||
-						pr.headRefOid.length === 0
-					) {
-						return yield* Effect.fail(
-							new GitCommandError({
-								folderId,
-								reason: "No pull request is available for this branch.",
-							}),
+					const result = yield* githubEffect(folderId, async (signal) => {
+						const credential = await github.credential(
+							current.repository,
+							signal,
 						);
-					}
-
-					const remoteUrl = yield* run(folderId, cwd, [
-						"remote",
-						"get-url",
-						"origin",
-					]);
-					const originInfo = parseRemoteUrl(remoteUrl.trim());
-					if (originInfo?.host.toLowerCase() !== "github.com") {
-						return yield* Effect.fail(
-							new GitCommandError({
-								folderId,
-								reason: "Inline review comments require a GitHub origin.",
-							}),
+						return github.rest<{ html_url?: string }>(
+							credential,
+							`repos/${current.repository.owner}/${current.repository.repo}/pulls/${current.pr.number}/comments`,
+							signal,
+							{
+								method: "POST",
+								body: buildCreateReviewCommentBody({
+									body,
+									headSha: current.pr.headRefOid,
+									path: filePath,
+									line,
+									side,
+								}),
+								interactive: true,
+							},
 						);
-					}
-
-					const output = yield* ghRun(
-						folderId,
-						cwd,
-						buildCreateReviewCommentArgs({
-							owner: originInfo.owner,
-							repo: originInfo.repo,
-							pullNumber: pr.number,
-							headSha: pr.headRefOid,
-							path: filePath,
-							line,
-							side,
-							body,
-						}),
-					);
-					try {
-						const response = JSON.parse(output) as { html_url?: string };
-						return { url: response.html_url ?? null };
-					} catch {
-						return { url: null };
-					}
+					});
+					pullRequests.invalidate();
+					return { url: result.html_url ?? null };
 				}),
 			);
 
@@ -1320,13 +1250,16 @@ export const GitServiceLive = Layer.effect(
 			worktreeId,
 		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
-				ghRun(folderId, cwd, ["api", "user"]).pipe(
-					Effect.map(parseReviewIdentity),
-					Effect.catchTags({
-						GitCommandError: () => Effect.succeed(null),
-						GitNotInstalledError: () => Effect.succeed(null),
-					}),
-				),
+				Effect.gen(function* () {
+					const repository = yield* githubRepository(folderId, cwd);
+					if (!repository) return null;
+					return yield* githubEffect(folderId, async (signal) => {
+						const credential = await github.credential(repository, signal);
+						return parseReviewIdentity(
+							JSON.stringify(await github.rest(credential, "user", signal)),
+						);
+					}).pipe(Effect.catch(() => Effect.succeed(null)));
+				}),
 			);
 
 		const prDetails: GitService["Service"]["prDetails"] = (
@@ -1335,291 +1268,98 @@ export const GitServiceLive = Layer.effect(
 		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
-					const stdout = yield* currentPrView(
-						folderId,
-						cwd,
-						"state,additions,deletions,number,url,headRefName,headRefOid,baseRefName,isDraft,statusCheckRollup,title,body,author,comments,reviews,files,mergeable",
-						true,
-					);
-
-					if (stdout.trim().length === 0) return emptyDetails;
-
-					let parsed: {
-						state?: string;
-						additions?: number;
-						deletions?: number;
-						number?: number;
-						url?: string;
-						headRefName?: string;
-						headRefOid?: string;
-						baseRefName?: string;
-						isDraft?: boolean;
-						mergeable?: string;
-						title?: string;
-						body?: string;
-						author?: { login?: string };
-						comments?: ReadonlyArray<{
-							author?: { login?: string; avatarUrl?: string };
-							body?: string;
-							createdAt?: string;
-						}>;
-						reviews?: ReadonlyArray<{
-							author?: { login?: string; avatarUrl?: string };
-							state?: string;
-							body?: string;
-							submittedAt?: string | null;
-						}>;
-						files?: ReadonlyArray<{
-							path?: string;
-							additions?: number;
-							deletions?: number;
-						}>;
-						statusCheckRollup?: ReadonlyArray<PrCheckRollupEntry>;
-					};
-					try {
-						parsed = JSON.parse(stdout) as typeof parsed;
-					} catch {
-						return emptyDetails;
-					}
-
-					const raw = (parsed.state ?? "").toLowerCase();
-					const state: GitPrInfo["state"] =
-						raw === "open"
-							? "open"
-							: raw === "merged"
-								? "merged"
-								: raw === "closed"
-									? "closed"
-									: "none";
-
-					const rollup = parsed.statusCheckRollup ?? [];
-					const checks = aggregateChecks(rollup);
-					const prRepository = parsed.url
-						? parseRemoteUrl(parsed.url.replace(/\/pull\/\d+.*$/, ""))
-						: null;
-					const jobsByRunId = new Map<string, ReadonlyArray<ActionsJob>>();
-					const feedbackPages: Array<ReturnType<typeof parseFeedbackPages>> = [
-						null,
-						null,
-						null,
-					];
-					let avatars = parsePrAvatars("");
-					let reviewThreads = parseReviewThreads("");
-					if (prRepository !== null && parsed.number !== undefined) {
-						const prefix = `repos/${prRepository.owner}/${prRepository.repo}`;
-						const optionalRead = (args: ReadonlyArray<string>) =>
-							ghRun(folderId, cwd, [
-								"api",
-								"--hostname",
-								prRepository.host,
-								...args,
-							]).pipe(
-								Effect.catchTags({
-									GitCommandError: () => Effect.succeed(""),
-									GitNotInstalledError: () => Effect.succeed(""),
-								}),
-							);
-						yield* Effect.all(
-							[
-								optionalRead([
-									"graphql",
-									"--paginate",
-									"--slurp",
-									"-f",
-									`query=${PR_REVIEW_THREADS_QUERY}`,
-									"-f",
-									`owner=${prRepository.owner}`,
-									"-f",
-									`repo=${prRepository.repo}`,
-									"-F",
-									`number=${parsed.number}`,
-								]).pipe(
-									Effect.map((output) => {
-										reviewThreads = parseReviewThreads(output);
-										return undefined;
-									}),
+					const current = yield* currentPr(folderId, cwd);
+					if (!current) return emptyDetails;
+					const { repository, pr } = current;
+					return yield* githubEffect(folderId, async (signal) => {
+						const credential = await github.credential(repository, signal);
+						const [feedback, files, jobs] = await Promise.all([
+							pullRequests.feedback(repository, pr, signal),
+							pullRequests.files(repository, pr, signal),
+							Promise.all(
+								collectActionsRunIds(pr.statusCheckRollup).map(
+									async (runId) => {
+										try {
+											return [
+												runId,
+												await github.pages<ActionsJob>(
+													credential,
+													actionsJobsApiPath(
+														repository.owner,
+														repository.repo,
+														runId,
+													),
+													signal,
+													(value) => (value as { jobs: ActionsJob[] }).jobs,
+												),
+											] as const;
+										} catch (error) {
+											if (
+												error instanceof GitHubFailure &&
+												error.kind === "access"
+											)
+												return [runId, []] as const;
+											throw error;
+										}
+									},
 								),
-								...collectActionsRunIds(rollup).map((runId) =>
-									optionalRead([
-										actionsJobsApiPath(
-											prRepository.owner,
-											prRepository.repo,
-											runId,
-										),
-									]).pipe(
-										Effect.map((output) =>
-											jobsByRunId.set(runId, parseActionsJobsResponse(output)),
-										),
-									),
-								),
-								...[
-									`${prefix}/issues/${parsed.number}/comments?per_page=100`,
-									`${prefix}/pulls/${parsed.number}/comments?per_page=100`,
-									`${prefix}/pulls/${parsed.number}/reviews?per_page=100`,
-								].map((path, index) =>
-									optionalRead(["--paginate", "--slurp", path]).pipe(
-										Effect.map((output) => {
-											feedbackPages[index] = parseFeedbackPages(output);
-											return undefined;
-										}),
-									),
-								),
-								...(parsed.headRefOid
-									? [
-											optionalRead([
-												"graphql",
-												"--paginate",
-												"--slurp",
-												"-f",
-												`query=${PR_AVATARS_QUERY}`,
-												"-f",
-												`owner=${prRepository.owner}`,
-												"-f",
-												`repo=${prRepository.repo}`,
-												"-F",
-												`number=${parsed.number}`,
-												"-f",
-												`oid=${parsed.headRefOid}`,
-											]).pipe(
-												Effect.map((output) => {
-													avatars = parsePrAvatars(output);
-													return undefined;
-												}),
-											),
-										]
-									: []),
+							),
+						]);
+						const threads = parseReviewThreads(
+							JSON.stringify(feedback.threads),
+						);
+						const discussion =
+							parseFeedbackPages(JSON.stringify([feedback.comments])) ?? [];
+						const inline =
+							parseFeedbackPages(JSON.stringify([feedback.inline])) ?? [];
+						const reviews =
+							parseFeedbackPages(JSON.stringify([feedback.reviews])) ?? [];
+						const jobsByRunId = new Map<string, ReadonlyArray<ActionsJob>>(
+							jobs,
+						);
+						return GitPrDetails.make({
+							...infoFromPr(pr),
+							title: pr.title,
+							body: pr.body,
+							author: pr.author?.login ?? "",
+							authorAvatarUrl: pr.author?.avatarUrl ?? null,
+							headBranch: current.branch,
+							headSha: pr.headRefOid,
+							baseBranch: pr.baseRefName,
+							comments: [
+								...feedbackComments(discussion),
+								...feedbackComments(inline, threads),
 							],
-							{ concurrency: 4, discard: true },
-						);
-					}
-
-					const checkRuns = rollup.map((c) => {
-						const metadata = metadataForRollupEntry(c, jobsByRunId);
-						return GitPrCheckRun.make({
-							...checkRunFromRollup(c),
-							appName:
-								avatars.checks.get(
-									checkAvatarKey(
-										c.name ?? "",
-										c.detailsUrl ?? c.targetUrl ?? null,
-									),
-								)?.name ?? null,
-							appAvatarUrl:
-								avatars.checks.get(
-									checkAvatarKey(
-										c.name ?? "",
-										c.detailsUrl ?? c.targetUrl ?? null,
-									),
-								)?.avatarUrl ?? null,
-
-							workflowName: metadata.workflowName,
-							runId: metadata.runId,
-							jobId: metadata.jobId,
-							runnerName: metadata.runnerName,
-							runnerGroupName: metadata.runnerGroupName,
-							startedAt: metadata.startedAt,
-							completedAt: metadata.completedAt,
-							runUrl: metadata.runUrl,
+							reviews: feedbackReviews(reviews, threads, inline),
+							files: files.map((file) => GitPrFile.make(file)),
+							checkRuns: pr.statusCheckRollup.map((check) =>
+								GitPrCheckRun.make({
+									...checkRunFromRollup(check),
+									...metadataForRollupEntry(check, jobsByRunId),
+									appName: check.checkSuite?.app?.name ?? null,
+									appAvatarUrl: check.checkSuite?.app?.logoUrl ?? null,
+								}),
+							),
 						});
-					});
-
-					let comments = (parsed.comments ?? [])
-						.filter((c) => typeof c.createdAt === "string")
-						.map((c) => {
-							const author = c.author?.login ?? "";
-							return GitPrComment.make({
-								author,
-								authorAvatarUrl: c.author?.avatarUrl ?? null,
-								body: c.body ?? "",
-								createdAt: new Date(c.createdAt as string),
-							});
-						});
-
-					let reviews = (parsed.reviews ?? []).map((r) => {
-						const author = r.author?.login ?? "";
-						return GitPrReview.make({
-							author,
-							authorAvatarUrl: r.author?.avatarUrl ?? null,
-							state: mapReviewState(r.state ?? ""),
-							body: r.body ?? "",
-							submittedAt:
-								typeof r.submittedAt === "string" && r.submittedAt.length > 0
-									? new Date(r.submittedAt)
-									: null,
-						});
-					});
-
-					const [discussion, inline, reviewPages] = feedbackPages;
-					if (discussion != null) comments = feedbackComments(discussion);
-					if (inline != null)
-						comments = [
-							...comments,
-							...feedbackComments(inline, reviewThreads),
-						];
-					if (reviewPages != null)
-						reviews = feedbackReviews(reviewPages, reviewThreads, inline ?? []);
-
-					const files = (parsed.files ?? [])
-						.filter((f) => typeof f.path === "string" && f.path.length > 0)
-						.map((f) =>
-							GitPrFile.make({
-								path: f.path as string,
-								additions: typeof f.additions === "number" ? f.additions : 0,
-								deletions: typeof f.deletions === "number" ? f.deletions : 0,
-							}),
-						);
-
-					return GitPrDetails.make({
-						state,
-						number: typeof parsed.number === "number" ? parsed.number : null,
-						url: parsed.url ?? null,
-						isDraft: parsed.isDraft === true,
-						checks,
-						mergeable: mapMergeable(parsed.mergeable),
-						additions:
-							typeof parsed.additions === "number" ? parsed.additions : 0,
-						deletions:
-							typeof parsed.deletions === "number" ? parsed.deletions : 0,
-						title: parsed.title ?? "",
-						body: parsed.body ?? "",
-						author: parsed.author?.login ?? "",
-						authorAvatarUrl: avatars.authorAvatarUrl,
-						baseBranch: parsed.baseRefName ?? null,
-						headBranch: parsed.headRefName ?? null,
-						headSha: parsed.headRefOid ?? null,
-						comments,
-						reviews,
-						files,
-						checkRuns,
 					});
 				}),
 			);
 
-		// Shared helper: run a `gh` JSON-list command in the folder's checkout and
-		// collapse every failure mode (no gh, no auth, no GitHub remote, bad JSON)
-		// to an empty array. The "Create from…" picker shows an empty tab rather
-		// than an error toast on machines/repos without GitHub.
-		const ghJsonList = <T>(folderId: FolderId, args: ReadonlyArray<string>) =>
+		const githubJsonList = <T>(folderId: FolderId, type: "pr" | "issue") =>
 			Effect.flatMap(resolvePathForWorktree(folderId, null), (cwd) =>
-				ghRun(folderId, cwd, args).pipe(
-					Effect.catchTags({
-						GitNotInstalledError: () => Effect.succeed(""),
-						GitCommandError: () => Effect.succeed(""),
-					}),
-					Effect.map((stdout): ReadonlyArray<T> => {
-						if (stdout.trim().length === 0) return [];
-						try {
-							const parsed = JSON.parse(stdout) as unknown;
-							return Array.isArray(parsed) ? (parsed as ReadonlyArray<T>) : [];
-						} catch {
-							return [];
-						}
-					}),
-				),
+				Effect.gen(function* () {
+					const repository = yield* githubRepository(folderId, cwd);
+					if (!repository) return [] as T[];
+					return yield* githubEffect(
+						folderId,
+						async (signal) =>
+							(await pullRequests.list(repository, type, signal)) as T[],
+					);
+				}),
 			);
 
 		const listPrs: GitService["Service"]["listPrs"] = (folderId) =>
-			ghJsonList<{
+			githubJsonList<{
 				number?: number;
 				title?: string;
 				author?: { login?: string };
@@ -1628,16 +1368,7 @@ export const GitServiceLive = Layer.effect(
 				isDraft?: boolean;
 				state?: string;
 				updatedAt?: string;
-			}>(folderId, [
-				"pr",
-				"list",
-				"--state",
-				"open",
-				"--limit",
-				"50",
-				"--json",
-				"number,title,author,headRefName,isCrossRepository,isDraft,state,updatedAt",
-			]).pipe(
+			}>(folderId, "pr").pipe(
 				Effect.map((rows) =>
 					rows
 						.filter((r) => typeof r.number === "number")
@@ -1657,23 +1388,14 @@ export const GitServiceLive = Layer.effect(
 			);
 
 		const listIssues: GitService["Service"]["listIssues"] = (folderId) =>
-			ghJsonList<{
+			githubJsonList<{
 				number?: number;
 				title?: string;
 				author?: { login?: string };
 				state?: string;
 				labels?: ReadonlyArray<{ name?: string }>;
 				updatedAt?: string;
-			}>(folderId, [
-				"issue",
-				"list",
-				"--state",
-				"open",
-				"--limit",
-				"50",
-				"--json",
-				"number,title,author,state,labels,updatedAt",
-			]).pipe(
+			}>(folderId, "issue").pipe(
 				Effect.map((rows) =>
 					rows
 						.filter((r) => typeof r.number === "number")
@@ -1698,19 +1420,36 @@ export const GitServiceLive = Layer.effect(
 		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, null), (cwd) =>
 				Effect.gen(function* () {
-					const stdout = yield* ghRun(folderId, cwd, [
-						"issue",
-						"view",
-						String(number),
-						"--json",
-						"number,title,body,author,url,labels,comments",
-					]).pipe(
-						Effect.catchTags({
-							GitNotInstalledError: () => Effect.succeed(""),
-							GitCommandError: () => Effect.succeed(""),
-						}),
-					);
-
+					const repository = yield* githubRepository(folderId, cwd);
+					if (!repository) return { number, title: "", url: "", markdown: "" };
+					const stdout = yield* githubEffect(folderId, async (signal) => {
+						const credential = await github.credential(repository, signal);
+						const root = `repos/${repository.owner}/${repository.repo}/issues/${number}`;
+						const [issue, comments] = await Promise.all([
+							github.rest<{
+								title: string;
+								body: string;
+								html_url: string;
+								user: { login: string };
+								labels: unknown[];
+							}>(credential, root, signal),
+							github.pages<{
+								body: string;
+								user: { login: string };
+								created_at: string;
+							}>(credential, `${root}/comments`, signal),
+						]);
+						return JSON.stringify({
+							...issue,
+							url: issue.html_url,
+							author: issue.user,
+							comments: comments.map((comment) => ({
+								body: comment.body,
+								author: comment.user,
+								createdAt: comment.created_at,
+							})),
+						});
+					});
 					const empty = { number, title: "", url: "", markdown: "" };
 					if (stdout.trim().length === 0) return empty;
 
@@ -2636,15 +2375,7 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
-		/**
-		 * Merge the current branch's PR directly via `gh pr merge` — no agent.
-		 *   merge        → merge now with the chosen method
-		 *   enable-auto  → arm GitHub-native auto-merge (`--auto`); GitHub merges
-		 *                  once required checks pass. Needs the repo's "Allow
-		 *                  auto-merge" setting; gh's error is surfaced verbatim.
-		 *   disable-auto → cancel a queued auto-merge (`--disable-auto`).
-		 * The combined stdout is returned so the renderer can surface gh's message.
-		 */
+		/** Read fresh action state and bind merge/auto-merge to the checkout's head. */
 		const mergePr: GitService["Service"]["mergePr"] = (
 			folderId,
 			action,
@@ -2654,44 +2385,202 @@ export const GitServiceLive = Layer.effect(
 		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
-					const args: Array<string> = ["pr", "merge"];
-					if (action === "disable-auto") {
-						args.push("--disable-auto");
-					} else {
-						if (action === "enable-auto") args.push("--auto");
-						args.push(`--${method}`);
-						if (deleteBranch) args.push("--delete-branch");
-					}
-					const out = yield* ghRun(folderId, cwd, args);
-					return { output: out };
+					const current = yield* currentPr(folderId, cwd, { force: true });
+					if (!current)
+						return yield* Effect.fail(
+							new GitCommandError({
+								folderId,
+								reason: "No pull request is available for this branch.",
+							}),
+						);
+					const { repository, pr } = current;
+					return yield* commandLock(cwd).withPermits(1)(
+						Effect.gen(function* () {
+							const branch = (yield* runUnlocked(folderId, cwd, [
+								"rev-parse",
+								"--abbrev-ref",
+								"HEAD",
+							])).trim();
+							if (branch !== current.branch)
+								return yield* Effect.fail(
+									new GitCommandError({
+										folderId,
+										reason:
+											"The checkout branch changed. Refresh before merging.",
+									}),
+								);
+							const localHead = (yield* runUnlocked(folderId, cwd, [
+								"rev-parse",
+								"HEAD",
+							])).trim();
+							if (action !== "disable-auto" && localHead !== pr.headRefOid)
+								return yield* Effect.fail(
+									new GitCommandError({
+										folderId,
+										reason:
+											"The PR head differs from this checkout. Sync the branch before merging.",
+									}),
+								);
+							const merged = yield* githubEffect(folderId, async (signal) => {
+								const credential = await github.credential(repository, signal);
+								const arm =
+									action !== "disable-auto" &&
+									(pr.isMergeQueueEnabled ||
+										(action === "enable-auto" &&
+											!["CLEAN", "HAS_HOOKS", "UNSTABLE"].includes(
+												pr.mergeStateStatus,
+											)));
+								const mutation =
+									action === "disable-auto"
+										? "disablePullRequestAutoMerge"
+										: arm
+											? "enablePullRequestAutoMerge"
+											: "mergePullRequest";
+								const input: Record<string, unknown> = { pullRequestId: pr.id };
+								if (action !== "disable-auto") {
+									input.mergeMethod = method.toUpperCase();
+									input.expectedHeadOid = localHead;
+								}
+								await github.graphql(
+									credential,
+									`mutation($input:${mutation[0]?.toUpperCase()}${mutation.slice(1)}Input!) { ${mutation}(input:$input) { pullRequest { id } } }`,
+									{ input },
+									signal,
+								);
+								return !arm && action !== "disable-auto";
+							});
+							pullRequests.invalidate();
+							let remoteBranchDeleted = true;
+							// Branch deletion follows confirmed immediate merge only, never an armed queue.
+							if (
+								merged &&
+								deleteBranch &&
+								!pr.isCrossRepository &&
+								pr.viewerCanDeleteHeadRef
+							) {
+								remoteBranchDeleted = yield* githubEffect(
+									folderId,
+									async (signal) => {
+										const credential = await github.credential(
+											repository,
+											signal,
+										);
+										await github.rest(
+											credential,
+											`repos/${repository.owner}/${repository.repo}/git/refs/heads/${encodeURIComponent(pr.headRefName)}`,
+											signal,
+											{ method: "DELETE", interactive: true },
+										);
+									},
+								).pipe(
+									Effect.as(true),
+									Effect.catch(() => Effect.succeed(false)),
+								);
+								const base =
+									pr.headRepository?.defaultBranchRef?.name ?? pr.baseRefName;
+								if (
+									base !== pr.headRefName &&
+									!(yield* runUnlocked(folderId, cwd, [
+										"status",
+										"--porcelain",
+									])).trim()
+								) {
+									yield* runUnlocked(folderId, cwd, ["switch", base]);
+									const remotes = (yield* runUnlocked(folderId, cwd, [
+										"remote",
+									]))
+										.trim()
+										.split("\n");
+									let remote: string | undefined;
+									for (const name of remotes) {
+										const origin = parseRemoteUrl(
+											(yield* runUnlocked(folderId, cwd, [
+												"remote",
+												"get-url",
+												name,
+											])).trim(),
+										);
+										if (
+											origin?.host === repository.host &&
+											origin.owner === repository.owner &&
+											origin.repo === repository.repo
+										) {
+											remote = name;
+											break;
+										}
+									}
+									if (!remote)
+										return {
+											output: remoteBranchDeleted
+												? "Pull request merged; no matching remote for local branch cleanup."
+												: "Pull request merged; remote branch deletion failed and no matching remote is available for local cleanup.",
+										};
+									yield* runUnlocked(folderId, cwd, ["fetch", remote, base]);
+									yield* runUnlocked(folderId, cwd, [
+										"merge",
+										"--ff-only",
+										`${remote}/${base}`,
+									]);
+									yield* runUnlocked(folderId, cwd, [
+										"branch",
+										"-d",
+										pr.headRefName,
+									]);
+								}
+							}
+							return {
+								output:
+									action === "disable-auto"
+										? "Auto-merge disabled."
+										: merged
+											? remoteBranchDeleted
+												? "Pull request merged."
+												: "Pull request merged; the remote branch could not be deleted."
+											: "Auto-merge enabled.",
+							};
+						}),
+					);
 				}),
 			);
 
-		/**
-		 * Flip a draft PR to ready-for-review via `gh pr ready` — no agent.
-		 */
 		const markReady: GitService["Service"]["markReady"] = (
 			folderId,
 			worktreeId,
 			state = "ready",
 		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
-				Effect.map(
-					ghRun(
-						folderId,
-						cwd,
+				Effect.gen(function* () {
+					const current = yield* currentPr(folderId, cwd, { force: true });
+					if (!current)
+						return yield* Effect.fail(
+							new GitCommandError({
+								folderId,
+								reason: "No pull request is available for this branch.",
+							}),
+						);
+					const mutation =
 						state === "draft"
-							? ["pr", "ready", "--undo"]
+							? "convertPullRequestToDraft"
 							: state === "closed"
-								? ["pr", "close"]
+								? "closePullRequest"
 								: state === "open"
-									? ["pr", "reopen"]
-									: ["pr", "ready"],
-					),
-					(output) => ({
-						output,
-					}),
-				),
+									? "reopenPullRequest"
+									: "markPullRequestReadyForReview";
+					yield* githubEffect(folderId, async (signal) => {
+						const credential = await github.credential(
+							current.repository,
+							signal,
+						);
+						await github.graphql(
+							credential,
+							`mutation($input:${mutation[0]?.toUpperCase()}${mutation.slice(1)}Input!) { ${mutation}(input:$input) { pullRequest { id } } }`,
+							{ input: { pullRequestId: current.pr.id } },
+							signal,
+						);
+					});
+					pullRequests.invalidate();
+					return { output: "Pull request updated." };
+				}),
 			);
 
 		/**
@@ -2837,11 +2726,8 @@ export const GitServiceLive = Layer.effect(
 		 * renderer can attach the file to the composer (`@.zuse/...txt`) and
 		 * ask the agent to fix it.
 		 *
-		 * Failing runs are detected via `gh pr view --json statusCheckRollup`;
-		 * the run ID is parsed from each entry's `detailsUrl` (the
-		 * `/actions/runs/<id>/...` segment). For each unique run we shell to
-		 * `gh run view <id> --log-failed`, concatenate with a header, and write
-		 * a single artifact.
+		 * Core checks identify failed jobs. Their logs are read directly from the
+		 * Actions API, with signed storage redirects fetched without credentials.
 		 */
 		const fixFailingChecks: GitService["Service"]["fixFailingChecks"] = (
 			folderId,
@@ -2849,31 +2735,15 @@ export const GitServiceLive = Layer.effect(
 		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
-					const stdout = yield* ghRun(folderId, cwd, [
-						"pr",
-						"view",
-						"--json",
-						"statusCheckRollup",
-					]);
-
-					type RollupEntry = {
-						name?: string;
-						status?: string;
-						state?: string;
-						conclusion?: string;
-						detailsUrl?: string;
-						targetUrl?: string;
-					};
-					let rollup: ReadonlyArray<RollupEntry> = [];
-					try {
-						const parsed = JSON.parse(stdout) as {
-							statusCheckRollup?: ReadonlyArray<RollupEntry>;
-						};
-						rollup = parsed.statusCheckRollup ?? [];
-					} catch {
-						// fall through with empty rollup
-					}
-
+					const current = yield* currentPr(folderId, cwd, { force: true });
+					if (!current)
+						return yield* Effect.fail(
+							new GitCommandError({
+								folderId,
+								reason: "No pull request is available for this branch.",
+							}),
+						);
+					const rollup = current.pr.statusCheckRollup;
 					const failing = rollup.filter(isFailedCheckRollup);
 
 					// Map each failing check to its workflow-run ID. gh emits two URL
@@ -2891,14 +2761,44 @@ export const GitServiceLive = Layer.effect(
 
 					const sections: Array<string> = [];
 					for (const id of runIds) {
-						const log = yield* ghRun(folderId, cwd, [
-							"run",
-							"view",
-							id,
-							"--log-failed",
-						]).pipe(
-							Effect.catchTag("GitCommandError", () =>
-								Effect.succeed(`(failed to fetch logs for run ${id})\n`),
+						const log = yield* githubEffect(folderId, async (signal) => {
+							const credential = await github.credential(
+								current.repository,
+								signal,
+							);
+							const root = `repos/${current.repository.owner}/${current.repository.repo}`;
+							const jobs = await github.pages<ActionsJob>(
+								credential,
+								`${root}/actions/runs/${id}/jobs`,
+								signal,
+								(value) => (value as { jobs: ActionsJob[] }).jobs,
+							);
+							const logs: string[] = [];
+							for (const job of jobs.filter((job) =>
+								isFailedCheckRollup({
+									conclusion: job.conclusion ?? undefined,
+								}),
+							)) {
+								const response = await github.request({
+									credential,
+									api: "rest",
+									path: `${root}/actions/jobs/${job.id}/logs`,
+									signal,
+									interactive: true,
+								});
+								if (response.status >= 300 && response.status < 400)
+									throw new GitHubFailure(
+										"unknown",
+										"GitHub log redirect was not resolved.",
+									);
+								logs.push(`--- ${job.name ?? "job"} ---\n${response.body}`);
+							}
+							return logs.join("\n");
+						}).pipe(
+							Effect.catchTag("GitCommandError", (error) =>
+								Effect.succeed(
+									`(failed to fetch logs for run ${id}: ${error.reason})\n`,
+								),
 							),
 						);
 						sections.push(`==== run ${id} ====\n${log.trim()}\n`);

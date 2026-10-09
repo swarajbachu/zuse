@@ -14,6 +14,8 @@ export type OpenPrWorkflow = {
 	checksPassing: number;
 	checksFailing: number;
 	autoMergeEnabled: boolean;
+	stale: boolean;
+	checksComplete: boolean;
 };
 
 export type BranchWorkflow =
@@ -53,6 +55,9 @@ export type WorkflowPr = {
 	checksPassing?: number;
 	checksFailing?: number;
 	autoMergeEnabled?: boolean;
+	stale?: boolean;
+	checksComplete?: boolean;
+	prCapability?: string;
 };
 
 export const deriveBranchWorkflow = (
@@ -61,7 +66,11 @@ export const deriveBranchWorkflow = (
 	canCreatePrWhenSynced: boolean,
 ): BranchWorkflow => {
 	const prOpen = pr !== null && pr.state === "open";
-	const prKnownNotOpen = pr !== null && !prOpen;
+	const prKnownNotOpen =
+		pr !== null &&
+		!prOpen &&
+		!pr.stale &&
+		(!pr.prCapability || pr.prCapability === "available");
 	if (status === null) return { kind: "idle" };
 	if (status.dirtyFiles > 0) return { kind: "dirty", count: status.dirtyFiles };
 	if (status.ahead > 0) return { kind: "ahead", count: status.ahead };
@@ -73,13 +82,18 @@ export const deriveBranchWorkflow = (
 			number: pr.number,
 			url: pr.url,
 			isDraft: pr.isDraft === true,
-			checks: checks.checks ?? "none",
+			checks:
+				pr.checksComplete === false && checks.checks !== "failure"
+					? "pending"
+					: (checks.checks ?? "none"),
 			mergeable: pr.mergeable ?? "unknown",
 			checksTotal: checks.checksTotal ?? 0,
 			checksRunning: checks.checksRunning ?? 0,
 			checksPassing: checks.checksPassing ?? 0,
 			checksFailing: checks.checksFailing ?? 0,
 			autoMergeEnabled: pr.autoMergeEnabled === true,
+			stale: pr.stale === true,
+			checksComplete: pr.checksComplete !== false,
 		};
 	}
 	if (pr?.state === "merged") return { kind: "merged-pr" };
@@ -146,7 +160,7 @@ export const deriveEnvironmentPrRows = (
 				}),
 				canFix: true,
 			};
-		} else if (checksRunning > 0) {
+		} else if (checksRunning > 0 || pr.checksComplete === false) {
 			checks = {
 				kind: "pending",
 				label: uiMessage("projects:branch_workflow_check_running", {
@@ -171,7 +185,10 @@ export const deriveEnvironmentPrRows = (
 				? "ready"
 				: checksFailing > 0
 					? "fix"
-					: checksRunning === 0 && pr.mergeable === "clean"
+					: !pr.stale &&
+							pr.checksComplete !== false &&
+							checksRunning === 0 &&
+							pr.mergeable === "clean"
 						? "merge"
 						: null;
 

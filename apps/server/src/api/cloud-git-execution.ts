@@ -25,6 +25,62 @@ const Credential = Schema.Struct({
 	identity: CloudGitIdentity,
 });
 
+/** Prepare an immutable actor context without performing a credential/API read. */
+export const prepareGitExecutionContext = async (input: {
+	readonly nativeRepositoryPath?: string;
+	readonly directory: string;
+	readonly authHelperPath: string;
+	readonly key: string;
+	readonly context: typeof CloudGithubCredentialRequest.Type;
+}) => {
+	const helper = await readFile(input.authHelperPath, "utf8");
+	if (!helper.includes("ZUSE_GITHUB_CONTEXT_DIR"))
+		throw new Error(
+			"Restart this cloud workspace to update its GitHub authentication helper.",
+		);
+	const directory = join(input.directory, "github-executions", input.key);
+	await mkdir(directory, { recursive: true, mode: 0o700 });
+	const shellQuote = (value: string) => `'${value.replaceAll("'", "'\"'\"'")}'`;
+	await writeFile(
+		join(directory, "gh"),
+		`#!/bin/sh\nexec /bin/bash ${shellQuote(input.authHelperPath)} gh "$@"\n`,
+		{ mode: 0o700 },
+	);
+
+	await writeFile(
+		join(directory, "request.json"),
+		JSON.stringify(input.context),
+		{ mode: 0o600, flag: "wx" },
+	).catch(async (error: NodeJS.ErrnoException) => {
+		if (
+			error.code !== "EEXIST" ||
+			(await readFile(join(directory, "request.json"), "utf8")) !==
+				JSON.stringify(input.context)
+		)
+			throw error;
+	});
+	return {
+		directory,
+		env: {
+			ZUSE_GITHUB_CONTEXT_DIR: directory,
+			PATH: `${directory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+			GIT_CONFIG_COUNT: input.nativeRepositoryPath === undefined ? "2" : "4",
+			...(input.nativeRepositoryPath === undefined
+				? {}
+				: {
+						GIT_CONFIG_KEY_2: "url.https://github.com/.insteadOf",
+						GIT_CONFIG_VALUE_2: "git@github.com:",
+						GIT_CONFIG_KEY_3: "url.https://github.com/.insteadOf",
+						GIT_CONFIG_VALUE_3: "ssh://git@github.com/",
+					}),
+			GIT_CONFIG_KEY_0: "credential.https://github.com.helper",
+			GIT_CONFIG_VALUE_0: "",
+			GIT_CONFIG_KEY_1: "credential.https://github.com.helper",
+			GIT_CONFIG_VALUE_1: `/bin/bash ${shellQuote(input.authHelperPath)} credential`,
+		},
+	};
+};
+
 /** Each immutable identity gets separate files and child-process environment. */
 export const prepareGitExecution = async (input: {
 	readonly nativeRepositoryPath?: string;
@@ -35,11 +91,7 @@ export const prepareGitExecution = async (input: {
 	readonly credentialUrl: string;
 	readonly credential: string;
 }): Promise<GitExecutionEnvironment> => {
-	const helper = await readFile(input.authHelperPath, "utf8");
-	if (!helper.includes("ZUSE_GITHUB_CONTEXT_DIR"))
-		throw new Error(
-			"Restart this cloud workspace to update its GitHub authentication helper.",
-		);
+	const execution = await prepareGitExecutionContext(input);
 	const response = await fetch(input.credentialUrl, {
 		method: "POST",
 		signal: AbortSignal.timeout(20_000),
@@ -58,17 +110,8 @@ export const prepareGitExecution = async (input: {
 	const value = Schema.decodeUnknownSync(Credential)(await response.json());
 	if (!Number.isFinite(value.expiresAtMs) || value.expiresAtMs <= Date.now())
 		throw new Error("GitHub credential has expired.");
-	const directory = join(input.directory, "github-executions", input.key);
-	await mkdir(directory, { recursive: true, mode: 0o700 });
-	const shellQuote = (value: string) =>
-		"'" + value.replaceAll("'", "'\"'\"'") + "'";
-	await writeFile(
-		join(directory, "gh"),
-		`#!/bin/sh\nexec /bin/bash ${shellQuote(input.authHelperPath)} gh "$@"\n`,
-		{ mode: 0o700 },
-	);
+	const directory = execution.directory;
 	for (const [name, contents] of Object.entries({
-		"request.json": JSON.stringify(input.context),
 		"github-installation-token": value.token,
 		"github-installation-token-expires-at": String(value.expiresAtMs),
 	})) {
@@ -81,21 +124,7 @@ export const prepareGitExecution = async (input: {
 		key: input.key,
 		context: input.context,
 		env: {
-			ZUSE_GITHUB_CONTEXT_DIR: directory,
-			PATH: `${directory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
-			GIT_CONFIG_COUNT: input.nativeRepositoryPath === undefined ? "2" : "4",
-			...(input.nativeRepositoryPath === undefined
-				? {}
-				: {
-						GIT_CONFIG_KEY_2: "url.https://github.com/.insteadOf",
-						GIT_CONFIG_VALUE_2: "git@github.com:",
-						GIT_CONFIG_KEY_3: "url.https://github.com/.insteadOf",
-						GIT_CONFIG_VALUE_3: "ssh://git@github.com/",
-					}),
-			GIT_CONFIG_KEY_0: "credential.https://github.com.helper",
-			GIT_CONFIG_VALUE_0: "",
-			GIT_CONFIG_KEY_1: "credential.https://github.com.helper",
-			GIT_CONFIG_VALUE_1: `/bin/bash ${shellQuote(input.authHelperPath)} credential`,
+			...execution.env,
 			GIT_AUTHOR_NAME: value.identity.name,
 			GIT_AUTHOR_EMAIL: value.identity.email,
 			GIT_COMMITTER_NAME: value.identity.name,
