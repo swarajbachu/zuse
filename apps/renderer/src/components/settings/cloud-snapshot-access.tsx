@@ -1,9 +1,12 @@
 import "@zuse/i18n/english/settings";
 import type { CloudAccountImage } from "@zuse/contracts";
 import { useMessages } from "@zuse/i18n/react";
-import { ProviderIcon } from "../provider-icons.tsx";
 import { Badge } from "../ui/badge.tsx";
-import { CloudSettingsGroup, CloudSettingsRow } from "./cloud-settings-ui.tsx";
+import {
+	CloudProviderTile,
+	CloudSettingsGroup,
+	CloudSettingsRow,
+} from "./cloud-settings-ui.tsx";
 import { GithubMark } from "./cloud-workspace-github.tsx";
 import { RepositoryAvatar } from "./cloud-workspace-repositories.tsx";
 
@@ -134,7 +137,6 @@ export function CloudSnapshotAgentAuthentication({
 	readonly image: CloudAccountImage;
 }) {
 	const { message } = useMessages(["settings"]);
-	const recorded = image.snapshot?.agents;
 	return (
 		<CloudSettingsGroup
 			title={message("settings:cloud_hosting_agent_auth")}
@@ -150,41 +152,48 @@ export function CloudSnapshotAgentAuthentication({
 				})}{" "}
 				{message("settings:snapshot_native_agents")}
 			</p>
-			{SNAPSHOT_AGENTS.map((agent) => {
-				const access = recorded?.find(
-					(item) => item.providerId === agent.providerId,
-				);
-				return (
-					<CloudSettingsRow
-						key={agent.providerId}
-						leading={
-							<span className="flex size-6 items-center justify-center rounded-md bg-muted">
-								<ProviderIcon providerId={agent.providerId} />
-							</span>
-						}
-						title={agent.label}
-						description={
-							access?.account ??
-							message(
-								recorded === undefined
-									? "settings:snapshot_login_unchecked"
-									: access === undefined || access.state === "unavailable"
-										? "settings:snapshot_login_unavailable"
-										: access.state === "missing-tool"
-											? "settings:snapshot_agent_missing_tool"
-											: access.state === "verified"
-												? "settings:snapshot_agent_signed_in"
-												: access.state === "detected"
-													? "settings:snapshot_login_detected"
-													: "settings:snapshot_agent_signed_out",
-							)
-						}
-						action={<LoginBadge state={access?.state} />}
-					/>
-				);
-			})}
+			<CloudSnapshotAgentRows image={image} />
 		</CloudSettingsGroup>
 	);
+}
+
+/** One row per agent the snapshot was checked for; rendered inside a settings group. */
+export function CloudSnapshotAgentRows({
+	image,
+}: {
+	readonly image: CloudAccountImage;
+}) {
+	const { message } = useMessages(["settings"]);
+	const recorded = image.snapshot?.agents;
+	return SNAPSHOT_AGENTS.map((agent) => {
+		const access = recorded?.find(
+			(item) => item.providerId === agent.providerId,
+		);
+		return (
+			<CloudSettingsRow
+				key={agent.providerId}
+				leading={<CloudProviderTile providerId={agent.providerId} />}
+				title={agent.label}
+				description={
+					access?.account ??
+					message(
+						recorded === undefined
+							? "settings:snapshot_login_unchecked"
+							: access === undefined || access.state === "unavailable"
+								? "settings:snapshot_login_unavailable"
+								: access.state === "missing-tool"
+									? "settings:snapshot_agent_missing_tool"
+									: access.state === "verified"
+										? "settings:snapshot_agent_signed_in"
+										: access.state === "detected"
+											? "settings:snapshot_login_detected"
+											: "settings:snapshot_agent_signed_out",
+					)
+				}
+				action={<LoginBadge state={access?.state} />}
+			/>
+		);
+	});
 }
 
 function LoginBadge({ state }: { readonly state: string | undefined }) {
@@ -194,7 +203,11 @@ function LoginBadge({ state }: { readonly state: string | undefined }) {
 	return (
 		<Badge
 			variant={
-				ok ? "success" : state === "missing-tool" ? "outline" : "warning"
+				ok
+					? "success"
+					: state === "missing-tool" || state === "detected"
+						? "outline"
+						: "warning"
 			}
 		>
 			{message(

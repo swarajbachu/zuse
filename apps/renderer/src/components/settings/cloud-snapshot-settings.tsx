@@ -18,9 +18,9 @@ import {
 	CollapsibleTrigger,
 } from "../ui/collapsible.tsx";
 import { Input } from "../ui/input.tsx";
-import { Switch } from "../ui/switch.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip.tsx";
 import { COMPACT_CLOUD_ACTION } from "./cloud-settings-ui.tsx";
+import { CloudSnapshotAuthPanel } from "./cloud-snapshot-auth-panel.tsx";
 import { CloudWorkspaceAuth } from "./cloud-workspace-auth.tsx";
 import { DeviceCode } from "./connection-login-steps.tsx";
 
@@ -28,11 +28,11 @@ export const SNAPSHOT_INSTALL_COMMAND = "npx zusehq snapshot install";
 
 export function CloudSnapshotSettings({
 	connectionId,
-	initialAgentAuthentication,
+	authenticationOnly = false,
 	onChanged,
 }: {
 	readonly connectionId: string;
-	readonly initialAgentAuthentication?: "zuse";
+	readonly authenticationOnly?: boolean;
 	readonly onChanged: () => Promise<void>;
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
@@ -57,18 +57,17 @@ export function CloudSnapshotSettings({
 	);
 	const [agentAuthentication, setAgentAuthentication] = useState<
 		"native" | "zuse"
-	>(
-		initialAgentAuthentication ??
-			cachedSnapshot?.agentAuthentication ??
-			"native",
-	);
+	>(cachedSnapshot?.agentAuthentication ?? "native");
 	const [gitAuthentication, setGitAuthentication] = useState<"native" | "zuse">(
 		cachedSnapshot?.gitAuthentication ?? "native",
 	);
 	const [pathsOpen, setPathsOpen] = useState(false);
+
+	const [applied, setApplied] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const inspecting = image?.state === "building";
+	const authenticationBusy = saving || (applied && inspecting);
 	useEffect(() => {
 		let disposed = false;
 		let timer: ReturnType<typeof setTimeout> | undefined;
@@ -84,11 +83,7 @@ export function CloudSnapshotSettings({
 					setPaths(
 						next.snapshot.repositories.map((repository) => repository.path),
 					);
-					setAgentAuthentication(
-						initialAgentAuthentication ??
-							next.snapshot.agentAuthentication ??
-							"native",
-					);
+					setAgentAuthentication(next.snapshot.agentAuthentication ?? "native");
 					setGitAuthentication(next.snapshot.gitAuthentication ?? "native");
 				}
 				if (next.state === "building")
@@ -106,7 +101,7 @@ export function CloudSnapshotSettings({
 			disposed = true;
 			if (timer) clearTimeout(timer);
 		};
-	}, [connectionId, inspecting, initialAgentAuthentication, uiMessage]);
+	}, [connectionId, inspecting, uiMessage]);
 	const inspect = async () => {
 		setSaving(true);
 		setError(null);
@@ -125,6 +120,7 @@ export function CloudSnapshotSettings({
 			setImage(next);
 			await refreshCloudImages();
 			await onChanged();
+			setApplied(true);
 		} catch {
 			setError(uiMessage("settings:snapshot_inspect_error"));
 		} finally {
@@ -138,7 +134,6 @@ export function CloudSnapshotSettings({
 			onChange: setAgentAuthentication,
 			label: uiMessage("settings:snapshot_agent_logins"),
 			help: uiMessage("settings:snapshot_agent_logins_help"),
-			switchLabel: uiMessage("settings:snapshot_agent_logins_switch"),
 		},
 		{
 			key: "github",
@@ -146,10 +141,25 @@ export function CloudSnapshotSettings({
 			onChange: setGitAuthentication,
 			label: uiMessage("settings:snapshot_github_login"),
 			help: uiMessage("settings:snapshot_github_login_help"),
-			switchLabel: uiMessage("settings:snapshot_github_login_switch"),
 		},
 	] as const;
 	const status = error ?? snapshotErrorMessage(image?.errorCode, uiMessage);
+	if (authenticationOnly)
+		return (
+			<CloudSnapshotAuthPanel
+				image={image}
+				agentAuthentication={agentAuthentication}
+				busy={authenticationBusy}
+				status={status}
+				onSourceChange={(source) => {
+					setApplied(false);
+					setAgentAuthentication(source);
+				}}
+				onApply={inspect}
+				applied={applied}
+			/>
+		);
+
 	return (
 		<div className="flex flex-col gap-2.5 px-3 py-2.5">
 			<div className="flex flex-col gap-1.5">
@@ -202,32 +212,41 @@ export function CloudSnapshotSettings({
 								<TooltipPopup className="max-w-64">{choice.help}</TooltipPopup>
 							</Tooltip>
 						</span>
-						<div className="flex h-7 items-center gap-2">
-							<Switch
-								id={`${fieldId}-${choice.key}`}
-								checked={choice.value === "native"}
-								disabled={saving || inspecting}
-								onCheckedChange={(checked) =>
-									choice.onChange(checked ? "native" : "zuse")
-								}
-							/>
-							<label
-								htmlFor={`${fieldId}-${choice.key}`}
-								className="text-xs text-muted-foreground"
-							>
-								{choice.switchLabel}
-							</label>
-						</div>
+						<select
+							id={`${fieldId}-${choice.key}`}
+							aria-label={choice.label}
+							className="h-7 w-full rounded-md bg-muted/50 px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							value={choice.value}
+							disabled={saving || inspecting}
+							onChange={(event) => {
+								setApplied(false);
+								choice.onChange(
+									event.target.value === "native" ? "native" : "zuse",
+								);
+							}}
+						>
+							<option value="native">
+								{uiMessage("settings:snapshot_source_snapshot")}
+							</option>
+							<option value="zuse">
+								{uiMessage("settings:snapshot_source_zuse")}
+							</option>
+						</select>
 					</Fragment>
 				))}
 			</div>
 			{agentAuthentication === "zuse" ? (
 				<>
 					<p className="text-[11px] text-muted-foreground">
-						{uiMessage("settings:snapshot_managed_auth_help")}
+						{uiMessage("settings:snapshot_source_zuse_help")}
 					</p>
-					<CloudWorkspaceAuth />
+					<CloudWorkspaceAuth providers={["claude", "codex"]} />
 				</>
+			) : null}
+			{agentAuthentication === "native" ? (
+				<p className="text-[11px] leading-4 text-muted-foreground">
+					{uiMessage("settings:snapshot_native_source_help")}
+				</p>
 			) : null}
 			<Collapsible open={pathsOpen} onOpenChange={setPathsOpen}>
 				<CollapsibleTrigger className="flex h-7 items-center gap-1 rounded-md text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">

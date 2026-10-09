@@ -993,14 +993,17 @@ function ScopedCloudWorkspacePool({
 						)
 					) : null}
 					{showsSection("agents", "auth") ? (
-						snapshotImage !== null &&
-						snapshotImage.snapshot?.agentAuthentication !== "zuse" ? (
-							<>
+						snapshotImage !== null ? (
+							canManageProviders ? (
+								<CloudSnapshotAuthSetup
+									image={snapshotImage}
+									onChanged={() => load(true)}
+								/>
+							) : snapshotImage.snapshot?.agentAuthentication === "zuse" ? (
+								<CloudWorkspaceAuth providers={["claude", "codex"]} />
+							) : (
 								<CloudSnapshotAgentAuthentication image={snapshotImage} />
-								{canManageProviders ? (
-									<CloudSnapshotAuthSetup onChanged={() => load(true)} />
-								) : null}
-							</>
+							)
 						) : (
 							<CloudWorkspaceAuth />
 						)
