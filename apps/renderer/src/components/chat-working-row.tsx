@@ -100,7 +100,6 @@ export function ChatWorkingRow({
 	return (
 		<div
 			className="flex min-h-9 items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground"
-			role="status"
 			aria-live="polite"
 		>
 			<AgentActivityOrb state={activityState} />
@@ -143,16 +142,19 @@ export function BackgroundAgentWorkingRows({
 	return agents.map((agent) => (
 		<div
 			key={agent.id}
-			role="status"
 			className="flex h-7 min-w-0 items-center gap-2 px-4 text-xs text-muted-foreground"
 		>
 			<AgentActivityOrb state="working" />
-			<span className="truncate" title={agent.description}>
+			<span role="status" className="truncate" title={agent.description}>
 				{message("chat:chat_working_row_waiting_for_task", {
 					task: agent.description || message("chat:subagent_row_agent_running"),
 				})}
 			</span>
-			<span className="shrink-0 font-mono tabular-nums">
+			<span
+				role="timer"
+				aria-live="off"
+				className="shrink-0 font-mono tabular-nums"
+			>
 				{formatElapsed(Math.max(0, now - agent.startedAtMs))}
 			</span>
 		</div>

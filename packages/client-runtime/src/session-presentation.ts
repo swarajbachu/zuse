@@ -262,6 +262,7 @@ export const runningBackgroundAgents = (
 	return [...pending.values()];
 };
 
+/** Count detached agents using the same live-transcript completion rules as the task rows. */
 export const countRunningBackgroundAgents = (
 	view: ResourceView<SessionTimelineProjection>,
 ): number => runningBackgroundAgents(view).length;

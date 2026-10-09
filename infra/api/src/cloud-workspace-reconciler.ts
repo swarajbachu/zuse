@@ -2411,24 +2411,68 @@ exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`,
 			(workspace.state === "provisioning" || workspace.state === "setup") &&
 			workspace.providerSandboxId !== undefined
 		) {
-			if (workspaceStartupTimedOut(workspace, nowMs)) {
+			const startupTimedOut = workspaceStartupTimedOut(workspace, nowMs);
+			const attempts = workspace.requestConfig.runtimeLaunchRecoveryAttempts;
+			const recoveryAttempts =
+				typeof attempts === "number" &&
+				Number.isInteger(attempts) &&
+				attempts >= 0
+					? attempts
+					: 0;
+			const canRecoverLaunch =
+				workspace.state === "provisioning" &&
+				workspace.desiredState === "ready" &&
+				workspace.statusCode === "resume-runtime-restarting" &&
+				recoveryAttempts < 2;
+			if (
+				(!startupTimedOut || canRecoverLaunch) &&
+				(yield* provider.pathExists(
+					workspace.providerSandboxId,
+					"/var/lib/zuse/workspace/failed",
+					cloudWorkspaceLayout(workspace).user,
+				))
+			) {
+				const runtimeDiagnostic = yield* readWorkspaceRuntimeDiagnostic(
+					provider,
+					workspace.providerSandboxId,
+				);
+				const reportedFailurePhase = yield* provider
+					.readTextFile(
+						workspace.providerSandboxId,
+						"/var/lib/zuse/workspace/failure-phase",
+						cloudWorkspaceLayout(workspace).user,
+					)
+					.pipe(
+						Effect.map((phase) => phase.trim()),
+						Effect.catchTag("SandboxProviderError", () => Effect.succeed("")),
+					);
+				const failureCode = /^[a-z][a-z0-9-]{0,63}$/.test(reportedFailurePhase)
+					? `${reportedFailurePhase}-failed`
+					: "setup-failed";
+				yield* saveWorkspace({
+					...workspace,
+					state: "failed",
+					statusCode: failureCode,
+					runtimeState: "offline",
+					requestConfig: {
+						...workspace.requestConfig,
+						...(runtimeDiagnostic.length === 0
+							? {}
+							: { startupFailureDiagnostic: runtimeDiagnostic }),
+					},
+					nextActionAtMs: Number.MAX_SAFE_INTEGER,
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
+
+			if (startupTimedOut) {
 				// Authorizing a new generation and launching its process are separate
 				// operations. A failed request or interrupted worker can leave the
 				// authorized generation unlaunched. Retry on the same disk, with a
 				// fresh fence, rather than permanently stranding the saved session.
-				const attempts = workspace.requestConfig.runtimeLaunchRecoveryAttempts;
-				const recoveryAttempts =
-					typeof attempts === "number" &&
-					Number.isInteger(attempts) &&
-					attempts >= 0
-						? attempts
-						: 0;
-				if (
-					workspace.state === "provisioning" &&
-					workspace.desiredState === "ready" &&
-					workspace.statusCode === "resume-runtime-restarting" &&
-					recoveryAttempts < 2
-				) {
+				if (canRecoverLaunch) {
 					return yield* restartWorkspaceRuntime(
 						{
 							...workspace,
@@ -2460,47 +2504,6 @@ exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`,
 					runtimeCredentialHash: undefined,
 					runtimeBootTokenHash: undefined,
 					runtimeBootTokenExpiresAtMs: undefined,
-					nextActionAtMs: Number.MAX_SAFE_INTEGER,
-					revision: workspace.revision + 1,
-					updatedAtMs: nowMs,
-				});
-				return;
-			}
-			if (
-				yield* provider.pathExists(
-					workspace.providerSandboxId,
-					"/var/lib/zuse/workspace/failed",
-					cloudWorkspaceLayout(workspace).user,
-				)
-			) {
-				const runtimeDiagnostic = yield* readWorkspaceRuntimeDiagnostic(
-					provider,
-					workspace.providerSandboxId,
-				);
-				const reportedFailurePhase = yield* provider
-					.readTextFile(
-						workspace.providerSandboxId,
-						"/var/lib/zuse/workspace/failure-phase",
-						cloudWorkspaceLayout(workspace).user,
-					)
-					.pipe(
-						Effect.map((phase) => phase.trim()),
-						Effect.catchTag("SandboxProviderError", () => Effect.succeed("")),
-					);
-				const failureCode = /^[a-z][a-z0-9-]{0,63}$/.test(reportedFailurePhase)
-					? `${reportedFailurePhase}-failed`
-					: "setup-failed";
-				yield* saveWorkspace({
-					...workspace,
-					state: "failed",
-					statusCode: failureCode,
-					runtimeState: "offline",
-					requestConfig: {
-						...workspace.requestConfig,
-						...(runtimeDiagnostic.length === 0
-							? {}
-							: { startupFailureDiagnostic: runtimeDiagnostic }),
-					},
 					nextActionAtMs: Number.MAX_SAFE_INTEGER,
 					revision: workspace.revision + 1,
 					updatedAtMs: nowMs,

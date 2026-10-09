@@ -685,5 +685,5 @@
 	"chat_landing_choose_a_project_in_the_sidebar": "Wähle in der Seitenleiste ein Projekt, um einen neuen Chat zu starten.",
 	"chat_landing_add_a_project_to_start": "Füge ein Projekt hinzu, um deinen ersten Chat zu starten.",
 	"chat_landing_add_project": "Projekt hinzufügen",
-	"chat_working_row_waiting_for_task": "Warten auf Aufgabe {task}"
+	"chat_working_row_waiting_for_task": "Warten auf Aufgabe {{task}}"
 }

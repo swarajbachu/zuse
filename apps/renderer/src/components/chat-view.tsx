@@ -15,7 +15,6 @@ import {
 	usePreviewServers,
 } from "../lib/use-preview-servers.ts";
 import { ChatLoadingFallback } from "./chat-loading-fallback.tsx";
-import { BackgroundAgentWorkingRows } from "./chat-working-row";
 import { ToolActivityTree } from "./tool-activity-tree.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -31,7 +30,9 @@ import type {
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Message01Icon } from "@zuse/icons/solid-rounded";
 import {
+	lazy,
 	type ReactNode,
+	Suspense,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -105,7 +106,6 @@ import { useRegisterPane } from "../store/pane-focus.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { ChatLookupsProvider, deriveChatLookups } from "./chat-lookups.tsx";
 import { ChatTurnNavigator } from "./chat-turn-navigator.tsx";
-import { ChatWorkingRow } from "./chat-working-row.tsx";
 import { FileChipProvider } from "./file-chip.tsx";
 import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
 import { MessageRow } from "./message-row.tsx";
@@ -117,6 +117,15 @@ import {
 import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
 import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
+
+const ChatWorkingRow = lazy(() =>
+	import("./chat-working-row.tsx").then((m) => ({ default: m.ChatWorkingRow })),
+);
+const BackgroundAgentWorkingRows = lazy(() =>
+	import("./chat-working-row.tsx").then((m) => ({
+		default: m.BackgroundAgentWorkingRows,
+	})),
+);
 
 interface TimelineEndState {
 	readonly isAtEnd?: boolean;
@@ -392,7 +401,9 @@ export function ChatView({
 				<div className="px-[var(--chat-row-gutter,0.75rem)]">
 					<WorktreeSetupCard providerOutputStarted={providerOutputStarted} />
 					{backgroundAgents.length > 0 && (
-						<BackgroundAgentWorkingRows agents={backgroundAgents} />
+						<Suspense fallback={null}>
+							<BackgroundAgentWorkingRows agents={backgroundAgents} />
+						</Suspense>
 					)}
 					{pendingCreation?.phase === "failed" ? (
 						<ChatCreationFailureActions creation={pendingCreation} />
@@ -1116,15 +1127,17 @@ function TimelineRow({
 			break;
 		case "working":
 			content = (
-				<ChatWorkingRow
-					interactions={interactions}
-					messages={row.messages}
-					chatId={chatId}
-					pendingCommands={pendingCommands}
-					providerId={providerId}
-					runtimeState={runtimeState}
-					sessionId={sessionId}
-				/>
+				<Suspense fallback={<div className="h-7" />}>
+					<ChatWorkingRow
+						interactions={interactions}
+						messages={row.messages}
+						chatId={chatId}
+						pendingCommands={pendingCommands}
+						providerId={providerId}
+						runtimeState={runtimeState}
+						sessionId={sessionId}
+					/>
+				</Suspense>
 			);
 	}
 	return (
