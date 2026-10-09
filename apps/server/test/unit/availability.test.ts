@@ -2,6 +2,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeServices } from "@effect/platform-node";
+import {
+	AgentAvailability,
+	type ResolvedModelCatalogProvider,
+} from "@zuse/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -13,12 +17,14 @@ import {
 	grokAuthTestHelpers,
 	MIN_CODEX_CLI_VERSION,
 	MIN_GROK_CLI_VERSION,
+	opencodeAuthTestHelpers,
 	parseCliVersion,
 	resolveCliPath,
 	resolveCodexCapabilities,
 	SUPPORTED_PROVIDER_CLIS,
 	selectCliPathCandidate,
 	selectNewestCliPathCandidate,
+	withOpencodeInventoryAccount,
 } from "../../src/provider/availability.ts";
 
 const { parseGrokModelsAuth, probeGrokAccount } = grokAuthTestHelpers;
@@ -557,5 +563,125 @@ describe("provider binary overrides", () => {
 	it("rejects invalid overrides without falling back to PATH", async () => {
 		for (const path of ["relative/pi", "/missing-zuse-test/pi", "/tmp"])
 			expect(await resolve(path)).toBeNull();
+	});
+});
+
+describe("OpenCode account probing", () => {
+	it("does not require login when the legacy auth file is missing", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "zuse-opencode-auth-"));
+		const previous = process.env.XDG_DATA_HOME;
+		process.env.XDG_DATA_HOME = directory;
+		try {
+			const account = await Effect.runPromise(
+				opencodeAuthTestHelpers.probeOpencodeAccount.pipe(
+					Effect.provide(NodeServices.layer),
+				),
+			);
+			expect(account.authStatus).toBe("unknown");
+		} finally {
+			if (previous === undefined) delete process.env.XDG_DATA_HOME;
+			else process.env.XDG_DATA_HOME = previous;
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
+	it.each([
+		"null",
+		"[]",
+		"invalid",
+		"{}",
+	])("does not claim login from an inconclusive legacy file: %s", (raw) => {
+		expect(opencodeAuthTestHelpers.parseOpencodeAuth(raw).authStatus).toBe(
+			"unknown",
+		);
+	});
+});
+
+describe("OpenCode inventory account status", () => {
+	const catalogFor = (
+		id: "opencode" | "opencode2",
+		connected: boolean,
+	): ResolvedModelCatalogProvider => ({
+		models: [],
+		aliases: {},
+		defaultModelId: "",
+		live: { status: "ok", authoritative: true, fetchedAt: 1, error: null },
+		[id]: {
+			providers: [
+				{
+					id: "openai",
+					name: "OpenAI",
+					connected,
+					custom: false,
+					apiKeyEnv: "",
+					apiKeyUrl: "",
+					models: [],
+				},
+			],
+			agents: [],
+		},
+	});
+
+	it.each([
+		"opencode",
+		"opencode2",
+	] as const)("uses cached connected providers for %s without a legacy auth file", (id) => {
+		const availability = AgentAvailability.make({
+			providerId: id,
+			displayName: id,
+			cliInstalled: true,
+			cliLoggedIn: false,
+			hasApiKey: false,
+			authStatus: "unknown",
+		});
+		expect(
+			withOpencodeInventoryAccount(availability, catalogFor(id, true)),
+		).toMatchObject({
+			authStatus: "authenticated",
+			cliLoggedIn: true,
+			authLabel: "Connected to OpenAI",
+			status: "ready",
+		});
+		expect(
+			withOpencodeInventoryAccount(availability, catalogFor(id, false)),
+		).toMatchObject({
+			authStatus: "unauthenticated",
+			cliLoggedIn: false,
+			status: "warning",
+		});
+	});
+
+	it("keeps an inconclusive probe when live inventory failed", () => {
+		const availability = AgentAvailability.make({
+			providerId: "opencode2",
+			displayName: "OpenCode 2",
+			cliInstalled: true,
+			cliLoggedIn: false,
+			hasApiKey: false,
+			authStatus: "unknown",
+		});
+		const catalog = catalogFor("opencode2", false);
+		expect(
+			withOpencodeInventoryAccount(availability, {
+				...catalog,
+				live: { ...catalog.live, status: "error" },
+			}),
+		).toBe(availability);
+	});
+
+	it("does not hide an outdated CLI behind successful auth", () => {
+		const availability = AgentAvailability.make({
+			providerId: "opencode",
+			displayName: "OpenCode",
+			cliInstalled: true,
+			cliLoggedIn: false,
+			hasApiKey: false,
+			authStatus: "unknown",
+			cliVersionStatus: "outdated",
+		});
+		expect(
+			withOpencodeInventoryAccount(availability, catalogFor("opencode", true))
+				.status,
+		).toBe("warning");
 	});
 });

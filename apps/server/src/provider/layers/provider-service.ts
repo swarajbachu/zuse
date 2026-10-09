@@ -85,7 +85,11 @@ import {
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { AcpAgentService } from "../acp/service.ts";
 import { validateApiKey } from "../api-key-validation.ts";
-import { probeProvidersWithPaths, resolveCliPath } from "../availability.ts";
+import {
+	probeProvidersWithPaths,
+	resolveCliPath,
+	withOpencodeInventoryAccount,
+} from "../availability.ts";
 import { makeProviderSessionRegistry } from "../provider-session-registry.ts";
 import { makeQuestionAttachmentAuthority } from "../question-attachment-authority.ts";
 import { makeQuestionAttachmentSnapshotFeed } from "../question-attachment-feed.ts";
@@ -380,8 +384,15 @@ export const ProviderServiceLive = Layer.effect(
 					selections,
 				]);
 				if (refresh) yield* Cache.invalidate(availabilityCache, key);
+				const probed = yield* Cache.get(availabilityCache, key);
+				const catalog = yield* modelCatalog.current();
 				const list = [
-					...(yield* Cache.get(availabilityCache, key)),
+					...probed.map((entry) =>
+						withOpencodeInventoryAccount(
+							entry,
+							catalog.providers[entry.providerId],
+						),
+					),
 					...(yield* Effect.tryPromise(() => acpAgents.availability()).pipe(
 						Effect.catch((error) =>
 							Effect.as(

@@ -344,3 +344,22 @@ describe("API-key-only provider summary", () => {
 		expect(summary.detail).toBe("The API key was rejected.");
 	});
 });
+
+describe("OpenCode managed connections", () => {
+	it.each([
+		"opencode",
+		"opencode2",
+	] as const)("does not prompt %s to log in while inventory is pending", (providerId) => {
+		expect(
+			getProviderSummary(
+				{
+					...availabilityFor(providerId, "OpenCode"),
+					cliLoggedIn: false,
+					authStatus: "unknown",
+				},
+				true,
+				false,
+			),
+		).toMatchObject({ statusKey: "ready", actionable: false });
+	});
+});

@@ -176,6 +176,15 @@ export function getProviderSummary(
 			actionable: true,
 		};
 	}
+	if (a.providerId === "opencode" || a.providerId === "opencode2") {
+		return {
+			statusKey: "ready",
+			headline: uiMessage("shell:pi_available"),
+			detail: "Connections are managed by OpenCode.",
+			authEmail: null,
+			actionable: false,
+		};
+	}
 	if (a.providerId === "pi")
 		return {
 			statusKey: "ready",
