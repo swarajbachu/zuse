@@ -1,4 +1,5 @@
 import { chatRecency } from "@zuse/client-runtime/chat-recency";
+import { useThreadListSidebarEnabled } from "../lib/browser-device-preferences.ts";
 import {
 	isCloudProjectFolder,
 	mergeCloudProjectFolders,
@@ -13,7 +14,6 @@ import {
 	rendererWorkspaceSnapshot,
 	subscribeRendererWorkspace,
 } from "../lib/renderer-workspace.ts";
-import { useSettingsStore } from "../lib/settings-client-bus.ts";
 import { buildThreadList, type ThreadListEntry } from "../lib/thread-list.ts";
 import { useChatAttention } from "../lib/use-chat-attention.ts";
 import { useCloudProjects } from "../lib/use-cloud-projects.ts";
@@ -498,9 +498,7 @@ export function ProjectsSidebar() {
 		);
 	}, [cloudChats, logicalGroups, origins, chatsByProject]);
 	const organize = useSidebarOrganize(projectKeys);
-	const threadListSidebar = useSettingsStore(
-		(s) => s.experimentalThreadListSidebar,
-	);
+	const threadListSidebar = useThreadListSidebarEnabled();
 	const hiddenArchivedChatIds = useChatsStore(
 		(state) => state.hiddenArchivedChatIds,
 	);
@@ -2911,7 +2909,13 @@ function ChatRow({
 	projectRoot: string;
 	/** Shown on `threadList` rows, which have no project header above them. */
 	projectName?: string;
+	/** Repository owner's GitHub avatar; `threadList` rows lead with it. */
 	projectAvatarUrl?: string | null;
+	/**
+	 * `tree` is the indented row under a project header. `threadList` is the
+	 * self-describing row used by the experimental flat list. Behavior
+	 * (select, unread, archive, menu, hover card) is shared; only layout differs.
+	 */
 	variant?: "tree" | "threadList";
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);

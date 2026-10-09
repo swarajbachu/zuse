@@ -84,3 +84,21 @@ it("synchronizes browser windows without consuming session-storage events", asyn
 		appearanceMode: "dark",
 	});
 });
+
+it("keeps the thread list sidebar toggle in this app's local storage, off by default", async () => {
+	const { setThreadListSidebarEnabled, useBrowserDevicePreferences } =
+		await import("../../src/lib/browser-device-preferences.ts");
+	expect(
+		useBrowserDevicePreferences.getState().experimentalThreadListSidebar,
+	).toBeUndefined();
+	setThreadListSidebarEnabled(true);
+	expect(JSON.parse(entries.get(key) ?? "null")).toEqual({
+		experimentalThreadListSidebar: true,
+	});
+	vi.resetModules();
+	const reloaded = await import("../../src/lib/browser-device-preferences.ts");
+	expect(
+		reloaded.useBrowserDevicePreferences.getState()
+			.experimentalThreadListSidebar,
+	).toBe(true);
+});

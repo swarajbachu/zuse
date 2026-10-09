@@ -131,7 +131,6 @@ describe("config-store settings coercion", () => {
 		expect(settings.appearanceMode).toBe("dark");
 		expect(settings.notchTrayEnabled).toBe(false);
 		expect(settings.notchTrayPinned).toBe(false);
-		expect(settings.experimentalThreadListSidebar).toBe(false);
 		expect(settings.modelEnabledByProvider.claude["claude-sonnet-5"]).toBe(
 			true,
 		);
@@ -184,17 +183,6 @@ describe("config-store settings coercion", () => {
 
 		expect(settings.notchTrayEnabled).toBe(true);
 		expect(settings.notchTrayPinned).toBe(true);
-	});
-
-	it("preserves the experimental thread list sidebar toggle", () => {
-		expect(
-			coerceSettings({ experimentalThreadListSidebar: true })
-				.experimentalThreadListSidebar,
-		).toBe(true);
-		expect(
-			coerceSettings({ experimentalThreadListSidebar: "yes" })
-				.experimentalThreadListSidebar,
-		).toBe(false);
 	});
 });
 

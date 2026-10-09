@@ -61,6 +61,10 @@ import { useModelCatalogStore } from "~/store/model-catalog";
 import { useAuth } from "../hooks/use-auth.ts";
 import type { BrowserCookieImportStatus } from "../lib/bridge.ts";
 import {
+	setThreadListSidebarEnabled,
+	useThreadListSidebarEnabled,
+} from "../lib/browser-device-preferences.ts";
+import {
 	COMPLETION_SOUND_PRESETS,
 	playCompletionSound,
 	prepareCompletionSound,
@@ -924,15 +928,15 @@ function BrowserTestLoginsPane() {
 	);
 }
 
+/**
+ * Opt-in previews. These toggles shape this app's own UI, so they are saved
+ * on this install (local storage), not in the active computer's settings:
+ * switching to a remote or cloud computer never flips them.
+ */
 function ExperimentalPane() {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 
-	const threadListSidebar = useSettingsStore(
-		(s) => s.experimentalThreadListSidebar,
-	);
-	const setThreadListSidebar = useSettingsStore(
-		(s) => s.setExperimentalThreadListSidebar,
-	);
+	const threadListSidebar = useThreadListSidebarEnabled();
 
 	return (
 		<SettingsGroup
@@ -946,7 +950,7 @@ function ExperimentalPane() {
 				action={
 					<Switch
 						checked={threadListSidebar}
-						onCheckedChange={setThreadListSidebar}
+						onCheckedChange={setThreadListSidebarEnabled}
 						aria-label={uiMessage("settings:settings_page_thread_list_sidebar")}
 					/>
 				}

@@ -105,7 +105,6 @@ export interface SettingsSlice {
 	readonly mergePrefs: { method: GitMergeMethod; deleteBranch: boolean };
 	readonly notchTrayEnabled: boolean;
 	readonly notchTrayPinned: boolean;
-	readonly experimentalThreadListSidebar: boolean;
 }
 
 type SettingsState = SettingsSlice & {
@@ -169,7 +168,6 @@ type SettingsState = SettingsSlice & {
 	}) => void;
 	readonly setNotchTrayEnabled: (value: boolean) => void;
 	readonly setNotchTrayPinned: (value: boolean) => void;
-	readonly setExperimentalThreadListSidebar: (value: boolean) => void;
 };
 
 const PROVIDERS = PROVIDER_IDS;
@@ -247,7 +245,6 @@ const FALLBACK: SettingsSlice = {
 	mergePrefs: { method: "merge", deleteBranch: false },
 	notchTrayEnabled: false,
 	notchTrayPinned: false,
-	experimentalThreadListSidebar: false,
 };
 
 const SettingsSliceSchema = Schema.Struct({
@@ -299,7 +296,6 @@ const SettingsSliceSchema = Schema.Struct({
 	}),
 	notchTrayEnabled: Schema.Boolean,
 	notchTrayPinned: Schema.Boolean,
-	experimentalThreadListSidebar: Schema.Boolean,
 });
 
 let hostedPreferences: SettingsSlice | null = null;
@@ -388,7 +384,6 @@ const fromFile = (file: SettingsFile): SettingsSlice => {
 		mergePrefs: file.mergePrefs,
 		notchTrayEnabled: file.notchTrayEnabled,
 		notchTrayPinned: file.notchTrayPinned,
-		experimentalThreadListSidebar: file.experimentalThreadListSidebar,
 	};
 };
 
@@ -953,8 +948,6 @@ const ACTIONS = {
 		update(() => ({ notchTrayEnabled })),
 	setNotchTrayPinned: (notchTrayPinned: boolean) =>
 		update(() => ({ notchTrayPinned })),
-	setExperimentalThreadListSidebar: (experimentalThreadListSidebar: boolean) =>
-		update(() => ({ experimentalThreadListSidebar })),
 	retry: () => {
 		if (usesAccountWorkspaceSettings() && !financeOnlyWorkspace()) {
 			void loadWorkspaceSettings(true).catch(() => undefined);
