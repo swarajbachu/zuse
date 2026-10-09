@@ -230,6 +230,7 @@ describe("Polar billing provider", () => {
 				}),
 			),
 		);
+		if (event === null) throw new Error("Expected subscription event");
 		const reconciled = await Effect.runPromise(
 			provider.reconcileSubscription(event.subscriptionId),
 		);

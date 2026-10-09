@@ -28,6 +28,7 @@ export interface CloudBillingPeriodRecord {
 	readonly periodId: string;
 	readonly accountId: string;
 	readonly providerSubscriptionId?: string;
+	readonly billingProvider?: string;
 	readonly status: CloudBillingStatus;
 	readonly periodStartMs: number;
 	readonly periodEndMs: number;
@@ -72,6 +73,9 @@ export interface CloudBillingStoreApi extends CloudUsageStoreApi {
 	>;
 	readonly recordProviderEvent: (input: {
 		readonly occurredAtMs?: number;
+		readonly providerSubscriptionId?: string;
+		readonly periodStartMs?: number;
+		readonly periodEndMs?: number;
 		readonly provider: string;
 		readonly eventId: string;
 		readonly type: string;
@@ -169,6 +173,11 @@ export interface CloudBillingStoreApi extends CloudUsageStoreApi {
 	) => Effect.Effect<
 		ReadonlyArray<{
 			readonly outboxId: string;
+			readonly provider?: string;
+			readonly occurredAtMs?: number;
+			readonly providerSubscriptionId?: string;
+			readonly periodStartMs?: number;
+			readonly periodEndMs?: number;
 			readonly periodId: string;
 			readonly accountId: string;
 			readonly amountCents: number;
@@ -193,6 +202,9 @@ export interface CloudBillingStoreApi extends CloudUsageStoreApi {
 			readonly periodId: string;
 			readonly accountId: string;
 			readonly expectedUnits: number;
+			readonly provider?: string;
+			readonly periodStartMs?: number;
+			readonly periodEndMs?: number;
 		}>
 	>;
 	readonly recordMeterReconciliation: (input: {
@@ -214,6 +226,7 @@ interface PeriodRow {
 	readonly period_id: string;
 	readonly account_id: string;
 	readonly provider_subscription_id: string | null;
+	readonly billing_provider: string;
 	readonly status: CloudBillingStatus;
 	readonly period_start: number;
 	readonly period_end: number;
@@ -241,6 +254,7 @@ const toPeriod = (row: PeriodRow): CloudBillingPeriodRecord => ({
 	periodId: row.period_id,
 	accountId: row.account_id,
 	providerSubscriptionId: row.provider_subscription_id ?? undefined,
+	billingProvider: row.billing_provider,
 	status: row.status,
 	periodStartMs: Number(row.period_start),
 	periodEndMs: Number(row.period_end),
@@ -305,7 +319,7 @@ export const CloudBillingStorePg = Layer.effect(
 				}>`SELECT MAX(created_at) AS reconciled_at FROM api_cloud_billing_usage WHERE period_id = ${period.periodId} AND status IN ('confirmed', 'corrected')`;
 				const polarReconciliationRows = yield* sql<{
 					readonly reconciled_at: number | null;
-				}>`SELECT MAX(created_at) AS reconciled_at FROM api_cloud_billing_meter_reconciliations WHERE period_id = ${period.periodId} AND provider = 'polar'`;
+				}>`SELECT MAX(created_at) AS reconciled_at FROM api_cloud_billing_meter_reconciliations WHERE period_id = ${period.periodId} AND provider = ${period.billingProvider ?? "polar"}`;
 				const policy = {
 					basePriceMicros: period.basePriceMicros,
 					includedProviderCostMicros: period.includedProviderCostMicros,
@@ -367,11 +381,16 @@ export const CloudBillingStorePg = Layer.effect(
 						reconciliationRows[0]?.reconciled_at === undefined
 							? undefined
 							: Number(reconciliationRows[0].reconciled_at),
-					lastPolarReconciledAt:
+					lastBillingReconciledAt:
 						polarReconciliationRows[0]?.reconciled_at === null ||
 						polarReconciliationRows[0]?.reconciled_at === undefined
 							? undefined
 							: Number(polarReconciliationRows[0].reconciled_at),
+					lastPolarReconciledAt:
+						(period.billingProvider ?? "polar") === "polar" &&
+						polarReconciliationRows[0]?.reconciled_at != null
+							? Number(polarReconciliationRows[0].reconciled_at)
+							: undefined,
 					usageProvisional: provisionalRows[0]?.present ?? false,
 				};
 			}).pipe(Effect.orDie);
@@ -474,17 +493,21 @@ export const CloudBillingStorePg = Layer.effect(
 				),
 			ensurePeriod: (period) =>
 				sql<PeriodRow>`INSERT INTO api_cloud_billing_periods (
-				period_id, account_id, provider_subscription_id, status, currency, period_start, period_end,
+				period_id, account_id, provider_subscription_id, billing_provider, status, currency, period_start, period_end,
 				base_price_micros, included_provider_cost_micros, markup_basis_points, price_catalog_version, overage_cap_micros,
 				created_at, updated_at
-			) VALUES (${period.periodId}, ${period.accountId}, ${period.providerSubscriptionId ?? null}, ${period.status}, 'USD',
+			) VALUES (${period.periodId}, ${period.accountId}, ${period.providerSubscriptionId ?? null}, ${period.billingProvider ?? "polar"}, ${period.status}, 'USD',
 				${period.periodStartMs}, ${period.periodEndMs}, ${DEFAULT_CLOUD_BILLING_POLICY.basePriceMicros},
 				${DEFAULT_CLOUD_BILLING_POLICY.includedProviderCostMicros}, ${DEFAULT_CLOUD_BILLING_POLICY.markupBasisPoints}, ${CLOUD_PRICE_CATALOG_VERSION},
-				${period.overageCapMicros ?? CLOUD_DEFAULT_OVERAGE_CAP_MICROS}, ${period.nowMs}, ${period.nowMs})
+				COALESCE(${period.overageCapMicros ?? null}::bigint, (SELECT overage_cap_micros FROM api_cloud_billing_periods WHERE account_id=${period.accountId} AND period_start < ${period.periodStartMs} ORDER BY period_start DESC LIMIT 1), ${CLOUD_DEFAULT_OVERAGE_CAP_MICROS}), ${period.nowMs}, ${period.nowMs})
 				ON CONFLICT (account_id, period_start) DO UPDATE SET status = EXCLUDED.status, period_end = EXCLUDED.period_end,
 				provider_subscription_id = EXCLUDED.provider_subscription_id, updated_at = EXCLUDED.updated_at
+				WHERE api_cloud_billing_periods.billing_provider = EXCLUDED.billing_provider AND (api_cloud_billing_periods.provider_subscription_id IS NULL OR api_cloud_billing_periods.provider_subscription_id = EXCLUDED.provider_subscription_id)
 				RETURNING *`.pipe(
-					Effect.map((rows) => toPeriod(rows[0] as PeriodRow)),
+					Effect.map((rows) => {
+						if (!rows[0]) throw new Error("billing_period_owner_conflict");
+						return toPeriod(rows[0]);
+					}),
 					Effect.orDie,
 				),
 			summary,
@@ -570,7 +593,10 @@ export const CloudBillingStorePg = Layer.effect(
 					${input.memoryMib}, ${input.providerCostMicros}, ${input.status}, ${input.nowMs}) ON CONFLICT DO NOTHING RETURNING entry_id`;
 						if (inserted.length === 0) continue;
 						yield* usageExports.enqueueUsageExport(
-							confirmedUsageExport(input),
+							{
+								...confirmedUsageExport(input),
+								billingProvider: period.billingProvider ?? "polar",
+							},
 							input.nowMs,
 						);
 						yield* sql`DELETE FROM api_cloud_billing_reservations WHERE period_id = ${input.periodId} AND resource_kind = ${input.resourceKind} AND resource_id = ${input.resourceId}`;
@@ -633,8 +659,8 @@ export const CloudBillingStorePg = Layer.effect(
 								readonly count: number;
 							}>`SELECT COUNT(*) AS count FROM api_cloud_billing_outbox WHERE period_id = ${input.periodId}`;
 							const sequence = Number(sequenceRows[0]?.count ?? 0) + 1;
-							yield* sql`INSERT INTO api_cloud_billing_outbox (outbox_id, period_id, account_id, provider, amount_cents, idempotency_key, attempt_count, next_attempt_at, created_at)
-						VALUES (${`outbox:${input.periodId}:${sequence}`}, ${input.periodId}, ${input.accountId}, 'polar', ${deltaCents}, ${`${input.periodId}:${sequence}`}, 0, ${input.nowMs}, ${input.nowMs}) ON CONFLICT DO NOTHING`;
+							yield* sql`INSERT INTO api_cloud_billing_outbox (outbox_id, period_id, account_id, provider, amount_cents, idempotency_key, attempt_count, next_attempt_at, created_at, occurred_at)
+						VALUES (${`outbox:${input.periodId}:${sequence}`}, ${input.periodId}, ${input.accountId}, ${period.billingProvider ?? "polar"}, ${deltaCents}, ${`${input.periodId}:${sequence}`}, 0, ${input.nowMs}, ${input.nowMs}, ${Math.max(period.billingProvider === "stripe" ? Math.ceil(period.periodStartMs / 60_000) * 60_000 : period.periodStartMs, Math.min(input.endedAt, period.periodEndMs - 1_000))}) ON CONFLICT DO NOTHING`;
 						}
 						metered = true;
 					}
@@ -670,15 +696,25 @@ export const CloudBillingStorePg = Layer.effect(
 			pendingOutbox: (nowMs, limit) =>
 				sql<{
 					readonly outbox_id: string;
+					readonly provider: string;
+					readonly occurred_at: number;
+					readonly provider_subscription_id: string | null;
+					readonly period_start: number;
+					readonly period_end: number;
 					readonly period_id: string;
 					readonly account_id: string;
 					readonly amount_cents: number;
 					readonly idempotency_key: string;
 					readonly created_at: number;
-				}>`SELECT outbox_id, period_id, account_id, amount_cents, idempotency_key, created_at FROM api_cloud_billing_outbox WHERE acknowledged_at IS NULL AND next_attempt_at <= ${nowMs} ORDER BY created_at ASC LIMIT ${limit}`.pipe(
+				}>`SELECT o.*, p.provider_subscription_id, p.period_start, p.period_end FROM api_cloud_billing_outbox o JOIN api_cloud_billing_periods p ON p.period_id=o.period_id WHERE o.acknowledged_at IS NULL AND o.next_attempt_at <= ${nowMs} ORDER BY o.created_at ASC LIMIT ${limit}`.pipe(
 					Effect.map((rows) =>
 						rows.map((row) => ({
 							outboxId: row.outbox_id,
+							provider: row.provider,
+							occurredAtMs: Number(row.occurred_at),
+							providerSubscriptionId: row.provider_subscription_id ?? undefined,
+							periodStartMs: Number(row.period_start),
+							periodEndMs: Number(row.period_end),
 							periodId: row.period_id,
 							accountId: row.account_id,
 							amountCents: Number(row.amount_cents),
@@ -703,19 +739,26 @@ export const CloudBillingStorePg = Layer.effect(
 					readonly period_id: string;
 					readonly account_id: string;
 					readonly expected_units: number;
-				}>`SELECT p.period_id, p.account_id, SUM(o.amount_cents) AS expected_units
+					readonly provider: string;
+					readonly period_start: number;
+					readonly period_end: number;
+				}>`SELECT p.period_id, p.account_id, o.provider, p.period_start, p.period_end, SUM(o.amount_cents) AS expected_units
 				FROM api_cloud_billing_periods p
 				JOIN api_cloud_billing_outbox o ON o.period_id = p.period_id AND o.acknowledged_at IS NOT NULL
-				LEFT JOIN api_cloud_billing_meter_reconciliations r ON r.period_id = p.period_id AND r.provider = 'polar'
-				WHERE p.period_end > ${nowMs} AND o.acknowledged_at <= ${nowMs - 5 * 60_000}
-				GROUP BY p.period_id, p.account_id
-				HAVING COALESCE(MAX(r.created_at), 0) < MAX(o.acknowledged_at)
+				LEFT JOIN LATERAL (SELECT created_at, observed_units FROM api_cloud_billing_meter_reconciliations WHERE period_id=p.period_id AND provider=o.provider ORDER BY created_at DESC LIMIT 1) r ON TRUE
+				WHERE o.acknowledged_at <= ${nowMs - 5 * 60_000}
+				AND NOT EXISTS (SELECT 1 FROM api_cloud_billing_outbox pending WHERE pending.period_id=p.period_id AND pending.provider=o.provider AND (pending.acknowledged_at IS NULL OR pending.acknowledged_at > ${nowMs - 5 * 60_000}))
+				GROUP BY p.period_id, p.account_id, o.provider, p.period_start, p.period_end
+				HAVING COALESCE(MAX(r.created_at), 0) < MAX(o.acknowledged_at) OR (MAX(r.observed_units) IS DISTINCT FROM SUM(o.amount_cents) AND COALESCE(MAX(r.created_at), 0) <= ${nowMs - 5 * 60_000})
 				ORDER BY MAX(o.acknowledged_at) ASC LIMIT ${limit}`.pipe(
 					Effect.map((rows) =>
 						rows.map((row) => ({
 							periodId: row.period_id,
 							accountId: row.account_id,
 							expectedUnits: Number(row.expected_units),
+							provider: row.provider,
+							periodStartMs: Number(row.period_start),
+							periodEndMs: Number(row.period_end),
 						})),
 					),
 					Effect.orDie,

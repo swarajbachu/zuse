@@ -10,11 +10,15 @@ import {
 } from "@zuse/contracts";
 import type { QueueMessage } from "@zuse/slack/types";
 import { Effect, Layer, Redacted } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { Pool } from "pg";
 import runtimeInstallerSource from "../../../apps/server/scripts/runtime-updater.mjs";
 import cloudInitTemplate from "../../cloud-machines/bootstrap/cloud-init.yaml.tmpl";
 import { AccountIdentityLive } from "./account-identity.ts";
-import { resolveBillingRuntime } from "./billing-config.ts";
+import {
+	type BillingEnvironment,
+	resolveBillingRuntime,
+} from "./billing-config.ts";
 import { readBoatEnvironment } from "./boat-environment.ts";
 import { CloudBillingStorePg } from "./cloud-billing-store.ts";
 import type { BillingUsageRecovery } from "./cloud-billing-usage-source.ts";
@@ -63,6 +67,7 @@ import {
 } from "./slack/config.ts";
 import { SlackPersistenceLive } from "./slack/persistence.ts";
 import { ApiStorePg } from "./store.ts";
+import { makeStripeBillingStorePg } from "./stripe-billing-store.ts";
 import { WorkosVerifierLive } from "./workos.ts";
 import { gatewayForwardHeaders } from "./workspace-gateway-protocol.ts";
 import {
@@ -80,7 +85,7 @@ export { WorkspaceMailbox } from "./workspace-mailbox.ts";
  * `wrangler secret put`; the rest are `vars` in wrangler.jsonc. `HYPERDRIVE`
  * is the Hyperdrive binding fronting PlanetScale Postgres.
  */
-interface Env extends SlackBindings {
+interface Env extends SlackBindings, BillingEnvironment {
 	readonly WORKSPACE_STARTUP: WorkspaceStartupNamespace;
 	readonly HYPERDRIVE: { readonly connectionString: string };
 	readonly WORKSPACE_GATEWAY: {
@@ -149,16 +154,6 @@ interface Env extends SlackBindings {
 	readonly MANAGED_TUNNEL_NAMESPACE?: string;
 	readonly MACHINE_ALPHA_ALLOWLIST?: string;
 	readonly MACHINE_MANUAL_ENTITLEMENTS?: string;
-	readonly MACHINE_LIVE_CHECKOUT_ENABLED?: string;
-	readonly POLAR_ACCESS_TOKEN?: string;
-	readonly POLAR_ENVIRONMENT?: string;
-	readonly POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1?: string;
-	readonly POLAR_PRODUCT_PERSISTENT_STANDARD_V1?: string;
-	/** @deprecated Use POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1. */
-	readonly POLAR_PRODUCT_SANDBOX_STANDARD_V1?: string;
-	readonly POLAR_VPS_SALES_APPROVED?: string;
-	readonly POLAR_WEBHOOK_SECRET?: string;
-	readonly POLAR_CLOUD_OVERAGE_METER_ID?: string;
 	readonly MACHINE_PROVIDER?: string;
 	readonly HETZNER_ADAPTER_ENABLED?: string;
 	readonly HETZNER_API_TOKEN?: string;
@@ -327,7 +322,7 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 	};
 	const availableSandboxProviderIds = availableSandboxProviders(
 		sandboxProvider.configuredProviders,
-		env.POLAR_ENVIRONMENT === "sandbox",
+		billing.sandboxMode,
 		env.CLOUD_BILLING_ENFORCEMENT_ENABLED === "true",
 		boxdBillingConfigured(
 			env.BOXD_BILLING_ENABLED,
@@ -336,15 +331,13 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 	);
 	const persistentCheckoutReady =
 		billing.liveCheckoutEnabled &&
-		(env.POLAR_ENVIRONMENT === "sandbox" ||
-			(env.POLAR_VPS_SALES_APPROVED === "true" &&
+		billing.persistentCheckoutConfigured &&
+		(billing.sandboxMode ||
+			((env.MACHINE_SALES_APPROVED ?? env.POLAR_VPS_SALES_APPROVED) ===
+				"true" &&
 				machineProvider.productionReady));
 	const sandboxOperational =
-		availableSandboxProviderIds.size > 0 &&
-		isConfigured(
-			env.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1 ??
-				env.POLAR_PRODUCT_SANDBOX_STANDARD_V1,
-		);
+		availableSandboxProviderIds.size > 0 && billing.cloudCheckoutConfigured;
 	const sandboxCheckoutReady =
 		billing.liveCheckoutEnabled && sandboxOperational;
 	const configuredLimit = Number(env.MAX_ENVIRONMENTS_PER_ACCOUNT ?? "5");
@@ -396,14 +389,19 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		);
 	if (
 		cloudBillingExportEnabled &&
-		(!billing.polarConfigured ||
-			!isConfigured(env.POLAR_CLOUD_OVERAGE_METER_ID))
+		(!(billing.polarConfigured || billing.stripeConfigured) ||
+			(billing.defaultProviderId === "polar"
+				? !isConfigured(env.POLAR_CLOUD_OVERAGE_METER_ID)
+				: !isConfigured(env.STRIPE_CLOUD_OVERAGE_METER_ID)))
 	)
 		throw new Error(
-			"Polar and POLAR_CLOUD_OVERAGE_METER_ID are required for billing export",
+			"A configured billing provider and overage meter are required for billing export",
 		);
-	if (env.CLOUD_USAGE_EXPORT_ENABLED === "true" && !billing.polarConfigured)
-		throw new Error("Polar is required for cloud usage export");
+	if (
+		env.CLOUD_USAGE_EXPORT_ENABLED === "true" &&
+		!(billing.polarConfigured || billing.stripeConfigured)
+	)
+		throw new Error("A billing provider is required for cloud usage export");
 	const boatEnvironment = readBoatEnvironment(env);
 	const cloudDataEncryptionKey =
 		env.CLOUD_DATA_ENCRYPTION_KEY ?? env.CLOUD_CREDENTIAL_VAULT_KEY;
@@ -482,6 +480,9 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 			? new Map([["boxd", Date.parse(env.BOXD_BILLING_CUTOVER_AT ?? "")]])
 			: undefined,
 		cloudSnapshotBillingCutoverAtMs,
+		cloudBillingStripeMeterId: isConfigured(env.STRIPE_CLOUD_OVERAGE_METER_ID)
+			? env.STRIPE_CLOUD_OVERAGE_METER_ID
+			: undefined,
 		cloudBillingPolarMeterId: isConfigured(env.POLAR_CLOUD_OVERAGE_METER_ID)
 			? env.POLAR_CLOUD_OVERAGE_METER_ID
 			: undefined,
@@ -585,7 +586,13 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		machineProvider.layer,
 		sandboxProvider.layer,
 		Layer.succeed(SandboxOfferConfiguration, sandboxOffer),
-		billing.layer,
+		Layer.unwrap(
+			Effect.map(
+				SqlClient.SqlClient,
+				(sql) =>
+					resolveBillingRuntime(env, makeStripeBillingStorePg(sql)).layer,
+			),
+		).pipe(Layer.provide(dbLayer)),
 		Layer.succeed(MachineControlConfiguration, machineConfig),
 		ManagedTunnelProviderLive.pipe(Layer.provide(configLayer)),
 		PushDeliveryLive,

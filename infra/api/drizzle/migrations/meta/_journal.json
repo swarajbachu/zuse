@@ -288,6 +288,20 @@
 			"when": 1791331200000,
 			"tag": "0039_cloud_snapshot_import",
 			"breakpoints": true
+		},
+		{
+			"idx": 41,
+			"version": "7",
+			"when": 1791396000000,
+			"tag": "0040_stripe_billing",
+			"breakpoints": true
+		},
+		{
+			"idx": 42,
+			"version": "7",
+			"when": 1791546501034,
+			"tag": "0041_stripe_legacy_outbox_default",
+			"breakpoints": true
 		}
 	]
 }

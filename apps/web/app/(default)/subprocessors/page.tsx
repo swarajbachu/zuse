@@ -49,6 +49,15 @@ const zuseProviders = [
 			"Do not create a Cloud Workspace; use a local or user-managed environment.",
 	},
 	{
+		name: "Stripe",
+		role: "Cloud Workspace billing, payment collection, tax calculation and usage invoicing",
+		data: "Billing account and subscription identifiers, selected prices, payment status, billing location, tax identifiers and billable usage totals. Payment details are entered through Stripe's hosted checkout and portal.",
+		applies:
+			"Paid Cloud Workspace offers when Stripe billing is enabled for your account. Existing subscriptions may continue through Polar during migration.",
+		choice:
+			"Do not start a paid Cloud Workspace offer. Manage payment methods and subscriptions through the billing portal.",
+	},
+	{
 		name: "Polar",
 		role: "Cloud Workspace billing and usage metering",
 		data: "Billing account and subscription identifiers, selected product, payment status, and usage totals needed for checkout, entitlement, and overage reconciliation. Payment details are handled in Polar's checkout flow rather than entered into the Zuse app.",

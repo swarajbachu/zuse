@@ -141,3 +141,90 @@ describe("cloud billing outbox", () => {
 		]);
 	});
 });
+
+test("routes historical and Stripe charges by their persisted ownership", async () => {
+	const sent: Array<{
+		provider: string;
+		timestamp: number | undefined;
+		units: number;
+	}> = [];
+	const acknowledgments: string[] = [];
+	const retries: string[] = [];
+	const store = CloudBillingStore.of({
+		...memoryStore,
+		pendingOutbox: () =>
+			Effect.succeed([
+				{
+					outboxId: "old",
+					periodId: "polar_period",
+					accountId: "account",
+					provider: "polar",
+					amountCents: 100,
+					idempotencyKey: "old",
+					occurredAtMs: 500,
+					createdAtMs: 900,
+				},
+				{
+					outboxId: "new",
+					periodId: "stripe_period",
+					accountId: "account",
+					provider: "stripe",
+					amountCents: 125,
+					idempotencyKey: "new",
+					occurredAtMs: 750,
+					createdAtMs: 950,
+				},
+				{
+					outboxId: "unavailable",
+					periodId: "other",
+					accountId: "account",
+					provider: "missing",
+					amountCents: 20,
+					idempotencyKey: "missing",
+					occurredAtMs: 800,
+					createdAtMs: 950,
+				},
+			]),
+		acknowledgeOutbox: (id) =>
+			Effect.sync(() => {
+				acknowledgments.push(id);
+			}),
+		retryOutbox: (id) =>
+			Effect.sync(() => {
+				retries.push(id);
+			}),
+	});
+	const adapter = (providerId: string) => ({
+		...BillingProviderManual,
+		providerId,
+		reportMeterEvent: (input: { units: number; occurredAtMs?: number }) =>
+			Effect.sync(() => {
+				sent.push({
+					provider: providerId,
+					timestamp: input.occurredAtMs,
+					units: input.units,
+				});
+			}),
+	});
+	const { flushCloudBillingOutbox } = await import(
+		"../../src/cloud-billing-outbox.ts"
+	);
+	const layer = Layer.merge(
+		Layer.succeed(CloudBillingStore, store),
+		BillingProviders.layer({
+			adapters: [adapter("polar"), adapter("stripe")],
+			defaultProviderId: "stripe",
+		}).pipe(Layer.orDie),
+	);
+	expect(
+		await Effect.runPromise(
+			flushCloudBillingOutbox(1_000).pipe(Effect.provide(layer)),
+		),
+	).toBe(2);
+	expect(sent).toEqual([
+		{ provider: "polar", timestamp: 500, units: 100 },
+		{ provider: "stripe", timestamp: 750, units: 125 },
+	]);
+	expect(acknowledgments).toEqual(["old", "new"]);
+	expect(retries).toEqual(["unavailable"]);
+});

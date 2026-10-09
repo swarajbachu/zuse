@@ -740,6 +740,7 @@ export const apiCloudBillingPeriods = pgTable(
 		periodId: text("period_id").primaryKey(),
 		accountId: text("account_id").notNull(),
 		providerSubscriptionId: text("provider_subscription_id"),
+		billingProvider: text("billing_provider").notNull().default("polar"),
 		status: text("status").notNull(),
 		currency: text("currency").notNull().default("USD"),
 		periodStart: bigint("period_start", { mode: "number" }).notNull(),
@@ -1014,6 +1015,11 @@ export const apiCloudBillingOutbox = pgTable(
 		nextAttemptAt: bigint("next_attempt_at", { mode: "number" }).notNull(),
 		acknowledgedAt: bigint("acknowledged_at", { mode: "number" }),
 		lastError: text("last_error"),
+		occurredAt: bigint("occurred_at", { mode: "number" })
+			.notNull()
+			.default(
+				sql`floor(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint`,
+			),
 		createdAt: bigint("created_at", { mode: "number" }).notNull(),
 	},
 	(table) => [
@@ -1526,4 +1532,29 @@ export const apiCloudProviderConnections = pgTable(
 			.where(sql`${table.active}`),
 		index("api_cloud_provider_connections_owner").on(table.accountId),
 	],
+);
+
+export const apiStripeCustomers = pgTable("api_stripe_customers", {
+	accountId: text("account_id").primaryKey(),
+	customerId: text("customer_id").unique(),
+	createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
+export const apiStripeMeterDeliveries = pgTable("api_stripe_meter_deliveries", {
+	deliveryKey: text("delivery_key").primaryKey(),
+	payload: text("payload").notNull(),
+	firstAttemptAt: bigint("first_attempt_at", { mode: "number" }).notNull(),
+	leaseUntil: bigint("lease_until", { mode: "number" }).notNull(),
+	sentAt: bigint("sent_at", { mode: "number" }),
+});
+
+export const apiStripeSubscriptionMigrations = pgTable(
+	"api_stripe_subscription_migrations",
+	{
+		polarSubscriptionId: text("polar_subscription_id").primaryKey(),
+		accountId: text("account_id").notNull().unique(),
+		customerId: text("customer_id").notNull().unique(),
+		payload: text("payload").notNull(),
+		firstAttemptAt: bigint("first_attempt_at", { mode: "number" }).notNull(),
+		scheduleId: text("schedule_id").unique(),
+	},
 );

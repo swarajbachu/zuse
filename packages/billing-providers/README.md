@@ -44,3 +44,18 @@ is required.
 Start with a sandbox organization and token. Store the access token and webhook
 secret as platform secrets; never place either in `wrangler.jsonc`. Production
 checkout remains separately gated by product-category approval.
+
+## Stripe
+
+The `@zuse/billing-providers/stripe` adapter uses the official `stripe` SDK with
+Fetch and Web Crypto for Workers. It creates subscription Checkout sessions with
+automatic tax, resolves account-owned receipts, verifies raw-body webhooks, fetches
+current subscriptions, cancels idempotently and opens customer portals. It exports
+meter events with stable identifiers and reads explicit-period summaries.
+
+The application injects a durable `StripeBillingStore` for customer bindings and
+delivery receipts. Ambiguous operations older than 23 hours stop for reconciliation
+rather than risk charging twice after Stripe's idempotency window expires.
+
+See [Stripe setup and Polar transfer](../../internal-docs/cloud/stripe-billing.md)
+for secrets, prices, independent rollout gates and migration commands.

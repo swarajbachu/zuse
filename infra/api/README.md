@@ -127,7 +127,10 @@ binding requires separate, explicit approval.
      needs **Account: Cloudflare Tunnel: Edit** + **Zone: DNS: Edit** on that zone.
    - The desktop must have **`cloudflared`** on PATH (`brew install cloudflared`); it runs the
      connector automatically on link and relaunches it on boot.
-6. **Polar sandbox billing**:
+6. **Billing**: For new Stripe integration, follow [Stripe billing and migration](../../internal-docs/cloud/stripe-billing.md).
+   Keep the following Polar setup during the transfer of existing subscriptions.
+
+   **Polar sandbox billing**:
    - Create the recurring machine product in Polar sandbox and place its product
      ID in `POLAR_PRODUCT_PERSISTENT_STANDARD_V1`.
    - Set `POLAR_ENVIRONMENT` to `sandbox`, then store the sandbox access token
