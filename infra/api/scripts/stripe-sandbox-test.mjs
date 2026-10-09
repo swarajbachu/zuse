@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { closeSync, openSync, unlinkSync } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { PgClient } from "@effect/sql-pg";
 import {
@@ -20,6 +19,7 @@ import { routeMachineRequest } from "../src/machine-routes.ts";
 import { MachineStorePg } from "../src/machine-store.ts";
 import { makeStripeBillingStorePg } from "../src/stripe-billing-store.ts";
 import { migrationScheduleParams } from "./stripe-migration.mjs";
+import { acquireRunnerLock } from "./stripe-sandbox-lock.mjs";
 
 // Opt-in, real sandbox API testing. All state is outside version control.
 // Run with Bun from the repository root. Never accepts live keys or databases.
@@ -47,14 +47,7 @@ assert(
 	"Only a local test database is allowed",
 );
 const command = process.argv[2];
-if (command !== "serve") {
-	const lockPath = `${directory}/runner.lock`;
-	const lock = openSync(lockPath, "wx", 0o600);
-	process.on("exit", () => {
-		closeSync(lock);
-		unlinkSync(lockPath);
-	});
-}
+if (command !== "serve") acquireRunnerLock(directory);
 let state;
 try {
 	state = JSON.parse(await readFile(statePath, "utf8"));
