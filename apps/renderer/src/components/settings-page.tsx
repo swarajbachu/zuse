@@ -947,6 +947,7 @@ function ExperimentalPane() {
 					<Switch
 						checked={threadListSidebar}
 						onCheckedChange={setThreadListSidebar}
+						aria-label={uiMessage("settings:settings_page_thread_list_sidebar")}
 					/>
 				}
 			/>

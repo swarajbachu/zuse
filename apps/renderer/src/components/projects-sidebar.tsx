@@ -27,7 +27,7 @@ import {
 	type CloudChatSummary,
 	EnvironmentId,
 	type Folder,
-	type FolderId,
+	FolderId,
 	type GitOriginInfo,
 	type GitPrInfo,
 	type ProviderId,
@@ -501,9 +501,37 @@ export function ProjectsSidebar() {
 	const threadListSidebar = useSettingsStore(
 		(s) => s.experimentalThreadListSidebar,
 	);
+	const hiddenArchivedChatIds = useChatsStore(
+		(state) => state.hiddenArchivedChatIds,
+	);
+	// Same sources the tree shows: live chats, other computers, and cloud.
 	const threadListEntries = useMemo(
-		() => (threadListSidebar ? buildThreadList(chatsByProject, folders) : []),
-		[threadListSidebar, chatsByProject, folders],
+		() =>
+			threadListSidebar
+				? buildThreadList({
+						chatsByProject,
+						folders,
+						remoteChats: desktopCatalogEnabled
+							? logicalGroups.flatMap((group) =>
+									remoteChatRows(group).map((row) => ({
+										...row,
+										repositoryName: group.displayName,
+									})),
+								)
+							: [],
+						cloudChats,
+						hiddenChatIds: hiddenArchivedChatIds,
+					})
+				: [],
+		[
+			threadListSidebar,
+			chatsByProject,
+			folders,
+			desktopCatalogEnabled,
+			logicalGroups,
+			cloudChats,
+			hiddenArchivedChatIds,
+		],
 	);
 	const catalogViewState = environmentCatalogViewState({
 		initialized: catalogInitialized,
@@ -562,15 +590,16 @@ export function ProjectsSidebar() {
 				data-sidebar-scroll
 				className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-1.5"
 			>
-				{ungroupedCloudChats.map((summary) => (
-					<CloudChatRow key={summary.workspaceId} summary={summary} />
-				))}
+				{threadListSidebar
+					? null
+					: ungroupedCloudChats.map((summary) => (
+							<CloudChatRow key={summary.workspaceId} summary={summary} />
+						))}
 				{threadListSidebar ? (
 					<ThreadListSection
 						entries={threadListEntries}
 						origins={origins}
 						loading={loading}
-						hasCloudChats={ungroupedCloudChats.length > 0}
 					/>
 				) : desktopCatalogEnabled ? (
 					<>
@@ -861,18 +890,27 @@ function ThreadListSection({
 	entries,
 	origins,
 	loading,
-	hasCloudChats,
 }: {
 	entries: ReadonlyArray<ThreadListEntry>;
 	origins: Readonly<Record<string, GitOriginInfo | null>>;
 	loading: boolean;
-	hasCloudChats: boolean;
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 	const [showAll, setShowAll] = useState(false);
+	// Cloud rows open into their matching sidebar project, as in the tree.
+	const projectIdByRepository = useMemo(
+		() =>
+			new Map(
+				Object.entries(origins).map(([folderId, origin]) => [
+					repositoryIdentityForOrigin(origin),
+					FolderId.make(folderId),
+				]),
+			),
+		[origins],
+	);
 
 	if (entries.length === 0) {
-		if (loading || hasCloudChats) return null;
+		if (loading) return null;
 		return (
 			<li>
 				<CompactEmptyState
@@ -889,16 +927,37 @@ function ThreadListSection({
 		: entries.slice(0, THREAD_LIST_INITIAL_ROWS);
 	return (
 		<>
-			{visible.map((entry) => (
-				<ChatRow
-					key={entry.chat.id}
-					chat={entry.chat}
-					projectRoot={entry.projectRoot}
-					projectName={origins[entry.chat.projectId]?.repo ?? entry.projectName}
-					projectAvatarUrl={avatarUrlFor(origins[entry.chat.projectId] ?? null)}
-					variant="threadList"
-				/>
-			))}
+			{visible.map((entry) =>
+				entry.kind === "local" ? (
+					<ChatRow
+						key={entry.id}
+						chat={entry.chat}
+						projectRoot={entry.projectRoot}
+						projectName={
+							origins[entry.chat.projectId]?.repo ?? entry.projectName
+						}
+						projectAvatarUrl={avatarUrlFor(
+							origins[entry.chat.projectId] ?? null,
+						)}
+						variant="threadList"
+					/>
+				) : entry.kind === "remote" ? (
+					<CatalogChatRow
+						key={entry.id}
+						chatRef={entry.remote.ref}
+						connected={entry.remote.connected}
+						repositoryName={entry.remote.repositoryName}
+					/>
+				) : (
+					<CloudChatRow
+						key={entry.id}
+						summary={entry.summary}
+						projectId={projectIdByRepository.get(
+							entry.summary.repositoryIdentity,
+						)}
+					/>
+				),
+			)}
 			{visible.length < entries.length ? (
 				<li>
 					<button
@@ -3204,8 +3263,7 @@ function ChatRow({
  *   logo  — repo owner avatar; a small corner badge appears only while the
  *           agent works or needs you (status words live in the hover card)
  *   line 1 — title · time
- *   line 2 — GitHub PR icon, number, and state (or the project name when
- *            there is no PR) · diff
+ *   line 2 — project name, GitHub PR icon, number, and state · diff
  */
 function ThreadListRowBody({
 	title,
@@ -3284,16 +3342,17 @@ function ThreadListRowBody({
 					</div>
 				</div>
 				<div className="flex h-3.5 min-w-0 items-center gap-1 text-[11px] font-normal text-muted-foreground/60">
+					{projectName !== undefined ? (
+						<span className="min-w-0 truncate">{projectName}</span>
+					) : null}
 					{prInfo !== null && prState !== null ? (
-						<>
+						<span className="ml-1 inline-flex min-w-0 shrink-[2] items-center gap-1">
 							<PrStateIcon pr={prInfo} className="size-3" />
 							{prInfo.number === null ? null : (
 								<span className="shrink-0 tabular-nums">#{prInfo.number}</span>
 							)}
 							<span className="min-w-0 truncate">{prState}</span>
-						</>
-					) : projectName !== undefined ? (
-						<span className="min-w-0 truncate">{projectName}</span>
+						</span>
 					) : null}
 					{stats !== null ? (
 						<span className="ml-auto shrink-0 pl-2 tabular-nums">
@@ -3337,7 +3396,7 @@ function ChatArchiveButton({
 			}}
 			className={cn(
 				"pointer-events-auto relative z-10 items-center rounded-md p-0.5 text-muted-foreground transition-opacity duration-150 ease-out hover:text-sidebar-accent-foreground motion-reduce:transition-none",
-				archiving ? "flex" : "hidden group-hover:flex",
+				archiving ? "flex" : "hidden group-focus-within:flex group-hover:flex",
 			)}
 			aria-label={`${label} ${chatTitle}`}
 			title={label}
