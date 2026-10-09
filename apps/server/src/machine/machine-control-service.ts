@@ -92,8 +92,13 @@ import {
 	type WorkspaceSettingsUpdate,
 } from "@zuse/contracts";
 import { Context, Effect, Layer, Schema, type Stream } from "effect";
-import { decodeJwt, exportJWK, generateKeyPair, type JWK, SignJWT } from "jose";
+import { decodeJwt } from "jose";
 
+import {
+	createDpopClientKey,
+	fetchDpopAccessToken,
+	signDpopProof,
+} from "../api/dpop-client.ts";
 import { AuthService } from "../auth/services/auth-service.ts";
 import { MachineRuntimeRole } from "./machine-runtime-role.ts";
 import { RequestWorkspace } from "./request-workspace.ts";
@@ -416,25 +421,55 @@ export const MachineControlServiceLive: Layer.Layer<
 			);
 		}
 
-		const dpopKeys = generateKeyPair("ES256", { extractable: true });
-		const dpopProof = async (method: string, url: string): Promise<string> => {
-			const keys = await dpopKeys;
-			const jwk = (await exportJWK(keys.publicKey)) as JWK;
-			return new SignJWT({
-				htm: method,
-				htu: url,
-				jti: crypto.randomUUID(),
-			})
-				.setProtectedHeader({ alg: "ES256", typ: "dpop+jwt", jwk })
-				.setIssuedAt()
-				.sign(keys.privateKey);
-		};
+		const dpopKey = createDpopClientKey();
+		const dpopProof = (method: string, url: string): Promise<string> =>
+			dpopKey.then((key) => signDpopProof(key, method, url));
+
+		let apiAccess: { token: string; expiresAt: number } | null = null;
+		const ensureApiAccess = (): Effect.Effect<string, MachineControlError> =>
+			Effect.gen(function* () {
+				if (apiAccess !== null && apiAccess.expiresAt - Date.now() > 30_000) {
+					return apiAccess.token;
+				}
+				const workosToken = yield* auth
+					.getAccessToken()
+					.pipe(Effect.mapError(() => new MachineControlError("not-allowed")));
+				const tokenResponse = yield* Effect.tryPromise({
+					try: () =>
+						dpopKey.then((key) =>
+							fetchDpopAccessToken({ apiUrl, workosToken, key }),
+						),
+					catch: () => new MachineControlError("provider-unavailable"),
+				});
+				if (!tokenResponse.ok) {
+					return yield* Effect.fail(
+						mapApiErrorCode(tokenResponse.status, undefined),
+					);
+				}
+				const accessPayload = yield* Effect.tryPromise({
+					try: (): Promise<unknown> => tokenResponse.json(),
+					catch: () => new MachineControlError("provider-unavailable"),
+				});
+				const access = yield* Schema.decodeUnknownEffect(ApiAccessToken)(
+					accessPayload,
+				).pipe(
+					Effect.mapError(
+						() => new MachineControlError("provider-unavailable"),
+					),
+				);
+				apiAccess = {
+					token: access.accessToken,
+					expiresAt: Date.now() + access.expiresIn,
+				};
+				return access.accessToken;
+			});
 
 		const request = <A, I>(
 			path: string,
 			schema: Schema.Codec<A, I>,
 			method = "GET",
 			body?: unknown,
+			credential: "bearer" | "dpop" = "bearer",
 		): Effect.Effect<A, MachineControlError> =>
 			Effect.gen(function* () {
 				const workspaceScope = yield* RequestWorkspace;
@@ -454,6 +489,33 @@ export const MachineControlServiceLive: Layer.Layer<
 							try: () => transport.request(path, method, body),
 							catch: () => new MachineControlError("provider-unavailable"),
 						});
+					}
+					if (credential === "dpop") {
+						// A stale or revoked cached token gets exactly one re-mint.
+						for (let attempt = 0; attempt < 2; attempt += 1) {
+							const accessToken = yield* ensureApiAccess();
+							const response = yield* Effect.tryPromise({
+								try: async () =>
+									fetch(`${apiUrl}${scopedPath}`, {
+										method,
+										headers: {
+											[WORKSPACE_SCOPE_HEADER]: workspaceScope,
+											authorization: `DPoP ${accessToken}`,
+											dpop: await dpopProof(method, `${apiUrl}${scopedPath}`),
+											...(body === undefined
+												? {}
+												: { "content-type": "application/json" }),
+										},
+										body: body === undefined ? undefined : JSON.stringify(body),
+									}),
+								catch: () => new MachineControlError("provider-unavailable"),
+							});
+							if (response.status !== 401 || attempt > 0) return response;
+							apiAccess = null;
+						}
+						return yield* Effect.fail(
+							new MachineControlError("provider-unavailable"),
+						);
 					}
 					const token = yield* auth
 						.getAccessToken()
@@ -839,13 +901,21 @@ export const MachineControlServiceLive: Layer.Layer<
 				request(ApiPaths.billingPortal, BillingPortal, "POST", {}),
 			entitlements: () =>
 				request(ApiPaths.billingEntitlements, EntitlementList),
-			environments: () => request(ApiPaths.environments, ApiEnvironmentList),
+			environments: () =>
+				request(
+					ApiPaths.environments,
+					ApiEnvironmentList,
+					"GET",
+					undefined,
+					"dpop",
+				),
 			removeEnvironment: (environmentId) =>
 				request(
 					ApiPaths.unlink,
 					Schema.Struct({ ok: Schema.Boolean }),
 					"POST",
 					{ environmentId },
+					"dpop",
 				).pipe(
 					Effect.asVoid,
 					Effect.timeoutOrElse({
@@ -863,60 +933,46 @@ export const MachineControlServiceLive: Layer.Layer<
 					if (runtimeRole !== "control-plane") {
 						return yield* Effect.fail(new MachineControlError("not-allowed"));
 					}
-					const workosToken = yield* auth
-						.getAccessToken()
-						.pipe(
-							Effect.mapError(() => new MachineControlError("not-allowed")),
-						);
-					const tokenUrl = `${apiUrl}${ApiPaths.dpopToken}`;
-					const tokenResponse = yield* Effect.tryPromise({
-						try: async () =>
-							fetch(tokenUrl, {
-								method: "POST",
-								headers: {
-									authorization: `Bearer ${workosToken}`,
-									dpop: await dpopProof("POST", tokenUrl),
-								},
-							}),
-						catch: () => new MachineControlError("provider-unavailable"),
-					});
-					if (!tokenResponse.ok) {
-						return yield* Effect.fail(
-							mapApiErrorCode(tokenResponse.status, undefined),
-						);
-					}
-					const accessPayload = yield* Effect.tryPromise({
-						try: (): Promise<unknown> => tokenResponse.json(),
-						catch: () => new MachineControlError("provider-unavailable"),
-					});
-					const access = yield* Schema.decodeUnknownEffect(ApiAccessToken)(
-						accessPayload,
-					).pipe(
-						Effect.mapError(
-							() => new MachineControlError("provider-unavailable"),
-						),
-					);
 					const connectUrl = `${apiUrl}${ApiPaths.connect(environmentId)}`;
 					// Always demand a managed (tunnel/public-TLS) endpoint. Without
 					// this the api may fall back to the environment's advertised
 					// endpoint, which for a default `zuse serve` is its own loopback —
 					// a remote client would then dial 127.0.0.1 on the wrong machine.
-					const response = yield* Effect.tryPromise({
-						try: async () =>
-							fetch(connectUrl, {
-								method: "POST",
-								headers: {
-									authorization: `DPoP ${access.accessToken}`,
-									dpop: await dpopProof("POST", connectUrl),
-									"content-type": "application/json",
-								},
-								body: JSON.stringify({
-									wireProtocolVersion: WIRE_PROTOCOL_VERSION,
-									requireManaged: true,
+					// A rejected cached token gets exactly one re-mint.
+					let response: Response | null = null;
+					for (
+						let attempt = 0;
+						attempt < 2 && response === null;
+						attempt += 1
+					) {
+						const accessToken = yield* ensureApiAccess();
+						const attemptResponse = yield* Effect.tryPromise({
+							try: async () =>
+								fetch(connectUrl, {
+									method: "POST",
+									headers: {
+										authorization: `DPoP ${accessToken}`,
+										dpop: await dpopProof("POST", connectUrl),
+										"content-type": "application/json",
+									},
+									body: JSON.stringify({
+										wireProtocolVersion: WIRE_PROTOCOL_VERSION,
+										requireManaged: true,
+									}),
 								}),
-							}),
-						catch: () => new MachineControlError("provider-unavailable"),
-					});
+							catch: () => new MachineControlError("provider-unavailable"),
+						});
+						if (attemptResponse.status === 401 && attempt === 0) {
+							apiAccess = null;
+						} else {
+							response = attemptResponse;
+						}
+					}
+					if (response === null) {
+						return yield* Effect.fail(
+							new MachineControlError("provider-unavailable"),
+						);
+					}
 					if (!response.ok) {
 						const failure = yield* Effect.promise(
 							() =>

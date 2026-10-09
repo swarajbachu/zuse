@@ -32,9 +32,76 @@ const storageMock = (entries: [string, string][] = []) => {
 		},
 	};
 };
+// Minimal indexedDB stand-in: enough of the API surface for the hosted DPoP
+// key store (open / objectStore get+put / deleteDatabase).
+const indexedDbMock = () => {
+	const data = new Map<string, unknown>();
+	const db = {
+		objectStoreNames: { contains: () => true },
+		createObjectStore: () => ({}),
+		close: () => undefined,
+		transaction: () => ({
+			objectStore: () => ({
+				get: (key: string) => {
+					const request = {
+						result: data.get(key),
+						onsuccess: null as null | (() => void),
+						onerror: null,
+					};
+					queueMicrotask(() => request.onsuccess?.());
+					return request;
+				},
+				put: (value: unknown, key: string) => {
+					data.set(key, value);
+					const request = {
+						onsuccess: null as null | (() => void),
+						onerror: null,
+					};
+					queueMicrotask(() => request.onsuccess?.());
+					return request;
+				},
+			}),
+		}),
+	};
+	return {
+		open: () => {
+			const request = {
+				result: db,
+				onupgradeneeded: null as null | (() => void),
+				onsuccess: null as null | (() => void),
+				onerror: null,
+			};
+			queueMicrotask(() => {
+				request.onupgradeneeded?.();
+				request.onsuccess?.();
+			});
+			return request;
+		},
+		deleteDatabase: () => {
+			const request = {
+				onsuccess: null as null | (() => void),
+				onerror: null,
+				onblocked: null,
+			};
+			queueMicrotask(() => request.onsuccess?.());
+			return request;
+		},
+	};
+};
+// The hosted DPoP exchange runs before the account call; mints always succeed.
+const apiMock = (
+	handler: (url: string, init?: RequestInit) => Promise<Response>,
+) =>
+	vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+		if (String(url).endsWith("/v1/client/dpop-token")) {
+			return Response.json({ accessToken: "api-token", expiresIn: 60_000 });
+		}
+		return handler(String(url), init);
+	});
 beforeEach(() => {
 	vi.stubGlobal("localStorage", storageMock());
 	vi.stubGlobal("sessionStorage", storageMock());
+	vi.stubGlobal("indexedDB", indexedDbMock());
 });
 const STAGING_CLIENT_ID = "client_01KW6ZEZKVMZ0G429A89XZD83Q";
 const PRODUCTION_CLIENT_ID = "client_01KWGQ818571ARFATQ3G9AR2Y2";
@@ -197,12 +264,13 @@ describe("hosted account ownership", () => {
 		const json = vi.spyOn(response, "json").mockReturnValue(body.promise);
 		const fetch = vi
 			.spyOn(globalThis, "fetch")
-			.mockReturnValue(headers.promise);
+			.mockImplementation(apiMock(() => headers.promise));
 		const pending = listHostedEnvironments();
 		const rejected = expect(pending).rejects.toThrow(
 			"The connection account changed",
 		);
-		await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+		// Call 1 mints the DPoP token; call 2 is the environments request.
+		await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
 		if (phase === "body") {
 			headers.resolve(response);
 			await vi.waitFor(() => expect(json).toHaveBeenCalledOnce());
@@ -540,17 +608,27 @@ describe("removing hosted computers", () => {
 				expiresAt: Date.now() + 3600000,
 			}),
 		);
-		const fetch = vi.fn(async () => Response.json({}, { status }));
+		const fetch = apiMock(async () => Response.json({}, { status }));
 		vi.stubGlobal("fetch", fetch);
 		await removeHostedComputer("computer-one");
+		expect(fetch).toHaveBeenCalledWith(
+			expect.stringContaining("/v1/client/dpop-token"),
+			expect.objectContaining({
+				method: "POST",
+				headers: expect.objectContaining({
+					authorization: "Bearer account-token",
+				}),
+			}),
+		);
 		expect(fetch).toHaveBeenCalledWith(
 			expect.stringContaining("/v1/client/environment-unlink"),
 			expect.objectContaining({
 				method: "POST",
-				headers: {
-					authorization: "Bearer account-token",
+				headers: expect.objectContaining({
+					authorization: "DPoP api-token",
+					dpop: expect.any(String),
 					"content-type": "application/json",
-				},
+				}),
 				body: JSON.stringify({ environmentId: "computer-one" }),
 			}),
 		);
@@ -573,7 +651,7 @@ describe("removing hosted computers", () => {
 		);
 		vi.stubGlobal(
 			"fetch",
-			vi.fn(async () => Response.json({}, { status: 503 })),
+			apiMock(async () => Response.json({}, { status: 503 })),
 		);
 		await expect(removeHostedComputer("computer-one")).rejects.toThrow(
 			"api_unlink_503",

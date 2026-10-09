@@ -472,7 +472,7 @@ const signDpopProof = async (input: {
 const apiFetch = async (
 	path: string,
 	init: {
-		readonly method: "POST";
+		readonly method: "GET" | "POST" | "DELETE";
 		readonly token?: string;
 		readonly body?: unknown;
 	},
@@ -587,7 +587,11 @@ export const hostedAccountRequest = async (
 
 export const listHostedEnvironments = async (): Promise<ApiEnvironmentList> => {
 	const account = rendererAccountSnapshot();
-	const response = await hostedAccountRequest(ApiPaths.environments);
+	const token = await ensureApiAccess();
+	const response = await apiFetch(ApiPaths.environments, {
+		method: "GET",
+		token,
+	});
 	if (!response.ok) throw new Error(`api_environments_${response.status}`);
 	const environments = (await response.json()) as ApiEnvironmentList;
 	assertRendererAccountCurrent(account);
@@ -610,16 +614,13 @@ export const getHostedComputerStatus = async (
 export const removeHostedComputer = async (
 	environmentId: string,
 ): Promise<void> => {
-	const token = await hostedAccessToken();
-	if (token === null) throw new Error("hosted_signed_out");
-	const response = await fetch(`${rendererApiUrl()}${ApiPaths.unlink}`, {
+	const account = rendererAccountSnapshot();
+	const token = await ensureApiAccess();
+	assertRendererAccountCurrent(account);
+	const response = await apiFetch(ApiPaths.unlink, {
 		method: "POST",
-		signal: AbortSignal.timeout(15_000),
-		headers: {
-			authorization: `Bearer ${token}`,
-			"content-type": "application/json",
-		},
-		body: JSON.stringify({ environmentId }),
+		token,
+		body: { environmentId },
 	});
 	if (!response.ok && response.status !== 404)
 		throw new Error(`api_unlink_${response.status}`);
@@ -703,7 +704,33 @@ export const nextHostedRpcEndpoint = (): Promise<string> =>
 
 export const signOutHostedProduct = async (): Promise<void> => {
 	const accountId = hostedAccountId();
-	const token = readSession()?.accessToken ?? null;
+	const deviceId = localStorage.getItem(DEVICE_ID_KEY);
+	// Mint the DPoP-bound token and pre-sign the revocation proof while the
+	// session and the device key still exist; the teardown below clears both.
+	const revokeDevice =
+		deviceId === null
+			? null
+			: await (async () => {
+					try {
+						const accessToken = await ensureApiAccess();
+						const target = `${rendererApiUrl()}${ApiPaths.client(deviceId)}`;
+						const proof = await signDpopProof({
+							method: "DELETE",
+							url: target,
+						});
+						return () =>
+							fetch(target, {
+								method: "DELETE",
+								signal: AbortSignal.timeout(5_000),
+								headers: {
+									authorization: `DPoP ${accessToken}`,
+									dpop: proof,
+								},
+							});
+					} catch {
+						return null;
+					}
+				})();
 	sessionEpoch++;
 	clearHostedSession();
 	const { resetSessionTimelineClientBus } = await import(
@@ -718,15 +745,10 @@ export const signOutHostedProduct = async (): Promise<void> => {
 		}
 	}
 
-	const deviceId = localStorage.getItem(DEVICE_ID_KEY);
 	sessionStorage.removeItem(SESSION_KEY);
 	publishHostedAuth();
-	if (token !== null && deviceId !== null) {
-		await fetch(`${rendererApiUrl()}${ApiPaths.client(deviceId)}`, {
-			method: "DELETE",
-			signal: AbortSignal.timeout(5_000),
-			headers: { authorization: `Bearer ${token}` },
-		}).catch(() => undefined);
+	if (revokeDevice !== null) {
+		await revokeDevice().catch(() => undefined);
 	}
 	sessionStorage.removeItem(PKCE_KEY);
 	localStorage.removeItem(DEVICE_ID_KEY);

@@ -1,4 +1,4 @@
-import { EnvironmentId } from "@zuse/contracts";
+import { ApiPaths, EnvironmentId } from "@zuse/contracts";
 import { Effect, Fiber, Layer, Result } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, it, vi } from "vitest";
@@ -109,6 +109,12 @@ describe("retiring a saved registration", () => {
 			"fetch",
 			vi.fn(async (url: string, init?: RequestInit) => {
 				requests.push({ url, init });
+				if (String(url).endsWith(ApiPaths.dpopToken)) {
+					return Response.json({
+						accessToken: "api-token",
+						expiresIn: 60_000,
+					});
+				}
 				return input.response ?? Response.json({ ok: true });
 			}),
 		);
@@ -172,11 +178,21 @@ describe("retiring a saved registration", () => {
 			config: savedConfig,
 		});
 		expect(Result.isSuccess(result) && result.success).toBe(true);
-		expect(requests).toHaveLength(1);
+		expect(requests).toHaveLength(2);
 		expect(requests[0]?.url).toBe(
+			"https://api.example.test/v1/client/dpop-token",
+		);
+		expect(requests[0]?.init?.headers).toMatchObject({
+			authorization: "Bearer account-token",
+		});
+		expect(requests[1]?.url).toBe(
 			"https://api.example.test/v1/client/environment-unlink",
 		);
-		expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({
+		expect(requests[1]?.init?.headers).toMatchObject({
+			authorization: "DPoP api-token",
+			dpop: expect.any(String),
+		});
+		expect(JSON.parse(String(requests[1]?.init?.body))).toEqual({
 			environmentId: "old-dev-instance",
 		});
 		expect(clearApiConfig).toHaveBeenCalledOnce();

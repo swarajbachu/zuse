@@ -20,9 +20,9 @@ import {
 } from "./connection-diagnostics";
 
 /**
- * Client for the account api's HTTP API. WorkOS-authenticated endpoints
- * (list) take the WorkOS bearer; DPoP-protected endpoints (status/connect/
- * register) take a api-minted access token + a fresh DPoP proof per request.
+ * Client for the account api's HTTP API. The WorkOS bearer only mints a
+ * DPoP-bound access token (`/v1/client/dpop-token`); every other endpoint
+ * takes that token + a fresh DPoP proof per request.
  */
 
 type ApiAuthState = {
@@ -120,25 +120,34 @@ const ensureAccessToken = async (): Promise<string> => {
 	}
 };
 
-const dpopFetch = async (path: string, method: string): Promise<Response> => {
-	const token = await ensureAccessToken();
+const dpopFetch = async (
+	path: string,
+	method: string,
+	signal?: AbortSignal,
+): Promise<Response> => {
 	const target = url(path);
 	logConnectionDiagnostic("api.request.start", { method, path });
-	return fetch(target, {
-		method,
-		headers: {
-			authorization: `DPoP ${token}`,
-			dpop: await signDpopProof({ method, url: target }),
-		},
-	});
+	// A cached token can be rejected (expired server-side, revoked key); clear
+	// it and mint once more before surfacing the failure.
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		const token = await ensureAccessToken();
+		const response = await fetch(target, {
+			method,
+			headers: {
+				authorization: `DPoP ${token}`,
+				dpop: await signDpopProof({ method, url: target }),
+			},
+			signal,
+		});
+		if (response.status !== 401 || attempt > 0) return response;
+		apiAuthState.accessToken = null;
+	}
+	throw new Error("api_access_refresh_failed");
 };
 
 export const listEnvironments = async (): Promise<ApiEnvironmentList> => {
-	const workosToken = await getWorkosToken();
 	logConnectionDiagnostic("api.list.start");
-	const response = await fetch(url(ApiPaths.environments), {
-		headers: { authorization: `Bearer ${workosToken}` },
-	});
+	const response = await dpopFetch(ApiPaths.environments, "GET");
 	if (!response.ok) {
 		const error = await apiError(response, "api_list");
 		logConnectionProblem("api.list.fail", { reason: error.message });
@@ -242,14 +251,10 @@ export const registerDevice = async (input: {
 
 /** Revocation is idempotent so an interrupted logout can safely retry. */
 export const revokeMobileDevice = async (deviceId: string): Promise<void> => {
-	const token = await getWorkosToken();
-	const response = await fetch(
-		url(`/v1/clients/${encodeURIComponent(deviceId)}`),
-		{
-			method: "DELETE",
-			headers: { authorization: `Bearer ${token}` },
-			signal: AbortSignal.timeout(10_000),
-		},
+	const response = await dpopFetch(
+		ApiPaths.client(deviceId),
+		"DELETE",
+		AbortSignal.timeout(10_000),
 	);
 	if (!response.ok && response.status !== 404)
 		throw await apiError(response, "device_revoke");
@@ -257,11 +262,7 @@ export const revokeMobileDevice = async (deviceId: string): Promise<void> => {
 
 /** Permanently delete the authenticated account and all api-owned data. */
 export const deleteAccount = async (): Promise<{ cleanupPending: boolean }> => {
-	const workosToken = await getWorkosToken();
-	const response = await fetch(url(ApiPaths.account), {
-		method: "DELETE",
-		headers: { authorization: `Bearer ${workosToken}` },
-	});
+	const response = await dpopFetch(ApiPaths.account, "DELETE");
 	if (!response.ok) throw await apiError(response, "account_delete");
 	const result = (await response.json()) as { cleanupPending?: boolean };
 	resetApiAccessToken();

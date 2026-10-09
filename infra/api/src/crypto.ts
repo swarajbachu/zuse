@@ -182,7 +182,9 @@ const normalizeUrl = (value: unknown): string => {
 export const signAccessToken = (input: {
 	readonly mintPrivateJwk: JWK;
 	readonly issuer: string;
+	readonly audience: string;
 	readonly accountId: string;
+	readonly orgId?: string;
 	readonly thumbprint: string;
 	readonly scope: ReadonlyArray<string>;
 	readonly ttlMs: number;
@@ -195,9 +197,11 @@ export const signAccessToken = (input: {
 				new SignJWT({
 					scope: input.scope.join(" "),
 					cnf: { jkt: input.thumbprint },
+					...(input.orgId === undefined ? {} : { orgId: input.orgId }),
 				})
 					.setProtectedHeader({ alg: "EdDSA", typ: "at+jwt" })
 					.setIssuer(input.issuer)
+					.setAudience(input.audience)
 					.setSubject(input.accountId)
 					.setIssuedAt(Math.floor(input.nowMs / 1000))
 					.setExpirationTime(Math.floor((input.nowMs + input.ttlMs) / 1000))
@@ -252,6 +256,7 @@ export const signConnectToken = (input: {
 
 export interface MintedTokenClaims {
 	readonly accountId: string;
+	readonly orgId?: string;
 	readonly thumbprint: string;
 	readonly scope: ReadonlyArray<string>;
 }
@@ -586,17 +591,23 @@ export const verifyAccessToken = (input: {
 	readonly token: string;
 	readonly mintPublicJwk: JWK;
 	readonly issuer: string;
+	readonly audience: string;
 }): Effect.Effect<MintedTokenClaims, ApiError> =>
 	Effect.gen(function* () {
 		const key = yield* importEd25519(input.mintPublicJwk, "verify");
 		const verified = yield* Effect.tryPromise({
 			try: () =>
-				jwtVerify(input.token, key, { issuer: input.issuer, typ: "at+jwt" }),
+				jwtVerify(input.token, key, {
+					issuer: input.issuer,
+					audience: input.audience,
+					typ: "at+jwt",
+				}),
 			catch: () => unauthorized("invalid_access_token"),
 		});
 		const payload = verified.payload as {
 			readonly sub?: unknown;
 			readonly scope?: unknown;
+			readonly orgId?: unknown;
 			readonly cnf?: { readonly jkt?: unknown };
 		};
 		if (
@@ -607,6 +618,7 @@ export const verifyAccessToken = (input: {
 		}
 		return {
 			accountId: payload.sub,
+			orgId: typeof payload.orgId === "string" ? payload.orgId : undefined,
 			thumbprint: payload.cnf.jkt,
 			scope: typeof payload.scope === "string" ? payload.scope.split(" ") : [],
 		};

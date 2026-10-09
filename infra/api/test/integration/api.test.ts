@@ -19,6 +19,7 @@ import {
 import { SandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import {
+	calculateJwkThumbprint,
 	exportJWK,
 	generateKeyPair,
 	importJWK,
@@ -224,6 +225,45 @@ const makeLayer = async (
 	);
 };
 
+// Obtain a DPoP-bound access token for a device on `account`.
+const mintAccess = async (
+	account: string,
+	device: KeyPair,
+	jwk: JWK,
+): Promise<string> => {
+	const url = `${API_ISSUER}/v1/client/dpop-token`;
+	const res = await api.fetch(
+		new Request(url, {
+			method: "POST",
+			headers: {
+				authorization: `Bearer test-token:${account}`,
+				dpop: await dpopProof(device, jwk, { method: "POST", url }),
+			},
+		}),
+	);
+	expect(res.status).toBe(200);
+	return ((await res.json()) as { accessToken: string }).accessToken;
+};
+
+/**
+ * A client authenticated the way real clients are: one DPoP-bound token from
+ * the exchange + a fresh per-request proof. `headers()` signs a new proof on
+ * every call so the api's single-use `jti` check always passes.
+ */
+const dpopClient = async (account: string) => {
+	const device = (await ec()) as KeyPair;
+	const jwk = await exportJWK(device.publicKey);
+	const accessToken = await mintAccess(account, device, jwk);
+	const headers = async (
+		method: string,
+		url: string,
+	): Promise<Record<string, string>> => ({
+		authorization: `DPoP ${accessToken}`,
+		dpop: await dpopProof(device, jwk, { method, url }),
+	});
+	return { device, jwk, accessToken, headers };
+};
+
 const requestEnvironmentLink = async (input: {
 	account: string;
 	environmentId: string;
@@ -234,11 +274,12 @@ const requestEnvironmentLink = async (input: {
 		readonly wsBaseUrl: string;
 	};
 }): Promise<{ envKey: KeyPair; response: Response }> => {
-	const bearer = `test-token:${input.account}`;
+	const client = await dpopClient(input.account);
+	const challengeUrl = `${API_ISSUER}/v1/client/environment-link-challenges`;
 	const challengeRes = await api.fetch(
-		new Request(`${API_ISSUER}/v1/client/environment-link-challenges`, {
+		new Request(challengeUrl, {
 			method: "POST",
-			headers: { authorization: `Bearer ${bearer}` },
+			headers: await client.headers("POST", challengeUrl),
 		}),
 	);
 	expect(challengeRes.status).toBe(200);
@@ -252,11 +293,12 @@ const requestEnvironmentLink = async (input: {
 		challenge: challenge.challenge,
 		environmentId: input.environmentId,
 	});
+	const linksUrl = `${API_ISSUER}/v1/client/environment-links`;
 	const linkRes = await api.fetch(
-		new Request(`${API_ISSUER}/v1/client/environment-links`, {
+		new Request(linksUrl, {
 			method: "POST",
 			headers: {
-				authorization: `Bearer ${bearer}`,
+				...(await client.headers("POST", linksUrl)),
 				"content-type": "application/json",
 			},
 			body: JSON.stringify({
@@ -322,26 +364,6 @@ const heartbeat = (
 					: JSON.stringify({ privateEndpoint }),
 		}),
 	);
-
-// Obtain a DPoP-bound access token for a device on `account`.
-const mintAccess = async (
-	account: string,
-	device: KeyPair,
-	jwk: JWK,
-): Promise<string> => {
-	const url = `${API_ISSUER}/v1/client/dpop-token`;
-	const res = await api.fetch(
-		new Request(url, {
-			method: "POST",
-			headers: {
-				authorization: `Bearer test-token:${account}`,
-				dpop: await dpopProof(device, jwk, { method: "POST", url }),
-			},
-		}),
-	);
-	expect(res.status).toBe(200);
-	return ((await res.json()) as { accessToken: string }).accessToken;
-};
 
 beforeEach(async () => {
 	pushCalls = [];
@@ -801,24 +823,19 @@ describe("@zuse/api", () => {
 			}),
 		);
 		expect(published.status).toBe(200);
+		const clientB = await dpopClient("user_b");
 		const listed = await api.fetch(
 			new Request(`${API_ISSUER}/v1/environments`, {
-				headers: { authorization: "Bearer test-token:user_b" },
+				headers: await clientB.headers("GET", `${API_ISSUER}/v1/environments`),
 			}),
 		);
 		expect((await listed.json()).environments).toEqual([]);
-		const device = (await ec()) as KeyPair;
-		const jwk = await exportJWK(device.publicKey);
-		const access = await mintAccess("user_b", device, jwk);
 		for (const action of ["connect", "status"]) {
 			const url = `${API_ISSUER}/v1/environments/${environmentId}/${action}`;
 			const response = await api.fetch(
 				new Request(url, {
 					method: "POST",
-					headers: {
-						authorization: `DPoP ${access}`,
-						dpop: await dpopProof(device, jwk, { method: "POST", url }),
-					},
+					headers: await clientB.headers("POST", url),
 				}),
 			);
 			expect(response.status).toBe(404);
@@ -1752,9 +1769,11 @@ describe("@zuse/api", () => {
 			environmentId: "env_metadata",
 			runtimeVersion: "1.4.0",
 		});
+		const client = await dpopClient("user_metadata");
+		const environmentsUrl = `${API_ISSUER}/v1/environments`;
 		const response = await api.fetch(
-			new Request(`${API_ISSUER}/v1/environments`, {
-				headers: { authorization: "Bearer test-token:user_metadata" },
+			new Request(environmentsUrl, {
+				headers: await client.headers("GET", environmentsUrl),
 			}),
 		);
 		const body = (await response.json()) as {
@@ -1805,17 +1824,30 @@ describe("@zuse/api", () => {
 
 		const listed = await api.fetch(
 			new Request(`${API_ISSUER}/v1/clients`, {
-				headers: { authorization: "Bearer test-token:user_clients" },
+				headers: {
+					authorization: `DPoP ${accessToken}`,
+					dpop: await dpopProof(device, jwk, {
+						method: "GET",
+						url: `${API_ISSUER}/v1/clients`,
+					}),
+				},
 			}),
 		);
 		expect(await listed.json()).toMatchObject({
 			clients: [{ clientId: "browser_one", platform: "web" }],
 		});
 
+		const revokeUrl = `${API_ISSUER}/v1/clients/browser_one`;
 		const revoked = await api.fetch(
-			new Request(`${API_ISSUER}/v1/clients/browser_one`, {
+			new Request(revokeUrl, {
 				method: "DELETE",
-				headers: { authorization: "Bearer test-token:user_clients" },
+				headers: {
+					authorization: `DPoP ${accessToken}`,
+					dpop: await dpopProof(device, jwk, {
+						method: "DELETE",
+						url: revokeUrl,
+					}),
+				},
 			}),
 		);
 		expect(revoked.status).toBe(200);
@@ -2035,11 +2067,12 @@ describe("@zuse/api", () => {
 		});
 	});
 
-	test("rejects a request with no WorkOS bearer", async () => {
+	test("rejects a request with no DPoP credentials", async () => {
 		const res = await api.fetch(
 			new Request(`${API_ISSUER}/v1/environments`, { method: "GET" }),
 		);
 		expect(res.status).toBe(401);
+		expect(await res.json()).toEqual({ error: "missing_dpop" });
 	});
 
 	test("deletes account-owned api data and remains idempotent", async () => {
@@ -2047,11 +2080,13 @@ describe("@zuse/api", () => {
 			account: "user_delete",
 			environmentId: "env_delete",
 		});
-		const request = () =>
+		const client = await dpopClient("user_delete");
+		const accountUrl = `${API_ISSUER}/v1/account`;
+		const request = async () =>
 			api.fetch(
-				new Request(`${API_ISSUER}/v1/account`, {
+				new Request(accountUrl, {
 					method: "DELETE",
-					headers: { authorization: "Bearer test-token:user_delete" },
+					headers: await client.headers("DELETE", accountUrl),
 				}),
 			);
 
@@ -2059,9 +2094,10 @@ describe("@zuse/api", () => {
 		expect((await request()).status).toBe(200);
 		expect(identityDeletes).toEqual(["user_delete", "user_delete"]);
 
+		const environmentsUrl = `${API_ISSUER}/v1/environments`;
 		const list = await api.fetch(
-			new Request(`${API_ISSUER}/v1/environments`, {
-				headers: { authorization: "Bearer test-token:user_delete" },
+			new Request(environmentsUrl, {
+				headers: await client.headers("GET", environmentsUrl),
 			}),
 		);
 		expect((await list.json()).environments).toHaveLength(0);
@@ -2100,7 +2136,10 @@ describe("@zuse/api", () => {
 		const deletion = await api.fetch(
 			new Request(`${API_ISSUER}/v1/account`, {
 				method: "DELETE",
-				headers: { authorization: "Bearer test-token:user_a" },
+				headers: await (await dpopClient("user_a")).headers(
+					"DELETE",
+					`${API_ISSUER}/v1/account`,
+				),
 			}),
 		);
 		expect(deletion.status).toBe(202);
@@ -2136,18 +2175,20 @@ describe("@zuse/api", () => {
 		await linkEnvironment({ account: "user_a", environmentId: "env_a" });
 
 		// user_b lists: sees nothing.
+		const clientB = await dpopClient("user_b");
+		const environmentsUrl = `${API_ISSUER}/v1/environments`;
 		const listB = await api.fetch(
-			new Request(`${API_ISSUER}/v1/environments`, {
+			new Request(environmentsUrl, {
 				method: "GET",
-				headers: { authorization: "Bearer test-token:user_b" },
+				headers: await clientB.headers("GET", environmentsUrl),
 			}),
 		);
 		expect((await listB.json()).environments).toHaveLength(0);
 
 		// user_b cannot connect to user_a's environment (404, not leaked).
-		const device = (await ec()) as KeyPair;
-		const jwk = await exportJWK(device.publicKey);
-		const accessToken = await mintAccess("user_b", device, jwk);
+		const device = clientB.device;
+		const jwk = clientB.jwk;
+		const accessToken = clientB.accessToken;
 		const connectUrl = `${API_ISSUER}/v1/environments/env_a/connect`;
 		const res = await api.fetch(
 			new Request(connectUrl, {
@@ -2165,11 +2206,12 @@ describe("@zuse/api", () => {
 	});
 
 	test("rejects a forged link proof (wrong key)", async () => {
-		const bearer = "Bearer test-token:user_a";
+		const client = await dpopClient("user_a");
+		const challengeUrl = `${API_ISSUER}/v1/client/environment-link-challenges`;
 		const challengeRes = await api.fetch(
-			new Request(`${API_ISSUER}/v1/client/environment-link-challenges`, {
+			new Request(challengeUrl, {
 				method: "POST",
-				headers: { authorization: bearer },
+				headers: await client.headers("POST", challengeUrl),
 			}),
 		);
 		const challenge = (await challengeRes.json()) as {
@@ -2184,10 +2226,14 @@ describe("@zuse/api", () => {
 			challenge: challenge.challenge,
 			environmentId: "env_x",
 		});
+		const linksUrl = `${API_ISSUER}/v1/client/environment-links`;
 		const res = await api.fetch(
-			new Request(`${API_ISSUER}/v1/client/environment-links`, {
+			new Request(linksUrl, {
 				method: "POST",
-				headers: { authorization: bearer, "content-type": "application/json" },
+				headers: {
+					...(await client.headers("POST", linksUrl)),
+					"content-type": "application/json",
+				},
 				body: JSON.stringify({
 					challengeId: challenge.challengeId,
 					proof,
@@ -2228,6 +2274,184 @@ describe("@zuse/api", () => {
 		);
 		expect(replay.status).toBe(401);
 		expect((await replay.json()).error).toBe("dpop_replayed");
+	});
+
+	test("rejects a plain WorkOS bearer on management routes", async () => {
+		for (const { method, path, body } of [
+			{ method: "POST", path: "/v1/client/environment-link-challenges" },
+			{ method: "POST", path: "/v1/client/environment-links", body: {} },
+			{ method: "POST", path: "/v1/client/environment-unlink", body: {} },
+			{ method: "GET", path: "/v1/environments" },
+			{ method: "GET", path: "/v1/clients" },
+			{ method: "DELETE", path: "/v1/clients/browser_one" },
+			{ method: "DELETE", path: "/v1/account" },
+		]) {
+			const res = await api.fetch(
+				new Request(`${API_ISSUER}${path}`, {
+					method,
+					headers: {
+						authorization: "Bearer test-token:user_a",
+						...(body === undefined
+							? {}
+							: { "content-type": "application/json" }),
+					},
+					body: body === undefined ? undefined : JSON.stringify(body),
+				}),
+			);
+			expect(res.status, `${method} ${path}`).toBe(401);
+			expect(await res.json()).toEqual({ error: "missing_dpop" });
+		}
+	});
+
+	test("mints access tokens bound to the client-api audience", async () => {
+		const device = (await ec()) as KeyPair;
+		const jwk = await exportJWK(device.publicKey);
+		const accessToken = await mintAccess("user_a", device, jwk);
+		const verified = await jwtVerify(
+			accessToken,
+			await importJWK(await exportJWK(mintKey.publicKey), "EdDSA"),
+			{ issuer: API_ISSUER },
+		);
+		expect(verified.payload.aud).toBe("zuse-client-api");
+		expect(verified.payload.sub).toBe("user_a");
+		expect(verified.payload.scope).toBe(
+			"environment:status environment:connect mobile:registration environment:manage device:manage account:manage",
+		);
+	});
+
+	test.each([
+		"zuse-env:env_a",
+		"zuse-workspace:ws_a",
+		"attacker-api",
+	])("rejects an access token minted for audience %s", async (audience) => {
+		const device = (await ec()) as KeyPair;
+		const jwk = await exportJWK(device.publicKey);
+		const foreign = await new SignJWT({
+			scope: "environment:status environment:manage",
+			cnf: { jkt: await calculateJwkThumbprint(jwk) },
+		})
+			.setProtectedHeader({ alg: "EdDSA", typ: "at+jwt" })
+			.setIssuer(API_ISSUER)
+			.setAudience(audience)
+			.setSubject("user_a")
+			.setIssuedAt()
+			.setExpirationTime(Math.floor(Date.now() / 1000) + 60)
+			.sign(mintKey.privateKey);
+		const environmentsUrl = `${API_ISSUER}/v1/environments`;
+		const res = await api.fetch(
+			new Request(environmentsUrl, {
+				method: "GET",
+				headers: {
+					authorization: `DPoP ${foreign}`,
+					dpop: await dpopProof(device, jwk, {
+						method: "GET",
+						url: environmentsUrl,
+					}),
+				},
+			}),
+		);
+		expect(res.status).toBe(401);
+		expect(await res.json()).toEqual({ error: "invalid_access_token" });
+	});
+
+	test("rejects an access token with no audience claim", async () => {
+		const device = (await ec()) as KeyPair;
+		const jwk = await exportJWK(device.publicKey);
+		const audienceless = await new SignJWT({
+			scope: "environment:manage",
+			cnf: { jkt: await calculateJwkThumbprint(jwk) },
+		})
+			.setProtectedHeader({ alg: "EdDSA", typ: "at+jwt" })
+			.setIssuer(API_ISSUER)
+			.setSubject("user_a")
+			.setIssuedAt()
+			.setExpirationTime(Math.floor(Date.now() / 1000) + 60)
+			.sign(mintKey.privateKey);
+		const environmentsUrl = `${API_ISSUER}/v1/environments`;
+		const res = await api.fetch(
+			new Request(environmentsUrl, {
+				method: "GET",
+				headers: {
+					authorization: `DPoP ${audienceless}`,
+					dpop: await dpopProof(device, jwk, {
+						method: "GET",
+						url: environmentsUrl,
+					}),
+				},
+			}),
+		);
+		expect(res.status).toBe(401);
+		expect(await res.json()).toEqual({ error: "invalid_access_token" });
+	});
+
+	test("rejects a valid token replayed against another account's resources", async () => {
+		const { credential } = await linkEnvironment({
+			account: "user_a",
+			environmentId: "env_a",
+		});
+		const clientB = await dpopClient("user_b");
+		// account B's token is valid but cannot unlink account A's environment.
+		const unlinkUrl = `${API_ISSUER}/v1/client/environment-unlink`;
+		const unlink = await api.fetch(
+			new Request(unlinkUrl, {
+				method: "POST",
+				headers: {
+					...(await clientB.headers("POST", unlinkUrl)),
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({ environmentId: "env_a" }),
+			}),
+		);
+		expect(unlink.status).toBe(404);
+		// Nor revoke a device registered to account A.
+		const deviceA = (await ec()) as KeyPair;
+		const jwkA = await exportJWK(deviceA.publicKey);
+		const accessTokenA = await mintAccess("user_a", deviceA, jwkA);
+		const devicesUrl = `${API_ISSUER}/v1/mobile/devices`;
+		const registered = await api.fetch(
+			new Request(devicesUrl, {
+				method: "POST",
+				headers: {
+					authorization: `DPoP ${accessTokenA}`,
+					dpop: await dpopProof(deviceA, jwkA, {
+						method: "POST",
+						url: devicesUrl,
+					}),
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({
+					deviceId: "browser_a",
+					platform: "web",
+					dpopJwk: jwkA,
+				}),
+			}),
+		);
+		expect(registered.status).toBe(200);
+		const revokeUrl = `${API_ISSUER}/v1/clients/browser_a`;
+		const revoke = await api.fetch(
+			new Request(revokeUrl, {
+				method: "DELETE",
+				headers: await clientB.headers("DELETE", revokeUrl),
+			}),
+		);
+		expect(revoke.status).toBe(404);
+		// The real owner's environment and device are untouched.
+		expect((await heartbeat("env_a", credential)).status).toBe(200);
+		const listUrl = `${API_ISSUER}/v1/clients`;
+		const list = await api.fetch(
+			new Request(listUrl, {
+				headers: {
+					authorization: `DPoP ${accessTokenA}`,
+					dpop: await dpopProof(deviceA, jwkA, {
+						method: "GET",
+						url: listUrl,
+					}),
+				},
+			}),
+		);
+		expect(await list.json()).toMatchObject({
+			clients: [{ clientId: "browser_a" }],
+		});
 	});
 
 	test("rejects chat bytes on the activity endpoint", async () => {
@@ -2405,11 +2629,12 @@ const stubCloudflare = () => {
 };
 
 const linkWithTunnel = async (account: string, environmentId: string) => {
-	const bearer = `test-token:${account}`;
+	const client = await dpopClient(account);
+	const challengeUrl = `${API_ISSUER}/v1/client/environment-link-challenges`;
 	const challengeRes = await api.fetch(
-		new Request(`${API_ISSUER}/v1/client/environment-link-challenges`, {
+		new Request(challengeUrl, {
 			method: "POST",
-			headers: { authorization: `Bearer ${bearer}` },
+			headers: await client.headers("POST", challengeUrl),
 		}),
 	);
 	const challenge = (await challengeRes.json()) as {
@@ -2421,11 +2646,12 @@ const linkWithTunnel = async (account: string, environmentId: string) => {
 		challenge: challenge.challenge,
 		environmentId,
 	});
+	const linksUrl = `${API_ISSUER}/v1/client/environment-links`;
 	const linkRes = await api.fetch(
-		new Request(`${API_ISSUER}/v1/client/environment-links`, {
+		new Request(linksUrl, {
 			method: "POST",
 			headers: {
-				authorization: `Bearer ${bearer}`,
+				...(await client.headers("POST", linksUrl)),
 				"content-type": "application/json",
 			},
 			body: JSON.stringify({
@@ -2465,10 +2691,14 @@ describe("@zuse/api managed tunnel", () => {
 			expect(body.endpoint.wsBaseUrl).toBe(`wss://${body.tunnelHostname}`);
 
 			// The discovery list now advertises the managed endpoint.
+			const environmentsUrl = `${API_ISSUER}/v1/environments`;
 			const list = await api.fetch(
-				new Request(`${API_ISSUER}/v1/environments`, {
+				new Request(environmentsUrl, {
 					method: "GET",
-					headers: { authorization: "Bearer test-token:user_a" },
+					headers: await (await dpopClient("user_a")).headers(
+						"GET",
+						environmentsUrl,
+					),
 				}),
 			);
 			const listed = (await list.json()).environments[0];
@@ -2483,11 +2713,12 @@ describe("@zuse/api managed tunnel", () => {
 		try {
 			api = makeApi(await makeLayer(FAKE_TUNNEL));
 			await linkWithTunnel("user_a", "env_t");
+			const unlinkUrl = `${API_ISSUER}/v1/client/environment-unlink`;
 			const res = await api.fetch(
-				new Request(`${API_ISSUER}/v1/client/environment-unlink`, {
+				new Request(unlinkUrl, {
 					method: "POST",
 					headers: {
-						authorization: "Bearer test-token:user_a",
+						...(await (await dpopClient("user_a")).headers("POST", unlinkUrl)),
 						"content-type": "application/json",
 					},
 					body: JSON.stringify({ environmentId: "env_t" }),
@@ -2506,10 +2737,14 @@ describe("@zuse/api managed tunnel", () => {
 				),
 			).toBe(true);
 			// Environment is gone.
+			const environmentsUrl = `${API_ISSUER}/v1/environments`;
 			const list = await api.fetch(
-				new Request(`${API_ISSUER}/v1/environments`, {
+				new Request(environmentsUrl, {
 					method: "GET",
-					headers: { authorization: "Bearer test-token:user_a" },
+					headers: await (await dpopClient("user_a")).headers(
+						"GET",
+						environmentsUrl,
+					),
 				}),
 			);
 			expect((await list.json()).environments).toHaveLength(0);

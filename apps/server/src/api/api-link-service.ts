@@ -22,6 +22,12 @@ import {
 import { TelemetryStore } from "../observability/telemetry-store.ts";
 import { hostRuntimeVersion } from "../runtime-version.ts";
 import { appendApiDiagnostic } from "./api-diagnostics.ts";
+import {
+	createDpopClientKey,
+	type DpopClientKey,
+	fetchDpopAccessToken,
+	signDpopProof,
+} from "./dpop-client.ts";
 import { signEnvironmentLinkProof } from "./link-proof.ts";
 import { ManagedTunnelRuntime } from "./managed-tunnel-runtime.ts";
 
@@ -326,25 +332,6 @@ const postJson = <A>(
 			failApi(cause instanceof Error ? cause.message : String(cause)),
 	});
 
-const accountJson = <A>(
-	url: string,
-	opts: { readonly bearer: string; readonly method?: "GET" | "DELETE" },
-): Effect.Effect<A, ApiLinkError> =>
-	Effect.tryPromise({
-		try: async () => {
-			const response = await fetch(url, {
-				method: opts.method ?? "GET",
-				headers: { authorization: `Bearer ${opts.bearer}` },
-			});
-			if (!response.ok) {
-				throw new Error(await apiHttpErrorReason(response));
-			}
-			return (await response.json()) as A;
-		},
-		catch: (cause) =>
-			failApi(cause instanceof Error ? cause.message : String(cause)),
-	});
-
 const computeEndpoint = (config: LanAuthConfigShape) => {
 	const host = config.advertisedHost ?? "127.0.0.1";
 	const port = config.port ?? DEFAULT_LOCAL_DESKTOP_PORT;
@@ -379,58 +366,13 @@ const makeApiLinkService = (options: {
 			readonly key: string;
 			readonly promise: Promise<void>;
 		} | null = null;
-		const createDpopKey = async () => {
-			const generated = await crypto.subtle.generateKey(
-				{ name: "ECDSA", namedCurve: "P-256" },
-				true,
-				["sign", "verify"],
-			);
-			return {
-				privateKey: generated.privateKey,
-				publicJwk: await crypto.subtle.exportKey("jwk", generated.publicKey),
-			};
-		};
-		let dpopKeyPromise: ReturnType<typeof createDpopKey> | null = null;
+		let dpopKeyPromise: Promise<DpopClientKey> | null = null;
 		const log = (event: string, fields?: Record<string, unknown>) =>
 			appendApiDiagnostic(telemetry, event, fields);
 
-		const base64url = (input: Uint8Array): string =>
-			Buffer.from(input).toString("base64url");
 		const dpopKey = () => {
-			dpopKeyPromise ??= createDpopKey();
+			dpopKeyPromise ??= createDpopClientKey();
 			return dpopKeyPromise;
-		};
-		const signDpopProof = async (
-			method: string,
-			url: string,
-		): Promise<string> => {
-			const key = await dpopKey();
-			const header = base64url(
-				new TextEncoder().encode(
-					JSON.stringify({
-						alg: "ES256",
-						typ: "dpop+jwt",
-						jwk: key.publicJwk,
-					}),
-				),
-			);
-			const payload = base64url(
-				new TextEncoder().encode(
-					JSON.stringify({
-						htm: method,
-						htu: url,
-						jti: crypto.randomUUID(),
-						iat: Math.floor(Date.now() / 1_000),
-					}),
-				),
-			);
-			const unsigned = `${header}.${payload}`;
-			const signature = await crypto.subtle.sign(
-				{ name: "ECDSA", hash: "SHA-256" },
-				key.privateKey,
-				new TextEncoder().encode(unsigned),
-			);
-			return `${unsigned}.${base64url(new Uint8Array(signature))}`;
 		};
 		const ensureApiAccess = async (apiUrl: string): Promise<string> => {
 			if (apiAccess !== null && apiAccess.expiresAt - Date.now() > 30_000) {
@@ -441,13 +383,10 @@ const makeApiLinkService = (options: {
 				const workosToken = await Effect.runPromise(
 					authService.getAccessToken(),
 				);
-				const target = `${apiUrl}${ApiPaths.dpopToken}`;
-				const response = await fetch(target, {
-					method: "POST",
-					headers: {
-						authorization: `Bearer ${workosToken}`,
-						dpop: await signDpopProof("POST", target),
-					},
+				const response = await fetchDpopAccessToken({
+					apiUrl,
+					workosToken,
+					key: await dpopKey(),
 				});
 				if (!response.ok) throw new Error(await apiHttpErrorReason(response));
 				const grant = (await response.json()) as ApiAccessToken;
@@ -467,27 +406,42 @@ const makeApiLinkService = (options: {
 		const dpopRequest = async (
 			apiUrl: string,
 			path: string,
-			body?: unknown,
+			init: { readonly method?: string; readonly body?: unknown } = {},
 		): Promise<Response> => {
+			const method = init.method ?? "POST";
 			const target = `${apiUrl}${path}`;
 			for (let attempt = 0; attempt < 2; attempt += 1) {
 				const token = await ensureApiAccess(apiUrl);
 				const response = await fetch(target, {
-					method: "POST",
+					method,
 					headers: {
 						authorization: `DPoP ${token}`,
-						dpop: await signDpopProof("POST", target),
-						...(body === undefined
+						dpop: await signDpopProof(await dpopKey(), method, target),
+						...(init.body === undefined
 							? {}
 							: { "content-type": "application/json" }),
 					},
-					body: body === undefined ? undefined : JSON.stringify(body),
+					body: init.body === undefined ? undefined : JSON.stringify(init.body),
 				});
 				if (response.status !== 401 || attempt > 0) return response;
 				apiAccess = null;
 			}
 			throw new Error("api_access_refresh_failed");
 		};
+		const dpopJson = <A>(
+			apiUrl: string,
+			path: string,
+			init: { readonly method?: string; readonly body?: unknown } = {},
+		): Effect.Effect<A, ApiLinkError> =>
+			Effect.tryPromise({
+				try: async () => {
+					const response = await dpopRequest(apiUrl, path, init);
+					if (!response.ok) throw new Error(await apiHttpErrorReason(response));
+					return (await response.json()) as A;
+				},
+				catch: (cause) =>
+					failApi(cause instanceof Error ? cause.message : String(cause)),
+			});
 		const ensureApiClient = async (
 			apiUrl: string,
 			environmentId: EnvironmentId,
@@ -499,9 +453,11 @@ const makeApiLinkService = (options: {
 			const registration = (async () => {
 				const key = await dpopKey();
 				const response = await dpopRequest(apiUrl, ApiPaths.devices, {
-					deviceId: `desktop-${environmentId}`,
-					platform: "desktop",
-					dpopJwk: key.publicJwk,
+					body: {
+						deviceId: `desktop-${environmentId}`,
+						platform: "desktop",
+						dpopJwk: key.publicJwk,
+					},
 				});
 				if (!response.ok) throw new Error(await apiHttpErrorReason(response));
 			})();
@@ -666,7 +622,7 @@ const makeApiLinkService = (options: {
 					});
 					// Give api-listed environments the same human name as LAN clients.
 					const label = input.label ?? (yield* defaultEnvironmentLabel());
-					const token = yield* authService
+					yield* authService
 						.getAccessToken()
 						.pipe(
 							Effect.tap(() => log("link.access_token.ok")),
@@ -690,13 +646,11 @@ const makeApiLinkService = (options: {
 						.pipe(Effect.mapError((error) => failApi(error.reason)));
 
 					yield* log("link.challenge.post");
-					const challenge = yield* postJson<{
+					const challenge = yield* dpopJson<{
 						readonly challengeId: string;
 						readonly challenge: string;
 						readonly apiIssuer: string;
-					}>(`${input.apiUrl}${ApiPaths.linkChallenges}`, {
-						bearer: token,
-					}).pipe(
+					}>(input.apiUrl, ApiPaths.linkChallenges, {}).pipe(
 						Effect.tap((value) =>
 							log("link.challenge.ok", {
 								challengeId: value.challengeId,
@@ -726,14 +680,13 @@ const makeApiLinkService = (options: {
 						origin: computeOrigin(config),
 						managedTunnel: true,
 					});
-					const linked = yield* postJson<{
+					const linked = yield* dpopJson<{
 						readonly environmentCredential: string;
 						readonly apiIssuer: string;
 						readonly mintPublicKey: string;
 						readonly tunnelHostname?: string;
 						readonly connectorToken?: string;
-					}>(`${input.apiUrl}${ApiPaths.links}`, {
-						bearer: token,
+					}>(input.apiUrl, ApiPaths.links, {
 						body: {
 							challengeId: challenge.challengeId,
 							proof,
@@ -877,12 +830,13 @@ const makeApiLinkService = (options: {
 						.getApiConfig()
 						.pipe(Effect.mapError((error) => failApi(error.reason)));
 					if (cfg === null) return yield* Effect.fail(failApi("not_linked"));
-					const token = yield* authService
+					yield* authService
 						.getAccessToken()
 						.pipe(Effect.mapError(() => failApi("not_signed_in")));
-					return yield* accountJson<ApiEnvironmentList>(
-						`${cfg.apiUrl}${ApiPaths.environments}`,
-						{ bearer: token },
+					return yield* dpopJson<ApiEnvironmentList>(
+						cfg.apiUrl,
+						ApiPaths.environments,
+						{ method: "GET" },
 					);
 				}),
 			connectEnvironment: (environmentId) =>
@@ -895,8 +849,10 @@ const makeApiLinkService = (options: {
 							cfg.apiUrl,
 							ApiPaths.connect(environmentId),
 							{
-								wireProtocolVersion: WIRE_PROTOCOL_VERSION,
-								requireManaged: true,
+								body: {
+									wireProtocolVersion: WIRE_PROTOCOL_VERSION,
+									requireManaged: true,
+								},
 							},
 						);
 						if (!response.ok)
@@ -912,12 +868,13 @@ const makeApiLinkService = (options: {
 						.getApiConfig()
 						.pipe(Effect.mapError((error) => failApi(error.reason)));
 					if (cfg === null) return yield* Effect.fail(failApi("not_linked"));
-					const token = yield* authService
+					yield* authService
 						.getAccessToken()
 						.pipe(Effect.mapError(() => failApi("not_signed_in")));
-					return yield* accountJson<ApiAuthorizedClientList>(
-						`${cfg.apiUrl}${ApiPaths.clients}`,
-						{ bearer: token },
+					return yield* dpopJson<ApiAuthorizedClientList>(
+						cfg.apiUrl,
+						ApiPaths.clients,
+						{ method: "GET" },
 					);
 				}),
 			revokeClient: (clientId) =>
@@ -926,12 +883,13 @@ const makeApiLinkService = (options: {
 						.getApiConfig()
 						.pipe(Effect.mapError((error) => failApi(error.reason)));
 					if (cfg === null) return yield* Effect.fail(failApi("not_linked"));
-					const token = yield* authService
+					yield* authService
 						.getAccessToken()
 						.pipe(Effect.mapError(() => failApi("not_signed_in")));
-					yield* accountJson<{ readonly ok: boolean }>(
-						`${cfg.apiUrl}${ApiPaths.client(clientId)}`,
-						{ bearer: token, method: "DELETE" },
+					yield* dpopJson<{ readonly ok: boolean }>(
+						cfg.apiUrl,
+						ApiPaths.client(clientId),
+						{ method: "DELETE" },
 					);
 				}),
 			unlink: () =>
@@ -950,15 +908,9 @@ const makeApiLinkService = (options: {
 					// removes the environment from the account). Local unlink proceeds
 					// even if the api is unreachable or we're signed out.
 					if (cfg !== null) {
-						yield* authService.getAccessToken().pipe(
-							Effect.flatMap((token) =>
-								postJson<unknown>(`${cfg.apiUrl}${ApiPaths.unlink}`, {
-									bearer: token,
-									body: { environmentId: cfg.environmentId },
-								}),
-							),
-							Effect.ignore,
-						);
+						yield* dpopJson<unknown>(cfg.apiUrl, ApiPaths.unlink, {
+							body: { environmentId: cfg.environmentId },
+						}).pipe(Effect.ignore);
 						yield* log("unlink.api_deprovision.done", {
 							environmentId: cfg.environmentId,
 						});
@@ -975,11 +927,10 @@ const makeApiLinkService = (options: {
 						.pipe(Effect.orElseSucceed(() => null));
 					if (cfg === null) return false;
 					yield* log("retire.start", { environmentId: cfg.environmentId });
-					const token = yield* authService
+					yield* authService
 						.getAccessToken()
 						.pipe(Effect.mapError(() => failApi("signed_out")));
-					yield* postJson<unknown>(`${cfg.apiUrl}${ApiPaths.unlink}`, {
-						bearer: token,
+					yield* dpopJson<unknown>(cfg.apiUrl, ApiPaths.unlink, {
 						body: { environmentId: cfg.environmentId },
 					}).pipe(
 						Effect.catch((error) =>

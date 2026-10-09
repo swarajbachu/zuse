@@ -12,6 +12,7 @@ import {
 	routeApiKeyRequest,
 } from "./api-key-routes.ts";
 import {
+	ALL_API_SCOPES,
 	API_SCOPES,
 	mintAccessToken,
 	requireDpop,
@@ -448,12 +449,15 @@ const route = (
 			return yield* Effect.fail(badRequest("invalid_auth_grant"));
 		}
 
-		// 1. Issue a link challenge (desktop, WorkOS-authenticated).
+		// 1. Issue a link challenge (desktop, DPoP-scoped).
 		if (
 			method === "POST" &&
 			path === "/v1/client/environment-link-challenges"
 		) {
-			const principal = yield* requireWorkos(request);
+			const principal = yield* requireDpop(
+				request,
+				API_SCOPES.manageEnvironments,
+			);
 			const challengeId = yield* randomToken("chl");
 			const challenge = yield* randomToken("nonce", 32);
 			const expiresAtMs = nowMs + config.challengeTtlMs;
@@ -474,7 +478,10 @@ const route = (
 
 		// 2. Link an environment: verify the Ed25519 proof, mint a credential.
 		if (method === "POST" && path === "/v1/client/environment-links") {
-			const principal = yield* requireWorkos(request);
+			const principal = yield* requireDpop(
+				request,
+				API_SCOPES.manageEnvironments,
+			);
 			const body = yield* readJson<{
 				readonly challengeId?: string;
 				readonly proof?: string;
@@ -630,10 +637,13 @@ const route = (
 			});
 		}
 
-		// 2b. Unlink an environment (WorkOS-authenticated): deprovision its managed
+		// 2b. Unlink an environment (DPoP-scoped): deprovision its managed
 		// tunnel and delete the record so it disappears from the account.
 		if (method === "POST" && path === "/v1/client/environment-unlink") {
-			const principal = yield* requireWorkos(request);
+			const principal = yield* requireDpop(
+				request,
+				API_SCOPES.manageEnvironments,
+			);
 			const body = yield* readJson<{ readonly environmentId?: string }>(
 				request,
 			);
@@ -660,9 +670,12 @@ const route = (
 			return json({ ok: true });
 		}
 
-		// 3. List the caller's environments (WorkOS-authenticated).
+		// 3. List the caller's environments (DPoP-scoped).
 		if (method === "GET" && path === "/v1/environments") {
-			const principal = yield* requireWorkos(request);
+			const principal = yield* requireDpop(
+				request,
+				API_SCOPES.manageEnvironments,
+			);
 			const environments = yield* store.listEnvironments(principal.accountId);
 			const machines = yield* MachineStore;
 			const readyCloudEnvironmentIds = new Set(
@@ -706,11 +719,7 @@ const route = (
 
 		// 4. DPoP token exchange.
 		if (method === "POST" && path === "/v1/client/dpop-token") {
-			const minted = yield* mintAccessToken(request, [
-				API_SCOPES.status,
-				API_SCOPES.connect,
-				API_SCOPES.register,
-			]);
+			const minted = yield* mintAccessToken(request, ALL_API_SCOPES);
 			return json({
 				accessToken: minted.accessToken,
 				expiresIn: minted.expiresInMs,
@@ -745,7 +754,7 @@ const route = (
 		}
 
 		if (method === "GET" && path === "/v1/clients") {
-			const principal = yield* requireWorkos(request);
+			const principal = yield* requireDpop(request, API_SCOPES.manageDevices);
 			const devices = yield* store.listDevices(principal.accountId);
 			return json({
 				clients: devices.map((device) => ({
@@ -758,7 +767,7 @@ const route = (
 
 		const clientMatch = /^\/v1\/clients\/([^/]+)$/.exec(path);
 		if (method === "DELETE" && clientMatch !== null) {
-			const principal = yield* requireWorkos(request);
+			const principal = yield* requireDpop(request, API_SCOPES.manageDevices);
 			const clientId = decodeURIComponent(clientMatch[1] ?? "");
 			const revoked = yield* store.revokeDevice(clientId, principal.accountId);
 			if (!revoked) return yield* Effect.fail(notFound());
@@ -766,10 +775,10 @@ const route = (
 		}
 
 		// Permanently delete the authenticated account. API records and managed
-		// infrastructure are removed first; a still-valid bearer can safely retry
-		// if the final identity-provider request is temporarily unavailable.
+		// infrastructure are removed first; a still-valid DPoP token can safely
+		// retry if the final identity-provider request is temporarily unavailable.
 		if (method === "DELETE" && path === "/v1/account") {
-			const principal = yield* requireWorkos(request);
+			const principal = yield* requireDpop(request, API_SCOPES.manageAccount);
 			const machineStore = yield* MachineStore;
 			const cloudStore = yield* CloudWorkspaceStore;
 			const connections = yield* Effect.serviceOption(ModelConnectionStore);

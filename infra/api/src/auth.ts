@@ -18,9 +18,24 @@ export const API_SCOPES = {
 	status: "environment:status",
 	connect: "environment:connect",
 	register: "mobile:registration",
+	manageEnvironments: "environment:manage",
+	manageDevices: "device:manage",
+	manageAccount: "account:manage",
 } as const;
 
 export type ApiScope = (typeof API_SCOPES)[keyof typeof API_SCOPES];
+
+/** Every granted scope; the exchange is account-level, routes check theirs. */
+export const ALL_API_SCOPES: ReadonlyArray<ApiScope> =
+	Object.values(API_SCOPES);
+
+/**
+ * `aud` every api-minted client access token carries and every DPoP-protected
+ * route requires. Per-route checks stay on `scope`; the audience binds the
+ * token to this client-api surface so it cannot be replayed against other
+ * Zuse-minted-token verifiers (environments, workspace gateways).
+ */
+export const CLIENT_API_AUDIENCE = "zuse-client-api";
 
 const canonicalApiRequestUrl = (
 	request: Request,
@@ -128,6 +143,7 @@ export const requireApiKey = (
 
 export interface DpopPrincipal {
 	readonly accountId: string;
+	readonly orgId?: string;
 	readonly thumbprint: string;
 	readonly scope: ReadonlyArray<string>;
 }
@@ -167,6 +183,7 @@ export const requireDpop = (
 			token,
 			mintPublicJwk,
 			issuer: config.apiIssuer,
+			audience: CLIENT_API_AUDIENCE,
 		});
 		if (!claims.scope.includes(scope)) {
 			return yield* Effect.fail(unauthorized("insufficient_scope"));
@@ -200,6 +217,7 @@ export const requireDpop = (
 
 		return {
 			accountId: claims.accountId,
+			orgId: claims.orgId,
 			thumbprint: dpop.thumbprint,
 			scope: claims.scope,
 		};
@@ -255,7 +273,9 @@ export const mintAccessToken = (
 		const accessToken = yield* signAccessToken({
 			mintPrivateJwk,
 			issuer: config.apiIssuer,
+			audience: CLIENT_API_AUDIENCE,
 			accountId: principal.accountId,
+			orgId: principal.orgId,
 			thumbprint: dpop.thumbprint,
 			scope: scopes,
 			ttlMs: config.accessTokenTtlMs,

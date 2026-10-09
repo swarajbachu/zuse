@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import { environmentRoute } from "@zuse/client-runtime/environment-scope";
 import {
+	ApiPaths,
 	buildBrowserPairUrl,
 	DEFAULT_SERVE_PORT,
 	formatPairingCodeForDisplay,
@@ -24,6 +25,11 @@ import {
 import { resolveZuseDesktopUserData } from "@zuse/utils/zuse-user-data";
 import { Effect } from "effect";
 
+import {
+	createDpopClientKey,
+	fetchDpopAccessToken,
+	signDpopProof,
+} from "../api/dpop-client.ts";
 import { SessionStoreLive } from "../auth/layers/session-store.ts";
 import { refreshStoredSession } from "../auth/layers/stored-session-refresh.ts";
 import type { SessionBundle } from "../auth/layers/workos.ts";
@@ -650,10 +656,30 @@ const unlinkServeRegistration = async (
 		);
 		session = refreshed;
 	}
-	const response = await fetch(`${api.apiUrl}/v1/client/environment-unlink`, {
+	// Unlink requires a DPoP-bound api token; the throwaway key lives only as
+	// long as this command does.
+	const dpopKey = await createDpopClientKey();
+	const tokenResponse = await fetchDpopAccessToken({
+		apiUrl: api.apiUrl,
+		workosToken: session.accessToken,
+		key: dpopKey,
+		signal: AbortSignal.timeout(15_000),
+	});
+	if (!tokenResponse.ok) {
+		throw new Error(`Computer revocation failed (${tokenResponse.status}).`);
+	}
+	const grant = (await tokenResponse.json()) as {
+		readonly accessToken?: unknown;
+	};
+	if (typeof grant.accessToken !== "string") {
+		throw new Error("Computer revocation failed (invalid token response).");
+	}
+	const target = `${api.apiUrl}${ApiPaths.unlink}`;
+	const response = await fetch(target, {
 		method: "POST",
 		headers: {
-			authorization: `Bearer ${session.accessToken}`,
+			authorization: `DPoP ${grant.accessToken}`,
+			dpop: await signDpopProof(dpopKey, "POST", target),
 			"content-type": "application/json",
 		},
 		body: JSON.stringify({ environmentId: api.environmentId }),

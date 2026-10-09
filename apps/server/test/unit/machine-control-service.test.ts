@@ -254,20 +254,35 @@ describe("computer registration removal", () => {
 				yield* service.removeEnvironment(EnvironmentId.make("stale-computer"));
 			}).pipe(Effect.provide(layer)),
 		);
-	it("uses account credentials even when this desktop has no registration", async () => {
-		const fetch = vi
+	const mockApi = (response: Response) =>
+		vi
 			.spyOn(globalThis, "fetch")
-			.mockResolvedValue(Response.json({ ok: true }));
+			.mockImplementation(async (url) =>
+				String(url).endsWith(ApiPaths.dpopToken)
+					? Response.json({ accessToken: "api-token", expiresIn: 60_000 })
+					: response,
+			);
+	it("uses account credentials even when this desktop has no registration", async () => {
+		const fetch = mockApi(Response.json({ ok: true }));
 		try {
 			await remove();
+			expect(fetch).toHaveBeenCalledWith(
+				expect.stringContaining(ApiPaths.dpopToken),
+				expect.objectContaining({
+					headers: expect.objectContaining({
+						authorization: "Bearer account-token",
+					}),
+				}),
+			);
 			expect(fetch).toHaveBeenCalledWith(
 				expect.stringContaining(ApiPaths.unlink),
 				expect.objectContaining({
 					method: "POST",
 					body: JSON.stringify({ environmentId: "stale-computer" }),
 					headers: expect.objectContaining({
-						authorization: "Bearer account-token",
+						authorization: "DPoP api-token",
 						"x-zuse-workspace": "personal",
+						dpop: expect.any(String),
 					}),
 				}),
 			);
@@ -276,11 +291,9 @@ describe("computer registration removal", () => {
 		}
 	});
 	it("treats an already removed computer as success", async () => {
-		const fetch = vi
-			.spyOn(globalThis, "fetch")
-			.mockResolvedValue(
-				Response.json({ error: "not_found" }, { status: 404 }),
-			);
+		const fetch = mockApi(
+			Response.json({ error: "not_found" }, { status: 404 }),
+		);
 		try {
 			await remove();
 		} finally {
@@ -288,11 +301,9 @@ describe("computer registration removal", () => {
 		}
 	});
 	it("reports backend failure instead of claiming deletion succeeded", async () => {
-		const fetch = vi
-			.spyOn(globalThis, "fetch")
-			.mockResolvedValue(
-				Response.json({ error: "unavailable" }, { status: 503 }),
-			);
+		const fetch = mockApi(
+			Response.json({ error: "unavailable" }, { status: 503 }),
+		);
 		try {
 			await expect(remove()).rejects.toThrow();
 		} finally {

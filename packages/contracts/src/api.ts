@@ -50,7 +50,7 @@ export const ApiPaths = {
 	organizationRemoveMember: "/v1/organizations/remove-member",
 	linkChallenges: "/v1/client/environment-link-challenges",
 	links: "/v1/client/environment-links",
-	/** Unlink (WorkOS bearer): deprovisions the managed tunnel + removes the env. */
+	/** Unlink (DPoP access token): deprovisions the managed tunnel + removes the env. */
 	unlink: "/v1/client/environment-unlink",
 	environments: "/v1/environments",
 	dpopToken: "/v1/client/dpop-token",
@@ -238,10 +238,13 @@ export const ApiScope = Schema.Literals([
 	"environment:status",
 	"environment:connect",
 	"mobile:registration",
+	"environment:manage",
+	"device:manage",
+	"account:manage",
 ]);
 export type ApiScope = typeof ApiScope.Type;
 
-// --- link challenge (desktop, WorkOS bearer) ---------------------------------
+// --- link challenge (desktop, DPoP access token) -----------------------------
 
 export class ApiLinkChallenge extends Schema.Class<ApiLinkChallenge>(
 	"ApiLinkChallenge",
@@ -252,7 +255,7 @@ export class ApiLinkChallenge extends Schema.Class<ApiLinkChallenge>(
 	expiresAt: Schema.Number,
 }) {}
 
-// --- link (desktop, WorkOS bearer) -------------------------------------------
+// --- link (desktop, DPoP access token) ---------------------------------------
 //
 // The desktop signs an Ed25519 JWT over { challenge, environmentId } (aud =
 // apiIssuer, typ = "environment-link-proof+jwt") and sends its public key so
@@ -287,7 +290,7 @@ export class ApiLinkResponse extends Schema.Class<ApiLinkResponse>(
 	mintPublicKey: Schema.String,
 }) {}
 
-// --- discovery (mobile/desktop, WorkOS bearer) -------------------------------
+// --- discovery (mobile/desktop, DPoP access token) ---------------------------
 
 /** Host-published discovery hints; never a substitute for workspace RPC authorization. */
 export const EnvironmentSharingAudience = Schema.Array(
