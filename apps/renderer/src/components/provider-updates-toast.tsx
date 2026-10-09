@@ -60,6 +60,7 @@ export function ProviderUpdatesToast() {
 	const { message: uiMessage } = useUiMessages(["chat"]);
 
 	const enabled = useSettingsStore((s) => s.providerUpdateNotificationsEnabled);
+	const providerEnabled = useSettingsStore((s) => s.providerEnabled);
 	const availability = useProvidersStore((s) => s.availability);
 	const setView = useUiStore((s) => s.setView);
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
@@ -70,7 +71,9 @@ export function ProviderUpdatesToast() {
 	if (!enabled) return null;
 
 	const candidates = availability.filter(
-		(a) => a.latestVersionStatus === "behind",
+		(a) =>
+			providerEnabled[a.providerId] !== false &&
+			a.latestVersionStatus === "behind",
 	);
 	const notificationKey =
 		candidates.length === 0
