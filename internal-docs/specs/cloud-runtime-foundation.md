@@ -1,7 +1,8 @@
 # Cloud runtime foundation
 
 Status: foundation design with the signed credential renewal portion implemented
-in this workspace; not deployed. User selected automatic idle sleep with seamless wake.
+and deployed to staging on October 9, 2026. Production is unchanged.
+User selected automatic idle sleep with seamless wake.
 
 ## Product requirement
 
@@ -77,6 +78,10 @@ Regression tests exercise the real renewal route with cryptographic signatures,
 real PostgreSQL row locks with concurrent requests, and the runtime renewal seam
 across a simulated two-day outage. They preserve workspace/session/generation
 identity and reject invalid proofs and stale receipt replay.
+
+Staging deployment: API version `5d096577-fd84-40b0-9afd-e4efcab6a028`; signed
+runtime `b171b7accd33ce2c1ab6ebcef29da1c0f7a41fad`. See the
+[deployment record](../cloud/deployments/2026-10-09-runtime-renewal-staging.md).
 
 Rollout must update the API first, then the runtime artifact. Older runtimes keep
 their expiry-triggered termination behavior until upgraded. No schema migration
