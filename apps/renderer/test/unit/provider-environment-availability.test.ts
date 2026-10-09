@@ -5,7 +5,23 @@ const mocks = vi.hoisted(() => ({
 	dispatch: vi.fn(),
 	toast: vi.fn(),
 	activeEnvironmentId: "local",
+	usageLoading: vi.fn(),
+	usageGate: null as Promise<void> | null,
 }));
+
+vi.mock("../../src/lib/deferred-runtime.ts", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../../src/lib/deferred-runtime.ts")>();
+	return {
+		...actual,
+		createDeferredRuntime: <Runtime>(load: () => Promise<Runtime>) =>
+			actual.createDeferredRuntime(async () => {
+				mocks.usageLoading();
+				if (mocks.usageGate) await mocks.usageGate;
+				return load();
+			}),
+	};
+});
 
 vi.mock("../../src/components/ui/toast.tsx", () => ({
 	toastManager: { add: mocks.toast },
@@ -38,6 +54,8 @@ describe("provider availability by environment", () => {
 		mocks.activeEnvironmentId = "local";
 		mocks.dispatch.mockReset();
 		mocks.toast.mockReset();
+		mocks.usageLoading.mockClear();
+		mocks.usageGate = null;
 		useProvidersStore.setState({
 			availability: [],
 			availabilityByEnvironment: {},
@@ -45,6 +63,36 @@ describe("provider availability by environment", () => {
 			loading: false,
 			error: null,
 		});
+	});
+	it("keeps discovery lightweight and rejects stale results after deferred usage loading", async () => {
+		const original = [
+			{ ...availability("claude"), authEmail: "original@example.com" },
+		];
+		mocks.dispatch.mockResolvedValueOnce({ result: original });
+		await useProvidersStore.getState().refresh();
+		expect(mocks.usageLoading).not.toHaveBeenCalled();
+
+		let release!: () => void;
+		mocks.usageGate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		mocks.dispatch.mockResolvedValueOnce({
+			result: [
+				{ ...availability("claude"), authEmail: "outdated@example.com" },
+			],
+		});
+		const older = useProvidersStore.getState().refresh();
+		try {
+			await vi.waitFor(() => expect(mocks.usageLoading).toHaveBeenCalled());
+			// The newest response needs no invalidation, so it finishes while usage
+			// loading is still holding the outdated discovery response.
+			mocks.dispatch.mockResolvedValueOnce({ result: original });
+			await useProvidersStore.getState().refresh();
+		} finally {
+			release();
+		}
+		await older;
+		expect(useProvidersStore.getState().availability).toEqual(original);
 	});
 
 	it("loads a cloud runtime without overwriting local provider state", async () => {
