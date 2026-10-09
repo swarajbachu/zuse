@@ -672,5 +672,6 @@
 	"runtime_mode_full_description": "無需核准即可執行操作。計畫模式仍然適用。",
 	"message_row_signed_out_of": "你已登出 {{label}}。",
 	"provider_sign_in_tray_signed_out": "已登出 {{label}}",
-	"provider_sign_in_tray_sign_in_to_continue": "登入以繼續此聊天。"
+	"provider_sign_in_tray_sign_in_to_continue": "登入以繼續此聊天。",
+	"changes_review_viewed": "已檢視"
 }

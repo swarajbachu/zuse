@@ -674,5 +674,6 @@
 	"runtime_mode_full_description": "Autoriser les actions sans approbation. Le mode Plan reste applicable.",
 	"message_row_signed_out_of": "Vous êtes déconnecté de {{label}}.",
 	"provider_sign_in_tray_signed_out": "Déconnecté de {{label}}",
-	"provider_sign_in_tray_sign_in_to_continue": "Connectez-vous pour poursuivre cette conversation."
+	"provider_sign_in_tray_sign_in_to_continue": "Connectez-vous pour poursuivre cette conversation.",
+	"changes_review_viewed": "Vu"
 }

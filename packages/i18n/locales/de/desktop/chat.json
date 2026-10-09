@@ -672,5 +672,6 @@
 	"runtime_mode_full_description": "Aktionen ohne Genehmigung zulassen. Der Planmodus gilt weiterhin.",
 	"message_row_signed_out_of": "Sie sind von {{label}} abgemeldet.",
 	"provider_sign_in_tray_signed_out": "Von {{label}} abgemeldet",
-	"provider_sign_in_tray_sign_in_to_continue": "Melden Sie sich an, um diesen Chat fortzusetzen."
+	"provider_sign_in_tray_sign_in_to_continue": "Melden Sie sich an, um diesen Chat fortzusetzen.",
+	"changes_review_viewed": "Angesehen"
 }

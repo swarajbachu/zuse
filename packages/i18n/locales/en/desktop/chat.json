@@ -672,5 +672,6 @@
 	"runtime_mode_full_description": "Allow actions without approval. Plan mode still applies.",
 	"message_row_signed_out_of": "You're signed out of {{label}}.",
 	"provider_sign_in_tray_signed_out": "Signed out of {{label}}",
-	"provider_sign_in_tray_sign_in_to_continue": "Sign in to continue this chat."
+	"provider_sign_in_tray_sign_in_to_continue": "Sign in to continue this chat.",
+	"changes_review_viewed": "Viewed"
 }

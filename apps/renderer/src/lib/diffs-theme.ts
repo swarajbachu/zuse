@@ -25,6 +25,18 @@ const ZUSE_DIFF_UNSAFE_CSS = `
 
 [data-diffs-header] {
   background-color: var(--fz-diff-header-bg);
+  border-radius: 8px;
+}
+
+/* The header prefix already shows the file-type icon; the change glyph only
+   repeated it in a louder color. */
+[data-change-icon] {
+  display: none;
+}
+
+[data-separator="line-info"] {
+  height: 26px;
+  font-size: 11px;
 }
 
 /* The package colors the gutter utility glyph with --diffs-bg. Our base is

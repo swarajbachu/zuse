@@ -672,5 +672,6 @@
 	"runtime_mode_full_description": "无需批准即可执行操作。计划模式仍然适用。",
 	"message_row_signed_out_of": "你已退出 {{label}} 登录。",
 	"provider_sign_in_tray_signed_out": "已退出 {{label}} 登录",
-	"provider_sign_in_tray_sign_in_to_continue": "登录以继续此聊天。"
+	"provider_sign_in_tray_sign_in_to_continue": "登录以继续此聊天。",
+	"changes_review_viewed": "已查看"
 }

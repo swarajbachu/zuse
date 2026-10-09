@@ -672,5 +672,6 @@
 	"runtime_mode_full_description": "承認なしで操作を許可します。プランモードは引き続き適用されます。",
 	"message_row_signed_out_of": "{{label}} からサインアウトされています。",
 	"provider_sign_in_tray_signed_out": "{{label}} からサインアウトされました",
-	"provider_sign_in_tray_sign_in_to_continue": "このチャットを続けるにはサインインしてください。"
+	"provider_sign_in_tray_sign_in_to_continue": "このチャットを続けるにはサインインしてください。",
+	"changes_review_viewed": "確認済み"
 }

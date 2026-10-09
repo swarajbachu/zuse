@@ -672,5 +672,6 @@
 	"runtime_mode_full_description": "승인 없이 작업을 허용합니다. 계획 모드는 계속 적용됩니다.",
 	"message_row_signed_out_of": "{{label}}에서 로그아웃되었습니다.",
 	"provider_sign_in_tray_signed_out": "{{label}}에서 로그아웃됨",
-	"provider_sign_in_tray_sign_in_to_continue": "이 채팅을 계속하려면 로그인하세요."
+	"provider_sign_in_tray_sign_in_to_continue": "이 채팅을 계속하려면 로그인하세요.",
+	"changes_review_viewed": "확인함"
 }

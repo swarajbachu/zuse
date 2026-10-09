@@ -2,12 +2,7 @@ import "@zuse/i18n/english/chat";
 import "@zuse/i18n/english/projects";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
-import {
-	CommandId,
-	type GitPrDetails,
-	type GitPrInfo,
-	type SessionId,
-} from "@zuse/contracts";
+import type { GitPrDetails, GitPrInfo, SessionId } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	ArrowDown01Icon,
@@ -24,9 +19,7 @@ import {
 	Robot01Icon,
 	Wrench01Icon,
 } from "@zuse/icons/solid-rounded";
-import { useState } from "react";
-import { formatError } from "../lib/format-error.ts";
-import { dispatchGitWorkspaceCommand } from "../lib/git-workspace-client-bus.ts";
+import type { ReactNode } from "react";
 import { openExternal } from "../lib/platform-capabilities.ts";
 import {
 	type PrRepairScope,
@@ -35,12 +28,11 @@ import {
 	prRepairFeedback,
 	prRepairMarkdown,
 } from "../lib/pr-repair.ts";
+import { prMergeBlocker, usePrCommands } from "../lib/use-pr-commands.ts";
 import {
 	composerDraftKeyForSession,
 	useComposerDraftsStore,
 } from "../store/composer-drafts.ts";
-
-import { useMergePrefs } from "../store/merge-prefs.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { PrAutoFix } from "./pr-auto-fix.tsx";
 import {
@@ -63,6 +55,8 @@ export function PrActionsMenu({
 	details,
 	sessionId,
 	className,
+	trigger,
+	popupSide = "left",
 	onView,
 	onChat,
 }: {
@@ -71,56 +65,15 @@ export function PrActionsMenu({
 	details: GitPrDetails | null;
 	sessionId: SessionId | null;
 	className?: string;
-	onView: () => void;
+	/** Replaces the default title trigger, e.g. with a compact "…" button. */
+	trigger?: ReactNode;
+	popupSide?: "left" | "bottom";
+	/** Omitted where the PR view is already visible. */
+	onView?: () => void;
 	onChat: () => void;
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects", "chat"]);
-	const [busy, setBusy] = useState(false);
-	const method = useMergePrefs((state) => state.method);
-	const deleteBranch = useMergePrefs((state) => state.deleteBranch);
-	const run = async (action: () => Promise<unknown>) => {
-		if (busy) return;
-		setBusy(true);
-		try {
-			await action();
-		} catch (error) {
-			toastManager.add({
-				type: "error",
-				title: uiMessage("projects:github_action_failed"),
-				description: formatError(error),
-			});
-		} finally {
-			setBusy(false);
-		}
-	};
-	const setStatus = (state: "ready" | "draft" | "closed" | "open") =>
-		run(() =>
-			dispatchGitWorkspaceCommand({
-				ref: executionRef,
-				kind: "git.markReady",
-				commandId: CommandId.make(`pr-status:${crypto.randomUUID()}`),
-				payload: {
-					folderId: executionRef.folderId,
-					worktreeId: executionRef.worktreeId,
-					state,
-				},
-			}),
-		);
-	const merge = (action: "merge" | "enable-auto" | "disable-auto") =>
-		run(() =>
-			dispatchGitWorkspaceCommand({
-				ref: executionRef,
-				kind: "git.mergePr",
-				commandId: CommandId.make(`pr-merge:${crypto.randomUUID()}`),
-				payload: {
-					folderId: executionRef.folderId,
-					worktreeId: executionRef.worktreeId,
-					action,
-					method,
-					deleteBranch,
-				},
-			}),
-		);
+	const { busy, setStatus, merge } = usePrCommands(executionRef);
 	const addContextToChat = (scope: PrRepairScope, repairRequest = true) => {
 		if (!sessionId || !details) return;
 		const target = prRepairComposerTarget(
@@ -166,24 +119,37 @@ export function PrActionsMenu({
 	return (
 		<Menu modal={false}>
 			<MenuTrigger className={className}>
-				<HugeiconsIcon
-					icon={GitPullRequestIcon}
-					className="size-[15px] shrink-0"
-				/>
-				<span className="min-w-0 flex-1 truncate">
-					{details?.title ||
-						uiMessage("projects:github_pr_number", { number: pr.number ?? "" })}
-				</span>
-				<HugeiconsIcon
-					icon={ArrowDown01Icon}
-					className="size-3 shrink-0 text-muted-foreground"
-				/>
+				{trigger ?? (
+					<>
+						<HugeiconsIcon
+							icon={GitPullRequestIcon}
+							className="size-[15px] shrink-0"
+						/>
+						<span className="min-w-0 flex-1 truncate">
+							{details?.title ||
+								uiMessage("projects:github_pr_number", {
+									number: pr.number ?? "",
+								})}
+						</span>
+						<HugeiconsIcon
+							icon={ArrowDown01Icon}
+							className="size-3 shrink-0 text-muted-foreground"
+						/>
+					</>
+				)}
 			</MenuTrigger>
-			<MenuPopup side="left" align="start" sideOffset={8} className="w-60">
-				<MenuItem className={compactMenuItemClass} onClick={onView}>
-					<HugeiconsIcon icon={File01Icon} className="size-[15px]" />
-					{uiMessage("projects:github_view_pr")}
-				</MenuItem>
+			<MenuPopup
+				side={popupSide}
+				align={popupSide === "left" ? "start" : "end"}
+				sideOffset={popupSide === "left" ? 8 : 4}
+				className="w-60"
+			>
+				{onView ? (
+					<MenuItem className={compactMenuItemClass} onClick={onView}>
+						<HugeiconsIcon icon={File01Icon} className="size-[15px]" />
+						{uiMessage("projects:github_view_pr")}
+					</MenuItem>
+				) : null}
 				<MenuSub>
 					<MenuSubTrigger compact disabled={busy}>
 						<HugeiconsIcon icon={Wrench01Icon} className="size-[15px]" />
@@ -255,11 +221,7 @@ export function PrActionsMenu({
 						<MenuSubPopup className="w-52" sideOffset={4}>
 							<MenuItem
 								className={compactMenuItemClass}
-								disabled={
-									pr.mergeable !== "clean" ||
-									pr.checks === "failure" ||
-									pr.checks === "pending"
-								}
+								disabled={prMergeBlocker(pr) !== null}
 								onClick={() => void merge("merge")}
 							>
 								<HugeiconsIcon icon={GitMergeIcon} />

@@ -672,5 +672,6 @@
 	"runtime_mode_full_description": "⟦ÀÀllôôw ààctïïôôns wïïthôôüüt ààpprôôvààl. Plààn môôdëë stïïll ààpplïïëës.⟧",
 	"message_row_signed_out_of": "⟦Yôôüü'rëë sïïgnëëd ôôüüt ôôf {{label}}.⟧",
 	"provider_sign_in_tray_signed_out": "⟦Sïïgnëëd ôôüüt ôôf {{label}}⟧",
-	"provider_sign_in_tray_sign_in_to_continue": "⟦Sïïgn ïïn tôô côôntïïnüüëë thïïs chààt.⟧"
+	"provider_sign_in_tray_sign_in_to_continue": "⟦Sïïgn ïïn tôô côôntïïnüüëë thïïs chààt.⟧",
+	"changes_review_viewed": "⟦Vïïëëwëëd⟧"
 }
