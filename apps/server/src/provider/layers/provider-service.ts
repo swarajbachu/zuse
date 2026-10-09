@@ -5,6 +5,7 @@ import { startCursorSession } from "@zuse/agents/drivers/cursor";
 import { startGeminiSession } from "@zuse/agents/drivers/gemini";
 import { startGenericAcpSession } from "@zuse/agents/drivers/generic-acp";
 import { startGrokSession } from "@zuse/agents/drivers/grok";
+import { HtmlTools } from "@zuse/agents/drivers/html-tools";
 import { startKiroSession } from "@zuse/agents/drivers/kiro";
 import { startOpencodeSession } from "@zuse/agents/drivers/opencode";
 import { startOpencode2Session } from "@zuse/agents/drivers/opencode2";
@@ -66,6 +67,7 @@ import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process"
 import { AnalyticsService } from "../../analytics/services/analytics-service.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { HarnessProvider } from "../../harness/provider.ts";
+import { createHtmlTools } from "../../html-render/service.ts";
 import {
 	legacyAppOwnedCodexServerNames,
 	readNativeServers,
@@ -90,6 +92,7 @@ import { makeQuestionAttachmentSnapshotFeed } from "../question-attachment-feed.
 import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
 import { CredentialsService } from "../services/credentials-service.ts";
 import { PermissionService } from "../services/permission-service.ts";
+import { ProviderAccounts } from "../services/provider-accounts.ts";
 import { ProviderService } from "../services/provider-service.ts";
 import { RuntimeGitExecution } from "../services/runtime-git-execution.ts";
 import { RuntimeProviderCredentials } from "../services/runtime-provider-credentials.ts";
@@ -133,12 +136,17 @@ export const ProviderServiceLive = Layer.effect(
 		const fs = yield* FileSystem.FileSystem;
 		const harness = yield* Effect.serviceOption(HarnessProvider);
 		const credentials = yield* CredentialsService;
+		const accounts = yield* Effect.serviceOption(ProviderAccounts);
 		const runtimeCredentials = yield* RuntimeProviderCredentials;
 		const gitExecution = yield* RuntimeGitExecution;
 		const modelCatalog = yield* ModelCatalogService;
 		const workspace = yield* WorkspaceService;
 		const permissions = yield* PermissionService;
 		const attachmentService = yield* AttachmentService;
+		const htmlTools = yield* Effect.acquireRelease(
+			Effect.sync(() => createHtmlTools(attachmentService)),
+			(tools) => Effect.promise(() => tools.close()),
+		);
 		const browserBridge = yield* BrowserBridgeService;
 		const configStore = yield* ConfigStoreService;
 		const mcp = yield* McpService;
@@ -236,7 +244,20 @@ export const ProviderServiceLive = Layer.effect(
 				Effect.gen(function* () {
 					const paths =
 						(yield* configStore.getSettings()).providerBinaryPaths ?? {};
-					const list = yield* probeProvidersWithPaths(paths).pipe(
+					const accountHomes: Record<string, string> = {};
+					const unavailableAccounts = new Set<ProviderId>();
+					if (Option.isSome(accounts)) {
+						for (const provider of ["claude", "codex"] as const) {
+							const selected = yield* accounts.value.selected(provider).pipe(
+								Effect.catch(() => {
+									unavailableAccounts.add(provider);
+									return Effect.succeed(null);
+								}),
+							);
+							if (selected) accountHomes[provider] = selected.home;
+						}
+					}
+					const list = yield* probeProvidersWithPaths(paths, accountHomes).pipe(
 						Effect.provideService(
 							CommandExecutor.ChildProcessSpawner,
 							executor,
@@ -266,7 +287,20 @@ export const ProviderServiceLive = Layer.effect(
 								...a,
 								runtimeKind: "cli",
 								runtimeAvailable: a.cliInstalled,
-								hasApiKey: configuredSet.has(a.providerId),
+								...(unavailableAccounts.has(a.providerId)
+									? {
+											cliLoggedIn: false,
+											authStatus: "unknown" as const,
+											status: "error" as const,
+											statusMessage:
+												"Account storage is unavailable. Try again.",
+										}
+									: {}),
+								hasApiKey: unavailableAccounts.has(a.providerId)
+									? false
+									: accountHomes[a.providerId]
+										? false
+										: configuredSet.has(a.providerId),
 							}),
 						);
 					const cursorBase = {
@@ -325,9 +359,26 @@ export const ProviderServiceLive = Layer.effect(
 
 		const availability = (refresh = false) =>
 			Effect.gen(function* () {
-				const key = JSON.stringify(
+				const accountService = Option.getOrUndefined(accounts);
+				const selections = accountService
+					? yield* Effect.all(
+							(["claude", "codex"] as const).map((provider) =>
+								accountService.list(provider).pipe(
+									Effect.map(
+										(status) =>
+											status.accounts.find((account) => account.preferred)
+												?.id ?? null,
+									),
+									Effect.catch(() => Effect.succeed("unavailable")),
+								),
+							),
+							{ concurrency: "unbounded" },
+						)
+					: [];
+				const key = JSON.stringify([
 					(yield* configStore.getSettings()).providerBinaryPaths ?? {},
-				);
+					selections,
+				]);
 				if (refresh) yield* Cache.invalidate(availabilityCache, key);
 				const list = [
 					...(yield* Cache.get(availabilityCache, key)),
@@ -468,9 +519,25 @@ export const ProviderServiceLive = Layer.effect(
 										canonicalModel,
 									),
 								);
+					const account =
+						(input.providerId === "claude" || input.providerId === "codex") &&
+						Option.isSome(accounts)
+							? yield* accounts.value
+									.resolve(input.providerId, sessionId, resumeCursor !== null)
+									.pipe(
+										Effect.mapError(
+											(error) =>
+												new AgentSessionStartError({
+													providerId: input.providerId,
+													reason: error.message,
+												}),
+										),
+									)
+							: null;
 					const driverInput = {
 						...input,
 						executionEnv: execution?.env,
+						providerAccountHome: account?.home,
 						...(canonicalModel !== undefined ? { model: canonicalModel } : {}),
 						...(modelDescriptor !== undefined ? { modelDescriptor } : {}),
 						workspaceInstructions: zuseWorkspaceInstructions({
@@ -481,8 +548,9 @@ export const ProviderServiceLive = Layer.effect(
 					};
 					const brokeredCredential = yield* Effect.tryPromise({
 						try: () =>
+							account !== null ||
 							providerCapabilities(input.providerId).credentialSource ===
-							"connections"
+								"connections"
 								? Promise.resolve(null)
 								: runtimeCredentials.resolve(input.providerId),
 						catch: (cause) =>
@@ -499,11 +567,12 @@ export const ProviderServiceLive = Layer.effect(
 											: `${input.providerId}-auth-reconnecting`,
 							}),
 					});
-					const managedCredential =
-						brokeredCredential ??
-						(yield* credentials
-							.getProviderCredential(input.providerId)
-							.pipe(Effect.catch(() => Effect.succeed(null))));
+					const managedCredential = account
+						? null
+						: (brokeredCredential ??
+							(yield* credentials
+								.getProviderCredential(input.providerId)
+								.pipe(Effect.catch(() => Effect.succeed(null)))));
 					const apiKey =
 						managedCredential?.kind === "api-key"
 							? managedCredential.secret
@@ -517,27 +586,31 @@ export const ProviderServiceLive = Layer.effect(
 						managedPlugins = yield* Effect.tryPromise({
 							try: async () => {
 								const client = await getDefaultPluginClient();
-								if (!client) return undefined;
+
 								return issueMcpGatewaySession({
 									sessionId,
 									scopes: {
 										browser: false,
 										orchestration: false,
-										plugins: true,
+										plugins: client !== undefined,
+										html: true,
 									},
 									ctx: {
-										plugins: {
-											client,
-											requestPermission: (kind, options) =>
-												buildRequestPermission(input.folderId)(
-													sessionId,
-													kind,
-													options,
-												),
-											getRuntimeMode: () =>
-												getRuntimeMode?.() ?? "approval-required",
-											getPermissionMode: () => managedPermissionMode,
-										},
+										html: { client: htmlTools.client, cwd },
+										plugins: client
+											? {
+													client,
+													requestPermission: (kind, options) =>
+														buildRequestPermission(input.folderId)(
+															sessionId,
+															kind,
+															options,
+														),
+													getRuntimeMode: () =>
+														getRuntimeMode?.() ?? "approval-required",
+													getPermissionMode: () => managedPermissionMode,
+												}
+											: undefined,
 									},
 								});
 							},
@@ -553,7 +626,7 @@ export const ProviderServiceLive = Layer.effect(
 								...pluginCliEnv(managedPlugins.endpoint, managedPlugins.token),
 							};
 							managedMcp = {
-								name: "zuse-plugins",
+								name: "zuse",
 								transport: "http",
 								url: managedPlugins.endpoint,
 								headers: { Authorization: `Bearer ${managedPlugins.token}` },
@@ -1046,6 +1119,7 @@ export const ProviderServiceLive = Layer.effect(
 						startupKey,
 						startupPermits.withPermits(1)(
 							start.pipe(
+								Effect.provideService(HtmlTools, htmlTools.client),
 								Effect.onError(() =>
 									Effect.promise(async () => {
 										await managedPlugins?.close();

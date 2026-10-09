@@ -102,7 +102,6 @@
 	"add_computer_dialog_username_optional_sentence": "使用者名稱 <part0> 可選</part0>",
 	"add_computer_dialog_port_optional_sentence": "連接埠 <part0> 選購 </part0>",
 	"add_computer_dialog_label_optional_sentence": "標籤 <part0> 選配 </part0>",
-	"add_computer_dialog_remove_sentence": "刪除{{value}}？",
 	"add_computer_dialog_zuse_will_forget_this_computer_on_this_device_projects_and_d_sentence": "Zuse 將在此裝置上忘記這台電腦。 {{value}} 上的項目和資料不會被刪除。",
 	"opencode_provider_manager_configured_sentence": "{{value}}已配置",
 	"opencode_provider_manager_no_providers_match_sentence": "沒有提供者匹配“{{query}}”。",
@@ -141,5 +140,16 @@
 	"sign_in_failed": "登入失敗。",
 	"sign_in_incomplete": "登入尚未完成便已結束。",
 	"update_incomplete": "更新尚未完成便已結束。",
-	"remove_computer_account_description": "從您的帳戶中移除 {{value}}，以釋出一個電腦名額。透過 Zuse 的遠端存取將停止。電腦上的專案和資料會保留。"
+	"remove_computer_account_description": "從您的帳戶中移除 {{value}}，以釋出一個電腦名額。透過 Zuse 的遠端存取將停止。電腦上的專案和資料會保留。",
+	"accounts_title": "帳號",
+	"accounts_add": "新增帳號",
+	"accounts_name": "帳號名稱",
+	"accounts_hint": "帳號保留在此電腦上。傳送新聊天的第一則訊息前，請選擇帳號；現有聊天繼續使用原帳號。",
+	"accounts_default": "預設 CLI 登入 / API 金鑰",
+	"accounts_use": "用於新聊天",
+	"accounts_selected": "已選取",
+	"accounts_waiting": "請在瀏覽器中完成登入。",
+	"accounts_open_browser": "開啟瀏覽器",
+	"accounts_signed_in": "已登入",
+	"accounts_remove_description": "將此帳號從設定中移除。使用此帳號的聊天將無法恢復。登入檔案和聊天記錄會保留。"
 }

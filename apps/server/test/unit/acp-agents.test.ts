@@ -18,6 +18,7 @@ import {
 	readCatalog,
 	safeArchivePath,
 } from "../../src/provider/acp/catalog.ts";
+import { COMMUNITY_ACP_AGENTS } from "../../src/provider/acp/community-catalog.ts";
 import { makeAcpAgentStore, probeAcp } from "../../src/provider/acp/service.ts";
 
 const directories: string[] = [];
@@ -54,6 +55,59 @@ const secretStore = () => {
 };
 
 describe("host ACP agents", () => {
+	it.each([
+		"claude",
+		"codex",
+	] as const)("keeps %s account homes independent through edits, duplication and restart", async (provider) => {
+		const root = await directory();
+		const secrets = secretStore();
+		const store = makeAcpAgentStore(root, secrets);
+		const original = await store.save({
+			name: "Agent",
+			command: process.execPath,
+			args: [fixture],
+			enabled: true,
+			env: {
+				ANTHROPIC_API_KEY: "old-claude",
+				OPENAI_API_KEY: "old-codex",
+				CLAUDE_CODE_OAUTH_TOKEN: "old-token",
+				CLAUDE_CONFIG_DIR: "/old",
+				CODEX_HOME: "/old",
+				KEEP: "value",
+			},
+		});
+		const account = await store.duplicate(original.id, provider);
+		const another = await store.duplicate(account.id);
+		const launch = await store.launch(account.id);
+		const selector = provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
+		expect(launch.env?.[selector]).toBe(join(root, "accounts", account.id));
+		expect((await store.launch(another.id)).env?.[selector]).not.toBe(
+			launch.env?.[selector],
+		);
+		expect(launch.env?.KEEP).toBe("value");
+		if (provider === "claude") {
+			expect(launch.env?.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(
+				launch.env?.CLAUDE_CONFIG_DIR,
+			);
+			expect(launch.env?.ANTHROPIC_API_KEY).toBeUndefined();
+			expect(launch.env?.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+		} else expect(launch.env?.OPENAI_API_KEY).toBeUndefined();
+		await store.save({
+			...account,
+			name: "Renamed",
+			env: { [selector]: "/wrong", KEEP: "changed" },
+		});
+		expect(
+			(await makeAcpAgentStore(root, secrets).launch(account.id)).env?.[
+				selector
+			],
+		).toBe(launch.env?.[selector]);
+		await store.remove(account.id);
+		await expect(store.launch(account.id)).rejects.toThrow("removed");
+		expect((await store.launch(another.id)).env?.[selector]).toBe(
+			join(root, "accounts", another.id),
+		);
+	});
 	it("persists multiple instances, redacts secrets, duplicates credentials, and isolates hosts", async () => {
 		const root = await directory();
 		const secrets = secretStore();
@@ -295,6 +349,33 @@ const fixtureCatalog = async () => ({
 		},
 	],
 });
+it.each([
+	"claude",
+	"codex",
+] as const)("keeps the %s account home during catalog updates", async (provider) => {
+	const root = await directory();
+	const homes: Array<string | undefined> = [];
+	const selector = provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
+	const store = makeAcpAgentStore(root, secretStore(), {
+		catalog: fixtureCatalog,
+		install: fileInstaller,
+		probe: async (launch) => {
+			homes.push(launch.env?.[selector]);
+			expect(launch.unsetEnv).toContain(
+				provider === "claude" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY",
+			);
+			return readyProbe();
+		},
+	});
+	const original = await store.install("fixture");
+	const account = await store.duplicate(original.id, provider);
+	const before = await store.launch(account.id);
+	await store.install("fixture", account.id);
+	const after = await store.launch(account.id);
+	expect(after.env?.[selector]).toBe(before.env?.[selector]);
+	expect(homes).toEqual([before.env?.[selector]]);
+	expect((await store.get(account.id)).accountProvider).toBe(provider);
+});
 it("releases replaced credentials and installations", async () => {
 	const root = await directory();
 	const secrets = secretStore();
@@ -525,4 +606,73 @@ it("prefers an upstream OMP entry without duplicating the community adapter", as
 	expect(entries.filter((entry) => entry.id === "omp-acp")).toEqual([
 		expect.objectContaining({ origin: "registry", version: "0.2.0" }),
 	]);
+});
+
+it.each([
+	"hermes",
+	"openclaw",
+])("offers and persists the host-installed %s harness", async (catalogId) => {
+	const root = await directory();
+	const secrets = secretStore();
+	const resolved: string[] = [];
+	const dependencies = {
+		catalog: async () => ({ version: "1", agents: [] }),
+		resolveExecutable: async (name: string) => {
+			resolved.push(name);
+			return process.execPath;
+		},
+	};
+	const store = makeAcpAgentStore(root, secrets, dependencies);
+	expect(
+		(await store.catalog()).find((entry) => entry.id === catalogId),
+	).toMatchObject({
+		compatible: true,
+		version: "host",
+		origin: "community",
+	});
+	const installed = await store.install(catalogId);
+	expect(resolved).toEqual([catalogId]);
+	const restored = makeAcpAgentStore(root, secrets, dependencies);
+	const launch = await restored.launch(installed.id);
+	expect(launch).toMatchObject({
+		command: process.execPath,
+		args: ["acp"],
+		...(catalogId === "hermes"
+			? { env: { HERMES_ACP_SKIP_CONFIGURED_MCP: "1" } }
+			: { mcpEnabled: false }),
+	});
+	const copy = await restored.duplicate(installed.id);
+	expect(await restored.launch(copy.id)).toEqual(launch);
+	await restored.save({ ...copy, name: "Renamed" });
+	expect(await restored.launch(copy.id)).toEqual(launch);
+});
+
+it("reports a missing host harness without saving a broken definition", async () => {
+	const store = makeAcpAgentStore(await directory(), secretStore(), {
+		catalog: async () => ({ version: "1", agents: [] }),
+		resolveExecutable: async () => {
+			throw new Error("Executable hermes not found");
+		},
+	});
+	await expect(store.install("hermes")).rejects.toThrow("hermes not found");
+	expect(await store.list()).toEqual([]);
+});
+
+it("resolves local harnesses without downloading or invoking package runners", async () => {
+	const agent = COMMUNITY_ACP_AGENTS.find((entry) => entry.id === "openclaw");
+	if (!agent) throw new Error("Missing OpenClaw preset");
+	const launch = await installCatalogAgent(
+		agent,
+		await directory(),
+		async () => {
+			throw new Error("Unexpected download");
+		},
+		async (name) => `/host/bin/${name}`,
+	);
+	expect(launch).toEqual({
+		command: "/host/bin/openclaw",
+		args: ["acp"],
+		env: {},
+		mcpEnabled: false,
+	});
 });

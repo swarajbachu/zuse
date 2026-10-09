@@ -92,6 +92,8 @@ const shared = {
 		// anchors and the lookup fails. Keep them external so each is require()'d
 		// from node_modules at runtime.
 		neverBundle: [
+			"playwright",
+			"playwright-core",
 			"electron",
 			"node-pty",
 			"bindings",

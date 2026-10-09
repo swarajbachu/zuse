@@ -1263,6 +1263,8 @@
 	"snapshot_managed_auth_help": "在下方連接 Claude Code 或 Codex，然後儲存。新工作區將使用你的 Zuse 智慧代理帳號，無需重建快照。現有工作區保留目前的驗證方式。",
 	"snapshot_login_detected": "偵測到登入資訊",
 	"snapshot_inspected_user": "已檢查的 Linux 使用者：{{user}}。",
+	"acp_agents_add_account": "新增帳號",
+	"acp_agents_busy_adding_account": "正在新增帳號…",
 	"settings_navigation_experimental": "實驗性",
 	"settings_page_experimental": "實驗性",
 	"settings_page_experimental_description": "仍在打磨的早期功能，可能會變更或移除。",

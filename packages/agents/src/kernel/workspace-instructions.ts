@@ -36,6 +36,7 @@ export const zuseWorkspaceInstructions = ({
 		...(includeAppTools
 			? [
 					'Use the "zuse" MCP server for app browser, image, and orchestration tools when relevant.',
+					"When a chart, dashboard, diagram, or interactive explainer communicates better than prose, create responsive HTML, inspect it with html_preview, then publish it inline with html_render before your final reply. Use the Zuse CSS theme variables documented by the tools. Public remote assets are supported. The user sees the visual in chat; add only what it does not say.",
 				]
 			: []),
 		"For connected services such as Linear, use Zuse's system plugins by default. Search directly with plugins_search (for example query: 'linear issue'), then use plugins_schema and plugins_call with the returned address. plugins_list is optional for browsing connected accounts. If a connection is missing, direct the user to Zuse Settings → Integrations. Use a provider-specific integration only when the user explicitly requests it.",

@@ -7,6 +7,7 @@ import {
 	modelSettingOptions,
 	resolveAgentChoice,
 } from "./agent-choice.ts";
+import { type HomeSelection, homeSelectionDefaults } from "./home-settings.ts";
 import type { Installation } from "./installations.ts";
 import { repositoryOptions } from "./repositories.ts";
 import { slackApi } from "./slack.ts";
@@ -36,12 +37,19 @@ export const selectReplyMode = async (
 	userId: string,
 	mode: "mentions" | "all",
 	revision: number,
+	selection?: HomeSelection,
 ) => {
 	const mine = await env.store.member(installation, userId);
-	if (mine.revision === revision)
+	const defaults = homeSelectionDefaults(
+		mine,
+		"replyMode",
+		revision,
+		selection,
+	);
+	if (defaults)
 		await env.store.saveMember(installation, userId, {
 			...mine,
-			defaults: { ...mine.defaults, replyMode: mode },
+			defaults: { ...defaults, replyMode: mode },
 		});
 	await publishHome(env, installation, userId);
 };
@@ -54,13 +62,22 @@ export const selectExecutionDefault = async (
 	value: string,
 	revision: number,
 	memberRevision: number,
+	selection?: HomeSelection,
 ) => {
 	const active = await executionAccount(env, installation, userId);
+	const defaults = active
+		? homeSelectionDefaults(
+				active.profile,
+				field === "providerId" ? "providerId" : "agentModel",
+				memberRevision,
+				selection,
+			)
+		: null;
 	if (
 		!active ||
 		active.ownerId !== userId ||
 		installation.revision !== revision ||
-		active.profile.revision !== memberRevision
+		!defaults
 	)
 		return publishHome(env, installation, userId);
 	let connection = active.connection;
@@ -122,6 +139,7 @@ export const selectExecutionDefault = async (
 	await env.store.saveMember(installation, userId, {
 		...active.profile,
 		connection,
+		defaults,
 	});
 	await publishHome(env, installation, userId);
 };
@@ -426,6 +444,7 @@ export const publishHome = async (
 			private_metadata: JSON.stringify({
 				revision: installation.revision,
 				memberRevision: mine.revision,
+				connectionId: mine.connection?.webhookId,
 			}),
 			blocks,
 		},
@@ -439,13 +458,22 @@ export const selectProject = async (
 	userId: string,
 	revision: number,
 	memberRevision?: number,
+	selection?: HomeSelection,
 ) => {
 	const active = await executionAccount(env, installation, userId);
+	const defaults = active
+		? homeSelectionDefaults(
+				active.profile,
+				"projectId",
+				memberRevision,
+				selection,
+			)
+		: null;
 	if (
 		!active ||
 		active.ownerId !== userId ||
 		installation.revision !== revision ||
-		(memberRevision !== undefined && active.profile.revision !== memberRevision)
+		!defaults
 	)
 		return publishHome(env, installation, userId);
 	const { projects } = await listProjects(
@@ -454,7 +482,7 @@ export const selectProject = async (
 	if (projects.some((p) => p.projectId === projectId && p.state === "ready"))
 		await env.store.saveMember(installation, userId, {
 			...active.profile,
-			defaults: { ...active.profile.defaults, projectId },
+			defaults: { ...defaults, projectId },
 		});
 	await publishHome(env, installation, userId);
 };

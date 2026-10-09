@@ -70,8 +70,8 @@ describe("provider error notices", () => {
 			"codex",
 			local,
 		);
-		expect(settings).toEqual({ kind: "auth", providerId: "codex" });
-		expect(isBlockingNotice(settings)).toBe(true);
+		expect(settings).toEqual({ kind: "sign-in", providerId: "codex" });
+		expect(isBlockingNotice(settings)).toBe(false);
 	});
 
 	it("finds the failure the transcript ends on", () => {

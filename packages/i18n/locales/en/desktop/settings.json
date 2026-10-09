@@ -1263,6 +1263,8 @@
 	"snapshot_managed_auth_help": "Connect Claude Code or Codex below, then save. New workspaces use your Zuse agent accounts. No snapshot rebuild is needed. Existing workspaces keep their current authentication.",
 	"snapshot_login_detected": "Login detected",
 	"snapshot_inspected_user": "Inspected Linux user: {{user}}.",
+	"acp_agents_add_account": "Add account",
+	"acp_agents_busy_adding_account": "Adding account…",
 	"settings_navigation_experimental": "Experimental",
 	"settings_page_experimental": "Experimental",
 	"settings_page_experimental_description": "Early features we're still shaping. They may change or be removed.",

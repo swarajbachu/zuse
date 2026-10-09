@@ -83,10 +83,12 @@ export const startGenericAcpSession = Effect.fn("ACP.start")(function* (
 	});
 	const executionEnv = {
 		...input.executionEnv,
+		...launch.env,
 		...pluginCliEnv(gateway.endpoint, gateway.token),
 	};
 	const context = makeAcpPermissionContext({
 		executionEnv,
+		unsetExecutionEnv: launch.unsetEnv,
 		cwd,
 		sessionId,
 		projectId: input.folderId,
@@ -107,8 +109,8 @@ export const startGenericAcpSession = Effect.fn("ACP.start")(function* (
 		{
 			...launch,
 			env: {
-				...launch.env,
 				...executionEnv,
+				...launch.env,
 			},
 		},
 		cwd,
@@ -203,9 +205,12 @@ export const startGenericAcpSession = Effect.fn("ACP.start")(function* (
 				throw new Error(
 					"This ACP agent cannot resume saved sessions. Start a new conversation.",
 				);
-			const mcpServers = init.agentCapabilities?.mcpCapabilities?.http
-				? [gateway.serverConfig]
-				: await fallback.ensure();
+			const mcpServers =
+				launch.mcpEnabled === false
+					? []
+					: init.agentCapabilities?.mcpCapabilities?.http
+						? [gateway.serverConfig]
+						: await fallback.ensure();
 			const result = decodeAcpSession(
 				await request(resumeCursor ? "session/load" : "session/new", {
 					cwd,

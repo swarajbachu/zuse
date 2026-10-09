@@ -1263,6 +1263,8 @@
 	"snapshot_managed_auth_help": "⟦Côônnëëct Clààüüdëë Côôdëë ôôr Côôdëëx bëëlôôw, thëën sààvëë. Nëëw wôôrkspààcëës üüsëë yôôüür Züüsëë ààgëënt ààccôôüünts. Nôô snààpshôôt rëëbüüïïld ïïs nëëëëdëëd. ËËxïïstïïng wôôrkspààcëës këëëëp thëëïïr cüürrëënt ààüüthëëntïïcààtïïôôn.⟧",
 	"snapshot_login_detected": "⟦Lôôgïïn dëëtëëctëëd⟧",
 	"snapshot_inspected_user": "⟦ÏÏnspëëctëëd Lïïnüüx üüsëër: {{user}}.⟧",
+	"acp_agents_add_account": "⟦ÀÀdd ààccôôüünt⟧",
+	"acp_agents_busy_adding_account": "⟦ÀÀddïïng ààccôôüünt…⟧",
 	"settings_navigation_experimental": "⟦ËËxpëërïïmëëntààl⟧",
 	"settings_page_experimental": "⟦ËËxpëërïïmëëntààl⟧",
 	"settings_page_experimental_description": "⟦ËËààrly fëëààtüürëës wëë'rëë stïïll shààpïïng. Thëëy màày chààngëë ôôr bëë rëëmôôvëëd.⟧",

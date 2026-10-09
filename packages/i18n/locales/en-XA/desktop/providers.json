@@ -102,7 +102,6 @@
 	"add_computer_dialog_username_optional_sentence": "⟦ÜÜsëërnààmëë <part0>ÔÔptïïôônààl</part0>⟧",
 	"add_computer_dialog_port_optional_sentence": "⟦Pôôrt <part0>ÔÔptïïôônààl</part0>⟧",
 	"add_computer_dialog_label_optional_sentence": "⟦Lààbëël <part0>ÔÔptïïôônààl</part0>⟧",
-	"add_computer_dialog_remove_sentence": "⟦Rëëmôôvëë {{value}}?⟧",
 	"add_computer_dialog_zuse_will_forget_this_computer_on_this_device_projects_and_d_sentence": "⟦Züüsëë wïïll fôôrgëët thïïs côômpüütëër ôôn thïïs dëëvïïcëë. Prôôjëëcts àànd dààtàà ôôn {{value}} ààrëë nôôt dëëlëëtëëd.⟧",
 	"opencode_provider_manager_configured_sentence": "⟦{{value}} côônfïïgüürëëd⟧",
 	"opencode_provider_manager_no_providers_match_sentence": "⟦Nôô prôôvïïdëërs mààtch “{{query}}”.⟧",
@@ -141,5 +140,16 @@
 	"sign_in_failed": "⟦Sïïgn-ïïn fààïïlëëd.⟧",
 	"sign_in_incomplete": "⟦Sïïgn-ïïn ëëndëëd bëëfôôrëë côômplëëtïïôôn.⟧",
 	"update_incomplete": "⟦ÜÜpdààtëë ëëndëëd bëëfôôrëë côômplëëtïïôôn.⟧",
-	"remove_computer_account_description": "⟦Rëëmôôvëë {{value}} frôôm yôôüür ààccôôüünt àànd frëëëë ïïts côômpüütëër slôôt. Rëëmôôtëë ààccëëss thrôôüügh Züüsëë wïïll stôôp. Prôôjëëcts àànd dààtàà ôôn thëë côômpüütëër ààrëë këëpt.⟧"
+	"remove_computer_account_description": "⟦Rëëmôôvëë {{value}} frôôm yôôüür ààccôôüünt àànd frëëëë ïïts côômpüütëër slôôt. Rëëmôôtëë ààccëëss thrôôüügh Züüsëë wïïll stôôp. Prôôjëëcts àànd dààtàà ôôn thëë côômpüütëër ààrëë këëpt.⟧",
+	"accounts_title": "⟦ÀÀccôôüünts⟧",
+	"accounts_add": "⟦ÀÀdd ààccôôüünt⟧",
+	"accounts_name": "⟦ÀÀccôôüünt nààmëë⟧",
+	"accounts_hint": "⟦ÀÀccôôüünts stàày ôôn thïïs côômpüütëër. Chôôôôsëë ààn ààccôôüünt bëëfôôrëë sëëndïïng àà nëëw chààt’s fïïrst mëëssààgëë; ëëxïïstïïng chààts këëëëp thëëïïr ààccôôüünt.⟧",
+	"accounts_default": "⟦Dëëfààüült CLÏÏ lôôgïïn / ÀÀPÏÏ këëy⟧",
+	"accounts_use": "⟦ÜÜsëë fôôr nëëw chààts⟧",
+	"accounts_selected": "⟦Sëëlëëctëëd⟧",
+	"accounts_waiting": "⟦Côômplëëtëë sïïgn-ïïn ïïn yôôüür brôôwsëër.⟧",
+	"accounts_open_browser": "⟦ÔÔpëën brôôwsëër⟧",
+	"accounts_signed_in": "⟦Sïïgnëëd ïïn⟧",
+	"accounts_remove_description": "⟦Rëëmôôvëës thïïs ààccôôüünt frôôm Sëëttïïngs. Chààts üüsïïng ïït càànnôôt rëësüümëë. Lôôgïïn fïïlëës àànd tràànscrïïpts ààrëë këëpt.⟧"
 }

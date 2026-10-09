@@ -31,6 +31,12 @@ const Package = Schema.Struct({
 	args: Schema.optional(Schema.Array(Schema.String)),
 	env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
 });
+const Local = Schema.Struct({
+	command: Schema.String,
+	args: Schema.optional(Schema.Array(Schema.String)),
+	env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+	mcpEnabled: Schema.optional(Schema.Boolean),
+});
 export const Registry = Schema.Struct({
 	version: Schema.String,
 	agents: Schema.Array(
@@ -45,6 +51,7 @@ export const Registry = Schema.Struct({
 				binary: Schema.optional(Schema.Record(Schema.String, Binary)),
 				npx: Schema.optional(Package),
 				uvx: Schema.optional(Package),
+				local: Schema.optional(Local),
 			}),
 		}),
 	),
@@ -76,6 +83,9 @@ export const distributionFor = (
 		return { kind: "npx" as const, value: agent.distribution.npx };
 	if (agent.distribution.uvx)
 		return { kind: "uvx" as const, value: agent.distribution.uvx };
+	const local = agent.distribution.local;
+	if (local && !(windows && /\.(cmd|bat)$/i.test(local.command)))
+		return { kind: "local" as const, value: local };
 	return null;
 };
 export const readCatalog = async (
@@ -296,6 +306,14 @@ export const installCatalogAgent = async (
 		throw new Error("This agent has no distribution for this host.");
 	await mkdir(directory, { recursive: true, mode: 0o700 });
 	const env = distribution.value.env ?? {};
+	if (distribution.kind === "local") {
+		return {
+			command: await resolveExecutable(distribution.value.command),
+			args: [...(distribution.value.args ?? [])],
+			env,
+			mcpEnabled: distribution.value.mcpEnabled,
+		};
+	}
 	if (distribution.kind !== "binary") {
 		const runnerName = distribution.kind === "npx" ? "npx" : "uvx";
 		const runner = await resolveExecutable(runnerName);

@@ -82,6 +82,7 @@ import { BrowserBridgeServiceLive } from "./provider/layers/browser-bridge-servi
 import { PermissionServiceLive } from "./provider/layers/permission-service.ts";
 import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
 import type { CredentialsService } from "./provider/services/credentials-service.ts";
+import { providerAccountsLayer } from "./provider/services/provider-accounts.ts";
 import {
 	makeRuntimeGitExecution,
 	RuntimeGitExecution,
@@ -512,6 +513,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(PermissionLayer),
 		Layer.provide(AttachmentLayer),
 	);
+	const ProviderAccountsLayer = providerAccountsLayer(
+		deps.cloudWorkspaceRuntime === undefined,
+	).pipe(Layer.provide(AppPathsLayer), Layer.provide(MigratedSqlite));
 	const AcpAgentLayer = AcpAgentServiceLive.pipe(
 		Layer.provide(NodeServices.layer),
 		Layer.provide(AppPathsLayer),
@@ -527,6 +531,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 
 	const ProviderLayer = ProviderServiceLive.pipe(
+		Layer.provide(ProviderAccountsLayer),
 		Layer.provide(AcpAgentLayer),
 		Layer.provide(HarnessProviderLayer),
 		Layer.provide(ModelCatalogLayer),
@@ -747,6 +752,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 
 	const HandlerDomainLayer = Layer.mergeAll(
+		ProviderAccountsLayer,
 		AcpAgentLayer,
 		DeviceBridgeLayer,
 		WorkspaceLayer,
@@ -833,6 +839,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 
 	const UsagePoller = UsageLimitsPollerLive.pipe(
+		Layer.provide(ProviderAccountsLayer),
 		Layer.provide(ConfigStoreLayer),
 		Layer.provide(CredentialsLayer),
 		Layer.provide(NodeServices.layer),

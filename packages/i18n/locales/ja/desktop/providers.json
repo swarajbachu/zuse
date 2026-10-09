@@ -102,7 +102,6 @@
 	"add_computer_dialog_username_optional_sentence": "ユーザー名 <part0>オプション</part0>",
 	"add_computer_dialog_port_optional_sentence": "ポート <part0>オプション</part0>",
 	"add_computer_dialog_label_optional_sentence": "ラベル <part0>オプション</part0>",
-	"add_computer_dialog_remove_sentence": "{{value}}を削除しますか?",
 	"add_computer_dialog_zuse_will_forget_this_computer_on_this_device_projects_and_d_sentence": "Zuse は、このデバイス上のこのコンピューターを忘れます。 {{value}} 上のプロジェクトとデータは削除されません。",
 	"opencode_provider_manager_configured_sentence": "{{value}} 構成済み",
 	"opencode_provider_manager_no_providers_match_sentence": "「{{query}}」に一致するプロバイダーはありません。",
@@ -141,5 +140,16 @@
 	"sign_in_failed": "サインインに失敗しました。",
 	"sign_in_incomplete": "サインインが完了前に終了しました。",
 	"update_incomplete": "更新が完了前に終了しました。",
-	"remove_computer_account_description": "アカウントから {{value}} を削除して、コンピューターの登録枠を空けます。Zuse 経由のリモートアクセスは停止します。コンピューター上のプロジェクトとデータは保持されます。"
+	"remove_computer_account_description": "アカウントから {{value}} を削除して、コンピューターの登録枠を空けます。Zuse 経由のリモートアクセスは停止します。コンピューター上のプロジェクトとデータは保持されます。",
+	"accounts_title": "アカウント",
+	"accounts_add": "アカウントを追加",
+	"accounts_name": "アカウント名",
+	"accounts_hint": "アカウントはこのコンピューターに保存されます。新しいチャットの最初のメッセージを送信する前にアカウントを選択してください。既存のチャットは元のアカウントを使い続けます。",
+	"accounts_default": "デフォルトの CLI ログイン / API キー",
+	"accounts_use": "新しいチャットに使用",
+	"accounts_selected": "選択中",
+	"accounts_waiting": "ブラウザーでログインを完了してください。",
+	"accounts_open_browser": "ブラウザーを開く",
+	"accounts_signed_in": "ログイン済み",
+	"accounts_remove_description": "このアカウントを設定から削除します。このアカウントを使用するチャットは再開できなくなります。ログインファイルと会話履歴は保持されます。"
 }

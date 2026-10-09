@@ -19,6 +19,7 @@ import type { SqlSessionQueriesApi } from "@zuse/domain/queries/sql-session-quer
 import { Effect, PubSub, type Scope } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { ApiActivityPublisherApi } from "../../api/activity-publisher.ts";
+import { pinHtmlRenderAttachment } from "../../html-render/retention.ts";
 import type { NdjsonLoggerShape } from "../../persistence/ndjson-logger.ts";
 import type { ProviderServiceShape } from "../../provider/services/provider-service.ts";
 import type { ConversationOperations } from "../services/conversation-services.ts";
@@ -381,25 +382,31 @@ export const makeConversationStoreRuntime = Effect.fn(
 					? content.checkpoint
 					: undefined;
 			const receipt = yield* sessionDomain
-				.dispatch({
-					commandId:
-						commandIdentityOverride === undefined
-							? `message:persist:${id}`
-							: `message:persist:${id}:${commandIdentityOverride}`,
-					streamId: sessionId,
-					command: {
-						_tag: "PersistMessage",
-						messageId: id,
-						turnId: turnIdOverride ?? state.activeTurn(sessionId) ?? null,
-						role,
-						kind: content._tag,
-						contentJson: JSON.stringify(content),
-						parentItemId,
-						checkpointRevision: checkpoint?.revision,
-						checkpointFinal: checkpoint?.final,
-						createdAt: now.getTime(),
+				.dispatchTransactionally(
+					{
+						commandId:
+							commandIdentityOverride === undefined
+								? `message:persist:${id}`
+								: `message:persist:${id}:${commandIdentityOverride}`,
+						streamId: sessionId,
+						command: {
+							_tag: "PersistMessage",
+							messageId: id,
+							turnId: turnIdOverride ?? state.activeTurn(sessionId) ?? null,
+							role,
+							kind: content._tag,
+							contentJson: JSON.stringify(content),
+							parentItemId,
+							checkpointRevision: checkpoint?.revision,
+							checkpointFinal: checkpoint?.final,
+							createdAt: now.getTime(),
+						},
 					},
-				})
+					(receipt) =>
+						pinHtmlRenderAttachment(sql, sessionId, id, content).pipe(
+							Effect.as(receipt),
+						),
+				)
 				.pipe(Effect.orDie);
 			const projected = yield* sql<{
 				readonly sequence: number;

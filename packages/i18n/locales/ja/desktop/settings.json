@@ -1263,6 +1263,8 @@
 	"snapshot_managed_auth_help": "以下で Claude Code または Codex を接続し、保存してください。新しいワークスペースでは Zuse のアカウントを使用します。スナップショットの再構築は不要です。既存のワークスペースの認証は変わりません。",
 	"snapshot_login_detected": "ログイン情報を検出",
 	"snapshot_inspected_user": "検査した Linux ユーザー: {{user}}。",
+	"acp_agents_add_account": "アカウントを追加",
+	"acp_agents_busy_adding_account": "アカウントを追加中…",
 	"settings_navigation_experimental": "実験的機能",
 	"settings_page_experimental": "実験的機能",
 	"settings_page_experimental_description": "開発中の早期機能です。変更または削除される場合があります。",

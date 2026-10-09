@@ -1,4 +1,9 @@
 import { secureStorageMasterKey } from "@zusehq/server/secure-storage-master-key";
+import {
+	guardHtmlVisualNavigation,
+	installHtmlVisualNetwork,
+	VISUAL_ASSET_SCHEMES,
+} from "./html-visual-network.ts";
 import { CloudSyncFileBridge } from "./sync/cloud-sync-file-bridge.ts";
 import { installTerminalShortcutRouting } from "./terminal-shortcuts.ts";
 import "@zuse/i18n/english/desktop";
@@ -405,7 +410,24 @@ process.on("unhandledRejection", (reason) => {
  * `https`; `supportFetchAPI` lets the renderer use `fetch()` against it;
  * `stream: true` lets us hand back a body that the renderer can stream.
  */
+// Untrusted visual scripts must not use UDP transports outside the asset proxy.
+app.commandLine.appendSwitch(
+	"force-webrtc-ip-handling-policy",
+	"disable_non_proxied_udp",
+);
+app.commandLine.appendSwitch("disable-quic");
+
 protocol.registerSchemesAsPrivileged([
+	...VISUAL_ASSET_SCHEMES.map((scheme) => ({
+		scheme,
+		privileges: {
+			standard: true,
+			secure: true,
+			corsEnabled: true,
+			supportFetchAPI: true,
+			stream: true,
+		},
+	})),
 	{
 		scheme: "zuse",
 		privileges: {
@@ -1976,6 +1998,7 @@ async function createMainWindow() {
 		elapsedMs: Math.round(performance.now() - startupStartedAt),
 		processElapsedMs: Math.round(performance.now() - desktopProcessStartedAt),
 	});
+	guardHtmlVisualNavigation(mainWindow.webContents);
 	installTerminalShortcutRouting(mainWindow.webContents);
 	installPowerMeasurementMonitor();
 	const sampleWindowTransition = () => {
@@ -3943,6 +3966,10 @@ ipcMain.handle(
 let localeController: ReturnType<typeof createLocaleController> | undefined;
 
 void app.whenReady().then(async () => {
+	const closeVisualNetwork = installHtmlVisualNetwork(session.defaultSession);
+	app.once("will-quit", () => {
+		void closeVisualNetwork();
+	});
 	// Non-primary instance is on its way out (lost the single-instance lock) —
 	// don't build a window or boot the runtime.
 	if (!gotSingleInstanceLock) return;

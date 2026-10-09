@@ -86,7 +86,7 @@ export function RemoveComputerButton({
 				<AlertDialogPopup className="max-w-sm">
 					<AlertDialogHeader>
 						<AlertDialogTitle>
-							{message("providers:add_computer_dialog_remove_sentence", {
+							{message("common:removeNamedItem", {
 								value: entry.label,
 							})}
 						</AlertDialogTitle>

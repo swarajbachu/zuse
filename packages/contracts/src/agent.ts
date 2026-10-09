@@ -884,6 +884,8 @@ export const StartSessionInput = Schema.Struct({
 	workspaceInstructions: Schema.optional(Schema.String),
 	/** Replaced by ProviderService from the trusted runtime hook before starting a driver. */
 	executionEnv: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+	/** Internal: isolated account home resolved by ProviderService. */
+	providerAccountHome: Schema.optional(Schema.String),
 	// Optional caller-supplied id. When omitted, ProviderService mints a fresh
 	// one. The conversation domain uses this to lazy-restart a closed session without
 	// moving its persisted history to a new row.
@@ -1286,7 +1288,11 @@ export const LoginEvent = Schema.Union([
 export type LoginEvent = typeof LoginEvent.Type;
 
 export const ProviderStartLoginRpc = Rpc.make("provider.startLogin", {
-	payload: Schema.Struct({ providerId: ProviderId }),
+	payload: Schema.Struct({
+		providerId: ProviderId,
+		accountId: Schema.optional(Schema.String),
+		sessionId: Schema.optional(AgentSessionId),
+	}),
 	success: LoginEvent,
 	error: AgentSessionStartError,
 	stream: true,

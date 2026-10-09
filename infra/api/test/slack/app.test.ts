@@ -1899,6 +1899,135 @@ describe("conversational Slack app", () => {
 			providerId: "box",
 		});
 	});
+	it.each([
+		["select_project", "p1"],
+		["default_provider", "boxd"],
+		["reply_mode", "all"],
+	])("keeps a Home model choice when %s from the same view is queued first", async (action, selectedValue) => {
+		const app = await setup();
+		const http = mockServices();
+		const profile = await app.store.member(app.installation, "U1");
+		if (!profile.connection) throw new Error("Expected connection");
+		await app.store.saveMember(app.installation, "U1", {
+			...profile,
+			connection: { ...profile.connection, agent: undefined, model: undefined },
+		});
+		await publishHome(app.env, app.installation, "U1");
+		const current = await app.store.member(app.installation, "U1");
+		const view = {
+			private_metadata: JSON.stringify({
+				revision: app.installation.revision,
+				memberRevision: current.revision,
+				connectionId: profile.connection.webhookId,
+			}),
+		};
+		for (const [actionId, value, actionTs] of [
+			[action, selectedValue, "200.000001"],
+			["default_agent_model", "claude:claude-sonnet-5-5", "200.000002"],
+		])
+			await interactWith(app, {
+				type: "block_actions",
+				view,
+				actions: [
+					{
+						action_id: actionId,
+						action_ts: actionTs,
+						selected_option: { value },
+					},
+				],
+			});
+		await consumeNext(app);
+		await consumeNext(app);
+		http.result.missingAgent = true;
+		await app.event(mention);
+		await consumeNext(app);
+		expect(app.jobs.some((job) => job.kind === "agent-required")).toBe(false);
+		expect(
+			http.calls.find((call) => call.url.endsWith("/v1/api/workspaces"))?.body,
+		).toMatchObject({ agent: "claude", model: "claude-sonnet-5-5" });
+	});
+	it("keeps the latest Home model choice on out-of-order delivery and replay", async () => {
+		const app = await setup();
+		mockServices();
+		const profile = await app.store.member(app.installation, "U1");
+		if (!profile.connection) throw new Error("Expected connection");
+		const choose = (value: string, actionTs: string) =>
+			interactWith(app, {
+				type: "block_actions",
+				view: {
+					private_metadata: JSON.stringify({
+						revision: app.installation.revision,
+						memberRevision: profile.revision,
+						connectionId: profile.connection?.webhookId,
+					}),
+				},
+				actions: [
+					{
+						action_id: "default_agent_model",
+						action_ts: actionTs,
+						selected_option: { value },
+					},
+				],
+			});
+		await choose("claude:claude-sonnet-5-5", "200.000002");
+		await choose("codex:gpt-6-astra", "200.000001");
+		await choose("claude:claude-sonnet-5-5", "200.000002");
+		await consumeNext(app);
+		const saved = await app.store.member(app.installation, "U1");
+		await consumeNext(app);
+		await consumeNext(app);
+		expect(await app.store.member(app.installation, "U1")).toEqual(saved);
+		expect(saved.connection).toMatchObject({
+			agent: "claude",
+			model: "claude-sonnet-5-5",
+		});
+		await choose("codex:gpt-6-astra", "200.000003");
+		await consumeNext(app);
+		expect(
+			(await app.store.member(app.installation, "U1")).connection,
+		).toMatchObject({
+			agent: "codex",
+			model: "gpt-6-astra",
+		});
+	});
+	it.each([
+		"reconnect",
+		"picker",
+	])("rejects queued Home defaults after a %s change", async (change) => {
+		const app = await setup();
+		mockServices();
+		const profile = await app.store.member(app.installation, "U1");
+		if (!profile.connection) throw new Error("Expected connection");
+		await interactWith(app, {
+			type: "block_actions",
+			view: {
+				private_metadata: JSON.stringify({
+					revision: app.installation.revision,
+					memberRevision: profile.revision,
+					connectionId: profile.connection.webhookId,
+				}),
+			},
+			actions: [
+				{
+					action_id: "default_agent_model",
+					action_ts: "200.000001",
+					selected_option: { value: "claude:claude-sonnet-5-5" },
+				},
+			],
+		});
+		await app.store.saveMember(app.installation, "U1", {
+			...profile,
+			connection: {
+				...profile.connection,
+				webhookId:
+					change === "reconnect" ? "wh_new" : profile.connection.webhookId,
+			},
+			defaults: { ...profile.defaults, projectId: "picker_project" },
+		});
+		const reconnected = await app.store.member(app.installation, "U1");
+		await consumeNext(app);
+		expect(await app.store.member(app.installation, "U1")).toEqual(reconnected);
+	});
 	it("saves independent execution defaults and sends them when creating a task", async () => {
 		const app = await setup();
 		const http = mockServices();

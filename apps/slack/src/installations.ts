@@ -22,10 +22,17 @@ export interface ZuseConnection {
 	readonly providerId?: string;
 	readonly projectId?: string;
 }
+export type HomeSetting =
+	| "agentModel"
+	| "providerId"
+	| "projectId"
+	| "replyMode";
 export interface MemberProfile {
 	readonly revision: number;
 	readonly connection: ZuseConnection | null;
 	readonly defaults: {
+		readonly homeActionTs?: Partial<Record<HomeSetting, string>>;
+		readonly homeRevision?: { readonly base: number; readonly current: number };
 		readonly replyMode?: "mentions" | "all";
 		readonly projectId?: string;
 		readonly channels: Readonly<Record<string, string>>;

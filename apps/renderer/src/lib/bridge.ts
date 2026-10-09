@@ -510,6 +510,7 @@ export interface NotchBridge {
 }
 
 export interface ZuseBridge {
+	readonly htmlVisualPublicNetwork?: boolean;
 	readonly locale?: import("@zuse/contracts").LocaleBridge;
 	readonly host?: HostDescriptor;
 	readonly rpc: RpcBridge;
