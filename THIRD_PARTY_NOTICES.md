@@ -55,6 +55,18 @@ modified the material on 2026-08-23, and distributes the resulting work under
 `AGPL-3.0-only`. The complete GNU Affero General Public License version 3 is
 reproduced in [`LICENSE`](LICENSE).
 
+## Linux package installation hooks
+
+The alternative-link and desktop-cache handling in
+`apps/desktop/build/linux/after-install.tpl` and `after-remove.tpl` is adapted
+from electron-builder's Linux templates at version 25.1.8
+([revision 1d61d6f](https://github.com/electron-userland/electron-builder/tree/1d61d6f59061be23d5cd8602a65e8ce10861ccc0/packages/app-builder-lib/templates/linux)).
+
+Copyright (c) 2015 Loopline Systems.
+
+These templates are licensed under MIT; the permission and warranty terms in
+the preserved MIT license below also apply to these adaptations.
+
 ## Library and framework foundations
 
 The project also builds directly on public libraries and component registries:

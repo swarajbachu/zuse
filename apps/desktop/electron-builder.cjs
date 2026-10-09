@@ -10,6 +10,10 @@ const config = parse(
 // selects dist-electron twice on Linux and hard-linking unpacked child scripts
 // then fails with EEXIST. Compose one list before passing it to the builder.
 if (process.platform === "linux") {
+	// FPM derives /opt/<productName> from this top-level value. Chromium's
+	// SUID zygote cannot launch from a path containing spaces (Electron #44414).
+	// The desktop entry keeps the visible Zuse (Beta) name via linux.desktop.
+	config.productName = config.linux.executableName;
 	config.files = [...config.files, ...config.linux.files];
 	delete config.linux.files;
 }

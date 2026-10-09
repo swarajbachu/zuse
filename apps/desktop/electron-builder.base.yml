@@ -177,6 +177,8 @@ linux:
 
 deb:
   packageName: zuse
+  afterInstall: build/linux/after-install.tpl
+  afterRemove: build/linux/after-remove.tpl
   depends:
     - libsecret-1-0
     - avahi-utils
