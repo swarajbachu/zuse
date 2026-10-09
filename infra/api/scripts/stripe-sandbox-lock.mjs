@@ -1,8 +1,9 @@
-import { closeSync, mkdirSync, openSync, unlinkSync } from "node:fs";
+import { chmodSync, closeSync, mkdirSync, openSync, unlinkSync } from "node:fs";
 
 /** Acquires an exclusive runner lock and releases it on exit or termination. */
 export function acquireRunnerLock(directory) {
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
+	chmodSync(directory, 0o700);
 	const path = `${directory}/runner.lock`;
 	const descriptor = openSync(path, "wx", 0o600);
 	let released = false;
