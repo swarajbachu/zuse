@@ -3,6 +3,7 @@ import * as fsSync from "node:fs";
 import * as Path from "node:path";
 import {
 	type FolderId,
+	type GatedRepositoryConfig,
 	type ProviderId,
 	RepositorySettings,
 	type RepositorySettingsFile,
@@ -125,6 +126,8 @@ const tomlPath = (repoPath: string): string =>
 	Path.join(settingsDir(repoPath), "settings.toml");
 const worktreeIncludePath = (repoPath: string): string =>
 	Path.join(repoPath, ".worktreeinclude");
+const projectMcpJsonPath = (repoPath: string): string =>
+	Path.join(repoPath, ".mcp.json");
 
 const readLegacyWorktreeInclude = (repoPath: string): string => {
 	const filePath = worktreeIncludePath(repoPath);
@@ -438,9 +441,73 @@ const removeLegacyJsonSettings = (repoPath: string): void => {
 	}
 };
 
+/**
+ * Server names declared by the repository's `.mcp.json`. Names only — the
+ * entries themselves stay gated until the project is trusted.
+ */
+const repoMcpServerNames = (repoPath: string): string[] => {
+	const filePath = projectMcpJsonPath(repoPath);
+	if (!fsSync.existsSync(filePath)) return [];
+	try {
+		const parsed = JSON.parse(fsSync.readFileSync(filePath, "utf8")) as unknown;
+		if (typeof parsed !== "object" || parsed === null) return [];
+		const servers = (parsed as Record<string, unknown>).mcpServers;
+		if (typeof servers !== "object" || servers === null) return [];
+		return Object.keys(servers as Record<string, unknown>).filter(
+			(name) => name.length > 0,
+		);
+	} catch {
+		return [];
+	}
+};
+
+/**
+ * What the repository's config would do if the project were trusted —
+ * the banner renders this so the user can make an informed decision.
+ * `null` when the repo ships nothing worth gating (no banner needed).
+ */
+const gatedConfigFor = (
+	file: RepositorySettingsFile,
+	repoPath: string,
+): GatedRepositoryConfig | null => {
+	const environmentVariableNames = [
+		...Object.keys(file.environmentVariables),
+		...Object.keys(file.cloudEnvironmentVariables),
+	];
+	const config: GatedRepositoryConfig = {
+		setupScript: cleanScript(file.setupScript),
+		runScript: cleanScript(file.runScript),
+		archiveCleanupScript: cleanScript(file.archiveCleanupScript),
+		autoRunAfterSetup: file.autoRunAfterSetup,
+		environmentVariableNames,
+		mcpServerNames: repoMcpServerNames(repoPath),
+		otherOverrides:
+			file.defaultProviderId !== null ||
+			file.defaultModel !== null ||
+			file.defaultRuntimeMode !== null ||
+			file.autoCreateWorktree ||
+			file.worktreeBaseDir !== null ||
+			file.fileIncludeGlobs.trim().length > 0 ||
+			file.mcpDisabledServers.length > 0,
+	};
+	const hasGatedItems =
+		config.setupScript !== null ||
+		config.runScript !== null ||
+		config.archiveCleanupScript !== null ||
+		config.autoRunAfterSetup ||
+		config.environmentVariableNames.length > 0 ||
+		config.mcpServerNames.length > 0 ||
+		config.otherOverrides;
+	return hasGatedItems ? config : null;
+};
+
 const fileToSettings = (
 	projectId: FolderId,
 	file: RepositorySettingsFile,
+	trust: {
+		readonly trusted: boolean;
+		readonly gatedConfig: GatedRepositoryConfig | null;
+	},
 ): RepositorySettings =>
 	RepositorySettings.make({
 		projectId,
@@ -457,6 +524,8 @@ const fileToSettings = (
 		cloudEnvironmentVariables: file.cloudEnvironmentVariables,
 		fileIncludeGlobs: file.fileIncludeGlobs,
 		mcpDisabledServers: file.mcpDisabledServers,
+		trusted: trust.trusted,
+		gatedConfig: trust.gatedConfig,
 	});
 
 const settingsToFile = (
@@ -551,6 +620,11 @@ const applyPatch = (
 			patch.cloudEnvironmentVariables ?? current.cloudEnvironmentVariables,
 		fileIncludeGlobs: patch.fileIncludeGlobs ?? current.fileIncludeGlobs,
 		mcpDisabledServers: patch.mcpDisabledServers ?? current.mcpDisabledServers,
+		// `trusted` is applied to the project row by `update`, never to the
+		// repository file — `settingsToFile` drops it (and `gatedConfig`)
+		// either way.
+		trusted: "trusted" in patch ? (patch.trusted ?? false) : current.trusted,
+		gatedConfig: current.gatedConfig,
 	});
 
 export const RepositorySettingsServiceLive = Layer.effect(
@@ -594,12 +668,31 @@ export const RepositorySettingsServiceLive = Layer.effect(
       `.pipe(Effect.orDie);
 		}
 
-		const projectPath = (projectId: FolderId) =>
+		// The trust flag rides on `projects` (migration 0064 adds it; the
+		// defensive ALTER keeps test harnesses that hand-build minimal
+		// project tables working).
+		const projectColumns = yield* sql<{ readonly name: string }>`
+      PRAGMA table_info(projects)
+    `.pipe(Effect.orDie);
+		if (
+			projectColumns.length > 0 &&
+			!projectColumns.some((column) => column.name === "trusted")
+		) {
+			yield* sql`
+        ALTER TABLE projects
+          ADD COLUMN trusted INTEGER NOT NULL DEFAULT 0
+      `.pipe(Effect.orDie);
+		}
+
+		const projectRow = (projectId: FolderId) =>
 			Effect.gen(function* () {
-				const rows = yield* sql<{ readonly path: string }>`
-          SELECT path FROM projects WHERE id = ${projectId} LIMIT 1
+				const rows = yield* sql<{
+					readonly path: string;
+					readonly trusted: number;
+				}>`
+          SELECT path, trusted FROM projects WHERE id = ${projectId} LIMIT 1
         `.pipe(Effect.orDie);
-				return rows[0]?.path ?? null;
+				return rows[0] ?? null;
 			});
 
 		const legacyRow = (projectId: FolderId) =>
@@ -642,28 +735,108 @@ export const RepositorySettingsServiceLive = Layer.effect(
 
 		const get: RepositorySettingsService["Service"]["get"] = (projectId) =>
 			Effect.gen(function* () {
-				const repoPath = yield* projectPath(projectId);
+				const project = yield* projectRow(projectId);
 				const file =
-					repoPath === null
+					project === null
 						? emptyFileSettings()
-						: yield* resolveFile(projectId, repoPath);
-				return fileToSettings(projectId, file);
+						: yield* resolveFile(projectId, project.path);
+				// Untrusted projects get the empty-settings view: every consumer
+				// (worktree setup/run scripts, archive cleanup, env vars, include
+				// globs, runtime-mode/provider defaults, repo MCP disables, and
+				// the renderer's auto-run check) reads through here, so one gate
+				// holds back all repo-shipped configuration. `gatedConfig` tells
+				// the renderer what is being held back so it can show the banner.
+				const trusted = project?.trusted === 1;
+				if (trusted) {
+					return fileToSettings(projectId, file, {
+						trusted: true,
+						gatedConfig: null,
+					});
+				}
+				return fileToSettings(projectId, emptyFileSettings(), {
+					trusted: false,
+					gatedConfig:
+						project === null ? null : gatedConfigFor(file, project.path),
+				});
 			});
+
+		const FILE_PATCH_KEYS = [
+			"defaultProviderId",
+			"defaultModel",
+			"defaultRuntimeMode",
+			"autoCreateWorktree",
+			"worktreeBaseDir",
+			"archiveCleanupScript",
+			"setupScript",
+			"runScript",
+			"autoRunAfterSetup",
+			"environmentVariables",
+			"cloudEnvironmentVariables",
+			"fileIncludeGlobs",
+			"mcpDisabledServers",
+		] as const;
 
 		const update: RepositorySettingsService["Service"]["update"] = (
 			projectId,
 			patch,
 		) =>
 			Effect.gen(function* () {
-				const repoPath = yield* projectPath(projectId);
-				const current = yield* get(projectId);
+				const project = yield* projectRow(projectId);
+				// Merge into the real on-disk file — not the trust-gated view —
+				// so a settings edit on an untrusted project preserves the
+				// repo-shipped values it cannot see.
+				const rawFile =
+					project === null
+						? emptyFileSettings()
+						: yield* resolveFile(projectId, project.path);
+				const current = fileToSettings(projectId, rawFile, {
+					trusted: project?.trusted === 1,
+					gatedConfig: null,
+				});
 				const next = applyPatch(projectId, current, patch);
-				if (repoPath !== null) {
-					writeTomlSettings(repoPath, settingsToFile(next));
-					removeLegacyJsonSettings(repoPath);
+				// Callers build collection patches from the gated (empty) view, so
+				// a plain replace would drop repo-shipped entries the user never
+				// saw. While a project is untrusted, collection fields merge
+				// union-wise — a patch can add entries but never delete ones the
+				// repo shipped. Full replace semantics return once trusted.
+				const effectiveTrusted =
+					patch.trusted === true || (project !== null && project.trusted === 1);
+				const merged =
+					effectiveTrusted || project === null
+						? next
+						: RepositorySettings.make({
+								...next,
+								environmentVariables: {
+									...current.environmentVariables,
+									...(patch.environmentVariables ?? {}),
+								},
+								cloudEnvironmentVariables: {
+									...current.cloudEnvironmentVariables,
+									...(patch.cloudEnvironmentVariables ?? {}),
+								},
+								mcpDisabledServers: [
+									...new Set([
+										...current.mcpDisabledServers,
+										...(patch.mcpDisabledServers ?? []),
+									]),
+								],
+							});
+				// Only rewrite the file when the patch actually touches file
+				// fields — a bare `trusted` grant leaves the repo's
+				// `.zuse/settings.toml` byte-for-byte intact.
+				const touchesFile = FILE_PATCH_KEYS.some((key) => key in patch);
+				if (project !== null && touchesFile) {
+					writeTomlSettings(project.path, settingsToFile(merged));
+					removeLegacyJsonSettings(project.path);
 					yield* clearLegacyRow(projectId);
 				}
-				return next;
+				if ("trusted" in patch && patch.trusted !== undefined) {
+					yield* sql`
+            UPDATE projects SET trusted = ${patch.trusted ? 1 : 0}
+            WHERE id = ${projectId}
+          `.pipe(Effect.orDie);
+				}
+				return yield* get(projectId);
 			});
 
 		return { get, update } as const;

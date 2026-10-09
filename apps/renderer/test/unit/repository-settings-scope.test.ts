@@ -30,6 +30,8 @@ const settings = RepositorySettings.make({
 	cloudEnvironmentVariables: {},
 	fileIncludeGlobs: "",
 	mcpDisabledServers: [],
+	trusted: true,
+	gatedConfig: null,
 });
 
 beforeEach(() => {

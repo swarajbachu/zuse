@@ -82,6 +82,9 @@ it.each([
 					indexes:
 						yield* sql`SELECT name FROM sqlite_master WHERE name = 'idx_events_kind_sequence'`,
 					columns: yield* sql<{ name: string }>`PRAGMA table_info(chats)`,
+					projectColumns: yield* sql<{
+						name: string;
+					}>`PRAGMA table_info(projects)`,
 				};
 			}),
 		);
@@ -95,12 +98,16 @@ it.each([
 			{ migration_id: 61, name: "harness_executions" },
 			{ migration_id: 62, name: "model_connections" },
 			{ migration_id: 63, name: "project_workspace_key" },
+			{ migration_id: 64, name: "project_trust" },
 		]);
 		expect(state.harness).toEqual([]);
 		expect(state.connections).toEqual([]);
 		expect(state.indexes).toHaveLength(1);
 		expect(
 			state.columns.some((column) => column.name === "last_user_message_at"),
+		).toBe(true);
+		expect(
+			state.projectColumns.some((column) => column.name === "trusted"),
 		).toBe(true);
 	} finally {
 		await runtime.dispose();

@@ -5,6 +5,35 @@ import { ProviderId, RuntimeMode } from "./agent.ts";
 import { FolderId } from "./ids.ts";
 
 /**
+ * Summary of the repository-provided configuration Zuse holds back while a
+ * project is untrusted. Server-side only — computed by the repository
+ * settings service so the renderer can show the user exactly what would
+ * run (or be applied) once trust is granted. Never persisted.
+ */
+export const GatedRepositoryConfig = Schema.Struct({
+	/** `[scripts].setup` from `.zuse/settings.*`, when the repo ships one. */
+	setupScript: Schema.NullOr(Schema.String),
+	/** `[scripts].run` from `.zuse/settings.*`, when the repo ships one. */
+	runScript: Schema.NullOr(Schema.String),
+	/** `[scripts].archive` from `.zuse/settings.*`, when the repo ships one. */
+	archiveCleanupScript: Schema.NullOr(Schema.String),
+	/** `[scripts].auto_run_after_setup` from `.zuse/settings.*`. */
+	autoRunAfterSetup: Schema.Boolean,
+	/** Names only — values stay server-side even in the gated summary. */
+	environmentVariableNames: Schema.Array(Schema.String),
+	/** Server names found in the repo's `.mcp.json`. */
+	mcpServerNames: Schema.Array(Schema.String),
+	/**
+	 * True when the repo file also overrides non-script fields (provider,
+	 * model, runtime mode, worktree options, include globs, disabled MCP
+	 * servers). Those are gated too; they are summarized as one flag
+	 * instead of leaking the values.
+	 */
+	otherOverrides: Schema.Boolean,
+});
+export type GatedRepositoryConfig = typeof GatedRepositoryConfig.Type;
+
+/**
  * Per-repository overrides on top of the global Settings. A `null` field
  * means "fall through to global default"; the renderer is responsible for
  * collapsing this layer at read-time. Persisted in `.zuse/settings.json`
@@ -53,6 +82,21 @@ export class RepositorySettings extends Schema.Class<RepositorySettings>(
 	 * `mcpDisabledServers` list at read-time.
 	 */
 	mcpDisabledServers: Schema.Array(Schema.String),
+	/**
+	 * Whether the user has granted this project permission to apply
+	 * repository-provided configuration. Lives server-side (a column on the
+	 * `projects` row) — never inside `.zuse/settings.*`, which the repo
+	 * itself controls and could use to self-trust. When false, every field
+	 * above is reported as its empty default and `gatedConfig` describes
+	 * what is being held back.
+	 */
+	trusted: Schema.Boolean,
+	/**
+	 * Non-null when the project is untrusted AND the repository ships
+	 * configuration Zuse is holding back. Drives the trust banner; `null`
+	 * for trusted projects and for untrusted projects with nothing to gate.
+	 */
+	gatedConfig: Schema.NullOr(GatedRepositoryConfig),
 }) {}
 
 /**
@@ -78,6 +122,12 @@ export const RepositorySettingsPatch = Schema.Struct({
 	),
 	fileIncludeGlobs: Schema.optional(Schema.String),
 	mcpDisabledServers: Schema.optional(Schema.Array(Schema.String)),
+	/**
+	 * Grant or revoke trust. Server-side state only — this field is never
+	 * written into `.zuse/settings.*` (the repo must not be able to flip it
+	 * by editing its own config file).
+	 */
+	trusted: Schema.optional(Schema.Boolean),
 });
 export type RepositorySettingsPatch = typeof RepositorySettingsPatch.Type;
 

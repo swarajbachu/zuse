@@ -15805,6 +15805,116 @@
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
+	"projects:project_trust_gate_title": {
+		"source": "This repository ships Zuse configuration",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/project-trust-gate.tsx",
+				"line": 116
+			}
+		],
+		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"projects:project_trust_gate_setup_script": {
+		"source": "Setup script: {{value}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/project-trust-gate.tsx",
+				"line": 60
+			}
+		],
+		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"projects:project_trust_gate_run_script": {
+		"source": "Run script: {{value}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/project-trust-gate.tsx",
+				"line": 66
+			}
+		],
+		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"projects:project_trust_gate_archive_script": {
+		"source": "Archive cleanup script: {{value}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/project-trust-gate.tsx",
+				"line": 72
+			}
+		],
+		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"projects:project_trust_gate_auto_run": {
+		"source": "Auto-runs the run script after setup",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/project-trust-gate.tsx",
+				"line": 77
+			}
+		],
+		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"projects:project_trust_gate_env_vars": {
+		"source": "Environment variables: {{value}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/project-trust-gate.tsx",
+				"line": 80
+			}
+		],
+		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"projects:project_trust_gate_mcp_servers": {
+		"source": "MCP servers: {{value}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/project-trust-gate.tsx",
+				"line": 86
+			}
+		],
+		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"projects:project_trust_gate_other_overrides": {
+		"source": "Repository setting overrides",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/project-trust-gate.tsx",
+				"line": 91
+			}
+		],
+		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"projects:project_trust_gate_footer": {
+		"source": "Repository configuration is held back until you trust this project. Review .zuse/settings.toml and .mcp.json first.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/project-trust-gate.tsx",
+				"line": 122
+			}
+		],
+		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"projects:project_trust_gate_trust": {
+		"source": "Trust project",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/project-trust-gate.tsx",
+				"line": 140
+			}
+		],
+		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"projects:project_trust_gate_dismiss": {
+		"source": "Keep untrusted",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/project-trust-gate.tsx",
+				"line": 132
+			}
+		],
+		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
 	"providers:add_computer_dialog_your_computers": {
 		"source": "Your computers",
 		"locations": [
@@ -30261,7 +30371,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/shell/main-shell.tsx",
-				"line": 766
+				"line": 781
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30271,7 +30381,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/shell/main-shell.tsx",
-				"line": 866
+				"line": 881
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30281,7 +30391,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/shell/main-shell.tsx",
-				"line": 884
+				"line": 899
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

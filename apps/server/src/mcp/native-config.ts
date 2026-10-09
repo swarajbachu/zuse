@@ -272,6 +272,27 @@ export const codexConfigPath = (): string =>
 export const projectMcpJsonPath = (cwd: string): string =>
 	Path.join(cwd, ".mcp.json");
 
+/**
+ * The one source a repository fully controls: `<cwd>/.mcp.json`. Every
+ * other scope is user-authored (`~/.claude.json` user/local entries,
+ * `~/.codex/config.toml`) or app-owned (`builtin`).
+ */
+const REPO_CONTROLLED_SOURCE: McpServerSource = "claude-project";
+
+/**
+ * Drop repository-shipped MCP servers unless the owning project is
+ * trusted. `.mcp.json` entries passed to the SDK are auto-approved — the
+ * CLI's own "trust this project's servers?" prompt never runs inside
+ * Zuse — so an untrusted checkout must not contribute any.
+ */
+export const gateServersForProjectTrust = <T extends { source: string }>(
+	servers: ReadonlyArray<T>,
+	trusted: boolean,
+): ReadonlyArray<T> =>
+	trusted
+		? servers
+		: servers.filter((server) => server.source !== REPO_CONTROLLED_SOURCE);
+
 const readJsonFile = (filePath: string): unknown => {
 	try {
 		return JSON.parse(fsSync.readFileSync(filePath, "utf8")) as unknown;

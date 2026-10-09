@@ -305,5 +305,16 @@
 	"projects_sidebar_plan_cloud": "⟦Clôôüüd⟧",
 	"projects_sidebar_plan_cloud_tooltip": "⟦Züüsëë Clôôüüd plààn · Màànààgëë bïïllïïng⟧",
 	"project_setup_dialog_in_other_workspace": "⟦Thïïs fôôldëër ïïs ààlrëëààdy àà prôôjëëct ïïn àànôôthëër wôôrkspààcëë. Môôvëë ïït hëërëë? ÏÏts chààts môôvëë wïïth ïït.⟧",
-	"project_setup_dialog_move_here": "⟦Môôvëë hëërëë⟧"
+	"project_setup_dialog_move_here": "⟦Môôvëë hëërëë⟧",
+	"project_trust_gate_title": "⟦Thïïs rëëpôôsïïtôôry shïïps Züüsëë côônfïïgüürààtïïôôn⟧",
+	"project_trust_gate_setup_script": "⟦Sëëtüüp scrïïpt: {{value}}⟧",
+	"project_trust_gate_run_script": "⟦Rüün scrïïpt: {{value}}⟧",
+	"project_trust_gate_archive_script": "⟦ÀÀrchïïvëë clëëàànüüp scrïïpt: {{value}}⟧",
+	"project_trust_gate_auto_run": "⟦ÀÀüütôô-rüüns thëë rüün scrïïpt ààftëër sëëtüüp⟧",
+	"project_trust_gate_env_vars": "⟦ËËnvïïrôônmëënt vààrïïààblëës: {{value}}⟧",
+	"project_trust_gate_mcp_servers": "⟦MCP sëërvëërs: {{value}}⟧",
+	"project_trust_gate_other_overrides": "⟦Rëëpôôsïïtôôry sëëttïïng ôôvëërrïïdëës⟧",
+	"project_trust_gate_footer": "⟦Rëëpôôsïïtôôry côônfïïgüürààtïïôôn ïïs hëëld bààck üüntïïl yôôüü trüüst thïïs prôôjëëct. Rëëvïïëëw .züüsëë/sëëttïïngs.tôôml àànd .mcp.jsôôn fïïrst.⟧",
+	"project_trust_gate_trust": "⟦Trüüst prôôjëëct⟧",
+	"project_trust_gate_dismiss": "⟦Këëëëp üüntrüüstëëd⟧"
 }

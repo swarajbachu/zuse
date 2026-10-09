@@ -305,5 +305,16 @@
 	"projects_sidebar_plan_cloud": "Cloud",
 	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud プラン · 請求を管理",
 	"project_setup_dialog_in_other_workspace": "このフォルダーは既に別のワークスペースのプロジェクトです。ここに移動しますか？チャットも一緒に移動します。",
-	"project_setup_dialog_move_here": "ここに移動"
+	"project_setup_dialog_move_here": "ここに移動",
+	"project_trust_gate_archive_script": "アーカイブクリーンアップスクリプト：{{value}}",
+	"project_trust_gate_auto_run": "セットアップ後に実行スクリプトを自動実行します",
+	"project_trust_gate_dismiss": "信頼しない",
+	"project_trust_gate_env_vars": "環境変数：{{value}}",
+	"project_trust_gate_footer": "このプロジェクトを信頼するまでリポジトリの設定は保留されます。先に .zuse/settings.toml と .mcp.json を確認してください。",
+	"project_trust_gate_mcp_servers": "MCP サーバー：{{value}}",
+	"project_trust_gate_other_overrides": "リポジトリ設定のオーバーライド",
+	"project_trust_gate_run_script": "実行スクリプト：{{value}}",
+	"project_trust_gate_setup_script": "セットアップスクリプト：{{value}}",
+	"project_trust_gate_title": "このリポジトリには Zuse の設定が含まれています",
+	"project_trust_gate_trust": "プロジェクトを信頼"
 }

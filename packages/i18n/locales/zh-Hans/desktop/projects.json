@@ -305,5 +305,16 @@
 	"projects_sidebar_plan_cloud": "Cloud",
 	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud 套餐 · 管理账单",
 	"project_setup_dialog_in_other_workspace": "此文件夹已是另一个工作区中的项目。要移到这里吗？其聊天会一并移动。",
-	"project_setup_dialog_move_here": "移到这里"
+	"project_setup_dialog_move_here": "移到这里",
+	"project_trust_gate_archive_script": "归档清理脚本：{{value}}",
+	"project_trust_gate_auto_run": "设置后自动运行运行脚本",
+	"project_trust_gate_dismiss": "保持不信任",
+	"project_trust_gate_env_vars": "环境变量：{{value}}",
+	"project_trust_gate_footer": "在你信任此项目之前，仓库配置将保持停用。请先检查 .zuse/settings.toml 和 .mcp.json。",
+	"project_trust_gate_mcp_servers": "MCP 服务器：{{value}}",
+	"project_trust_gate_other_overrides": "仓库设置覆盖",
+	"project_trust_gate_run_script": "运行脚本：{{value}}",
+	"project_trust_gate_setup_script": "设置脚本：{{value}}",
+	"project_trust_gate_title": "此仓库附带 Zuse 配置",
+	"project_trust_gate_trust": "信任项目"
 }

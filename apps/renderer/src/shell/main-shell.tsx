@@ -1,4 +1,5 @@
 import { isCloudProjectFolder } from "../lib/cloud-project-folders.ts";
+import { repositorySettingsKey } from "../store/repository-settings.ts";
 import { SurfaceFallback } from "./surface-fallback.tsx";
 import "@zuse/i18n/english/shell";
 
@@ -154,6 +155,12 @@ const CliUpgradeBanner = lazy(() =>
 const DirectoryUnavailableBanner = lazy(() =>
 	import("../components/directory-unavailable-banner.tsx").then((module) => ({
 		default: module.DirectoryUnavailableBanner,
+	})),
+);
+
+const ProjectTrustGate = lazy(() =>
+	import("../components/project-trust-gate.tsx").then((module) => ({
+		default: module.ProjectTrustGate,
 	})),
 );
 
@@ -703,6 +710,19 @@ export function MainShell() {
 									<UpdateBanner />
 									<ProviderUpdatesToast />
 								</Suspense>
+								{selectedFolderId !== null &&
+								!isCloudProjectFolder(selectedFolderId) ? (
+									<Suspense fallback={null}>
+										<ProjectTrustGate
+											key={repositorySettingsKey(
+												selectedEnvironmentId,
+												selectedFolderId,
+											)}
+											environmentId={selectedEnvironmentId}
+											projectId={selectedFolderId}
+										/>
+									</Suspense>
+								) : null}
 								{showMainTabs ? (
 									<Suspense fallback={<TabsFallback />}>
 										<MainTabs

@@ -305,5 +305,16 @@
 	"projects_sidebar_plan_cloud": "Cloud",
 	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud 요금제 · 결제 관리",
 	"project_setup_dialog_in_other_workspace": "이 폴더는 이미 다른 워크스페이스의 프로젝트입니다. 여기로 옮길까요? 채팅도 함께 옮겨집니다.",
-	"project_setup_dialog_move_here": "여기로 이동"
+	"project_setup_dialog_move_here": "여기로 이동",
+	"project_trust_gate_archive_script": "아카이브 정리 스크립트: {{value}}",
+	"project_trust_gate_auto_run": "설정 후 실행 스크립트를 자동으로 실행합니다",
+	"project_trust_gate_dismiss": "신뢰하지 않음",
+	"project_trust_gate_env_vars": "환경 변수: {{value}}",
+	"project_trust_gate_footer": "이 프로젝트를 신뢰할 때까지 저장소 구성이 보류됩니다. 먼저 .zuse/settings.toml과 .mcp.json을 검토하세요.",
+	"project_trust_gate_mcp_servers": "MCP 서버: {{value}}",
+	"project_trust_gate_other_overrides": "저장소 설정 재정의",
+	"project_trust_gate_run_script": "실행 스크립트: {{value}}",
+	"project_trust_gate_setup_script": "설정 스크립트: {{value}}",
+	"project_trust_gate_title": "이 저장소에는 Zuse 구성이 포함되어 있습니다",
+	"project_trust_gate_trust": "프로젝트 신뢰"
 }

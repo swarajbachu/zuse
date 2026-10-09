@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	expandEnvRefs,
+	gateServersForProjectTrust,
 	legacyAppOwnedCodexServerNames,
 	parseClaudeServers,
 	parseCodexServers,
@@ -91,6 +92,39 @@ describe("parseClaudeServers", () => {
 			null,
 		);
 		expect(servers.map((s) => s.name)).toEqual(["good"]);
+	});
+});
+
+describe("gateServersForProjectTrust", () => {
+	const servers = parseClaudeServers(
+		{
+			mcpServers: {
+				userOnly: { type: "http", url: "https://user.example.com" },
+			},
+			projects: {
+				[CWD]: {
+					mcpServers: {
+						localOnly: { type: "http", url: "https://local.example.com" },
+					},
+				},
+			},
+		},
+		{
+			mcpServers: {
+				projectOnly: { command: "uvx", args: ["some-server"] },
+			},
+		},
+		CWD,
+	);
+
+	it("drops repo-controlled .mcp.json servers while a project is untrusted", () => {
+		const gated = gateServersForProjectTrust(servers, false);
+		expect(gated.map((s) => s.name).sort()).toEqual(["localOnly", "userOnly"]);
+		expect(gated.find((s) => s.source === "claude-project")).toBeUndefined();
+	});
+
+	it("passes every source through once the project is trusted", () => {
+		expect(gateServersForProjectTrust(servers, true)).toEqual(servers);
 	});
 });
 

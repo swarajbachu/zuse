@@ -608,6 +608,8 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
 				cloudEnvironmentVariables: {},
 				fileIncludeGlobs: "",
 				mcpDisabledServers: [],
+				trusted: true,
+				gatedConfig: null,
 			}),
 		),
 	update: (projectId, patch) =>
@@ -627,6 +629,8 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
 				cloudEnvironmentVariables: patch.cloudEnvironmentVariables ?? {},
 				fileIncludeGlobs: patch.fileIncludeGlobs ?? "",
 				mcpDisabledServers: patch.mcpDisabledServers ?? [],
+				trusted: patch.trusted ?? true,
+				gatedConfig: null,
 			}),
 		),
 });

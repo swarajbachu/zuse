@@ -287,6 +287,8 @@ export const makeConversationFixtureRuntime = (
 					cloudEnvironmentVariables: {},
 					fileIncludeGlobs: "",
 					mcpDisabledServers: [],
+					trusted: true,
+					gatedConfig: null,
 				}),
 			),
 		update: (projectId, patch) =>
@@ -306,6 +308,8 @@ export const makeConversationFixtureRuntime = (
 					cloudEnvironmentVariables: patch.cloudEnvironmentVariables ?? {},
 					fileIncludeGlobs: patch.fileIncludeGlobs ?? "",
 					mcpDisabledServers: patch.mcpDisabledServers ?? [],
+					trusted: patch.trusted ?? true,
+					gatedConfig: null,
 				}),
 			),
 	});

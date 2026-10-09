@@ -305,5 +305,16 @@
 	"projects_sidebar_plan_cloud": "Cloud",
 	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud 方案 · 管理帳單",
 	"project_setup_dialog_in_other_workspace": "此資料夾已是另一個工作區中的專案。要移到這裡嗎？其聊天會一併移動。",
-	"project_setup_dialog_move_here": "移到這裡"
+	"project_setup_dialog_move_here": "移到這裡",
+	"project_trust_gate_archive_script": "封存清理腳本：{{value}}",
+	"project_trust_gate_auto_run": "設定後自動執行執行腳本",
+	"project_trust_gate_dismiss": "保持不信任",
+	"project_trust_gate_env_vars": "環境變數：{{value}}",
+	"project_trust_gate_footer": "在你信任此專案之前，儲存庫設定將保持停用。請先檢查 .zuse/settings.toml 和 .mcp.json。",
+	"project_trust_gate_mcp_servers": "MCP 伺服器：{{value}}",
+	"project_trust_gate_other_overrides": "儲存庫設定覆寫",
+	"project_trust_gate_run_script": "執行腳本：{{value}}",
+	"project_trust_gate_setup_script": "設定腳本：{{value}}",
+	"project_trust_gate_title": "此儲存庫附帶 Zuse 設定",
+	"project_trust_gate_trust": "信任專案"
 }

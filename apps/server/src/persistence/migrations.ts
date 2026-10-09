@@ -64,6 +64,7 @@ import { Migration0060ChatUserMessageTime } from "./migrations/0060_chat_user_me
 import { Migration0061HarnessExecutions } from "./migrations/0061_harness_executions.ts";
 import { Migration0062ModelConnections } from "./migrations/0062_model_connections.ts";
 import { Migration0063ProjectWorkspaceKey } from "./migrations/0063_project_workspace_key.ts";
+import { Migration0064ProjectTrust } from "./migrations/0064_project_trust.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -157,6 +158,7 @@ const MigrationDefinitions = {
 	"0061_harness_executions": Migration0061HarnessExecutions,
 	"0062_model_connections": Migration0062ModelConnections,
 	"0063_project_workspace_key": Migration0063ProjectWorkspaceKey,
+	"0064_project_trust": Migration0064ProjectTrust,
 } as const;
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */

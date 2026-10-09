@@ -47,6 +47,7 @@ import {
 import { getValidMcpAccessToken, runMcpOauthFlow } from "../mcp-oauth.ts";
 import {
 	expandEnvRefs,
+	gateServersForProjectTrust,
 	type NativeMcpServer,
 	readNativeServers,
 } from "../native-config.ts";
@@ -298,15 +299,13 @@ export const McpServiceLive = Layer.effect(
 						? null
 						: yield* projectPath(scope.projectId);
 				const settings = yield* configStore.getSettings().pipe(Effect.orDie);
-				const repoDisabled =
+				const repoSettings =
 					scope.projectId === undefined
-						? []
-						: (yield* repositorySettings
-								.get(scope.projectId)
-								.pipe(Effect.orDie)).mcpDisabledServers;
+						? null
+						: yield* repositorySettings.get(scope.projectId).pipe(Effect.orDie);
 				const disabledKeys = new Set([
 					...settings.mcpDisabledServers,
-					...repoDisabled,
+					...(repoSettings?.mcpDisabledServers ?? []),
 				]);
 				const native = yield* Effect.sync(() =>
 					readNativeServers({
@@ -315,7 +314,13 @@ export const McpServiceLive = Layer.effect(
 					}),
 				).pipe(
 					Effect.map((servers) =>
-						servers.filter((server) => sourcesMatch(server, scope.provider)),
+						// `.mcp.json` entries are repo-controlled — they only flow
+						// through once the owning project is trusted. Global scope
+						// (no projectId) never reads a `.mcp.json` anyway.
+						gateServersForProjectTrust(
+							servers,
+							repoSettings?.trusted ?? true,
+						).filter((server) => sourcesMatch(server, scope.provider)),
 					),
 				);
 				const configuredDescriptors = native.map((server) =>
@@ -826,35 +831,45 @@ export const McpServiceLive = Layer.effect(
 		): Effect.Effect<ReadonlyArray<ResolvedMcpServer>> =>
 			Effect.gen(function* () {
 				const settings = yield* configStore.getSettings();
-				const native = readNativeServers({
-					cwd,
-					excludeCodexNames: RESERVED_CODEX_NAMES,
-				}).filter(
+				// Sessions hand us a cwd, not a projectId — map it back to the
+				// owning project (main checkout or any of its worktrees) so the
+				// repository's trust state applies. A cwd that maps to no known
+				// project gets no benefit of the doubt: `.mcp.json` is
+				// repo-controlled wherever it lands, so project-scope servers
+				// stay gated there too.
+				const projectRows = yield* sql<{ readonly id: string }>`
+						SELECT id FROM projects WHERE path = ${cwd} LIMIT 1
+					`.pipe(Effect.catch(() => Effect.succeed([])));
+				const worktreeRows =
+					projectRows.length > 0
+						? []
+						: yield* sql<{ readonly project_id: string }>`
+								SELECT project_id FROM worktrees WHERE path = ${cwd} LIMIT 1
+							`.pipe(Effect.catch(() => Effect.succeed([])));
+				const projectId = (projectRows[0]?.id ?? worktreeRows[0]?.project_id) as
+					| FolderId
+					| undefined;
+				const repoSettings =
+					projectId === undefined
+						? null
+						: yield* repositorySettings
+								.get(projectId)
+								.pipe(Effect.catch(() => Effect.succeed(null)));
+				const trusted =
+					projectId !== undefined && repoSettings?.trusted === true;
+				const native = gateServersForProjectTrust(
+					readNativeServers({
+						cwd,
+						excludeCodexNames: RESERVED_CODEX_NAMES,
+					}),
+					trusted,
+				).filter(
 					(server) =>
 						include(server) &&
 						server.enabledInConfig &&
 						!settings.mcpDisabledServers.includes(keyFor(server)),
 				);
-				// Per-repository disables also apply when the cwd maps to a known
-				// project (worktrees resolve to the project's repo settings file
-				// living in the checkout itself — read via the repo service when
-				// a projectId is known; sessions pass cwd only, so match by path).
-				const rows = yield* sql<{ readonly id: string }>`
-						SELECT id FROM projects WHERE path = ${cwd} LIMIT 1
-					`.pipe(Effect.catch(() => Effect.succeed([])));
-				const projectId = rows[0]?.id as FolderId | undefined;
-				const repoDisabled =
-					projectId === undefined
-						? new Set<string>()
-						: new Set(
-								(yield* repositorySettings
-									.get(projectId)
-									.pipe(
-										Effect.catch(() =>
-											Effect.succeed({ mcpDisabledServers: [] }),
-										),
-									)).mcpDisabledServers,
-							);
+				const repoDisabled = new Set(repoSettings?.mcpDisabledServers ?? []);
 				const nameCounts = new Map<string, number>();
 				for (const server of native) {
 					nameCounts.set(server.name, (nameCounts.get(server.name) ?? 0) + 1);
