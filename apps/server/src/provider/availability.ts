@@ -766,6 +766,11 @@ const CLAUDE_SUB_LABEL: Record<string, string> = {
 	free: "Requires Claude Pro",
 };
 
+const claudeSubscriptionLabel = (subscriptionType?: string): string => {
+	const tier = subscriptionType?.toLowerCase();
+	return (tier && CLAUDE_SUB_LABEL[tier]) || "Claude subscription";
+};
+
 interface ClaudeCredentialBlob {
 	readonly oauthAccount?: {
 		readonly emailAddress?: string;
@@ -787,7 +792,6 @@ const parseClaudeCredentials = (raw: string): AccountInfo => {
 	}
 	const oauth = parsed.claudeAiOauth;
 	if (!oauth) return { authStatus: "authenticated" };
-	const sub = oauth.subscriptionType?.toLowerCase();
 	const email = oauth.emailAddress ?? oauth.email;
 	// A present OAuth login already proves a paid Claude account — Claude Code
 	// agent usage is not available on the free tier. So only an *explicitly*
@@ -797,10 +801,7 @@ const parseClaudeCredentials = (raw: string): AccountInfo => {
 	// which only blocks on a *confirmed* below-entitlement tier.) Defaulting
 	// unknown tiers to "Requires …" wrongly nagged Pro users — and anyone whose
 	// tier string we don't map — to subscribe despite an active subscription.
-	const authLabel =
-		sub && CLAUDE_SUB_LABEL[sub]
-			? CLAUDE_SUB_LABEL[sub]
-			: "Claude subscription";
+	const authLabel = claudeSubscriptionLabel(oauth.subscriptionType);
 	return {
 		authStatus: "authenticated",
 		authType: "oauth",
@@ -893,9 +894,6 @@ const probeGrokAccount = (
 	});
 
 export const grokAuthTestHelpers = { parseGrokModelsAuth, probeGrokAccount };
-
-// Exported for tests only. Not part of the public module surface.
-export const claudeAuthTestHelpers = { parseClaudeCredentials };
 
 // Gemini CLI writes OAuth tokens + settings under `~/.gemini/` after the
 // first interactive sign-in. We
@@ -1091,12 +1089,18 @@ const probeNamedClaudeAccount = (
 				authStatus: "authenticated",
 				authType: "oauth",
 				authEmail: parsed.email,
-				authLabel: "Claude subscription",
+				authLabel: claudeSubscriptionLabel(parsed.subscriptionType),
 			} satisfies AccountInfo;
 		} catch {
 			return { authStatus: "unknown" } satisfies AccountInfo;
 		}
 	});
+
+// Exported for tests only. Not part of the public module surface.
+export const claudeAuthTestHelpers = {
+	parseClaudeCredentials,
+	probeNamedClaudeAccount,
+};
 
 const probeOne = (
 	probe: ProviderProbe,

@@ -102,7 +102,6 @@
 	"add_computer_dialog_username_optional_sentence": "用户名 <part0> 可选</part0>",
 	"add_computer_dialog_port_optional_sentence": "端口 <part0> 可选 </part0>",
 	"add_computer_dialog_label_optional_sentence": "标签 <part0> 可选 </part0>",
-	"add_computer_dialog_remove_sentence": "删除{{value}}？",
 	"add_computer_dialog_zuse_will_forget_this_computer_on_this_device_projects_and_d_sentence": "Zuse 将在此设备上忘记这台计算机。 {{value}} 上的项目和数据不会被删除。",
 	"opencode_provider_manager_configured_sentence": "{{value}}已配置",
 	"opencode_provider_manager_no_providers_match_sentence": "没有提供商匹配“{{query}}”。",
@@ -151,5 +150,6 @@
 	"accounts_selected": "已选择",
 	"accounts_waiting": "请在浏览器中完成登录。",
 	"accounts_open_browser": "打开浏览器",
-	"accounts_signed_in": "已登录"
+	"accounts_signed_in": "已登录",
+	"accounts_remove_description": "将此账号从设置中移除。使用此账号的聊天将无法恢复。登录文件和聊天记录会保留。"
 }

@@ -8588,11 +8588,15 @@
 			},
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 287
+				"line": 302
 			},
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 393
+				"line": 428
+			},
+			{
+				"path": "apps/renderer/src/components/provider-accounts.tsx",
+				"line": 493
 			},
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
@@ -8698,7 +8702,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 319
+				"line": 353
 			},
 			{
 				"path": "apps/renderer/src/components/settings/cloud-snapshot-settings.tsx",
@@ -8864,7 +8868,11 @@
 			},
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 431
+				"line": 459
+			},
+			{
+				"path": "apps/renderer/src/components/provider-accounts.tsx",
+				"line": 502
 			},
 			{
 				"path": "apps/renderer/src/components/remove-computer-button.tsx",
@@ -8902,7 +8910,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 152
+				"line": 167
 			},
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
@@ -9059,7 +9067,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 416
+				"line": 451
 			},
 			{
 				"path": "apps/desktop/src/menu.ts",
@@ -9147,7 +9155,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 413
+				"line": 448
 			},
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
@@ -9392,6 +9400,20 @@
 			{
 				"path": "apps/renderer/src/components/copy-button.tsx",
 				"line": 43
+			}
+		],
+		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"common:removeNamedItem": {
+		"source": "Remove {{value}}?",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/provider-accounts.tsx",
+				"line": 475
+			},
+			{
+				"path": "apps/renderer/src/components/remove-computer-button.tsx",
+				"line": 89
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16910,16 +16932,6 @@
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
-	"providers:add_computer_dialog_remove_sentence": {
-		"source": "Remove {{value}}?",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/remove-computer-button.tsx",
-				"line": 89
-			}
-		],
-		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
 	"providers:add_computer_dialog_zuse_will_forget_this_computer_on_this_device_projects_and_d_sentence": {
 		"source": "Zuse will forget this computer on this device. Projects and data on {{value}} are not deleted.",
 		"locations": [
@@ -17251,7 +17263,7 @@
 			},
 			{
 				"path": "apps/renderer/src/store/providers.ts",
-				"line": 358
+				"line": 369
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17311,7 +17323,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/store/providers.ts",
-				"line": 378
+				"line": 389
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17331,7 +17343,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 95
+				"line": 109
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17341,7 +17353,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 118
+				"line": 132
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17351,11 +17363,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 151
+				"line": 166
 			},
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 262
+				"line": 277
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17365,11 +17377,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 100
+				"line": 114
 			},
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 105
+				"line": 119
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17379,7 +17391,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 126
+				"line": 140
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17389,7 +17401,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 223
+				"line": 238
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17399,7 +17411,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 214
+				"line": 229
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17409,7 +17421,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 342
+				"line": 376
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17419,7 +17431,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 384
+				"line": 419
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17429,7 +17441,17 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-accounts.tsx",
-				"line": 354
+				"line": 388
+			}
+		],
+		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"providers:accounts_remove_description": {
+		"source": "Removes this account from Settings. Chats using it cannot resume. Login files and transcripts are kept.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/provider-accounts.tsx",
+				"line": 478
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

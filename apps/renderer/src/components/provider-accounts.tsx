@@ -10,11 +10,25 @@ import {
 	Plus,
 	SquareTerminal,
 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { formatError } from "../lib/format-error.ts";
 import { runtimeOperationClient } from "../lib/runtime-operation-client.ts";
 import { openExternal, useProviderLogin } from "../lib/use-provider-login.ts";
 import { cn } from "../lib/utils.ts";
+import {
+	AlertDialog,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogPopup,
+	AlertDialogTitle,
+} from "./ui/alert-dialog.tsx";
 import { Button } from "./ui/button.tsx";
 import { Input } from "./ui/input.tsx";
 import {
@@ -139,6 +153,7 @@ export function ProviderAccountsControls({
 					{accounts.map((account) => (
 						<ProviderAccountRow
 							key={account.id}
+							error={error}
 							account={account}
 							environmentId={environmentId}
 							busy={busy}
@@ -294,11 +309,13 @@ function ProviderAccountRow({
 	account,
 	environmentId,
 	busy,
+	error,
 	run,
 }: {
 	account: ProviderAccount;
 	environmentId: string;
 	busy: boolean;
+	error: string | null;
 	run: (
 		operation: (
 			client: Awaited<ReturnType<typeof runtimeOperationClient>>,
@@ -307,6 +324,23 @@ function ProviderAccountRow({
 }) {
 	const { message: t } = useMessages(["providers", "common"]);
 	const [editing, setEditing] = useState(false);
+	const [removing, setRemoving] = useState(false);
+	const removalPending = useRef(false);
+	const confirmRemoval = async () => {
+		if (busy || removalPending.current) return;
+		removalPending.current = true;
+		try {
+			const ok = await run((client) =>
+				client["provider.accounts.remove"]({
+					providerId: account.providerId,
+					id: account.id,
+				}),
+			);
+			if (ok) setRemoving(false);
+		} finally {
+			removalPending.current = false;
+		}
+	};
 	const login = useProviderLogin(account.providerId, {
 		environmentId,
 		accountId: account.id,
@@ -355,85 +389,121 @@ function ProviderAccountRow({
 			</span>
 		) : undefined;
 	return (
-		<AccountRowShell
-			leading={account.name.trim().charAt(0)}
-			label={account.name}
-			status={status}
-			selected={account.preferred}
-			disabled={busy || state.kind === "waiting"}
-			onSelect={() =>
-				void run((client) =>
-					client["provider.accounts.preferred"]({
-						providerId: account.providerId,
-						id: account.id,
-					}),
-				)
-			}
-			trailing={
-				state.kind === "waiting" ? (
-					<div className="flex shrink-0 items-center">
-						{state.url && (
+		<>
+			<AccountRowShell
+				leading={account.name.trim().charAt(0)}
+				label={account.name}
+				status={status}
+				selected={account.preferred}
+				disabled={busy || state.kind === "waiting"}
+				onSelect={() =>
+					void run((client) =>
+						client["provider.accounts.preferred"]({
+							providerId: account.providerId,
+							id: account.id,
+						}),
+					)
+				}
+				trailing={
+					state.kind === "waiting" ? (
+						<div className="flex shrink-0 items-center">
+							{state.url && (
+								<Button
+									className="h-7 px-2 text-[11px]"
+									size="xs"
+									variant="ghost"
+									onClick={() => {
+										if (state.url) void openExternal(state.url);
+									}}
+								>
+									{t("providers:accounts_open_browser")}
+								</Button>
+							)}
 							<Button
-								className="h-7 px-2 text-[11px]"
+								className="h-7 px-2 text-[11px] text-muted-foreground"
 								size="xs"
 								variant="ghost"
-								onClick={() => {
-									if (state.url) void openExternal(state.url);
-								}}
+								onClick={login.cancel}
 							>
-								{t("providers:accounts_open_browser")}
+								{t("common:cancel")}
 							</Button>
-						)}
+						</div>
+					) : (
+						<Menu>
+							<MenuTrigger
+								render={
+									<Button
+										className="h-7 w-7 text-muted-foreground"
+										size="icon-sm"
+										variant="ghost"
+										disabled={busy}
+										aria-label={account.name}
+									/>
+								}
+							>
+								<MoreHorizontal className="size-3.5" />
+							</MenuTrigger>
+							<MenuPopup align="end">
+								<MenuItem className="h-7" onClick={() => void login.start()}>
+									{t("common:signIn")}
+								</MenuItem>
+								<MenuItem className="h-7" onClick={() => setEditing(true)}>
+									{t("common:edit")}
+								</MenuItem>
+								<MenuSeparator />
+								<MenuItem
+									className="h-7"
+									variant="destructive"
+									onClick={() => setRemoving(true)}
+								>
+									{t("common:remove")}
+								</MenuItem>
+							</MenuPopup>
+						</Menu>
+					)
+				}
+			/>
+			<AlertDialog
+				open={removing}
+				onOpenChange={(open) => {
+					if (!removalPending.current) setRemoving(open);
+				}}
+			>
+				<AlertDialogPopup className="max-w-sm">
+					<AlertDialogHeader>
+						<AlertDialogTitle>
+							{t("common:removeNamedItem", { value: account.name })}
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							{t("providers:accounts_remove_description")}
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					{error && (
+						<p role="alert" className="px-4 text-xs text-destructive">
+							{error}
+						</p>
+					)}
+					<AlertDialogFooter>
 						<Button
-							className="h-7 px-2 text-[11px] text-muted-foreground"
-							size="xs"
+							className="h-7"
 							variant="ghost"
-							onClick={login.cancel}
+							disabled={busy}
+							onClick={() => setRemoving(false)}
 						>
 							{t("common:cancel")}
 						</Button>
-					</div>
-				) : (
-					<Menu>
-						<MenuTrigger
-							render={
-								<Button
-									className="h-7 w-7 text-muted-foreground"
-									size="icon-sm"
-									variant="ghost"
-									disabled={busy}
-									aria-label={account.name}
-								/>
-							}
+						<Button
+							className="h-7"
+							variant="destructive"
+							disabled={busy}
+							loading={busy}
+							onClick={() => void confirmRemoval()}
 						>
-							<MoreHorizontal className="size-3.5" />
-						</MenuTrigger>
-						<MenuPopup align="end">
-							<MenuItem className="h-7" onClick={() => void login.start()}>
-								{t("common:signIn")}
-							</MenuItem>
-							<MenuItem className="h-7" onClick={() => setEditing(true)}>
-								{t("common:edit")}
-							</MenuItem>
-							<MenuSeparator />
-							<MenuItem
-								className="h-7"
-								variant="destructive"
-								onClick={() =>
-									void run((client) =>
-										client["provider.accounts.remove"]({
-											providerId: account.providerId,
-											id: account.id,
-										}),
-									)
-								}
-							>
-								{t("common:remove")}
-							</MenuItem>
-						</MenuPopup>
-					</Menu>
-				)
-			}
-		/>
+							{t("common:remove")}
+						</Button>
+					</AlertDialogFooter>
+				</AlertDialogPopup>
+			</AlertDialog>
+		</>
 	);
 }

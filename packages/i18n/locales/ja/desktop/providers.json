@@ -102,7 +102,6 @@
 	"add_computer_dialog_username_optional_sentence": "ユーザー名 <part0>オプション</part0>",
 	"add_computer_dialog_port_optional_sentence": "ポート <part0>オプション</part0>",
 	"add_computer_dialog_label_optional_sentence": "ラベル <part0>オプション</part0>",
-	"add_computer_dialog_remove_sentence": "{{value}}を削除しますか?",
 	"add_computer_dialog_zuse_will_forget_this_computer_on_this_device_projects_and_d_sentence": "Zuse は、このデバイス上のこのコンピューターを忘れます。 {{value}} 上のプロジェクトとデータは削除されません。",
 	"opencode_provider_manager_configured_sentence": "{{value}} 構成済み",
 	"opencode_provider_manager_no_providers_match_sentence": "「{{query}}」に一致するプロバイダーはありません。",
@@ -151,5 +150,6 @@
 	"accounts_selected": "選択中",
 	"accounts_waiting": "ブラウザーでログインを完了してください。",
 	"accounts_open_browser": "ブラウザーを開く",
-	"accounts_signed_in": "ログイン済み"
+	"accounts_signed_in": "ログイン済み",
+	"accounts_remove_description": "このアカウントを設定から削除します。このアカウントを使用するチャットは再開できなくなります。ログインファイルと会話履歴は保持されます。"
 }
