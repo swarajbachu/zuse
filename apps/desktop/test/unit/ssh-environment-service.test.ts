@@ -20,6 +20,16 @@ describe("SSH environment identity", () => {
 });
 
 describe("self-hosted setup diagnostics", () => {
+	it("identifies an unpublished runtime without exposing npm output", () => {
+		expect(
+			selfHostedSetupErrorCode(
+				new Error(
+					"npm error notarget No matching version found for @zusehq/serve@0.1.6.",
+				),
+			),
+		).toBe("runtime_version_unavailable");
+	});
+
 	it("maps SSH failures to stable redacted codes", () => {
 		expect(
 			selfHostedSetupErrorCode(

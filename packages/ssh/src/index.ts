@@ -99,7 +99,7 @@ export const parseSelfHostedPreflight = (
 	const osVersion = fields.get("os_version") ?? "unknown";
 	const architecture = fields.get("architecture");
 	const supportedOs =
-		(osId === "ubuntu" && ["22.04", "24.04"].includes(osVersion)) ||
+		(osId === "ubuntu" && ["22.04", "24.04", "26.04"].includes(osVersion)) ||
 		(osId === "debian" && osVersion === "12");
 	const supportedArchitecture =
 		architecture === "x86_64" || architecture === "arm64";
@@ -145,9 +145,13 @@ BIN="$HOME/.zuse/bin"
 mkdir -p "$ROOT" "$BIN" "$HOME/zuse"
 arch="$(uname -m)"
 case "$arch" in x86_64|amd64) node_arch=x64 ;; aarch64|arm64) node_arch=arm64 ;; *) echo unsupported_architecture >&2; exit 1 ;; esac
-if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1; then
-  if [ "$(id -u)" = 0 ]; then apt-get update >&2 && apt-get install -y git gh curl ca-certificates xz-utils >&2
-  elif sudo -n true >/dev/null 2>&1; then sudo -n apt-get update >&2 && sudo -n apt-get install -y git gh curl ca-certificates xz-utils >&2
+missing_prerequisites=0
+for prerequisite in git curl gh xz make g++ python3; do
+  command -v "$prerequisite" >/dev/null 2>&1 || missing_prerequisites=1
+done
+if [ "$missing_prerequisites" = 1 ]; then
+  if [ "$(id -u)" = 0 ]; then apt-get update >&2 && apt-get install -y git gh curl ca-certificates xz-utils build-essential python3 >&2
+  elif sudo -n true >/dev/null 2>&1; then sudo -n apt-get update >&2 && sudo -n apt-get install -y git gh curl ca-certificates xz-utils build-essential python3 >&2
   else echo missing_prerequisites_and_sudo >&2; exit 1
   fi
 fi

@@ -699,8 +699,11 @@ export function SelfHostedServersPane() {
 							)}
 						</DialogDescription>
 					</DialogHeader>
-					<form onSubmit={(event) => void submit(event)}>
-						<div className="space-y-3 px-4 pb-3">
+					<form
+						className="flex min-h-0 flex-col"
+						onSubmit={(event) => void submit(event)}
+					>
+						<div className="min-h-0 space-y-3 overflow-y-auto px-4 pb-3">
 							{operationId === null ? (
 								<>
 									{suggestions.length > 0 ? (
@@ -708,13 +711,15 @@ export function SelfHostedServersPane() {
 											<div className="mb-1 text-[11px] font-medium text-muted-foreground">
 												{uiMessage("settings:self_hosted_ssh_config")}
 											</div>
-											<div className="flex flex-wrap gap-1">
+											<div className="max-h-36 space-y-0.5 overflow-y-auto overscroll-contain p-1">
 												{suggestions.map((host) => (
 													<Button
 														key={host.alias}
 														type="button"
+														className="h-7 w-full min-w-0 justify-start"
 														size="xs"
-														variant="outline"
+														variant="ghost"
+														title={host.displayName}
 														onClick={() => {
 															setTarget({
 																alias: host.alias,
@@ -725,7 +730,7 @@ export function SelfHostedServersPane() {
 															setLabel(host.displayName);
 														}}
 													>
-														{host.displayName}
+														<span className="truncate">{host.displayName}</span>
 													</Button>
 												))}
 											</div>
@@ -809,7 +814,7 @@ export function SelfHostedServersPane() {
 								</div>
 							) : null}
 						</div>
-						<DialogFooter>
+						<DialogFooter className="shrink-0">
 							{operationId !== null &&
 							progress?.phase !== "ready" &&
 							progress?.phase !== "failed" &&
@@ -879,7 +884,7 @@ function SetupProgress({
 	if (event === null)
 		return (
 			<div className="flex items-center gap-2 py-6 text-muted-foreground">
-				<Spinner />
+				<Spinner className="size-3.5 shrink-0" />
 				{uiMessage("settings:self_hosted_starting_setup")}
 			</div>
 		);
@@ -891,7 +896,7 @@ function SetupProgress({
 				{finished ? (
 					<Check className="size-4 text-emerald-500" />
 				) : event.phase === "failed" || event.phase === "cancelled" ? null : (
-					<Spinner />
+					<Spinner className="size-3.5 shrink-0" />
 				)}
 				<span className="font-medium">{event.message}</span>
 			</div>

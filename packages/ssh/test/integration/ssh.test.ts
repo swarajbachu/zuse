@@ -54,6 +54,10 @@ describe("@zuse/ssh", () => {
 		const script = selfHostedBootstrapScript("0.1.2");
 		expect(script).toContain("@zusehq/serve@$VERSION");
 		expect(script).toContain("SHASUMS256.txt");
+		expect(script).toContain(
+			"for prerequisite in git curl gh xz make g++ python3",
+		);
+		expect(script).toContain("xz-utils build-essential python3");
 		expect(script).toContain("--self-hosted --json");
 		expect(selfHostedRemoteLaunchScript).toContain(
 			"systemctl --user start zuse-serve.service",
@@ -67,6 +71,17 @@ describe("@zuse/ssh", () => {
 			),
 		).toMatchObject({ type: "authorization_required", userCode: "ABCD-EFGH" });
 		expect(parseSelfHostedCliEvent("not-json")).toBeNull();
+	});
+
+	test.each([
+		"x86_64",
+		"arm64",
+	])("accepts Ubuntu 26.04 on %s", (architecture) => {
+		expect(
+			parseSelfHostedPreflight(
+				`os_id=ubuntu\nos_version=26.04\narchitecture=${architecture}\nhome=/root\ndisk_kib=35950428\nsystemd_user=1\nlinger=0\nsudo=1\nusername=root\n`,
+			),
+		).toMatchObject({ supported: true, architecture, blockingReason: null });
 	});
 
 	test("accepts only the guided Linux and architecture combinations", () => {

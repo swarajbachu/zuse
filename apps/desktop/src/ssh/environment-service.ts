@@ -112,6 +112,8 @@ export const selfHostedSetupErrorCode = (cause: unknown): string => {
 	if (message.includes("missing_prerequisites_and_sudo"))
 		return "prerequisites_require_sudo";
 	if (message.includes("api_not_ready")) return "api_not_ready";
+	if (message.includes("no matching version found for @zusehq/serve@"))
+		return "runtime_version_unavailable";
 	return "setup_failed";
 };
 
@@ -313,16 +315,19 @@ export class SshEnvironmentManager {
 			});
 		void this.runSelfHostedSetup(input, controller.signal, event)
 			.catch((cause) => {
+				const errorCode = controller.signal.aborted
+					? "cancelled"
+					: selfHostedSetupErrorCode(cause);
 				this.emitSetup(
 					event(
 						controller.signal.aborted ? "cancelled" : "failed",
 						controller.signal.aborted
 							? "Setup was cancelled."
-							: "The server could not be set up.",
+							: errorCode === "runtime_version_unavailable"
+								? `Zuse Serve ${COMPATIBLE_SERVE_RUNTIME_VERSION} has not been published. Setup cannot continue until the compatible runtime is available.`
+								: "The server could not be set up.",
 						{
-							errorCode: controller.signal.aborted
-								? "cancelled"
-								: selfHostedSetupErrorCode(cause),
+							errorCode,
 						},
 					),
 				);
