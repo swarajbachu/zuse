@@ -169,7 +169,8 @@ describe("delegation display", () => {
 		expect(unloaded).toMatchObject({
 			title: "Site",
 			providerId: "codex",
-			status: "done",
+			status: "working",
+			completedAt: null,
 			open: null,
 		});
 		const running = spawnDelegationView(member, {

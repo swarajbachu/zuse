@@ -425,10 +425,12 @@ export const spawnDelegationView = (
 	const target = spawnTarget(member);
 	const session = context.session;
 	const busy = session !== null && isSessionRuntimeBusy(session.runtime);
+	// The tool result can land before the session reaches the shell; until
+	// it does, the outcome is unknown, so the spawn keeps working.
 	const status: DelegationStatus =
-		member.result === null || busy
+		member.result === null || session === null || busy
 			? "working"
-			: session?.status === "error"
+			: session.status === "error"
 				? "failed"
 				: "done";
 	const lastMessage = session?.messages.at(-1) ?? null;
