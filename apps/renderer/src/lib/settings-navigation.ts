@@ -8,6 +8,7 @@ import {
 	CloudIcon,
 	DocumentAttachmentIcon,
 	KeyboardIcon,
+	LabsIcon,
 	PackageIcon,
 	PlugSocketIcon,
 	PuzzleIcon,
@@ -69,14 +70,6 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 		section: { kind: "devices" },
 	},
 	{
-		id: "organizations",
-		get label() {
-			return uiMessage("settings:organizations_organizations");
-		},
-		Icon: UserGroupIcon,
-		section: { kind: "organizations" },
-	},
-	{
 		id: "machines",
 		get label() {
 			return uiMessage("settings:settings_navigation_cloud_workspaces_beta");
@@ -109,6 +102,14 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 		section: { kind: "shortcuts" },
 	},
 	{
+		id: "experimental",
+		get label() {
+			return uiMessage("settings:settings_navigation_experimental");
+		},
+		Icon: LabsIcon,
+		section: { kind: "experimental" },
+	},
+	{
 		id: "diagnostics",
 		get label() {
 			return uiMessage("settings:settings_navigation_diagnostics");
@@ -130,18 +131,18 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 
 const CLOUD_MACHINES_AVAILABLE = cloudWorkspaceBetaAvailable();
 
-/** Organization management has its own rail, separate from personal settings. */
+/**
+ * Organization workspaces have their own rail. Personal settings have no
+ * organization features; the workspace switcher creates and joins them.
+ */
 export function settingsNavigationFor(
-	section: SettingsSection,
+	_section: SettingsSection,
 	desktop: boolean,
 	scope?: WorkspaceScope,
 ) {
 	if (scope?.kind === "organization") return ORGANIZATION_NAVIGATION;
 	return SETTINGS_NAVIGATION.filter(
-		(item) =>
-			(item.section.kind === "organizations") ===
-				(section.kind === "organizations") &&
-			(desktop || item.section.kind !== "machines"),
+		(item) => desktop || item.section.kind !== "machines",
 	);
 }
 

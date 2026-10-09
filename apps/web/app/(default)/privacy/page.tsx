@@ -111,20 +111,22 @@ export default function PrivacyPage() {
 						Website analytics
 					</h2>
 					<p className="mt-2">
-						The website uses PostHog for page views and clicks on download and
-						pricing links. Events include page paths, referring origins, and
-						browser and device information. We remove URL query strings and
-						fragments before sending events, do not identify website visitors
-						with their Zuse account, and disable automatic interaction capture
-						and session replay.
+						The website and documentation use PostHog for page views, selected
+						link clicks, and aggregate active-reading engagement. Events include
+						page paths, referring origins, and browser and device information.
+						We remove URL query strings and fragments before sending events, do
+						not identify website visitors with their Zuse account, and disable
+						automatic interaction capture and session replay.
 					</p>
 					<p className="mt-2">
-						Website analytics use temporary memory rather than persistent
-						analytics cookies or local storage. They are disabled when your
-						browser sends Do Not Track or Global Privacy Control. Your browser
-						can also block requests to the analytics service. These website
-						choices are separate from the usage-analytics setting in the desktop
-						and mobile apps.
+						A first-party cookie stores an anonymous browser identity for 90
+						days, renewed during visits and shared between zuse.sh and
+						docs.zuse.sh. This lets us measure repeat visits and journeys into
+						the docs. Collection is disabled when your browser sends Do Not
+						Track or Global Privacy Control. Your browser can also block
+						requests to the analytics service. These website choices are
+						separate from the usage-analytics setting in the desktop and mobile
+						apps.
 					</p>
 				</section>
 
@@ -199,8 +201,14 @@ export default function PrivacyPage() {
 						paths, URLs, branches, titles, account identifiers, names, email
 						addresses, credentials, tokens, diagnostic contents, or error stacks
 						for product analytics. We do not use autocapture, session replay,
-						remote feature flags or remote configuration, or exception/source
-						capture in this system.
+						remote configuration, or exception/source capture in this analytics
+						system.
+					</p>
+					<p className="mt-2">
+						Organization beta access may use server-side PostHog feature flags.
+						These operational checks use a pseudonymous account identifier and
+						organization identifiers, and work independently of the “Share usage
+						analytics” setting. They do not enable product analytics collection.
 					</p>
 					<p className="mt-2">
 						This analytics boundary does not mean every local diagnostic is
@@ -252,11 +260,11 @@ export default function PrivacyPage() {
 						Providers and third parties
 					</h2>
 					<p className="mt-2">
-						Mobile asks before sharing messages, selected attachments and
-						workspace context with the chosen agent/model services. Dictation
-						sends audio to OpenAI for transcription through the connected
-						environment or directly from the device. Sharing choices last for
-						the app session and can be reset in Settings. Provider privacy
+						When you send a message, Zuse shares it, your selected attachments
+						and relevant workspace context with the agent and model services
+						you chose, through your connected computer or cloud workspace.
+						Dictation sends audio to OpenAI for transcription through the
+						connected environment or directly from the device. Provider privacy
 						policies apply. Zuse relies on third parties only where a feature
 						requires them. These can include WorkOS for account authentication,
 						the analytics processor for the limited analytics described above,

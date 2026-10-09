@@ -6,7 +6,6 @@
 	"cloud_workspace_info_the_workspace_must_be_running_for_ssh_access": "工作区必须正在运行才能进行 SSH 访问",
 	"cloud_workspace_info_copy_ssh_command": "复制SSH命令",
 	"cloud_workspace_info_sync_to_a_local_directory": "同步到本地目录",
-	"cloud_workspace_info_performance": "性能",
 	"cloud_workspace_info_status": "状态",
 	"cloud_workspace_info_live_usage_needs_the_updated_workspace_runtime": "实时使用需要更新的工作区运行时。",
 	"cloud_workspace_info_restart_workspace": "重新启动工作区",

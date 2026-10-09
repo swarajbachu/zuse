@@ -4,6 +4,7 @@ import {
 	Chat,
 	ChatId,
 	CloudChatSummary,
+	CloudProject,
 	CloudWorkspaceOpError,
 	EnvironmentId,
 	Folder,
@@ -63,11 +64,13 @@ import {
 	watchCloudChatCatalog,
 } from "../../src/lib/cloud-workspaces.ts";
 import { environmentShellResourceKey } from "../../src/lib/environment-shell-client-bus.ts";
+import { seedHostedProjects } from "../../src/lib/hosted-workspace.ts";
 import { useOrganizationWorkspaces } from "../../src/lib/organization-workspaces.ts";
 import { observeRendererAccount } from "../../src/lib/renderer-account.ts";
 import { selectRendererWorkspace } from "../../src/lib/renderer-workspace.ts";
 import { getRendererClientBus } from "../../src/lib/session-timeline-client-bus.ts";
 import { useChatsStore } from "../../src/store/chats.ts";
+import { useSessionsStore } from "../../src/store/sessions.ts";
 import { useWorkspaceStore } from "../../src/store/workspace.ts";
 
 const summary = CloudChatSummary.make({
@@ -443,4 +446,31 @@ it("does not escalate an old passive attachment into a wake after sign-out", asy
 	await wakeRejected;
 	expect(mocks.get).toHaveBeenCalledOnce();
 	expect(mocks.resume).not.toHaveBeenCalled();
+});
+
+it("keeps an unbound workspace link selected while hosted projects load", async () => {
+	observeRendererAccount("linked-chat-owner");
+	useWorkspaceStore.setState({ selectedFolderId: null });
+	const linked = { ...summary, activeSessionId: summary.initialSessionId };
+	await openCloudChat(linked);
+	seedHostedProjects([
+		CloudProject.make({
+			projectId: "unrelated-project",
+			repositoryIdentity: "github.com/example/other",
+			repositoryUrl: "https://github.com/example/other",
+			displayName: "other",
+			defaultBranch: "main",
+			visibility: "private",
+			state: "ready",
+			activeBuilds: {},
+			latestBuilds: {},
+			createdAt: 1,
+			updatedAt: 1,
+		}),
+	]);
+	expect(useChatsStore.getState().selectedChatId).toBe(summary.chatId);
+	expect(useSessionsStore.getState().selectedSessionId).toBe(
+		summary.initialSessionId,
+	);
+	expect(useWorkspaceStore.getState().selectedFolderId).toBeNull();
 });

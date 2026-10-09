@@ -490,8 +490,72 @@ test("native plugin bridge enforces permissions and revokes its session token", 
 		expect(request).not.toHaveBeenCalled();
 		const discovery = await listTools(lease.endpoint, lease.token);
 		expect(discovery.raw).toContain("plugins_search");
+		expect(discovery.raw).toContain("plugins_list");
+		const plugins = await fetch(endpoint, {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${lease.token}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ name: "plugins_list", args: {} }),
+		});
+		expect(plugins.status).toBe(200);
+		expect(request).toHaveBeenCalledWith({ action: "list" });
 	} finally {
 		await lease.close();
 	}
 	expect((await invoke(lease.token)).status).toBe(401);
+});
+
+test("exposes visuals only in scoped sessions and binds publication to the caller", async () => {
+	const render = vi.fn(async () => ({
+		attachmentId: "saved",
+		title: "Chart",
+		height: 100,
+	}));
+	const client = { render, preview: vi.fn() };
+	const issued = await issueMcpGatewaySession({
+		sessionId: "visual-owner",
+		scopes: { browser: false, orchestration: false, html: true },
+		ctx: { html: { client, cwd: "/repo" } },
+	});
+	const excluded = await issueMcpGatewaySession({
+		sessionId: "other",
+		scopes: { browser: false, orchestration: false },
+		ctx: { html: { client, cwd: "/other" } },
+	});
+	try {
+		expect((await listTools(issued.endpoint, issued.token)).raw).toContain(
+			"html_preview",
+		);
+		expect(
+			(await listTools(excluded.endpoint, excluded.token)).raw,
+		).not.toContain("html_render");
+		const input = {
+			html: "<h1>Chart</h1>",
+			title: "Chart",
+			height: 100,
+			sessionId: "forged",
+		};
+		expect(
+			(await callTool(issued.endpoint, issued.token, "html_render", input)).raw,
+		).toContain("saved");
+		expect(render).toHaveBeenCalledWith(
+			"visual-owner",
+			"/repo",
+			expect.anything(),
+			expect.any(AbortSignal),
+		);
+		expect(
+			(await callTool(excluded.endpoint, excluded.token, "html_render", input))
+				.raw,
+		).toContain("Unknown tool");
+		render.mockRejectedValueOnce(new Error("Storage failed"));
+		expect(
+			(await callTool(issued.endpoint, issued.token, "html_render", input)).raw,
+		).toContain('"isError":true');
+	} finally {
+		await issued.close();
+		await excluded.close();
+	}
 });

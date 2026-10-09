@@ -72,25 +72,42 @@ describe("transcript scroll coordinator", () => {
 		expect(coordinator.getSnapshot().readerDetached).toBe(true);
 	});
 
-	test("settled turn releases the sent-message runway without detaching", () => {
+	test("settled turn keeps the sent message's runway, like desktop", () => {
 		const { coordinator, releaseFreeze } = createHarness();
 		coordinator.onMessageWillAppend(6);
 
 		coordinator.onTurnSettled();
 
-		expect(coordinator.getSnapshot().anchorIndex).toBeNull();
+		expect(coordinator.getSnapshot().anchorIndex).toBe(6);
 		expect(coordinator.getSnapshot().readerDetached).toBe(false);
 		expect(releaseFreeze).toHaveBeenCalledOnce();
 	});
 
-	test("reader interaction clears the anchor and prevents late readiness", async () => {
+	test("the next send replaces the kept runway and moves to the top again", async () => {
+		const { coordinator, scrollAnchoredMessageToEnd } = createHarness();
+		coordinator.onMessageWillAppend(2);
+		await coordinator.onAnchorReady({ anchorIndex: 2 });
+		coordinator.onTurnSettled();
+		coordinator.onReaderDetached();
+
+		coordinator.onMessageWillAppend(3);
+		await coordinator.onAnchorReady({ anchorIndex: 3 });
+
+		expect(coordinator.getSnapshot()).toMatchObject({
+			anchorIndex: 3,
+			readerDetached: false,
+		});
+		expect(scrollAnchoredMessageToEnd).toHaveBeenCalledTimes(2);
+	});
+
+	test("reader interaction keeps the runway but prevents late repositioning", async () => {
 		const { coordinator, scrollAnchoredMessageToEnd } = createHarness();
 
 		coordinator.onMessageWillAppend(5);
 		coordinator.onReaderDetached();
 		await coordinator.onAnchorReady({ anchorIndex: 5 });
 
-		expect(coordinator.getSnapshot().anchorIndex).toBeNull();
+		expect(coordinator.getSnapshot().anchorIndex).toBe(5);
 		expect(coordinator.getSnapshot().readerDetached).toBe(true);
 		expect(scrollAnchoredMessageToEnd).not.toHaveBeenCalled();
 	});

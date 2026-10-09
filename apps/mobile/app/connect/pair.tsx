@@ -72,7 +72,7 @@ export default function PairDeepLinkScreen() {
 						variant="secondary"
 						onPress={() => router.replace("/connect/scan")}
 					>
-						Scan another code
+						Scan Again
 					</Button>
 				</View>
 			)}

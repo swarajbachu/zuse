@@ -20,6 +20,7 @@ import {
 	createHttpPluginClient,
 	setDefaultPluginClientFactory,
 } from "@zuse/agents/drivers/plugin-tools";
+import { checkSnapshotAgentAccess } from "@zuse/agents/drivers/snapshot-native-auth";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import {
 	type CloudMessageSendPayload,
@@ -39,10 +40,13 @@ import {
 	CLOUD_COMMAND_PROTOCOL_VERSION,
 	CLOUD_RUNTIME_API_ASSETS_CAPABILITY,
 	CLOUD_RUNTIME_COMMAND_AUTHOR_CAPABILITY,
+	CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY,
 	CLOUD_RUNTIME_MACHINE_FORK_CAPABILITY,
 	CLOUD_RUNTIME_WORKSPACE_AUTHORIZATION_CAPABILITY,
 	CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
 	type CloudAuthProvider,
+	CloudGithubCredentialRequest,
+	CloudGitIdentity,
 	CloudRuntimeAccessResponse,
 	CloudRuntimeAssetDownload,
 	CloudRuntimeCommandList,
@@ -66,6 +70,7 @@ import {
 	SealedProviderGrant,
 	type Session,
 	SessionId,
+	type SnapshotAgentAccess,
 	WIRE_PROTOCOL_VERSION,
 	WORKSPACE_GATEWAY_AUTH_EXPIRED_CLOSE,
 	WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE,
@@ -128,14 +133,18 @@ import {
 	RuntimeModelConnections,
 } from "../harness/account-vault.ts";
 import { LanAuthService } from "../lan-auth/services/lan-auth-service.ts";
+import { RuntimeCloudControl } from "../machine/runtime-cloud-control.ts";
 import { isProviderAuthenticationError } from "../provider/provider-auth-failure.ts";
 import { CredentialsService } from "../provider/services/credentials-service.ts";
+import { RuntimeGitExecution } from "../provider/services/runtime-git-execution.ts";
 import { RuntimeProviderCredentials } from "../provider/services/runtime-provider-credentials.ts";
 import {
 	WorkspaceService,
 	type WorkspaceServiceShape,
 } from "../workspace/services/workspace-service.ts";
 import { CloudCodexAuth } from "./cloud-codex-auth.ts";
+import { makeCloudGitExecution } from "./cloud-git-execution.ts";
+import { configureCloudGitIdentity } from "./cloud-git-identity.ts";
 import { CloudProviderAuth } from "./cloud-provider-auth.ts";
 import { cloudStorageIncarnationId } from "./cloud-storage-incarnation.ts";
 import { makeCloudWorkspaceRpcActivity } from "./cloud-workspace-activity.ts";
@@ -164,6 +173,47 @@ const writeOwnerOnlyFile = (
 		},
 		catch: () => fail("workspace_github_broker_state_failed"),
 	});
+
+/** Credential status is advisory; failed lookups must not stop event publishing. */
+export const trackSnapshotNativeAccess = <E, R, E2, R2>(input: {
+	readonly session: Effect.Effect<
+		{ readonly id: AgentSessionId; readonly providerId: string },
+		E,
+		R
+	>;
+	readonly history: (
+		id: AgentSessionId,
+	) => Effect.Effect<
+		ReadonlyArray<{ readonly content: MessageContent }>,
+		E2,
+		R2
+	>;
+	readonly outcome: string;
+	readonly access: Map<string, SnapshotAgentAccess>;
+}) =>
+	Effect.gen(function* () {
+		const session = yield* input.session;
+		const providerId = session.providerId;
+		if (providerId === "claude" || providerId === "codex") {
+			const history =
+				input.outcome === "error" ? yield* input.history(session.id) : [];
+			const previous = input.access.get(providerId);
+			const state = isProviderAuthenticationError(history.at(-1)?.content)
+				? previous?.state === "detected" ||
+					previous?.state === "verified" ||
+					previous?.state === "expired"
+					? "expired"
+					: "authentication-required"
+				: input.outcome === "completed"
+					? "verified"
+					: (previous?.state ?? "unavailable");
+			input.access.set(providerId, {
+				providerId,
+				state,
+				checkedAt: Date.now(),
+			});
+		}
+	}).pipe(Effect.ignore);
 
 export const writeGithubBrokerState = (
 	config: CloudWorkspaceRuntimeConfig,
@@ -268,6 +318,8 @@ export const bufferWorkspaceLocalFrame = (
 };
 
 const BootstrapResponse = Schema.Struct({
+	gitIdentity: Schema.optional(CloudGitIdentity),
+	initialGithubContext: Schema.optional(CloudGithubCredentialRequest),
 	workspaceId: Schema.String,
 	zuseAccountId: Schema.optional(Schema.String),
 	workspaceScope: Schema.optional(WorkspaceScope),
@@ -282,10 +334,10 @@ const BootstrapResponse = Schema.Struct({
 	chatId: Schema.String,
 	initialSessionId: Schema.String,
 	codexAuthMode: Schema.optional(
-		Schema.Literals(["legacy-image", "broker-v1"]),
+		Schema.Literals(["legacy-image", "broker-v1", "snapshot-native"]),
 	),
 	providerAuthMode: Schema.optional(
-		Schema.Literals(["legacy-image", "broker-v1"]),
+		Schema.Literals(["legacy-image", "broker-v1", "snapshot-native"]),
 	),
 	launchIntent: Schema.optional(
 		Schema.Struct({
@@ -721,6 +773,7 @@ export const makeCloudRuntimeSummaryPublisher = Effect.fn(
 			readonly lastUserMessageAt?: number | null;
 			readonly activeSessionId: SessionId | null;
 			readonly sessionHeadVersion: number;
+			readonly nativeAgentAccess?: ReadonlyArray<SnapshotAgentAccess>;
 		},
 		CloudWorkspaceRuntimeError
 	>;
@@ -743,6 +796,7 @@ export const makeCloudRuntimeSummaryPublisher = Effect.fn(
 			readonly lastUserMessageAt?: number | null;
 			readonly activeSessionId: SessionId | null;
 			readonly sessionHeadVersion: number;
+			readonly nativeAgentAccess?: ReadonlyArray<SnapshotAgentAccess>;
 		},
 		summaryRevision: number,
 	) => new CloudWorkspaceRuntimeSummary({ ...snapshot, summaryRevision });
@@ -775,24 +829,32 @@ export const makeCloudRuntimeSummaryPublisher = Effect.fn(
 /** Keep quiet, active turns alive without keeping an idle workspace running. */
 export const keepCloudRuntimeActive = <E, R>(input: {
 	readonly sessions: Effect.Effect<
-		ReadonlyArray<Pick<Session, "chatId" | "status">>,
+		ReadonlyArray<Pick<Session, "id" | "chatId" | "status">>,
 		E,
 		R
 	>;
 	readonly chatId: ChatId;
+	readonly isWaitingForInput?: (
+		session: Pick<Session, "id" | "chatId" | "status">,
+	) => Effect.Effect<boolean, E, R>;
 	readonly publish: Effect.Effect<unknown, E, R>;
 }) =>
 	Effect.forever(
 		Effect.gen(function* () {
 			const current = yield* input.sessions;
-			if (
-				current.some(
-					(session) =>
-						session.chatId === input.chatId &&
-						(session.status === "running" || session.status === "booting"),
+			for (const session of current) {
+				if (
+					session.chatId !== input.chatId ||
+					(session.status !== "running" && session.status !== "booting")
 				)
-			) {
+					continue;
+				if (
+					input.isWaitingForInput !== undefined &&
+					(yield* input.isWaitingForInput(session))
+				)
+					continue;
 				yield* input.publish;
+				break;
 			}
 		}).pipe(
 			Effect.catch(() =>
@@ -1121,6 +1183,7 @@ const CloudMailboxCommandRejectionCategory = Schema.Literals([
 	"runtime-receipt-missing",
 	"runtime-receipt-store-unavailable",
 	"session-not-found",
+	"session-turn-active",
 	"workspace-directory-unavailable",
 	"result-encryption-failed",
 	"runtime-apply-failed",
@@ -1498,6 +1561,18 @@ const messageFailureCategory = (error: {
 const rejectionCategoryFromCause = (
 	cause: Cause.Cause<CloudMailboxApplyError>,
 ): CloudMailboxCommandRejectionCategory => {
+	// SubmitTurn rejects before committing when a previous turn remains active.
+	// The domain adapter promotes this typed rejection to a defect via orDie.
+	// Unlike an arbitrary apply failure, this is a known non-delivery outcome.
+	const defect = Cause.findDefect(cause);
+	if (
+		defect._tag === "Success" &&
+		typeof defect.success === "object" &&
+		defect.success !== null &&
+		"_tag" in defect.success &&
+		defect.success._tag === "TurnAlreadyRunning"
+	)
+		return "session-turn-active";
 	const error = Cause.findErrorOption(cause);
 	if (
 		Option.isSome(error) &&
@@ -1898,6 +1973,69 @@ export const recoverCloudMailboxReadiness = <A, R, R2>(
 		),
 	);
 
+/** Repeated rejection must retire the whole runtime, including its other network loops. */
+export const runCloudMailboxPolling = (input: {
+	readonly poll: Effect.Effect<unknown, CloudWorkspaceRuntimeError>;
+	readonly credential: () => string;
+	readonly onRuntimeRejected: Effect.Effect<void>;
+}): Effect.Effect<never> =>
+	Effect.suspend(() => {
+		let rejectedCredential: string | undefined;
+		let rejectedAtMs: number | undefined;
+		return Effect.forever(
+			Effect.gen(function* () {
+				const credential = input.credential();
+				const result = yield* input.poll.pipe(Effect.result);
+				if (result._tag === "Success") {
+					rejectedCredential = undefined;
+					rejectedAtMs = undefined;
+				} else {
+					const error = result.failure;
+					const authorizationRejected =
+						error.httpStatus === 401 ||
+						error.reason === "workspace_runtime_rejected" ||
+						error.reason === "workspace_runtime_fenced";
+					let retire = false;
+					if (authorizationRejected) {
+						// An in-flight request can carry the token replaced by renewal. Retry
+						// with the live token; allow renewal response-loss recovery for one minute.
+						// Sustained rejection of the same credential then retires the runtime.
+						if (input.credential() !== credential) {
+							rejectedCredential = undefined;
+							rejectedAtMs = undefined;
+						} else {
+							const nowMs = yield* Clock.currentTimeMillis;
+							if (
+								rejectedCredential !== credential ||
+								rejectedAtMs === undefined
+							)
+								rejectedAtMs = nowMs;
+							rejectedCredential = credential;
+							retire = nowMs - rejectedAtMs >= 60_000;
+						}
+					} else {
+						// A transport outage does not prove a previously rejected token is valid.
+						retire =
+							error.httpStatus !== undefined &&
+							classifyCloudMailboxAckFailure(error) === "stop-retrying";
+					}
+					if (retire) {
+						yield* Effect.logError(
+							"cloud mailbox polling retired rejected runtime",
+							{ reason: error.reason, httpStatus: error.httpStatus },
+						);
+						yield* input.onRuntimeRejected;
+						return yield* Effect.never;
+					}
+					yield* Effect.logWarning("cloud mailbox poll failed", {
+						reason: error.reason,
+					});
+				}
+				yield* Effect.sleep("1 second");
+			}),
+		);
+	});
+
 const runCloudMailboxConsumer = (input: {
 	readonly organizationWorkspace: boolean;
 	readonly recoverReadiness: Effect.Effect<void, CloudWorkspaceRuntimeError>;
@@ -1964,13 +2102,12 @@ const runCloudMailboxConsumer = (input: {
 		onRuntimeFenceRequired: Effect.sync(() => {
 			process.kill(process.pid, "SIGTERM");
 		}),
-	}).pipe(
-		Effect.catch((error) =>
-			Effect.logWarning("cloud mailbox poll failed", { reason: error.reason }),
-		),
-		Effect.andThen(Effect.sleep("1 second")),
-	);
-	return poll.pipe(Effect.forever);
+	});
+	return runCloudMailboxPolling({
+		poll,
+		credential: () => input.runtimeCredential.credential,
+		onRuntimeRejected: Effect.sync(() => process.kill(process.pid, "SIGTERM")),
+	});
 };
 
 const postReady = (
@@ -2092,6 +2229,7 @@ const removeBootToken = (path: string | undefined) =>
 			}).pipe(Effect.ignore);
 
 export const startCloudWorkspaceLaunchIntent = (input: {
+	readonly githubContext?: typeof CloudGithubCredentialRequest.Type;
 	readonly transcripts?: TranscriptServiceShape;
 	readonly workspaceId?: string;
 	readonly workspaces: WorkspaceServiceShape;
@@ -2152,6 +2290,8 @@ export const startCloudWorkspaceLaunchIntent = (input: {
 				model: input.launchIntent.model,
 				runtimeMode: input.launchIntent.runtimeMode ?? DEFAULT_RUNTIME_MODE,
 				initialPrompt: input.launchIntent.firstMessage,
+				actor: input.githubContext?.actor,
+				githubSlackMessageId: input.githubContext?.slackMessageId,
 				background: false,
 			})
 			.pipe(Effect.mapError(() => fail("workspace_agent_start_failed")));
@@ -2233,6 +2373,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 	| MessageService
 	| SessionService
 	| CredentialsService
+	| RuntimeGitExecution
 	| RuntimeProviderCredentials
 	| SessionDomain
 	| SqlClient.SqlClient
@@ -2251,6 +2392,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const sql = yield* SqlClient.SqlClient;
 					const credentials = yield* CredentialsService;
 					const runtimeProviderCredentials = yield* RuntimeProviderCredentials;
+					const runtimeGitExecution = yield* RuntimeGitExecution;
 					const sessionDomain = yield* SessionDomain;
 					cloudTimingEvent(
 						{ workspaceId: config.workspaceId },
@@ -2293,6 +2435,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								signingPublicJwk,
 								capabilities: [
 									CLOUD_RUNTIME_API_ASSETS_CAPABILITY,
+									CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY,
 									CLOUD_RUNTIME_MACHINE_FORK_CAPABILITY,
 									CLOUD_RUNTIME_COMMAND_AUTHOR_CAPABILITY,
 									CLOUD_RUNTIME_WORKSPACE_AUTHORIZATION_CAPABILITY,
@@ -2314,6 +2457,31 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						generation: bootstrap.runtimeGeneration,
 						gatewayEpoch: bootstrap.gatewayEpoch,
 					};
+					const control = yield* Effect.serviceOption(RuntimeCloudControl);
+					if (control._tag === "Some") {
+						const transport = {
+							request: (path: string, method: string, body?: unknown) =>
+								fetch(
+									`${config.apiUrl}/v1/cloud/workspaces/${encodeURIComponent(config.workspaceId)}/runtime/control`,
+									{
+										method: "POST",
+										headers: {
+											authorization: `Bearer ${runtimeCredential.credential}`,
+											"content-type": "application/json",
+										},
+										body: JSON.stringify({ path, method, body }),
+										signal: AbortSignal.timeout(30_000),
+									},
+								),
+						};
+						control.value.current = transport;
+						yield* Effect.addFinalizer(() =>
+							Effect.sync(() => {
+								if (control.value.current === transport)
+									control.value.current = null;
+							}),
+						);
+					}
 					const modelConnections = yield* Effect.serviceOption(
 						RuntimeModelConnections,
 					);
@@ -2356,14 +2524,89 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							setDefaultPluginClientFactory(undefined);
 						}),
 					);
-					if (bootstrap.providerAuthMode !== "broker-v1")
+					if (
+						bootstrap.providerAuthMode !== "broker-v1" &&
+						bootstrap.providerAuthMode !== "snapshot-native"
+					)
 						yield* installImageProviderSecrets(credentials);
+					yield* Effect.tryPromise({
+						try: async () => {
+							for (const filename of [
+								"github-installation-token",
+								"github-installation-token-expires-at",
+							])
+								await unlink(join(cloudRuntimeDataDirectory(), filename)).catch(
+									(error: NodeJS.ErrnoException) => {
+										if (error.code !== "ENOENT") throw error;
+									},
+								);
+						},
+						catch: () => fail("workspace_github_cache_reset_failed"),
+					});
 					yield* writeGithubBrokerState(config, runtimeCredential.credential);
+					yield* Effect.tryPromise({
+						try: () =>
+							process.env.ZUSE_SNAPSHOT_NATIVE === "1"
+								? Promise.resolve()
+								: configureCloudGitIdentity(
+										cloudRuntimeDataDirectory(),
+										bootstrap.gitIdentity,
+									),
+						catch: () => fail("workspace_git_identity_failed"),
+					});
+					const releaseGitExecution = runtimeGitExecution.install(
+						makeCloudGitExecution({
+							preferNativeGit:
+								process.env.ZUSE_SNAPSHOT_GIT_AUTH_MODE !== "zuse",
+							nativeRepositoryPath:
+								process.env.ZUSE_SNAPSHOT_NATIVE === "1"
+									? config.workspaceRoot
+									: undefined,
+							sql,
+							directory: cloudRuntimeDataDirectory(),
+							authHelperPath: "/var/lib/zuse/project-build/github-auth.sh",
+							credentialUrl: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeGithubCredential(config.workspaceId)}`,
+							credential: () => runtimeCredential.credential,
+							initialSessionId: bootstrap.initialSessionId,
+							initialTurnId: bootstrap.launchIntent?.turnId,
+							initialContext: bootstrap.initialGithubContext,
+						}),
+					);
+					yield* Effect.addFinalizer(() => Effect.sync(releaseGitExecution));
 					yield* superviseRuntimeCredential({
 						config,
 						signingPrivateKey: signingKeyPair.privateKey,
 						state: runtimeCredential,
 					}).pipe(Effect.forkScoped({ startImmediately: true }));
+					const nativeAgentAccess = new Map<string, SnapshotAgentAccess>();
+					if (bootstrap.providerAuthMode === "snapshot-native") {
+						const uninstall = runtimeProviderCredentials.install(
+							async (providerId) => {
+								if (providerId !== "claude" && providerId !== "codex")
+									return null;
+								const state = await checkSnapshotAgentAccess(providerId);
+								nativeAgentAccess.set(providerId, {
+									providerId,
+									state,
+									checkedAt: Date.now(),
+								});
+								await writeFile(
+									join(
+										cloudRuntimeDataDirectory(),
+										`native-${providerId}-access.json`,
+									),
+									JSON.stringify({ providerId, state, checkedAt: Date.now() }),
+									{ mode: 0o600 },
+								);
+								if (state !== "detected" && state !== "verified")
+									throw new Error(
+										`${state === "authentication-required" || state === "expired" ? "Authentication required" : "Authentication check unavailable"}: ${providerId} snapshot status ${state}. ${state === "missing-tool" ? "Install this agent for the workspace development user." : "Sign in on this workspace, or select Zuse agent accounts in custom snapshot settings for new workspaces."}`,
+									);
+								return null;
+							},
+						);
+						yield* Effect.addFinalizer(() => Effect.sync(uninstall));
+					}
 					if (bootstrap.providerAuthMode === "broker-v1") {
 						if (bootstrap.zuseAccountId === undefined)
 							return yield* Effect.fail(fail("provider-auth-update-required"));
@@ -2700,6 +2943,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 										);
 						return {
 							title: chat.title,
+							nativeAgentAccess: [...nativeAgentAccess.values()],
 							lastActivityAt,
 							lastUserMessageAt: chat.lastUserMessageAt?.getTime() ?? null,
 							activeSessionId,
@@ -2907,6 +3151,10 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								return yield* messages
 									.sendMessageWithInput({
 										commandId: command.commandId,
+										actor: command.actor,
+										githubSlackMessageId: command.githubBot
+											? command.messageId
+											: undefined,
 										sessionId,
 										text:
 											materialized.length === 0
@@ -3345,6 +3593,20 @@ export const makeCloudWorkspaceRuntimeLayer = (
 									if (createdForWorkspace)
 										knownChatSessionIds.add(record.streamId);
 									if (!knownChatSessionIds.has(record.streamId)) return;
+									if (
+										bootstrap.providerAuthMode === "snapshot-native" &&
+										record.event._tag === "TurnSettled"
+									) {
+										yield* trackSnapshotNativeAccess({
+											session: sessions.getSession(
+												AgentSessionId.make(record.streamId),
+											),
+											history: (id) => messages.listMessages(id),
+											outcome: record.event.outcome,
+											access: nativeAgentAccess,
+										});
+									}
+
 									const reason: RuntimeSummaryReason | null =
 										record.event._tag === "SessionTitleSet"
 											? "title"
@@ -3382,6 +3644,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 
 					if (launchIntent !== undefined) {
 						const started = yield* startCloudWorkspaceLaunchIntent({
+							githubContext: bootstrap.initialGithubContext,
 							transcripts,
 							workspaceId: config.workspaceId,
 							workspaces,
@@ -3476,6 +3739,15 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					yield* keepCloudRuntimeActive({
 						chatId: runtimeChat.id,
 						sessions: sessions.listSessions(runtimeChat.projectId, false),
+						isWaitingForInput: (session) =>
+							sessionDomain.timelineSnapshot(session.id).pipe(
+								Effect.map(
+									(timeline) => timeline.projection.interactions.length > 0,
+								),
+								Effect.mapError(() =>
+									fail("workspace_active_interactions_unavailable"),
+								),
+							),
 						publish: summaryPublisher.publish("activity"),
 					}).pipe(Effect.forkScoped({ startImmediately: true }));
 					yield* chats.streamChatChanges(runtimeChat.projectId).pipe(

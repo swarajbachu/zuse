@@ -1,25 +1,66 @@
-import type { PluginDefinition, PluginSnapshot } from "@zuse/contracts";
+import type {
+	PluginConnection,
+	PluginDefinition,
+	PluginSnapshot,
+} from "@zuse/contracts";
 import { useMemo } from "react";
 import { useAuth } from "../hooks/use-auth.ts";
 import { usePluginSnapshot } from "./plugins-client.ts";
 
 /** Plugins the signed-in account can use right now, for `@` mentions. */
-export type ConnectedPlugin = Pick<PluginDefinition, "id" | "name" | "domain">;
+export type ConnectedPlugin = Pick<
+	PluginDefinition,
+	"id" | "name" | "domain"
+> & {
+	readonly connectionId: string;
+	readonly pluginName: string;
+};
 
-const connectedOf = (
+/** Keep account names consistent in mention menus and settings. */
+export const pluginConnectionName = (
+	pluginName: string,
+	label: string,
+): string => (label === pluginName ? pluginName : `${pluginName} / ${label}`);
+
+/** Names must distinguish accounts within the same plugin, including disabled connections. */
+export const hasPluginConnectionLabel = (
+	connections: readonly Pick<PluginConnection, "pluginId" | "label">[],
+	pluginId: string,
+	label: string,
+): boolean => {
+	const normalized = label.trim().toLowerCase();
+	return (
+		normalized.length > 0 &&
+		connections.some(
+			(connection) =>
+				connection.pluginId === pluginId &&
+				connection.label.trim().toLowerCase() === normalized,
+		)
+	);
+};
+
+/** List usable connections individually so mentions can select the exact account. */
+export const connectedOf = (
 	snapshot: PluginSnapshot | null,
 ): readonly ConnectedPlugin[] => {
 	if (snapshot === null) return [];
-	const ids = new Set(
-		snapshot.connections
-			.filter(
-				(connection) => connection.state === "connected" && connection.enabled,
-			)
-			.map((connection) => connection.pluginId),
+	const catalog = new Map(
+		snapshot.catalog.map((plugin) => [plugin.id, plugin]),
 	);
-	return snapshot.catalog
-		.filter((plugin) => ids.has(plugin.id))
-		.map(({ id, name, domain }) => ({ id, name, domain }));
+	return snapshot.connections.flatMap((connection) => {
+		const plugin = catalog.get(connection.pluginId);
+		if (!plugin || connection.state !== "connected" || !connection.enabled)
+			return [];
+		return [
+			{
+				id: plugin.id,
+				domain: plugin.domain,
+				name: pluginConnectionName(plugin.name, connection.label),
+				pluginName: plugin.name,
+				connectionId: connection.id,
+			},
+		];
+	});
 };
 
 /** The account whose plugins apply, or null when signed out. */
@@ -42,11 +83,14 @@ export function useConnectedPlugins(): readonly ConnectedPlugin[] {
 export const pluginMentionContext = (plugin: {
 	readonly id: string;
 	readonly name: string;
+	readonly connectionId?: string;
 }) => ({
 	_tag: "context" as const,
-	id: `plugin:${plugin.id}`,
+	id: plugin.connectionId
+		? `plugin:${plugin.id}:${plugin.connectionId}`
+		: `plugin:${plugin.id}`,
 	label: plugin.name,
-	comment: `Use my connected ${plugin.name} plugin for this request. Find its tools with plugins_search (an empty query lists every connected tool; ${plugin.name} tool addresses start with "tools.${plugin.id}."), read a tool's input with plugins_schema, then run it with plugins_call.`,
+	comment: `Use my connected ${plugin.name} plugin for this request. Find its tools with plugins_search (an empty query lists every connected tool; this connection’s tool addresses start with "tools.${plugin.id}.${plugin.connectionId ? `user.${plugin.connectionId}.` : ""}"), read a tool's input with plugins_schema, then run it with plugins_call.${plugin.connectionId ? " Use only this exact connection prefix; if it is unavailable, ask me to reconnect rather than using another account." : ""}`,
 });
 
 /** Logos come from the same public registry as the catalog. */
@@ -68,5 +112,6 @@ export function useConnectedPlugin(
 	pluginId: string | null,
 ): ConnectedPlugin | null {
 	const plugins = useConnectedPlugins();
-	return plugins.find((item) => item.id === pluginId) ?? null;
+	const plugin = plugins.find((item) => item.id === pluginId);
+	return plugin ? { ...plugin, name: plugin.pluginName } : null;
 }

@@ -50,11 +50,11 @@ beforeEach(() => {
 	fixture.role = undefined;
 });
 
-it("identifies Personal billing and preserves its checkout action", () => {
+it("identifies Personal billing and keeps subscription state pending until verified", () => {
 	const markup = renderToStaticMarkup(<CloudWorkspacePool section="billing" />);
 	expect(markup).toContain("Cloud · Personal");
-	expect(markup).toContain("Subscribe");
-	expect(markup).toContain("Manage payment details and invoices");
+	expect(markup).not.toContain("Subscribe");
+	expect(markup).toContain("Manage or cancel your Zuse subscription");
 });
 
 it("routes finance-only members to billing even when a content settings page was selected", () => {
@@ -64,7 +64,7 @@ it("routes finance-only members to billing even when a content settings page was
 		<CloudWorkspacePool section="repositories" />,
 	);
 	expect(markup).toContain("Cloud · Acme");
-	expect(markup).toContain("Manage payment details and invoices");
+	expect(markup).toContain("Manage or cancel your Zuse subscription");
 	expect(markup).not.toContain("Connect GitHub");
 });
 
@@ -80,12 +80,12 @@ it.each([
 	expect(markup).toContain(`Cloud · ${role === undefined ? "org_a" : "Acme"}`);
 	expect(markup).not.toContain("Cloud · Personal");
 	if (role === "admin" || role === "billing") {
-		expect(markup).toContain("Subscribe");
+		expect(markup).not.toContain("Subscribe");
 		// Billing remains accessible before activation and after cancellation.
-		expect(markup).toContain("Manage payment details and invoices");
+		expect(markup).toContain("Manage or cancel your Zuse subscription");
 	} else {
 		expect(markup).not.toContain("Subscribe");
-		expect(markup).not.toContain("Manage payment details and invoices");
+		expect(markup).not.toContain("Manage or cancel your Zuse subscription");
 		expect(markup).toContain("Only workspace admins and billing members");
 	}
 });

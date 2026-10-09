@@ -102,7 +102,6 @@
 	"add_computer_dialog_username_optional_sentence": "Nom d'utilisateur <part0>Facultatif</part0>",
 	"add_computer_dialog_port_optional_sentence": "Port <part0>En option</part0>",
 	"add_computer_dialog_label_optional_sentence": "Étiquette <part0>En option</part0>",
-	"add_computer_dialog_remove_sentence": "Supprimer {{value}} ?",
 	"add_computer_dialog_zuse_will_forget_this_computer_on_this_device_projects_and_d_sentence": "Zuse oubliera cet ordinateur sur cet appareil. Les projets et les données sur {{value}} ne sont pas supprimés.",
 	"opencode_provider_manager_configured_sentence": "{{value}} configuré",
 	"opencode_provider_manager_no_providers_match_sentence": "Aucun fournisseur ne correspond à « {{query}} ».",
@@ -140,5 +139,17 @@
 	"update_to_latest": "Mettre {{name}} à jour vers la dernière version",
 	"sign_in_failed": "Échec de la connexion.",
 	"sign_in_incomplete": "La connexion s’est interrompue.",
-	"update_incomplete": "La mise à jour s’est interrompue."
+	"update_incomplete": "La mise à jour s’est interrompue.",
+	"remove_computer_account_description": "Supprimez {{value}} de votre compte pour libérer une place pour un ordinateur. L’accès à distance via Zuse sera interrompu. Les projets et les données sur l’ordinateur sont conservés.",
+	"accounts_title": "Comptes",
+	"accounts_add": "Ajouter un compte",
+	"accounts_name": "Nom du compte",
+	"accounts_hint": "Les comptes restent sur cet ordinateur. Choisissez un compte avant d’envoyer le premier message d’une nouvelle discussion ; les discussions existantes conservent leur compte.",
+	"accounts_default": "Connexion CLI par défaut / clé API",
+	"accounts_use": "Utiliser pour les nouvelles discussions",
+	"accounts_selected": "Sélectionné",
+	"accounts_waiting": "Terminez la connexion dans votre navigateur.",
+	"accounts_open_browser": "Ouvrir le navigateur",
+	"accounts_signed_in": "Connecté",
+	"accounts_remove_description": "Supprime ce compte des paramètres. Les conversations utilisant ce compte ne pourront plus reprendre. Les fichiers de connexion et les transcriptions sont conservés."
 }

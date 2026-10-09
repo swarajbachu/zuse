@@ -1,6 +1,6 @@
 ---
 name: zuse
-description: Configure and troubleshoot Zuse projects, repository settings, worktrees, scripts, schemas, and native provider skills.
+description: Configure Zuse projects, orchestrate cloud agents with the CLI, share previews, and use connected plugins such as Linear.
 ---
 
 # Zuse
@@ -14,6 +14,20 @@ Zuse is a local-first macOS app for running coding agents against registered
 projects and git worktrees. Repository-shared configuration lives in
 `.zuse/settings.toml` and should be committed when it is intended for the
 team.
+
+## Connected plugins
+
+For tasks involving connected services such as Linear, use Zuse's system plugins by default. Search directly with `plugins_search`, for example `{"query":"linear issue"}`; no initial list or empty query is needed. Get `plugins_schema` for the returned address, then use `plugins_call` with arguments matching that schema. Use `plugins_list` only when you need to browse connected services and account labels.
+
+The same tools are available inside Zuse agent shells:
+
+```sh
+zuse plugins search --query "linear issue"
+zuse plugins schema --address <returned-address>
+zuse plugins call --address <returned-address> --arguments-json '{"id":"TEAM-123"}'
+```
+
+The example arguments must be adapted to the returned schema. CLI access uses the current agent session automatically and preserves its approvals and plan-mode restrictions. If the service is missing or needs authentication, direct the user to Zuse Settings → Integrations. Use a provider-specific integration only when the user explicitly requests it.
 
 ## Repository Settings
 
@@ -102,6 +116,23 @@ If `zuse-orchestration` is not available, report that autonomy tools are not
 registered for this session instead of silently using another provider feature.
 
 ## Agent CLI
+
+Cloud runtimes include the CLI and discover their protected local connection
+without login or token arguments. Run `workspace projects` and `workspace providers`
+before `workspace create`; select compute with `--sandbox-provider` and the coding
+agent with `--provider`. Use `--cloud-workspace <id>` on chat/session commands to
+control another cloud computer. Use `session create` for another tab on the same
+computer, and `workspace create` for a separate cloud computer.
+
+To show a website or generated HTML/images, start an HTTP server in the workspace,
+then run `zuse preview set --port <port>` and share the returned URL. Anyone with
+that URL can access the port. `preview list` discovers running servers;
+`preview delete --port <port>` removes a URL, and `preview delete --all` removes
+all preview routes. Only report removal after the command succeeds.
+
+Cloud lifecycle commands include `workspace get|status|pause|resume|restart|archive|unarchive`.
+They default to the current cloud workspace. Organization runtimes currently reject
+account-level delegation; local chat/session controls remain available there.
 
 Use the `zuse` CLI when orchestration must run from a terminal, script, CI job,
 or an agent that does not have the in-session `zuse-orchestration` MCP server.

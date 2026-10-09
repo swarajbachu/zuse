@@ -133,7 +133,8 @@ describe("WorkspaceServiceLive project registration", () => {
             path TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            workspace_key TEXT NOT NULL DEFAULT 'personal'
           )
         `;
 				yield* sql`
@@ -159,6 +160,72 @@ describe("WorkspaceServiceLive project registration", () => {
 		expect(await fs.readFile(Path.join(dir, ".gitignore"), "utf8")).toBe(
 			".context\n",
 		);
+	});
+
+	it("records Personal by default and the requested organization otherwise", async () => {
+		const other = await fs.mkdtemp(Path.join(os.tmpdir(), "zuse-org-add-"));
+		try {
+			const [personal, org, listed] = await runtime.runPromise(
+				Effect.gen(function* () {
+					const workspace = yield* WorkspaceService;
+					const personal = yield* workspace.add(dir);
+					const org = yield* workspace.add(other, {
+						workspaceKey: "organization:org_1",
+					});
+					return [personal, org, yield* workspace.list()] as const;
+				}),
+			);
+			expect(personal.workspaceKey).toBe("personal");
+			expect(org.workspaceKey).toBe("organization:org_1");
+			expect(listed.map((folder) => folder.workspaceKey)).toEqual([
+				"personal",
+				"organization:org_1",
+			]);
+		} finally {
+			await fs.rm(other, { recursive: true, force: true });
+		}
+	});
+
+	it("reports the owning workspace when a path is registered elsewhere", async () => {
+		const error = await runtime.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* WorkspaceService;
+				const personal = yield* workspace.add(dir);
+				const failure = yield* Effect.flip(
+					workspace.add(dir, { workspaceKey: "organization:org_1" }),
+				);
+				return { personal, failure };
+			}),
+		);
+		expect(error.failure._tag).toBe("WorkspaceDuplicatePathError");
+		if (error.failure._tag !== "WorkspaceDuplicatePathError") return;
+		expect(error.failure.folderId).toBe(error.personal.id);
+		expect(error.failure.workspaceKey).toBe("personal");
+	});
+
+	it("moves a project between workspaces only from the expected owner", async () => {
+		const result = await runtime.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* WorkspaceService;
+				const personal = yield* workspace.add(dir);
+				const stale = yield* Effect.flip(
+					workspace.add(dir, {
+						workspaceKey: "organization:org_1",
+						moveFrom: "organization:org_2",
+					}),
+				);
+				const moved = yield* workspace.add(dir, {
+					workspaceKey: "organization:org_1",
+					moveFrom: "personal",
+				});
+				return { personal, stale, moved, stored: yield* workspace.list() };
+			}),
+		);
+		expect(result.stale._tag).toBe("WorkspaceDuplicatePathError");
+		expect(result.moved.id).toBe(result.personal.id);
+		expect(result.moved.workspaceKey).toBe("organization:org_1");
+		expect(result.stored).toHaveLength(1);
+		expect(result.stored[0]?.workspaceKey).toBe("organization:org_1");
 	});
 });
 

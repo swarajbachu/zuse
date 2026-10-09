@@ -1,3 +1,4 @@
+import { runningBackgroundAgents } from "@zuse/client-runtime/background-agent-presentation";
 import type { SyncPhase } from "@zuse/client-runtime/resource-state";
 import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
 import { useEnvironmentQuestionAttachments } from "../lib/environment-question-attachments-client-bus.ts";
@@ -29,7 +30,9 @@ import type {
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Message01Icon } from "@zuse/icons/solid-rounded";
 import {
+	lazy,
 	type ReactNode,
+	Suspense,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -44,7 +47,6 @@ import {
 	CHAT_LIST_ANCHOR_OFFSET,
 	resolveChatListAnchoredEndSpace,
 } from "../lib/chat-list-anchor.ts";
-import { resolveChatErrorBottom } from "../lib/chat-overlay-position.ts";
 import {
 	type ChatTimelineRow,
 	createCloudTimelineRows,
@@ -63,7 +65,6 @@ import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
-import { isComposerSignInError } from "../lib/provider-auth-recovery.ts";
 import {
 	rendererAccountSnapshot,
 	subscribeRendererAccount,
@@ -105,10 +106,9 @@ import { useRegisterPane } from "../store/pane-focus.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { ChatLookupsProvider, deriveChatLookups } from "./chat-lookups.tsx";
 import { ChatTurnNavigator } from "./chat-turn-navigator.tsx";
-import { ChatWorkingRow } from "./chat-working-row.tsx";
 import { FileChipProvider } from "./file-chip.tsx";
 import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
-import { ErrorBubble, MessageRow } from "./message-row.tsx";
+import { MessageRow } from "./message-row.tsx";
 import { NextUnreadButton } from "./next-unread-button.tsx";
 import {
 	ChatCreationFailureActions,
@@ -117,6 +117,15 @@ import {
 import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
 import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
+
+const ChatWorkingRow = lazy(() =>
+	import("./chat-working-row.tsx").then((m) => ({ default: m.ChatWorkingRow })),
+);
+const BackgroundAgentWorkingRows = lazy(() =>
+	import("./chat-working-row.tsx").then((m) => ({
+		default: m.BackgroundAgentWorkingRows,
+	})),
+);
 
 interface TimelineEndState {
 	readonly isAtEnd?: boolean;
@@ -253,17 +262,11 @@ export function ChatView({
 		(state) => state.errorByResource[errorKey] ?? null,
 	);
 	const commandError = localError ?? pendingSessionCommandError(sessionRef);
+	// Command failures are presented by the provider error tray above the
+	// composer; a pre-ack failure the timeline already recovered from is cleared.
 	const recoveredPreAckError =
 		commandError !== null &&
 		isRecoveredPreAckSessionError(commandError, timeline.view);
-	// A local provider sign-in failure is recovered from the composer tray, so
-	// it never also floats a destructive error bubble over the transcript.
-	const error =
-		recoveredPreAckError ||
-		(commandError !== null &&
-			isComposerSignInError(commandError, session.providerId, environmentId))
-			? null
-			: commandError;
 	useEffect(() => {
 		if (recoveredPreAckError) clearSessionCommandError(sessionRef);
 	}, [recoveredPreAckError, sessionRef]);
@@ -347,7 +350,9 @@ export function ChatView({
 		useChatsStore.getState().completeCreation(session.chatId);
 	}, [providerOutputStarted, session.chatId]);
 	const cloudSetupActive =
-		cloudSummary !== null && cloudWorkspaceIsStarting(cloudSummary);
+		cloudSummary !== null &&
+		cloudWorkspaceIsStarting(cloudSummary) &&
+		!inFlight;
 	const workspaceProgressActive = workspaceCreationProgressIsActive({
 		workspaceRequested: pendingCreation?.workspaceRequested === true,
 		setupStatus: worktreeSetupStatus,
@@ -386,11 +391,20 @@ export function ChatView({
 			uiMessage,
 		],
 	);
+	const backgroundAgents = useMemo(
+		() => runningBackgroundAgents(timeline.view),
+		[timeline.view],
+	);
 	const timelineFooter = useMemo(
 		() => (
 			<>
 				<div className="px-[var(--chat-row-gutter,0.75rem)]">
 					<WorktreeSetupCard providerOutputStarted={providerOutputStarted} />
+					{backgroundAgents.length > 0 && (
+						<Suspense fallback={null}>
+							<BackgroundAgentWorkingRows agents={backgroundAgents} />
+						</Suspense>
+					)}
 					{pendingCreation?.phase === "failed" ? (
 						<ChatCreationFailureActions creation={pendingCreation} />
 					) : null}
@@ -398,7 +412,7 @@ export function ChatView({
 				<div className="h-2" />
 			</>
 		),
-		[pendingCreation, providerOutputStarted, uiMessage],
+		[pendingCreation, providerOutputStarted, backgroundAgents, uiMessage],
 	);
 	const turns = useMemo(
 		() => deriveChatTurnNavigationEntries(rows),
@@ -1006,22 +1020,6 @@ export function ChatView({
 							});
 						}}
 					/>
-					{error === null ? null : (
-						<div
-							className="pointer-events-none absolute inset-x-0 z-20 px-[var(--chat-row-gutter,0.75rem)]"
-							style={{ bottom: resolveChatErrorBottom(endInset) }}
-						>
-							<div className="pointer-events-auto mx-auto w-full max-w-[var(--chat-reading-column,56rem)]">
-								<ErrorBubble
-									error={error}
-									sessionId={sessionId}
-									environmentId={environmentId}
-									providerId={session?.providerId}
-									onDismiss={() => clearSessionCommandError(sessionRef)}
-								/>
-							</div>
-						</div>
-					)}
 					<div
 						className="pointer-events-none absolute inset-x-0 z-30 px-[var(--chat-row-gutter,0.75rem)]"
 						style={{ bottom: Math.max(0, endInset - 8) }}
@@ -1129,15 +1127,17 @@ function TimelineRow({
 			break;
 		case "working":
 			content = (
-				<ChatWorkingRow
-					interactions={interactions}
-					messages={row.messages}
-					chatId={chatId}
-					pendingCommands={pendingCommands}
-					providerId={providerId}
-					runtimeState={runtimeState}
-					sessionId={sessionId}
-				/>
+				<Suspense fallback={<div className="h-7" />}>
+					<ChatWorkingRow
+						interactions={interactions}
+						messages={row.messages}
+						chatId={chatId}
+						pendingCommands={pendingCommands}
+						providerId={providerId}
+						runtimeState={runtimeState}
+						sessionId={sessionId}
+					/>
+				</Suspense>
 			);
 	}
 	return (

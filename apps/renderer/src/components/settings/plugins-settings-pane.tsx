@@ -9,7 +9,10 @@ import {
 	Search01Icon,
 } from "@zuse/icons/solid-rounded";
 import { useEffect, useMemo, useState } from "react";
-import { usePluginAccount } from "~/lib/connected-plugins.ts";
+import {
+	pluginConnectionName,
+	usePluginAccount,
+} from "~/lib/connected-plugins.ts";
 import {
 	notifyPluginsChanged,
 	pluginRequest,
@@ -162,6 +165,7 @@ type ConnectedPluginRows = {
 	readonly reload: () => Promise<void>;
 };
 
+/** Keep one named settings row per connected account, including disabled accounts. */
 function rowsOf(snapshot: PluginSnapshot): readonly PluginRow[] {
 	const catalog = new Map(
 		snapshot.catalog.map((plugin) => [plugin.id, plugin]),
@@ -172,7 +176,9 @@ function rowsOf(snapshot: PluginSnapshot): readonly PluginRow[] {
 			const plugin = catalog.get(connection.pluginId);
 			return {
 				connection,
-				name: plugin?.name ?? connection.label,
+				name: plugin
+					? pluginConnectionName(plugin.name, connection.label)
+					: connection.label,
 				description: plugin?.description ?? "",
 				domain: plugin?.domain ?? "",
 			};

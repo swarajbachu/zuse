@@ -1,6 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { createHash, createPrivateKey, sign } from "node:crypto";
 import {
+	createHash,
+	createPrivateKey,
+	createPublicKey,
+	sign,
+} from "node:crypto";
+import {
+	chmod,
 	cp,
 	mkdir,
 	readdir,
@@ -74,6 +80,35 @@ if (
 }
 await mkdir(runtimeRoot, { recursive: true });
 await cp(bundlePath, join(runtimeRoot, "bin.mjs"));
+const cliRoot = join(workspaceRoot, "packages", "serve");
+run("bunx", ["tsdown", "--config", "tsdown.cloud.config.ts"], cliRoot);
+await mkdir(join(runtimeRoot, "cli"), { recursive: true });
+await cp(
+	join(cliRoot, "dist-cloud", "bin.mjs"),
+	join(runtimeRoot, "cli", "zuse"),
+);
+await chmod(join(runtimeRoot, "cli", "zuse"), 0o755);
+
+run(
+	"bunx",
+	["tsdown", "--config", "tsdown.cursor-worker.config.ts"],
+	packageRoot,
+);
+const cursorSdkRoot = join(runtimeRoot, "node_modules", "@cursor", "sdk");
+await mkdir(cursorSdkRoot, { recursive: true });
+await cp(
+	join(outputRoot, "cursor", "cursor-sdk.mjs"),
+	join(cursorSdkRoot, "index.mjs"),
+);
+await writeFile(
+	join(cursorSdkRoot, "package.json"),
+	JSON.stringify({
+		name: "@cursor/sdk",
+		type: "module",
+		main: "./index.mjs",
+		exports: "./index.mjs",
+	}),
+);
 await cp(
 	join(packageRoot, "scripts", "runtime-updater.mjs"),
 	join(runtimeRoot, "runtime-updater.mjs"),
@@ -92,6 +127,8 @@ await cp(
 );
 
 const nativePackages = [
+	"playwright",
+	"playwright-core",
 	"bindings",
 	"file-uri-to-path",
 	"node-gyp-build",
@@ -149,6 +186,7 @@ await writeFile(
 			appVersion,
 			runtimeVersion,
 			wireProtocolVersion: WIRE_PROTOCOL_VERSION,
+			snapshotSupportVersion: 1,
 		},
 		null,
 		2,
@@ -209,3 +247,53 @@ console.log(
 		sizeBytes: manifest.sizeBytes,
 	}),
 );
+
+// The installer bundle is inert: no repository paths, credentials, or runtime state.
+const snapshotInstallerRoot = join(outputRoot, "snapshot-installer");
+await mkdir(snapshotInstallerRoot, { recursive: true });
+for (const [source, target] of [
+	[
+		join(workspaceRoot, "infra/cloud-sandboxes/install-snapshot.sh"),
+		"install-snapshot.sh",
+	],
+	[join(workspaceRoot, "infra/cloud-sandboxes/sshd_config"), "sshd_config"],
+	[join(serverRoot, "runtime-updater.mjs"), "runtime-updater.mjs"],
+])
+	await cp(source, join(snapshotInstallerRoot, target));
+await writeFile(
+	join(snapshotInstallerRoot, "snapshot-release.json"),
+	JSON.stringify({
+		manifestUrl: new URL("stable-manifest.json", runtimeUrl).href,
+		wireProtocolVersion: WIRE_PROTOCOL_VERSION,
+		publicJwk: createPublicKey(
+			createPrivateKey({ key: JSON.parse(privateJwk), format: "jwk" }),
+		).export({ format: "jwk" }),
+	}),
+);
+const installerFiles = [
+	"install-snapshot.sh",
+	"sshd_config",
+	"runtime-updater.mjs",
+	"snapshot-release.json",
+];
+await writeFile(
+	join(snapshotInstallerRoot, "SHA256SUMS"),
+	(
+		await Promise.all(
+			installerFiles.map(
+				async (name) =>
+					`${createHash("sha256")
+						.update(await readFile(join(snapshotInstallerRoot, name)))
+						.digest("hex")}  ${name}`,
+			),
+		)
+	).join("\n") + "\n",
+);
+run("tar", [
+	"-czf",
+	join(outputRoot, "zuse-snapshot-installer.tar.gz"),
+	"-C",
+	snapshotInstallerRoot,
+	...installerFiles,
+	"SHA256SUMS",
+]);

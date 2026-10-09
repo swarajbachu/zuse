@@ -25,11 +25,21 @@ vi.mock("../../../cloud-sandboxes/workspace-repository.sh", async () => {
 	};
 });
 
+vi.mock("../../../cloud-sandboxes/install-grok.sh", () => ({
+	default: readFileSync(
+		new URL("../../../cloud-sandboxes/install-grok.sh", import.meta.url),
+		"utf8",
+	),
+}));
+
 test("repository recovery failure is logged and marked before the runtime starts", () => {
 	const root = mkdtempSync(join(tmpdir(), "zuse-resume-script-"));
 	try {
 		const state = join(root, "workspace");
 		mkdirSync(state);
+		const tools = join(root, "tools");
+		mkdirSync(tools);
+		writeFileSync(join(tools, "grok"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 		const repository = join(root, "not-a-repository");
 		mkdirSync(repository);
 		writeFileSync(join(root, "retained-data"), "keep");
@@ -40,6 +50,7 @@ test("repository recovery failure is logged and marked before the runtime starts
 		const result = spawnSync("bash", ["-c", script], {
 			env: {
 				...process.env,
+				PATH: `${tools}:${process.env.PATH}`,
 				ZUSE_RUNTIME_MANIFEST_URL: "",
 				ZUSE_CLOUD_WORKSPACE_ID: "child",
 				ZUSE_RUNTIME_GENERATION: "2",

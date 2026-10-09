@@ -42,6 +42,10 @@ const commandId = (kind: string): CommandId =>
 
 const GROUPS = new Set([
 	"commands",
+	"help",
+	"workspace",
+	"preview",
+	"plugins",
 	"computer",
 	"project",
 	"model",
@@ -99,13 +103,15 @@ const parse = (argv: ReadonlyArray<string>): Args => {
 	const positionals: string[] = [];
 	const flags = new Map<string, string[]>();
 	for (let i = 0; i < argv.length; i += 1) {
-		const value = argv[i];
+		const value = argv[i] === "-h" ? "--help" : argv[i];
 		if (value === undefined) break;
 		if (!value.startsWith("--")) {
 			positionals.push(value);
 			continue;
 		}
-		const [rawKey, inline] = value.slice(2).split("=", 2);
+		const equals = value.indexOf("=");
+		const rawKey = value.slice(2, equals < 0 ? undefined : equals);
+		const inline = equals < 0 ? undefined : value.slice(equals + 1);
 		if (!rawKey)
 			throw new CliError("invalid_input", `Invalid option ${value}.`);
 		const next = argv[i + 1];
@@ -182,12 +188,14 @@ type LocalCliAccess = {
 	readonly schemaVersion: 1;
 	readonly wsUrl: string;
 	readonly token: string;
+	readonly cloudWorkspaceId?: string;
 };
 const installedCliAccessCandidates = (
 	env: NodeJS.ProcessEnv,
 	platform = process.platform,
 ): ReadonlyArray<string> => {
-	const configured = env.ZUSE_USER_DATA_DIR?.trim();
+	const configured =
+		env.ZUSE_USER_DATA?.trim() || env.ZUSE_USER_DATA_DIR?.trim();
 	if (configured) return [join(resolve(configured), "cli-access.json")];
 	return [
 		join(
@@ -204,10 +212,20 @@ const installedCliAccessCandidates = (
 const localCliAccess = async (
 	env: NodeJS.ProcessEnv,
 ): Promise<LocalCliAccess | null> => {
-	const explicit = env.ZUSE_DEV_CLI_ACCESS_FILE?.trim();
+	const explicit =
+		env.ZUSE_CLI_ACCESS_FILE?.trim() || env.ZUSE_DEV_CLI_ACCESS_FILE?.trim();
 	const candidates: string[] = explicit
 		? [resolve(explicit)]
-		: [...installedCliAccessCandidates(env)];
+		: [
+				...installedCliAccessCandidates(env),
+				join(
+					env.XDG_DATA_HOME ?? join(env.HOME ?? homedir(), ".local", "share"),
+					"zuse",
+					"cli-access.json",
+				),
+				join(env.HOME ?? homedir(), ".zuse-data", "cli-access.json"),
+				"/var/lib/zuse/user-data/cli-access.json",
+			];
 	let cursor = resolve(process.cwd());
 	while (true) {
 		const instance = env.ZUSE_DEV_INSTANCE?.trim() || "default";
@@ -265,8 +283,11 @@ const endpoint = async (
 	return url.toString();
 };
 
-const connect = async (connectionEndpoint: string) => {
-	const layer = wsClientProtocolLayer(connectionEndpoint);
+const connect = async (
+	connectionEndpoint: string,
+	protocols?: readonly string[],
+) => {
+	const layer = wsClientProtocolLayer(connectionEndpoint, { protocols });
 	return makeRpcClientSession(layer, MemoizeRpcs, {
 		protocolVersion: WIRE_PROTOCOL_VERSION,
 		perform: (client, hello) => client["connect.handshake"](hello),
@@ -354,6 +375,27 @@ const rpc = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
 
 const commandManifest = () => ({
 	commands: [
+		"plugins list",
+		"plugins search",
+		"plugins schema",
+		"plugins call",
+		"workspace providers",
+		"workspace projects",
+		"workspace list",
+		"workspace get",
+		"workspace status",
+		"workspace create",
+		"workspace rename",
+		"workspace pause",
+		"workspace resume",
+		"workspace restart",
+		"workspace archive",
+		"workspace unarchive",
+		"workspace delete",
+		"preview list",
+		"preview set",
+		"preview delete",
+		"session status",
 		"computer list",
 		"project list",
 		"model list",
@@ -393,7 +435,28 @@ const commandManifest = () => ({
 		"session interrupt",
 		"session resume",
 	],
-	commonOptions: ["--computer", "--ws-url", "--token", "--project"],
+	commonOptions: [
+		"--computer",
+		"--ws-url",
+		"--token",
+		"--project",
+		"--cloud-workspace",
+	],
+	usage: {
+		plugins:
+			'plugins list; plugins search --query "linear issue"; plugins schema --address <address>; plugins call --address <address> --arguments-json <object> (uses the current agent session and its permissions)',
+		workspace:
+			"workspace create --project <cloud-project-id> --sandbox-provider <id> [--base-ref <branch>] [--branch <name>] [--provider <agent>] [--model <id>] [--prompt <text> | --prompt-file <path|->] [--idempotency-key <key>]",
+		rename:
+			"workspace rename [workspace-id] --title <name> (renames the workspace sidebar chat)",
+		lifecycle:
+			"workspace <get|status|pause|resume|restart|archive|unarchive|delete> [workspace-id] (defaults to this cloud workspace; delete requires --confirm)",
+		preview:
+			"preview list; preview set --port <port> [--cloud-workspace <id>]; preview delete --port <port> [--cloud-workspace <id>] (delete all with --all)",
+		tabs: "session create --chat <id> --provider <agent> --prompt <text>; session send --session <id> --message <text>",
+		remote:
+			"Add --cloud-workspace <id> to chat/session/model commands to control another cloud computer.",
+	},
 	contextOptions: ["--attach", "--file", "--transcript", "--plan"],
 	deleteRequires: "--confirm",
 	schemaVersion: 1,
@@ -620,16 +683,241 @@ const composer = (
 		annotations: [],
 	});
 
+const connectCloudWorkspace = async (
+	client: RpcClient,
+	workspaceId: string,
+) => {
+	const connection = await rpc(
+		client["cloud.workspaces.connect"]({ workspaceId }),
+	);
+	return connect(connection.wsUrl, [
+		connection.protocol,
+		connection.credential,
+	]);
+};
+
+const executeCloudCommand = async (
+	client: RpcClient,
+	args: Args,
+	currentWorkspaceId?: string,
+): Promise<unknown> => {
+	const [group, action] = args.positionals;
+	if (group === "workspace") {
+		if (action === "providers") return rpc(client["cloud.providers"]());
+		if (action === "projects") return rpc(client["cloud.projects.list"]());
+		if (action === "list")
+			return rpc(
+				client["cloud.workspaces.list"]({ projectId: one(args, "project") }),
+			);
+		if (action === "create") {
+			const { projects } = await rpc(client["cloud.projects.list"]());
+			const selector = one(args, "project");
+			const matches =
+				selector === undefined
+					? projects
+					: projects.filter((project) => project.projectId === selector);
+			if (matches.length !== 1 || matches[0] === undefined)
+				throw new CliError(
+					"project_required",
+					"Select a cloud project with --project; run zuse workspace projects.",
+				);
+			const project = matches[0];
+			const { providers } = await rpc(client["cloud.providers"]());
+			const sandbox =
+				one(args, "sandbox-provider") ??
+				(providers.length === 1 ? providers[0]?.providerId : undefined);
+			if (!sandbox || !providers.some((entry) => entry.providerId === sandbox))
+				throw new CliError(
+					"invalid_input",
+					"Select an available --sandbox-provider; run zuse workspace providers.",
+				);
+			const agent = provider(args);
+			return rpc(
+				client["cloud.workspaces.create"]({
+					projectId: project.projectId,
+					providerId: sandbox,
+					baseRef: one(args, "base-ref") ?? project.defaultBranch,
+					branch: one(args, "branch"),
+					sizeId: one(args, "size"),
+					agent,
+					model: model(args, agent),
+					runtimeMode: runtime(args),
+					firstMessage: (await promptFor(args)) || undefined,
+					idempotencyKey: one(args, "idempotency-key") ?? randomUUID(),
+				}),
+			);
+		}
+	}
+	const workspaceId = required(
+		args.positionals[2] ?? one(args, "cloud-workspace") ?? currentWorkspaceId,
+		"--cloud-workspace",
+	);
+	if (group === "preview") {
+		const raw = one(args, "port");
+		const port = raw === undefined ? undefined : Number(raw);
+		if (
+			port !== undefined &&
+			(!Number.isInteger(port) || port < 1 || port > 65535)
+		)
+			throw new CliError(
+				"invalid_input",
+				"--port must be an integer between 1 and 65535.",
+			);
+		if (action === "set") {
+			if (port === undefined)
+				throw new CliError("invalid_input", "preview set requires --port.");
+			return rpc(client["cloud.workspaces.previewUrl"]({ workspaceId, port }));
+		}
+		if (action === "delete") {
+			if (port === undefined && !bool(args, "all"))
+				throw new CliError(
+					"invalid_input",
+					"preview delete requires --port or --all.",
+				);
+			return rpc(
+				client["cloud.workspaces.revokePreviewUrl"]({ workspaceId, port }),
+			);
+		}
+	}
+	if (group === "workspace" && action === "rename") {
+		const title = required(one(args, "title"), "--title");
+		const workspace = await rpc(
+			client["cloud.workspaces.get"]({ workspaceId }),
+		);
+		const remote = await connectCloudWorkspace(client, workspaceId);
+		try {
+			return {
+				chat: await rpc(
+					remote.client["chat.rename"]({ chatId: workspace.chatId, title }),
+				),
+			};
+		} finally {
+			await remote.dispose();
+		}
+	}
+	const input = {
+		workspaceId,
+		commandId: one(args, "idempotency-key") ?? randomUUID(),
+	};
+	switch (action) {
+		case "get":
+		case "status":
+			return rpc(client["cloud.workspaces.get"]({ workspaceId }));
+		case "pause":
+			return rpc(client["cloud.workspaces.pause"](input));
+		case "resume":
+			return rpc(client["cloud.workspaces.resume"](input));
+		case "restart":
+			return rpc(client["cloud.workspaces.restart"](input));
+		case "archive":
+			return rpc(client["cloud.workspaces.archive"](input));
+		case "unarchive":
+			return rpc(client["cloud.workspaces.unarchive"](input));
+		case "delete":
+			if (!bool(args, "confirm"))
+				throw new CliError(
+					"confirmation_required",
+					"workspace delete requires --confirm.",
+				);
+			return rpc(client["cloud.workspaces.delete"](input));
+		default:
+			throw new CliError(
+				"invalid_input",
+				"Unknown cloud command. Run zuse commands.",
+			);
+	}
+};
+
+const executePluginCommand = async (
+	args: Args,
+	env: NodeJS.ProcessEnv,
+): Promise<unknown> => {
+	for (const selector of ["cloud-workspace", "computer", "ws-url", "token"]) {
+		if (one(args, selector) !== undefined)
+			throw new CliError(
+				"invalid_input",
+				"Plugin commands use the current agent session; remote connection overrides are unsupported.",
+			);
+	}
+	const action = args.positionals[1];
+	const input =
+		action === "list"
+			? {}
+			: action === "search"
+				? { query: required(one(args, "query"), "--query") }
+				: {
+						address: required(one(args, "address"), "--address"),
+						...(action === "call"
+							? {
+									arguments: jsonObject(
+										required(one(args, "arguments-json"), "--arguments-json"),
+										"--arguments-json",
+									),
+								}
+							: {}),
+					};
+	if (
+		"arguments" in input &&
+		(input.arguments === null ||
+			typeof input.arguments !== "object" ||
+			Array.isArray(input.arguments))
+	)
+		throw new CliError(
+			"invalid_input",
+			"--arguments-json must contain an object.",
+		);
+	if (!env.ZUSE_PLUGIN_URL || !env.ZUSE_PLUGIN_AUTH)
+		throw new CliError(
+			"plugin_session_required",
+			"Run plugin commands inside a Zuse agent session, or use its plugins_search MCP tool. Connect services in Zuse Settings → Integrations.",
+		);
+	const response = await fetch(env.ZUSE_PLUGIN_URL, {
+		method: "POST",
+		headers: {
+			authorization: `Bearer ${env.ZUSE_PLUGIN_AUTH}`,
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({ name: `plugins_${action}`, args: input }),
+		signal: AbortSignal.timeout(300_000),
+	});
+	if (!response.ok)
+		throw new CliError(
+			"plugin_request_failed",
+			response.status === 401
+				? "Plugin session expired. Retry from an active Zuse agent session."
+				: "Plugin request failed or was denied. Check session permissions and Zuse Settings → Integrations.",
+		);
+	const result = (await response.json()) as {
+		isError?: boolean;
+		content?: Array<{ type: string; text?: string }>;
+	};
+	if (result.isError)
+		throw new CliError(
+			"plugin_request_failed",
+			"Plugin request failed. Check Zuse Settings → Integrations.",
+		);
+	const content = result.content?.find((item) => item.type === "text")?.text;
+	if (content === undefined)
+		throw new CliError("plugin_request_failed", "Invalid plugin response.");
+	return JSON.parse(content);
+};
+
 const execute = async (
 	argv: ReadonlyArray<string>,
 	env: NodeJS.ProcessEnv,
 ): Promise<unknown> => {
 	const args = parse(argv);
 	let [group, action] = args.positionals;
-	if (group === "commands") return commandManifest();
-	if (group === "thread") {
-		group = action === "create" ? "chat" : "session";
-	}
+	if (group === "commands" || group === "help" || bool(args, "help"))
+		return commandManifest();
+	if (group === "thread") group = action === "create" ? "chat" : "session";
+	if (group === "session" && action === "status") action = "get";
+	if (!commandManifest().commands.includes(`${group} ${action}`))
+		throw new CliError(
+			"invalid_input",
+			`Unknown command: ${args.positionals.join(" ")}. Run zuse commands.`,
+		);
+	if (group === "plugins") return executePluginCommand(args, env);
 	const connectionEndpoint = await endpoint(args, env);
 	let session: Awaited<ReturnType<typeof connect>>;
 	try {
@@ -640,7 +928,23 @@ const execute = async (
 		throw cause;
 	}
 	try {
-		const client = session.client;
+		let client = session.client;
+		const cloudWorkspaceId =
+			one(args, "cloud-workspace") ??
+			env.ZUSE_CLOUD_WORKSPACE_ID ??
+			(await localCliAccess(env))?.cloudWorkspaceId;
+		if (group === "workspace" || (group === "preview" && action !== "list"))
+			return await executeCloudCommand(client, args, cloudWorkspaceId);
+		const target = one(args, "cloud-workspace");
+		if (target !== undefined) {
+			const remote = await connectCloudWorkspace(client, target);
+			const local = session;
+			session = remote;
+			client = remote.client;
+			await local.dispose();
+		}
+		if (group === "preview" && action === "list")
+			return await rpc(client["previews.listServers"]());
 		if (group === "computer" && action === "list") {
 			const [current, connected] = await Promise.all([
 				rpc(client["connect.describe"]()),
@@ -1229,6 +1533,7 @@ export const runAgentCli = async (
 
 export const __testing = {
 	parse,
+	executeCloudCommand,
 	execute,
 	commandManifest,
 	expandInputJson,

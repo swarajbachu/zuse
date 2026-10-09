@@ -68,6 +68,7 @@ import {
 	translateGrokExtensionUpdate,
 } from "./grok/protocol.ts";
 import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
+import { pluginCliEnv } from "./plugin-tools.ts";
 
 class GrokProtocolError extends Error {
 	constructor(
@@ -206,19 +207,6 @@ export const startGrokSession = (
 
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 
-		// Shared context handed to the ACP fs/* and terminal/* handlers so file
-		// writes and command execution are gated through PermissionService +
-		// RuntimeMode, exactly like Claude/Codex. `currentMode` is read live so a
-		// mid-session mode toggle takes effect on the next tool call.
-		const acpHandlerContext = makeAcpPermissionContext({
-			cwd,
-			sessionId,
-			projectId: input.folderId,
-			requestPermission: (kind, options) =>
-				requestPermission(sessionId, kind, options),
-			getRuntimeMode,
-			getPermissionMode: () => currentMode,
-		});
 		let gatewayQuestionCounter = 0;
 		const gatewayQuestionResponses =
 			makeBoundedQuestionCallbackRegistry<
@@ -266,6 +254,24 @@ export const startGrokSession = (
 					});
 				},
 			},
+		});
+		const executionEnv = {
+			...input.executionEnv,
+			...pluginCliEnv(mcpGatewaySession.endpoint, mcpGatewaySession.token),
+		};
+		// Shared context handed to the ACP fs/* and terminal/* handlers so file
+		// writes and command execution are gated through PermissionService +
+		// RuntimeMode, exactly like Claude/Codex. `currentMode` is read live so a
+		// mid-session mode toggle takes effect on the next tool call.
+		const acpHandlerContext = makeAcpPermissionContext({
+			executionEnv,
+			cwd,
+			sessionId,
+			projectId: input.folderId,
+			requestPermission: (kind, options) =>
+				requestPermission(sessionId, kind, options),
+			getRuntimeMode,
+			getPermissionMode: () => currentMode,
 		});
 		const grokMcpServers = [mcpGatewaySession.serverConfig];
 		const stdioMcpFallback = makeStdioMcpFallback({
@@ -398,6 +404,7 @@ export const startGrokSession = (
 				cwd,
 				env: {
 					...process.env,
+					...executionEnv,
 					GROK_CURSOR_MCPS_ENABLED: "0",
 					...(apiKey !== null ? { GROK_CODE_XAI_API_KEY: apiKey } : {}),
 				},

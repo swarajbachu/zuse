@@ -60,5 +60,9 @@
 	"plugins_skills_personal": "Personnel",
 	"plugins_skills_project": "Projet",
 	"plugins_skills_codex_note": "Les réglages Codex sont enregistrés dans la configuration de Codex et s'appliquent aussi en dehors de Zuse.",
-	"plugins_skills_loading": "Chargement des compétences…"
+	"plugins_skills_loading": "Chargement des compétences…",
+	"plugins_connection_name": "Nom de la connexion",
+	"plugins_connection_name_placeholder": "Travail, personnel ou nom de l’entreprise",
+	"plugins_connect_another": "Connecter un autre compte",
+	"plugins_connection_name_exists": "Ce nom est déjà utilisé. Choisissez un autre nom de connexion."
 }

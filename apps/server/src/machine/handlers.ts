@@ -57,6 +57,26 @@ const Offers = MemoizeRpcs.toLayerHandler("machines.offers", () =>
 const Plugins = MemoizeRpcs.toLayerHandler("plugins.request", (input) =>
 	withCloudControl((service) => service.plugins(input)),
 );
+const CloudSnapshotImport = MemoizeRpcs.toLayerHandler(
+	"cloud.snapshot.import",
+	(input) => withCloudControl((service) => service.importCloudSnapshot(input)),
+);
+const CloudProviderConnectionsList = MemoizeRpcs.toLayerHandler(
+	"cloud.providerConnections.list",
+	() => withCloudControl((service) => service.cloudProviderConnections()),
+);
+const CloudProviderConnectionsSave = MemoizeRpcs.toLayerHandler(
+	"cloud.providerConnections.save",
+	(input) =>
+		withCloudControl((service) => service.saveCloudProviderConnection(input)),
+);
+const CloudProviderConnectionsDisconnect = MemoizeRpcs.toLayerHandler(
+	"cloud.providerConnections.disconnect",
+	(input) =>
+		withCloudControl((service) =>
+			service.disconnectCloudProviderConnection(input),
+		),
+);
 const CloudProviders = MemoizeRpcs.toLayerHandler("cloud.providers", () =>
 	withCloudControl((service) => service.cloudProviders()),
 );
@@ -129,6 +149,11 @@ const CloudAccountImageStatus = MemoizeRpcs.toLayerHandler(
 	"cloud.image.status",
 	(input) =>
 		withCloudControl((service) => service.cloudAccountImage(input?.providerId)),
+);
+const CloudAccountImageDelete = MemoizeRpcs.toLayerHandler(
+	"cloud.image.delete",
+	(input) =>
+		withCloudControl((service) => service.deleteCloudAccountImage(input)),
 );
 const CloudAccountImageBuild = MemoizeRpcs.toLayerHandler(
 	"cloud.image.build",
@@ -383,6 +408,13 @@ const Environments = MemoizeRpcs.toLayerHandler("environments.list", () =>
 		Effect.mapError((error) => new ConnectAuthError({ reason: error.code })),
 	),
 );
+const RemoveEnvironment = MemoizeRpcs.toLayerHandler(
+	"environments.remove",
+	({ environmentId }) =>
+		withControl((service) => service.removeEnvironment(environmentId)).pipe(
+			Effect.mapError((error) => new ConnectAuthError({ reason: error.code })),
+		),
+);
 const ConnectEnvironment = MemoizeRpcs.toLayerHandler(
 	"environments.connect",
 	({ environmentId }) =>
@@ -472,8 +504,13 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	CloudBillingUsageHandler,
 	CloudBillingSetCapHandler,
 	CloudProviders,
+	CloudSnapshotImport,
+	CloudProviderConnectionsList,
+	CloudProviderConnectionsSave,
+	CloudProviderConnectionsDisconnect,
 	CloudAccountImageStatus,
 	CloudAccountImageBuild,
+	CloudAccountImageDelete,
 	CloudProjects,
 	ConnectCloudProject,
 	RemoveCloudProject,
@@ -522,6 +559,7 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	BillingPortal,
 	Entitlements,
 	Environments,
+	RemoveEnvironment,
 	ConnectEnvironment,
 	AddSshKey,
 	ListSshKeys,

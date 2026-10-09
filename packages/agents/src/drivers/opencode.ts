@@ -228,6 +228,7 @@ const spawnOpencodeServer = (
 	cwd: string,
 	configContent: string = OPENCODE_EMPTY_CONFIG,
 	timeoutMs = 10_000,
+	executionEnv?: Readonly<Record<string, string>>,
 ): Promise<OpencodeServerProcess> =>
 	findFreePort().then(
 		(port) =>
@@ -239,6 +240,7 @@ const spawnOpencodeServer = (
 						cwd,
 						env: {
 							...process.env,
+							...executionEnv,
 							OPENCODE_CONFIG_CONTENT: configContent,
 						},
 						// Detach so SIGTERM can take down the whole process group on Unix.
@@ -953,6 +955,8 @@ export const startOpencodeSession = (
 								}
 							: {}),
 					}),
+					10_000,
+					input.executionEnv,
 				);
 				dlog(`server ready at ${proc.url}`);
 				const c = createOpencodeClient({ baseUrl: proc.url });

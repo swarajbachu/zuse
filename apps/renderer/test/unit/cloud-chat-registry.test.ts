@@ -87,6 +87,69 @@ const summary = (input: {
 		updatedAt: input.updatedAt ?? input.revision,
 	});
 
+it.each([
+	"booting",
+	"running",
+] as const)("shows a live Slack turn immediately while its cloud summary catches up (%s)", (status) => {
+	const row = CloudChatSummary.make({
+		...summary({
+			workspaceId: "environment-a",
+			chatId: "chat-a",
+			sessionId: "session-a",
+			revision: 1,
+		}),
+		state: "resuming",
+		runtimeState: "connecting",
+		startupPhase: "booting",
+		statusCode: "resume-queued",
+	});
+	const timeline = {
+		data: SessionTimelineProjection.make({
+			messages: [],
+			status,
+			currentTurn: { turnId: AgentTurnId.make("slack-turn"), phase: "running" },
+			queue: QueueState.make({ items: [], paused: false }),
+			permissionMode: "default",
+			runtimeMode: "approval-required",
+		}),
+		origin: "runtime" as const,
+		connection: "connected" as const,
+		sync: "live" as const,
+		generation: 1,
+		cursor: null,
+		pendingCommands: [],
+		failedCommands: [],
+	};
+	const activity = deriveCloudChatActivity({
+		summary: row,
+		connection: "connected",
+		runtime: status === "booting" ? "starting" : "running",
+		timeline,
+	});
+	expect(activity).toBe(status === "booting" ? "starting-agent" : "running");
+	expect(cloudChatShowsWorking(activity)).toBe(true);
+	// Cached turns cannot establish current work; explicit pause/failure still wins.
+	for (const origin of ["checkpoint", "cache"] as const)
+		expect(
+			cloudChatShowsWorking(
+				deriveCloudChatActivity({
+					summary: row,
+					connection: "reconnecting",
+					runtime: "idle",
+					timeline: { ...timeline, origin, connection: "reconnecting" },
+				}),
+			),
+		).toBe(false);
+	expect(
+		deriveCloudChatActivity({
+			summary: { ...row, state: "paused" },
+			connection: "connected",
+			runtime: "running",
+			timeline,
+		}),
+	).toBe("paused");
+});
+
 describe("cloud chat catalog", () => {
 	beforeEach(() => {
 		useCloudChatCatalogStore.setState({
@@ -629,4 +692,65 @@ describe("cloud chat catalog", () => {
 			desiredState: "paused",
 		});
 	});
+});
+
+it("keeps the selected summary stable when binding its runtime project", () => {
+	const row = summary({
+		workspaceId: "linked-runtime",
+		chatId: "linked-chat",
+		sessionId: "linked-session",
+		revision: 1,
+	});
+	registerCloudChat(row);
+	const selected = cloudSummaryForChat(row.chatId);
+	registerCloudChat(selected ?? row, FolderId.make("runtime-checkout"));
+	expect(cloudSummaryForChat(row.chatId)).toBe(selected);
+	expect(localProjectForCloudChat(row.chatId)).toBe("runtime-checkout");
+	registerCloudChat(selected ?? row, FolderId.make("runtime-checkout"));
+	expect(cloudSummaryForChat(row.chatId)).toBe(selected);
+});
+
+// Ownership must be known before the first gateway ticket has arrived.
+it("recognizes a cataloged organization environment before the first connection", async () => {
+	const { environmentBelongsToWorkspace, getCloudWorkspaceScope } =
+		await import("../../src/lib/rpc-client.ts");
+	const { observeRendererAccount } = await import(
+		"../../src/lib/renderer-account.ts"
+	);
+	const { selectRendererWorkspace } = await import(
+		"../../src/lib/renderer-workspace.ts"
+	);
+	observeRendererAccount("org-chat-owner");
+	try {
+		const scope = {
+			kind: "organization",
+			organizationId: "org-slack",
+		} as const;
+		selectRendererWorkspace(scope);
+		const row = CloudChatSummary.make({
+			...summary({
+				workspaceId: "slack-org-before-connect",
+				chatId: "chat-slack-org",
+				sessionId: "session-slack-org",
+				revision: 1,
+			}),
+			workspaceScope: scope,
+		});
+		expect(registerCloudChat(row)).toBe(true);
+		expect(environmentBelongsToWorkspace(row.workspaceId, scope)).toBe(true);
+		expect(getCloudWorkspaceScope(row.workspaceId)).toEqual(scope);
+		expect(
+			environmentBelongsToWorkspace(row.workspaceId, { kind: "personal" }),
+		).toBe(false);
+		expect(
+			environmentBelongsToWorkspace(row.workspaceId, {
+				kind: "organization",
+				organizationId: "other",
+			}),
+		).toBe(false);
+		observeRendererAccount(null);
+		expect(getCloudWorkspaceScope(row.workspaceId)).toBeUndefined();
+	} finally {
+		observeRendererAccount(null);
+	}
 });

@@ -525,3 +525,26 @@ it("keeps tools together across invisible status and empty assistant rows", () =
 		messages,
 	);
 });
+
+it("keeps inline visuals outside collapsed activity with stable identities after settling", () => {
+	const content = (itemId: string, tool: string) =>
+		({ _tag: "tool_use", itemId, tool, input: {} }) as Message["content"];
+	const messages = [
+		message("u", { _tag: "user", text: "Compare" }),
+		message("tool", content("shell", "Bash")),
+		message("visual", content("visual", "mcp__zuse__html_render")),
+		message("a", { _tag: "assistant", text: "Analysis" }),
+	];
+	for (const inFlight of [true, false]) {
+		const rows = deriveChatTimelineRows({
+			messages,
+			inFlight,
+			awaitingPlanApproval: false,
+		});
+		expect(rows.find((row) => row.id === "message:visual")?.kind).toBe(
+			"message",
+		);
+		expect(rows.some((row) => row.kind === "tool-activity")).toBe(true);
+		expect(rows.some((row) => row.kind === "turn-summary")).toBe(false);
+	}
+});

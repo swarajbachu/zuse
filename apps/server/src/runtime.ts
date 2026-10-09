@@ -18,9 +18,10 @@ import { AnalyticsServiceLive } from "./analytics/layers/analytics-service.ts";
 import { ApiActivityPublisherLive } from "./api/activity-publisher.ts";
 import {
 	ApiLinkService,
-	ApiLinkServiceLive,
 	autoLinkUntilLinked,
+	makeApiLinkServiceLive,
 	makeDisabledApiLinkService,
+	retireUntilRetired,
 } from "./api/api-link-service.ts";
 import {
 	type CloudEnrollmentConfig,
@@ -63,6 +64,7 @@ import {
 } from "./machine/machine-host-service.ts";
 import { MachineResourceServiceLive } from "./machine/machine-resource-service.ts";
 import { MachineRuntimeRole } from "./machine/machine-runtime-role.ts";
+import { RuntimeCloudControl } from "./machine/runtime-cloud-control.ts";
 import { McpServiceLive } from "./mcp/layers/mcp-service.ts";
 import { ModelCatalogPollerLive } from "./model-catalog/layers/model-catalog-poller.ts";
 import { ModelCatalogServiceLive } from "./model-catalog/layers/model-catalog-service.ts";
@@ -80,6 +82,11 @@ import { BrowserBridgeServiceLive } from "./provider/layers/browser-bridge-servi
 import { PermissionServiceLive } from "./provider/layers/permission-service.ts";
 import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
 import type { CredentialsService } from "./provider/services/credentials-service.ts";
+import { providerAccountsLayer } from "./provider/services/provider-accounts.ts";
+import {
+	makeRuntimeGitExecution,
+	RuntimeGitExecution,
+} from "./provider/services/runtime-git-execution.ts";
 import {
 	makeRuntimeProviderCredentials,
 	RuntimeProviderCredentials,
@@ -162,6 +169,14 @@ export interface MainLayerDeps {
 		readonly apiUrl: string;
 		readonly label?: string;
 	};
+	/** Resume a saved computer registration and tunnel on boot. Defaults to true. */
+	readonly resumeApiLink?: boolean;
+	/**
+	 * Remove a saved computer registration from the account on boot. For
+	 * runtimes that must not publish themselves, so registrations they made
+	 * earlier don't linger in the account as offline computers.
+	 */
+	readonly retireApiLink?: boolean;
 	readonly apiEnabled?: boolean;
 	readonly cliAccess?: {
 		readonly path: string;
@@ -266,7 +281,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 							await mkdir(dirname(target), { recursive: true });
 							await writeFile(
 								temporary,
-								`${JSON.stringify({ schemaVersion: 1, wsUrl, token: minted.token })}\n`,
+								`${JSON.stringify({ schemaVersion: 1, wsUrl, token: minted.token, cloudWorkspaceId: deps.cloudWorkspaceRuntime?.workspaceId })}\n`,
 								{ mode: 0o600 },
 							);
 							await chmod(temporary, 0o600);
@@ -449,6 +464,10 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 		Layer.provide(NodeServices.layer),
 	);
+	const RuntimeGitExecutionLayer = Layer.succeed(
+		RuntimeGitExecution,
+		makeRuntimeGitExecution(deps.cloudWorkspaceRuntime !== undefined),
+	);
 	const RuntimeProviderCredentialsLayer = Layer.succeed(
 		RuntimeProviderCredentials,
 		makeRuntimeProviderCredentials(),
@@ -494,6 +513,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(PermissionLayer),
 		Layer.provide(AttachmentLayer),
 	);
+	const ProviderAccountsLayer = providerAccountsLayer(
+		deps.cloudWorkspaceRuntime === undefined,
+	).pipe(Layer.provide(AppPathsLayer), Layer.provide(MigratedSqlite));
 	const AcpAgentLayer = AcpAgentServiceLive.pipe(
 		Layer.provide(NodeServices.layer),
 		Layer.provide(AppPathsLayer),
@@ -509,11 +531,13 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 
 	const ProviderLayer = ProviderServiceLive.pipe(
+		Layer.provide(ProviderAccountsLayer),
 		Layer.provide(AcpAgentLayer),
 		Layer.provide(HarnessProviderLayer),
 		Layer.provide(ModelCatalogLayer),
 		Layer.provide(CredentialsLayer),
 		Layer.provide(RuntimeProviderCredentialsLayer),
+		Layer.provide(RuntimeGitExecutionLayer),
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(PermissionLayer),
 		Layer.provide(AttachmentLayer),
@@ -567,7 +591,11 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(EnrolledLanAuthLayer),
 	);
 
+	const RuntimeCloudControlLayer = Layer.succeed(RuntimeCloudControl, {
+		current: null,
+	});
 	const MachineControlLayer = MachineControlServiceLive.pipe(
+		Layer.provide(RuntimeCloudControlLayer),
 		Layer.provide(AuthLayer),
 		Layer.provide(MachineRuntimeRoleLayer),
 	);
@@ -615,11 +643,13 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	const CloudWorkspaceRuntimeLayer = makeCloudWorkspaceRuntimeLayer(
 		deps.cloudWorkspaceRuntime,
 	).pipe(
+		Layer.provide(RuntimeCloudControlLayer),
 		Layer.provide(ExecutionPolicyLayer),
 		Layer.provide(RuntimeModelConnectionsLayer),
 		Layer.provide(CredentialsLayer),
 		Layer.provide(AttachmentLayer),
 		Layer.provide(RuntimeProviderCredentialsLayer),
+		Layer.provide(RuntimeGitExecutionLayer),
 		Layer.provide(EnrolledLanAuthLayer),
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(ConversationServicesLayer),
@@ -662,7 +692,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	const ApiLinkLayer =
 		deps.apiEnabled === false
 			? makeDisabledApiLinkService(lanAuthConfig)
-			: ApiLinkServiceLive.pipe(
+			: makeApiLinkServiceLive({ resumeExistingLink: deps.resumeApiLink }).pipe(
 					Layer.provide(AccountAccessLayer),
 					Layer.provide(EnrolledLanAuthLayer),
 					Layer.provide(LanAuthConfigLayer),
@@ -692,6 +722,18 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 					}),
 				).pipe(Layer.provide(ApiLinkLayer));
 
+	const RetireApiLinkLayer =
+		deps.retireApiLink === true && autoApiLink === undefined
+			? Layer.effectDiscard(
+					Effect.gen(function* () {
+						const api = yield* ApiLinkService;
+						yield* retireUntilRetired(api.retire()).pipe(
+							Effect.forkScoped({ startImmediately: true }),
+						);
+					}),
+				).pipe(Layer.provide(ApiLinkLayer))
+			: Layer.empty;
+
 	const HandlerSupportLayer = Layer.mergeAll(
 		AppPathsLayer,
 		MigratedSqlite,
@@ -710,6 +752,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 
 	const HandlerDomainLayer = Layer.mergeAll(
+		ProviderAccountsLayer,
 		AcpAgentLayer,
 		DeviceBridgeLayer,
 		WorkspaceLayer,
@@ -796,6 +839,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 
 	const UsagePoller = UsageLimitsPollerLive.pipe(
+		Layer.provide(ProviderAccountsLayer),
 		Layer.provide(ConfigStoreLayer),
 		Layer.provide(CredentialsLayer),
 		Layer.provide(NodeServices.layer),
@@ -813,6 +857,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		UsagePoller,
 		ModelCatalogPoller,
 		AutoApiLinkLayer,
+		RetireApiLinkLayer,
 		CloudWorkspaceRuntimeLayer,
 		RuntimePerformanceLayer,
 		CliAccessLayer,

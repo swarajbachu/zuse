@@ -16,7 +16,7 @@ import {
 	DITHER_BACKGROUND_SCRIPT,
 	DITHER_BACKGROUND_SCRIPT_SOURCE,
 	DITHER_BACKGROUND_STYLES,
-} from "./dither-background.ts";
+} from "@zuse/utils/dither-background";
 
 /** Callback pages run only the dither backdrop script. */
 export const AUTH_CALLBACK_PAGE_HEADERS = browserPageHeaders([

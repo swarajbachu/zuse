@@ -6,7 +6,10 @@ import type { EnvironmentId, SessionId } from "@zuse/contracts";
 import { CommandId } from "@zuse/contracts";
 
 import { useComposerBridge } from "../store/composer-bridge.ts";
-import { dispatchSessionCommand } from "./session-timeline-client-bus.ts";
+import {
+	dispatchSessionCommand,
+	dispatchSessionWorkspaceCommand,
+} from "./session-timeline-client-bus.ts";
 
 type ContextRef = { readonly relPath: string; readonly absPath: string };
 
@@ -18,7 +21,7 @@ export const saveContextText = async (input: {
 	readonly rootPath?: string;
 }): Promise<ContextRef> =>
 	(
-		await dispatchSessionCommand<
+		await dispatchSessionWorkspaceCommand<
 			{
 				readonly sessionId: SessionId;
 				readonly text: string;
@@ -39,7 +42,6 @@ export const saveContextText = async (input: {
 				ext: input.ext,
 				...(input.rootPath === undefined ? {} : { rootPath: input.rootPath }),
 			},
-			retry: "never",
 		})
 	).result;
 

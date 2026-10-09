@@ -6,6 +6,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
+	cloudSendBlocker,
 	connectedCloudProviders,
 	isModelPickerProviderVisible,
 	selectAuthenticatedProvider,
@@ -273,4 +274,22 @@ it("shows Zuse with a connected subscription and no installed CLI, only when ena
 			providerEnabled: { zuse: true },
 		}),
 	).toBe(false);
+});
+
+describe("cloud send blocker", () => {
+	const connected = ["grok" as ProviderId];
+
+	it("explains a failed sign-in check instead of silently disabling send", () => {
+		expect(cloudSendBlocker("failed", [])).toBe("auth-check-failed");
+		expect(cloudSendBlocker("failed", connected)).toBe("auth-check-failed");
+	});
+
+	it("asks to connect an agent when none are connected", () => {
+		expect(cloudSendBlocker("ready", [])).toBe("no-connected-agents");
+	});
+
+	it("stays quiet while loading or when an agent is connected", () => {
+		expect(cloudSendBlocker("loading", [])).toBeNull();
+		expect(cloudSendBlocker("ready", connected)).toBeNull();
+	});
 });

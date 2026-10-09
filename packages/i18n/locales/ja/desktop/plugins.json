@@ -60,5 +60,9 @@
 	"plugins_skills_personal": "個人",
 	"plugins_skills_project": "プロジェクト",
 	"plugins_skills_codex_note": "Codex の切り替えは Codex 自体の設定に保存されるため、Zuse の外でも適用されます。",
-	"plugins_skills_loading": "スキルを読み込み中…"
+	"plugins_skills_loading": "スキルを読み込み中…",
+	"plugins_connection_name": "接続名",
+	"plugins_connection_name_placeholder": "仕事用、個人用、または会社名",
+	"plugins_connect_another": "別のアカウントを接続",
+	"plugins_connection_name_exists": "この名前はすでに使用されています。別の接続名を選んでください。"
 }

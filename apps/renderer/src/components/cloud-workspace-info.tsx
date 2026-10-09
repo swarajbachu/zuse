@@ -102,6 +102,23 @@ const workspaceStateLabel = (summary: CloudChatSummary): string => {
 	}
 };
 
+const workspaceStateDotClass = (summary: CloudChatSummary): string => {
+	switch (summary.state) {
+		case "ready":
+			return "bg-[var(--accent-green)]";
+		case "failed":
+			return "bg-[var(--accent-red)]";
+		case "paused":
+		case "archiving":
+		case "archived":
+		case "deleting":
+		case "deleted":
+			return "bg-muted-foreground/50";
+		default:
+			return "bg-[var(--accent-amber)]";
+	}
+};
+
 const useCloudSummary = (workspaceId: string): CloudChatSummary | null =>
 	useCloudChatCatalogStore(
 		(state) =>
@@ -509,9 +526,9 @@ export function CloudWorkspaceMenu({
 }
 
 /**
- * Summary-aside row for cloud workspaces: "Performance" opens a side menu
- * with status + restart and live CPU/memory/disk, mirroring the "Running on"
- * row idiom. SSH and sync live in the top bar (`CloudWorkspaceMenu`).
+ * Summary-aside environment row for cloud workspaces: names the sandbox
+ * provider with its live state, and opens a side menu with CPU/memory/disk and
+ * restart. SSH and sync live in the top bar (`CloudWorkspaceMenu`).
  */
 export function CloudWorkspaceInfo({
 	workspaceId,
@@ -584,14 +601,17 @@ export function CloudWorkspaceInfo({
 					className={`${summaryRowClass} hover:bg-muted/60 data-[popup-open]:bg-muted/60`}
 				>
 					<HugeiconsIcon
-						icon={Activity01Icon}
+						icon={CloudIcon}
 						className="size-4 shrink-0 text-muted-foreground"
 					/>
 					<span className="min-w-0 flex-1 truncate">
-						{uiMessage("connections:cloud_workspace_info_performance")}
+						{cloudProviderLabel(summary.providerId)}
 					</span>
-					<span className="shrink-0 text-[10px] text-muted-foreground">
+					<span className="flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
 						{workspaceStateLabel(summary)}
+						<span
+							className={`size-1.5 rounded-full ${workspaceStateDotClass(summary)}`}
+						/>
 					</span>
 				</MenuTrigger>
 				<MenuPopup
@@ -600,23 +620,18 @@ export function CloudWorkspaceInfo({
 					sideOffset={8}
 					className="w-72 p-1"
 				>
-					<div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
-						{uiMessage("connections:cloud_workspace_info_performance")}
-					</div>
-					<div className="flex min-h-7 items-center gap-2 px-2 py-1 text-xs">
-						<HugeiconsIcon
-							icon={Activity01Icon}
-							className="size-3.5 text-muted-foreground"
-						/>
-						<span className="flex-1">
-							{uiMessage("connections:cloud_workspace_info_status")}
+					<div className="flex h-7 items-center gap-2 px-2 text-xs">
+						<span className="min-w-0 flex-1 truncate font-medium">
+							{cloudProviderLabel(summary.providerId)}
 						</span>
-						<span
-							className={`text-[11px] ${running ? "text-[var(--accent-green)]" : "text-muted-foreground"}`}
-						>
+						<span className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
 							{workspaceStateLabel(summary)}
+							<span
+								className={`size-1.5 rounded-full ${workspaceStateDotClass(summary)}`}
+							/>
 						</span>
 					</div>
+					<MenuSeparator />
 					{statRow(
 						CpuIcon,
 						"CPU",

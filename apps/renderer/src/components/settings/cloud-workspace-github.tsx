@@ -40,32 +40,22 @@ export function CloudWorkspaceGithub({
 	return (
 		<CloudSettingsGroup
 			title={uiMessage("settings:cloud_workspace_github_github")}
-			help={uiMessage(
-				"settings:cloud_workspace_github_configure_the_zuse_github_app_for_your_personal_account_or_organizatio",
-			)}
+			help={`${uiMessage("settings:cloud_workspace_github_configure_the_zuse_github_app_for_your_personal_account_or_organizatio")} ${uiMessage("settings:organizations_github_disconnect_help")}`}
 			action={
-				connected ? (
-					<Button
-						size="xs"
-						className={COMPACT_CLOUD_ACTION}
-						loading={busy === "github-install"}
-						onClick={onInstall}
-					>
-						<GithubMark />
-						{uiMessage("settings:cloud_workspace_github_configure_app")}
-					</Button>
-				) : (
-					<Button
-						size="xs"
-						className={COMPACT_CLOUD_ACTION}
-						disabled={!configured}
-						loading={busy === "github-install"}
-						onClick={onInstall}
-					>
-						<GithubMark />
-						{uiMessage("settings:cloud_workspace_github_install_github_app")}
-					</Button>
-				)
+				<Button
+					size="xs"
+					className={COMPACT_CLOUD_ACTION}
+					disabled={!configured}
+					loading={busy === "github-install"}
+					onClick={onInstall}
+				>
+					<GithubMark />
+					{uiMessage(
+						status?.user
+							? "settings:cloud_workspace_github_configure_app"
+							: "settings:cloud_workspace_github_install_github_app",
+					)}
+				</Button>
 			}
 		>
 			{!configured ? (
@@ -112,37 +102,48 @@ export function CloudWorkspaceGithub({
 									<Badge variant="warning">
 										{uiMessage("settings:cloud_workspace_github_suspended")}
 									</Badge>
+								) : status?.user === undefined ? (
+									<Badge variant="warning">
+										{uiMessage(
+											"settings:cloud_workspace_github_install_github_app",
+										)}
+									</Badge>
 								) : (
 									<Badge variant="success">
 										<Check aria-hidden />
 										{uiMessage("settings:cloud_workspace_github_connected")}
 									</Badge>
 								)}
-								<Button
-									size="xs"
-									variant="ghost"
-									className={COMPACT_CLOUD_ACTION}
-									onClick={() => onManage(installation.installationId)}
-								>
-									{uiMessage(
-										"settings:cloud_workspace_github_repository_access",
-									)}
-								</Button>
-								<Button
-									size="icon"
-									variant="ghost"
-									className={`size-7 ${COMPACT_CLOUD_ACTION}`}
-									aria-label={uiMessage(
-										"settings:cloud_workspace_github_disconnect",
-										{ value1: String(installation.accountLogin) },
-									)}
-									loading={
-										busy === `github-disconnect:${installation.installationId}`
-									}
-									onClick={() => onDisconnect(installation.installationId)}
-								>
-									<X aria-hidden />
-								</Button>
+								{status?.canManageInstallations !== false && (
+									<>
+										<Button
+											size="xs"
+											variant="ghost"
+											className={COMPACT_CLOUD_ACTION}
+											onClick={() => onManage(installation.installationId)}
+										>
+											{uiMessage(
+												"settings:cloud_workspace_github_repository_access",
+											)}
+										</Button>
+										<Button
+											size="icon"
+											variant="ghost"
+											className={`size-7 ${COMPACT_CLOUD_ACTION}`}
+											aria-label={uiMessage(
+												"settings:cloud_workspace_github_disconnect",
+												{ value1: String(installation.accountLogin) },
+											)}
+											loading={
+												busy ===
+												`github-disconnect:${installation.installationId}`
+											}
+											onClick={() => onDisconnect(installation.installationId)}
+										>
+											<X aria-hidden />
+										</Button>
+									</>
+								)}
 							</>
 						}
 					>
@@ -169,7 +170,13 @@ export function CloudWorkspaceGithub({
 			)}
 			{connected ? (
 				<CloudSettingsRow
-					title={uiMessage("settings:cloud_workspace_github_connection_status")}
+					title={
+						status?.user
+							? uiMessage("settings:cloud_workspace_github_user_connected", {
+									login: status.user.login,
+								})
+							: uiMessage("settings:cloud_workspace_github_connection_status")
+					}
 					description={uiMessage(
 						"settings:cloud_workspace_github_repository_changes_refresh_automatically_when_you_return_from_github_e",
 					)}
@@ -191,7 +198,7 @@ export function CloudWorkspaceGithub({
 	);
 }
 
-function GithubMark({
+export function GithubMark({
 	className = "size-3.5",
 }: {
 	readonly className?: string;

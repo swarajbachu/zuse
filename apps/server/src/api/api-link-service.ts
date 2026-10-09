@@ -20,14 +20,82 @@ import {
 	LanAuthService,
 } from "../lan-auth/services/lan-auth-service.ts";
 import { TelemetryStore } from "../observability/telemetry-store.ts";
+import { hostRuntimeVersion } from "../runtime-version.ts";
 import { appendApiDiagnostic } from "./api-diagnostics.ts";
 import { signEnvironmentLinkProof } from "./link-proof.ts";
 import { ManagedTunnelRuntime } from "./managed-tunnel-runtime.ts";
 
-const HEARTBEAT_INTERVAL = "30 seconds";
+const HEARTBEAT_INTERVAL_MS = 30_000;
+/** Quick retries after a failed heartbeat so a blip doesn't read as offline. */
+const HEARTBEAT_RETRY_DELAYS_MS = [2_000, 5_000, 10_000] as const;
+/** Granularity at which the heartbeat wait notices the host waking up. */
+const HEARTBEAT_WAKE_CHECK_MS = 5_000;
+/** Wall-clock drift beyond one wait tick that means this machine slept. */
+const HEARTBEAT_WAKE_GAP_MS = 10_000;
+
+/** Delay before the next heartbeat after `consecutiveFailures` failures. */
+export const heartbeatDelayMs = (consecutiveFailures: number): number =>
+	consecutiveFailures === 0
+		? HEARTBEAT_INTERVAL_MS
+		: (HEARTBEAT_RETRY_DELAYS_MS[consecutiveFailures - 1] ??
+			HEARTBEAT_INTERVAL_MS);
+
+/**
+ * Wait up to `delayMs` before the next heartbeat, returning early when this
+ * machine resumes from sleep. Timers freeze while the machine sleeps but the
+ * wall clock keeps moving, so a large wall-clock jump across one short tick
+ * means clients have seen this computer go stale and need a heartbeat now.
+ */
+export const waitForNextHeartbeat = (
+	delayMs: number,
+	wallClock: () => number = Date.now,
+): Effect.Effect<void> =>
+	Effect.gen(function* () {
+		let remaining = delayMs;
+		while (remaining > 0) {
+			const tick = Math.min(remaining, HEARTBEAT_WAKE_CHECK_MS);
+			const before = wallClock();
+			yield* Effect.sleep(tick);
+			if (wallClock() - before > tick + HEARTBEAT_WAKE_GAP_MS) return;
+			remaining -= tick;
+		}
+	});
+
+/**
+ * Heartbeat until interrupted: every 30s while healthy, quick retries after a
+ * failure, and immediately after this machine wakes from sleep.
+ */
+export const heartbeatUntilInterrupted = <E>(
+	beat: Effect.Effect<void, E>,
+	options: {
+		readonly wallClock?: () => number;
+		readonly onFailure?: (error: E, failures: number) => Effect.Effect<void>;
+		readonly onRecovered?: (failures: number) => Effect.Effect<void>;
+	} = {},
+): Effect.Effect<never> =>
+	Effect.gen(function* () {
+		let failures = 0;
+		while (true) {
+			const failed = yield* beat.pipe(
+				Effect.as(null),
+				Effect.catch((error) => Effect.succeed({ error })),
+			);
+			if (failed === null) {
+				if (failures > 0) yield* options.onRecovered?.(failures) ?? Effect.void;
+				failures = 0;
+			} else {
+				failures += 1;
+				yield* options.onFailure?.(failed.error, failures) ?? Effect.void;
+			}
+			yield* waitForNextHeartbeat(
+				heartbeatDelayMs(failures),
+				options.wallClock,
+			);
+		}
+	});
 export const apiRuntimeMetadata = () =>
 	({
-		runtimeVersion: process.env.ZUSE_RUNTIME_VERSION?.trim() || "0.0.0",
+		runtimeVersion: hostRuntimeVersion(),
 		wireProtocolVersion: WIRE_PROTOCOL_VERSION,
 		capabilities: {
 			version: 1,
@@ -74,6 +142,36 @@ export const autoLinkRetryDelayMs = (
  * heal on a later attempt without a restart. A full account is reported once
  * with what to do, not as a warning every attempt.
  */
+const RETIRE_RETRY_MAX_MS = 10 * 60_000;
+
+/**
+ * Keep retiring a saved registration until the account confirms it is gone.
+ * Being signed out or offline at boot is normal; a later attempt finishes it.
+ */
+export const retireUntilRetired = (
+	attempt: Effect.Effect<boolean, ApiLinkError>,
+): Effect.Effect<void> => {
+	const loop = (failures: number): Effect.Effect<void> =>
+		attempt.pipe(
+			Effect.asVoid,
+			Effect.catch((error) =>
+				(failures === 0
+					? Effect.logInfo(
+							"Removing this development copy from the account will retry",
+							error,
+						)
+					: Effect.void
+				).pipe(
+					Effect.andThen(
+						Effect.sleep(Math.min(5_000 * 2 ** failures, RETIRE_RETRY_MAX_MS)),
+					),
+					Effect.andThen(Effect.suspend(() => loop(failures + 1))),
+				),
+			),
+		);
+	return loop(0);
+};
+
 export const autoLinkUntilLinked = (
 	attempt: Effect.Effect<void, ApiLinkError>,
 ): Effect.Effect<void> => {
@@ -130,6 +228,13 @@ export class ApiLinkService extends Context.Service<
 		}) => Effect.Effect<ApiLinkStatusValue, ApiLinkError>;
 		readonly status: () => Effect.Effect<ApiLinkStatusValue, ApiLinkError>;
 		readonly unlink: () => Effect.Effect<void, ApiLinkError>;
+		/**
+		 * Remove this runtime's saved computer from the account, then forget it
+		 * locally. Unlike `unlink`, the local link survives a failed request so a
+		 * later attempt can still remove the account entry. Resolves `false` when
+		 * nothing was linked.
+		 */
+		readonly retire: () => Effect.Effect<boolean, ApiLinkError>;
 		readonly listEnvironments: () => Effect.Effect<
 			ApiEnvironmentList,
 			ApiLinkError
@@ -165,6 +270,7 @@ export const makeDisabledApiLinkService = (
 					advertisedEndpoints: buildAdvertisedEndpoints({ lan: config }),
 				}),
 			unlink: disabled,
+			retire: () => Effect.succeed(false),
 			listEnvironments: disabled,
 			connectEnvironment: disabled,
 			listClients: disabled,
@@ -172,6 +278,10 @@ export const makeDisabledApiLinkService = (
 		}),
 	);
 };
+
+/** The account no longer has this computer (or never did). */
+const isApiNotFound = (error: ApiLinkError): boolean =>
+	error.reason === "api_404" || error.reason.startsWith("api_404:");
 
 const apiHttpErrorReason = async (response: Response): Promise<string> => {
 	const fallback = `api_${response.status}`;
@@ -249,17 +359,9 @@ const computeOrigin = (config: LanAuthConfigShape) => ({
 	localHttpPort: config.port ?? DEFAULT_LOCAL_DESKTOP_PORT,
 });
 
-export const ApiLinkServiceLive: Layer.Layer<
-	ApiLinkService,
-	never,
-	| LanAuthService
-	| LanAuthConfig
-	| AuthService
-	| AccountAccessService
-	| ManagedTunnelRuntime
-	| TelemetryStore
-> = Layer.effect(
-	ApiLinkService,
+const makeApiLinkService = (options: {
+	readonly resumeExistingLink?: boolean;
+}) =>
 	Effect.gen(function* () {
 		const auth = yield* LanAuthService;
 		const config = yield* LanAuthConfig;
@@ -454,11 +556,16 @@ export const ApiLinkServiceLive: Layer.Layer<
 			readonly environmentId: EnvironmentId;
 			readonly credential: string;
 		}) =>
-			heartbeatOnce(input).pipe(
-				Effect.ignore,
-				Effect.andThen(Effect.sleep(HEARTBEAT_INTERVAL)),
-				Effect.forever,
-			);
+			heartbeatUntilInterrupted(heartbeatOnce(input), {
+				// Report the start of an outage once, not every quick retry.
+				onFailure: (error, failures) =>
+					failures === 1
+						? log("heartbeat.failed", {
+								reason: error instanceof ApiLinkError ? error.reason : null,
+							})
+						: Effect.void,
+				onRecovered: (failures) => log("heartbeat.recovered", { failures }),
+			});
 
 		const startHeartbeat = Effect.fn("ApiLinkService.startHeartbeat")(
 			function* (input: {
@@ -495,9 +602,10 @@ export const ApiLinkServiceLive: Layer.Layer<
 			);
 
 		// Resume heartbeating (and the managed-tunnel connector) on boot if linked.
-		const existing = yield* auth
-			.getApiConfig()
-			.pipe(Effect.orElseSucceed(() => null));
+		const existing =
+			options.resumeExistingLink === false
+				? null
+				: yield* auth.getApiConfig().pipe(Effect.orElseSucceed(() => null));
 		if (existing !== null) {
 			yield* log("service.existing_config", {
 				environmentId: existing.environmentId,
@@ -860,6 +968,44 @@ export const ApiLinkServiceLive: Layer.Layer<
 						.pipe(Effect.mapError((error) => failApi(error.reason)));
 					yield* log("unlink.success");
 				}),
+			retire: () =>
+				Effect.gen(function* () {
+					const cfg = yield* auth
+						.getApiConfig()
+						.pipe(Effect.orElseSucceed(() => null));
+					if (cfg === null) return false;
+					yield* log("retire.start", { environmentId: cfg.environmentId });
+					const token = yield* authService
+						.getAccessToken()
+						.pipe(Effect.mapError(() => failApi("signed_out")));
+					yield* postJson<unknown>(`${cfg.apiUrl}${ApiPaths.unlink}`, {
+						bearer: token,
+						body: { environmentId: cfg.environmentId },
+					}).pipe(
+						Effect.catch((error) =>
+							isApiNotFound(error) ? Effect.void : Effect.fail(error),
+						),
+					);
+					yield* auth
+						.clearApiConfig()
+						.pipe(Effect.mapError((error) => failApi(error.reason)));
+					yield* log("retire.success", { environmentId: cfg.environmentId });
+					return true;
+				}),
 		});
-	}),
-);
+	});
+
+export const makeApiLinkServiceLive = (
+	options: { readonly resumeExistingLink?: boolean } = {},
+): Layer.Layer<
+	ApiLinkService,
+	never,
+	| LanAuthService
+	| LanAuthConfig
+	| AuthService
+	| AccountAccessService
+	| ManagedTunnelRuntime
+	| TelemetryStore
+> => Layer.effect(ApiLinkService, makeApiLinkService(options));
+
+export const ApiLinkServiceLive = makeApiLinkServiceLive();

@@ -27,6 +27,7 @@ import {
 	coordinateCloudMailboxResponse,
 	deliverCloudMailboxLifecycle,
 } from "./cloud-mailbox-coordinator.ts";
+import { CloudProviderConnectionsLive } from "./cloud-provider-connections.ts";
 import {
 	CloudWorkspaceLaunchIntentCipher,
 	CloudWorkspaceLaunchIntentCipherLive,
@@ -48,7 +49,10 @@ import { ModelConnectionStoreLive } from "./model-connection-store.ts";
 import { PluginHost } from "./plugin-host.ts";
 import { makeCloudflarePluginHost } from "./plugin-host-cloudflare.ts";
 import { PushDeliveryLive } from "./push.ts";
-import { availableSandboxProviders } from "./sandbox-provider-availability.ts";
+import {
+	availableSandboxProviders,
+	boxdBillingConfigured,
+} from "./sandbox-provider-availability.ts";
 import {
 	resolveSandboxProviderRuntime,
 	SandboxOfferConfiguration,
@@ -134,6 +138,9 @@ interface Env extends SlackBindings {
 	readonly MAX_ENVIRONMENTS_PER_ACCOUNT?: string;
 	readonly ALLOWED_BROWSER_ORIGINS?: string;
 	readonly ORGANIZATION_WORKSPACES_ENABLED?: string;
+	readonly ORGANIZATION_ROLLOUT_ENABLED?: string;
+	readonly ORGANIZATION_POSTHOG_KEY?: string;
+	readonly ORGANIZATION_POSTHOG_HOST?: string;
 	// Managed Cloudflare tunnel (optional — absent disables provisioning).
 	readonly CF_API_TOKEN?: string;
 	readonly CF_ACCOUNT_ID?: string;
@@ -193,6 +200,8 @@ interface Env extends SlackBindings {
 	readonly E2B_MEMORY_MIB?: string;
 	readonly E2B_WEBHOOK_SECRET?: string;
 	readonly BOXD_ADAPTER_ENABLED?: string;
+	readonly BOXD_BILLING_ENABLED?: string;
+	readonly BOXD_BILLING_CUTOVER_AT?: string;
 	readonly BOXD_API_KEY?: string;
 	readonly BOXD_ORG?: string;
 	readonly BOXD_BASE_URL?: string;
@@ -203,11 +212,13 @@ interface Env extends SlackBindings {
 	readonly CLOUD_BILLING_EXPORT_ENABLED?: string;
 	readonly CLOUD_USAGE_EXPORT_ENABLED?: string;
 	readonly CLOUD_BILLING_CUTOVER_AT?: string;
+	readonly CLOUD_SNAPSHOT_BILLING_CUTOVER_AT?: string;
 	/** Additive rollout gate. Accepted rows continue draining when disabled. */
 	readonly CLOUD_COMMAND_MAILBOX_ENABLED?: string;
 	readonly CLOUD_CODEX_AUTH_BROKER_ENROLLMENT_ENABLED?: string;
 	readonly CLOUD_CODEX_AUTH_BROKER_SERVING_ENABLED?: string;
 	readonly CLOUD_PROVIDER_AUTH_BROKER_ENROLLMENT_ENABLED?: string;
+	readonly CLOUD_BOXD_CUSTOM_SNAPSHOTS_ENABLED?: string;
 	readonly CLOUD_PROVIDER_AUTH_BROKER_SERVING_ENABLED?: string;
 }
 
@@ -318,6 +329,10 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		sandboxProvider.configuredProviders,
 		env.POLAR_ENVIRONMENT === "sandbox",
 		env.CLOUD_BILLING_ENFORCEMENT_ENABLED === "true",
+		boxdBillingConfigured(
+			env.BOXD_BILLING_ENABLED,
+			env.BOXD_BILLING_CUTOVER_AT,
+		),
 	);
 	const persistentCheckoutReady =
 		billing.liveCheckoutEnabled &&
@@ -342,6 +357,28 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 	const cloudBillingEnforcementEnabled =
 		env.CLOUD_BILLING_ENFORCEMENT_ENABLED === "true";
 	const cloudBillingExportEnabled = env.CLOUD_BILLING_EXPORT_ENABLED === "true";
+	if (
+		env.BOXD_BILLING_ENABLED === "true" &&
+		!boxdBillingConfigured(
+			env.BOXD_BILLING_ENABLED,
+			env.BOXD_BILLING_CUTOVER_AT,
+		)
+	)
+		throw new Error(
+			"BOXD_BILLING_CUTOVER_AT must be a positive whole-second timestamp before enabling boxd billing",
+		);
+	const cloudSnapshotBillingCutoverAtMs = isConfigured(
+		env.CLOUD_SNAPSHOT_BILLING_CUTOVER_AT,
+	)
+		? Date.parse(env.CLOUD_SNAPSHOT_BILLING_CUTOVER_AT)
+		: undefined;
+	if (
+		cloudSnapshotBillingCutoverAtMs !== undefined &&
+		!Number.isFinite(cloudSnapshotBillingCutoverAtMs)
+	)
+		throw new Error(
+			"CLOUD_SNAPSHOT_BILLING_CUTOVER_AT must be an ISO timestamp",
+		);
 	const cloudBillingCutoverAtMs = isConfigured(env.CLOUD_BILLING_CUTOVER_AT)
 		? Date.parse(env.CLOUD_BILLING_CUTOVER_AT)
 		: undefined;
@@ -378,6 +415,14 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 	const configLayer = Config.layer({
 		organizationWorkspacesEnabled:
 			env.ORGANIZATION_WORKSPACES_ENABLED === "true",
+		organizationRolloutEnabled: env.ORGANIZATION_ROLLOUT_ENABLED === "true",
+		organizationPosthog: isConfigured(env.ORGANIZATION_POSTHOG_KEY)
+			? {
+					projectKey: Redacted.make(env.ORGANIZATION_POSTHOG_KEY),
+					host:
+						env.ORGANIZATION_POSTHOG_HOST?.trim() || "https://us.i.posthog.com",
+				}
+			: undefined,
 		apiIssuer: env.API_ISSUER,
 		publicApiOrigin: env.API_PUBLIC_ORIGIN,
 		workosJwksUrl: env.WORKOS_JWKS_URL,
@@ -419,6 +464,8 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		cloudBillingExportEnabled,
 		cloudUsageExportEnabled: env.CLOUD_USAGE_EXPORT_ENABLED === "true",
 		cloudCommandMailboxEnabled: env.CLOUD_COMMAND_MAILBOX_ENABLED === "true",
+		cloudBoxdCustomSnapshotsEnabled:
+			env.CLOUD_BOXD_CUSTOM_SNAPSHOTS_ENABLED === "true",
 		cloudCodexAuthBrokerEnrollmentEnabled:
 			env.CLOUD_CODEX_AUTH_BROKER_ENROLLMENT_ENABLED === "true",
 		cloudCodexAuthBrokerServingEnabled:
@@ -428,6 +475,13 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		cloudProviderAuthBrokerServingEnabled:
 			env.CLOUD_PROVIDER_AUTH_BROKER_SERVING_ENABLED === "true",
 		cloudBillingCutoverAtMs,
+		cloudBillingProviderCutoverAtMs: boxdBillingConfigured(
+			env.BOXD_BILLING_ENABLED,
+			env.BOXD_BILLING_CUTOVER_AT,
+		)
+			? new Map([["boxd", Date.parse(env.BOXD_BILLING_CUTOVER_AT ?? "")]])
+			: undefined,
+		cloudSnapshotBillingCutoverAtMs,
 		cloudBillingPolarMeterId: isConfigured(env.POLAR_CLOUD_OVERAGE_METER_ID)
 			? env.POLAR_CLOUD_OVERAGE_METER_ID
 			: undefined,
@@ -513,6 +567,7 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 			? Layer.succeed(PluginHost, makeCloudflarePluginHost(env.PLUGIN_VAULT))
 			: Layer.empty,
 		configLayer,
+		CloudProviderConnectionsLive.pipe(Layer.provide(dbLayer)),
 		ModelConnectionStoreLive.pipe(
 			Layer.provide(Layer.merge(dbLayer, configLayer)),
 		),
@@ -559,6 +614,7 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		slack: slackConfig
 			? {
 					...slackConfig,
+					workspaceAppOrigin: env.PLUGIN_APP_ORIGIN ?? HOSTED_APP_URL,
 					dispatch: async (response) => {
 						// The outer request/queue owns the runtime. Individual operations must not dispose it.
 						const scoped = { ...api, dispose: async () => {} };

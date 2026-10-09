@@ -5,6 +5,7 @@ import {
 	CloudBillingStore,
 	type CloudBillingUsageRecord,
 } from "./cloud-billing-store.ts";
+import { connectionIdFor } from "./cloud-provider-connections.ts";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import { type ApiError, conflict } from "./errors.ts";
@@ -29,6 +30,7 @@ export interface ProviderExecutionEvidence {
 }
 
 export type ProviderMeteringReason =
+	| "provider-billed"
 	| "unmatched"
 	| "no-period"
 	| "cutover-not-configured"
@@ -132,6 +134,9 @@ export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 		if (resource === null)
 			return { metered: false, reason: "unmatched" as const };
 
+		if (connectionIdFor(resource) !== undefined)
+			return { metered: false, reason: "provider-billed" as const };
+
 		const period = yield* ensureAccountCloudBillingPeriod(
 			resource.accountId,
 			input.nowMs,
@@ -139,7 +144,10 @@ export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 		if (period === null)
 			return { metered: false, reason: "no-period" as const };
 
-		const cutoverAt = (yield* ApiConfiguration).cloudBillingCutoverAtMs;
+		const configuration = yield* ApiConfiguration;
+		const cutoverAt =
+			configuration.cloudBillingProviderCutoverAtMs?.get(evidence.provider) ??
+			configuration.cloudBillingCutoverAtMs;
 		if (cutoverAt === undefined)
 			return { metered: false, reason: "cutover-not-configured" as const };
 		if (evidence.endedAtMs <= cutoverAt)

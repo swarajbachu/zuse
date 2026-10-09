@@ -28,6 +28,7 @@ describe("website analytics", () => {
 			$referrer: "https://search.example",
 			$prev_pageview_pathname: "/blog",
 			surface: "website",
+			analytics_schema_version: 2,
 			$session_entry_url: "https://zuse.sh/",
 			$session_entry_referrer: "https://search.example",
 		});
@@ -42,15 +43,17 @@ describe("website analytics", () => {
 			})?.properties.$referrer,
 		).toBeUndefined();
 	});
-	it("tracks client navigation without replay, profiles, or persistent storage", () => {
+	it("tracks client navigation with shared anonymous identity and without replay or profiles", () => {
 		expect(websiteAnalyticsConfig("https://eu.i.posthog.com")).toMatchObject({
 			api_host: "https://eu.i.posthog.com",
 			capture_pageview: "history_change",
 			autocapture: false,
 			disable_session_recording: true,
 			person_profiles: "never",
-			persistence: "memory",
-			disable_persistence: true,
+			persistence: "cookie",
+			cross_subdomain_cookie: true,
+			cookie_expiration: 90,
+			disable_persistence: false,
 			respect_dnt: true,
 		});
 	});

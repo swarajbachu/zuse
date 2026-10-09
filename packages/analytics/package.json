@@ -9,7 +9,9 @@
 		"./client": "./src/client.ts",
 		"./events": "./src/events.ts",
 		"./identity": "./src/identity.ts",
-		"./turn-analytics": "./src/turn-analytics.ts"
+		"./turn-analytics": "./src/turn-analytics.ts",
+		"./public-site": "./src/public-site.ts",
+		"./platform": "./src/platform.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",
@@ -19,7 +21,8 @@
 	"dependencies": {
 		"@noble/hashes": "^1.8.0",
 		"@zuse/contracts": "*",
-		"effect": "catalog:"
+		"effect": "catalog:",
+		"posthog-js": "^1.406.2"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",

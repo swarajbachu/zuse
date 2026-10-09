@@ -17,7 +17,7 @@ import {
 	type UploadSource,
 } from "@boxd-sh/sdk/web";
 import { Effect, Redacted } from "effect";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
 	BOXD_BASE_URL,
 	BOXD_PROVIDER_ID,
@@ -46,6 +46,7 @@ const machineOf = (
 	},
 	org: { id: "org_1", name: "zuse" },
 	shared: false,
+	botProtection: true,
 	networking: { networks: [], isolated: true },
 	egressAllow: [],
 	access: {
@@ -354,44 +355,42 @@ const requireRevoke = (adapter: SandboxProviderAdapter) => {
 };
 
 describe("boxd machine names", () => {
-	test("passes DNS-safe labels through unchanged so recovery finds them by name", () => {
-		expect(boxdMachineName("zuse-auth-0123456789abcdef")).toBe(
-			"zuse-auth-0123456789abcdef",
+	test("gives every machine a short kind-prefixed name", () => {
+		expect(boxdMachineName("zuse-cloud-workspace-workspace_ZxH0d94")).toMatch(
+			/^w[0-9a-z]{13}$/u,
 		);
+		expect(boxdMachineName("zuse-cloud-build-image_BIwpKclapLr")).toMatch(
+			/^b[0-9a-z]{13}$/u,
+		);
+		expect(boxdMachineName("zuse-auth-0123456789abcdef")).toMatch(
+			/^a[0-9a-z]{13}$/u,
+		);
+		expect(boxdMachineName("zuse-machine-1")).toMatch(/^m[0-9a-z]{13}$/u);
+		expect(boxdMachineName("other")).toMatch(/^z[0-9a-z]{13}$/u);
 	});
 
-	test("lowercases other labels with a digest that keeps case variants distinct", () => {
+	test("keeps labels that differ only in case or a trailing hyphen distinct", () => {
 		const upper = boxdMachineName("zuse-cloud-workspace-Ab_C");
-		const lower = boxdMachineName("zuse-cloud-workspace-ab_c");
-		expect(upper).toMatch(/^zuse-cloud-workspace-ab-c-[0-9a-f]{8}$/u);
-		expect(lower).toMatch(/^zuse-cloud-workspace-ab-c-[0-9a-f]{8}$/u);
-		expect(upper).not.toBe(lower);
+		expect(upper).not.toBe(boxdMachineName("zuse-cloud-workspace-ab_c"));
 		expect(boxdMachineName("zuse-cloud-workspace-Ab_C")).toBe(upper);
-	});
-
-	test("leaves room for port subdomains within the provider's full-host limit", () => {
-		const name = boxdMachineName(`zuse-cloud-build-${"X".repeat(80)}`);
-		expect(name.length).toBeLessThanOrEqual(43);
-		for (const port of [3001, 34903, 47837, 65535])
-			expect(`p${port}.${name}.boxd.zuse.sh`.length).toBeLessThanOrEqual(63);
-		expect(name).toMatch(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/u);
-	});
-
-	test("hashes truncated labels without collapsing distinct workspace names", () => {
-		const prefix = "x".repeat(43);
-		expect(boxdMachineName(prefix)).toBe(prefix);
-		expect(boxdMachineName(`${prefix}a`)).toHaveLength(43);
-		expect(boxdMachineName(`${prefix}a`)).not.toBe(
-			boxdMachineName(`${prefix}b`),
+		expect(boxdMachineName("zuse-cloud-workspace-x-")).not.toBe(
+			boxdMachineName("zuse-cloud-workspace-x"),
 		);
 	});
 
-	test("keeps a label that ends in a hyphen distinct from its trimmed form", () => {
-		const plain = boxdMachineName("zuse-cloud-workspace-x");
-		const trailing = boxdMachineName("zuse-cloud-workspace-x-");
-		expect(plain).toBe("zuse-cloud-workspace-x");
-		expect(trailing).not.toBe(plain);
-		expect(trailing).toMatch(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/u);
+	test("keeps preview hosts short for every port", () => {
+		const name = boxdMachineName(`zuse-cloud-build-${"X".repeat(80)}`);
+		expect(name).toHaveLength(14);
+		for (const port of [3001, 34903, 47837, 65535])
+			expect(`p${port}.${name}.boxd.zuse.sh`.length).toBeLessThanOrEqual(34);
+		expect(name).toMatch(/^[a-z][a-z0-9]*$/u);
+	});
+
+	test("does not collide across many workspace labels", () => {
+		const names = new Set<string>();
+		for (let index = 0; index < 50_000; index += 1)
+			names.add(boxdMachineName(`zuse-cloud-workspace-workspace_${index}`));
+		expect(names.size).toBe(50_000);
 	});
 
 	test("strips trailing slashes from the base URL the SDK dials", () => {
@@ -470,6 +469,7 @@ describe("boxd sandbox provider", () => {
 	});
 
 	test.each([
+		["zuse-cloud-workspace-1", "zuse-cloud-workspace-1"],
 		["x".repeat(56), "x".repeat(56)],
 		[
 			"zuse-cloud-workspace-workspace_N_HKqzMXzzQV6Idx",
@@ -555,7 +555,7 @@ describe("boxd sandbox provider", () => {
 			state: "running",
 		});
 		expect(client.methods("machines.create")[0]?.args[0]).toEqual({
-			name: "zuse-cloud-workspace-1",
+			name: boxdMachineName("zuse-cloud-workspace-1"),
 			org: "zuse",
 			fromSnapshot: "zuse-base-v1",
 			isolated: true,
@@ -574,13 +574,13 @@ describe("boxd sandbox provider", () => {
 		const prepare = client.execs[0]?.params.command;
 		expect(prepare).toContain("systemctl is-system-running --wait");
 		expect(prepare).toContain(
-			"install -d -m 0700 -o zuse -g zuse /run/zuse-secrets",
+			`install -d -m 0700 -o 'zuse' -g "$(id -gn 'zuse')" /run/zuse-secrets`,
 		);
 		const prime = client.execs[1]?.params.command as string;
-		expect(prime).toContain("sudo -n -u zuse -H bash -c");
+		expect(prime).toContain("sudo -n -u 'zuse' -H bash -c");
 		expect(prime).toContain("zuse --version");
 		expect(prime).toContain(
-			"systemd-run --quiet --collect --wait --uid=zuse -- /bin/true",
+			"systemd-run --quiet --collect --wait --uid='zuse' -- /bin/true",
 		);
 	});
 
@@ -672,7 +672,7 @@ describe("boxd sandbox provider", () => {
 		client.set(
 			machineOf({
 				id: "vm_existing",
-				name: "zuse-cloud-workspace-1",
+				name: boxdMachineName("zuse-cloud-workspace-1"),
 				status: "running",
 			}),
 		);
@@ -683,7 +683,7 @@ describe("boxd sandbox provider", () => {
 		const created = await run(makeAdapter(client).create(createInput));
 		expect(created.providerSandboxId).toBe("vm_existing");
 		expect(client.methods("machines.get")[0]?.args).toEqual([
-			"zuse-cloud-workspace-1",
+			boxdMachineName("zuse-cloud-workspace-1"),
 		]);
 	});
 
@@ -692,7 +692,7 @@ describe("boxd sandbox provider", () => {
 		client.set(
 			machineOf({
 				id: "vm_failed",
-				name: "zuse-cloud-workspace-1",
+				name: boxdMachineName("zuse-cloud-workspace-1"),
 				status: "failed",
 			}),
 		);
@@ -835,9 +835,24 @@ describe("boxd sandbox provider", () => {
 		);
 		expect(forked.providerSandboxId).toBe("vm_1");
 		expect(client.methods("machines.create")[0]?.args[0]).toMatchObject({
-			name: "zuse-cloud-workspace-2",
+			name: boxdMachineName("zuse-cloud-workspace-2"),
 			fromSnapshot: "zuse-build-snap-1",
 			isolated: true,
+		});
+	});
+
+	test("preserves Boxd integrations when launching a custom snapshot", async () => {
+		const client = new FakeBoxd();
+		await run(
+			makeAdapter(client).fork({
+				...createInput,
+				snapshotId: "customer-snapshot",
+				snapshotSource: "custom-snapshot",
+			}),
+		);
+		expect(client.methods("machines.create")[0]?.args[0]).toMatchObject({
+			fromSnapshot: "customer-snapshot",
+			isolated: false,
 		});
 	});
 
@@ -1076,7 +1091,9 @@ describe("boxd sandbox provider", () => {
 		});
 		const install = client.execs[0]?.params.command as string;
 		expect(install).toContain("sudo -n -u 'zuse' mkdir -p '/run/zuse-secrets'");
-		expect(install).toContain("sudo -n install -m 600 -o 'zuse' -g 'zuse'");
+		expect(install).toContain(
+			`sudo -n install -m 600 -o 'zuse' -g "$(id -gn 'zuse')"`,
+		);
 		expect(install).toContain("'/run/zuse-secrets/boot-token'");
 		expect(install).toContain("sudo -n rm -f");
 		expect(install).not.toContain("install -D");
@@ -1104,8 +1121,8 @@ describe("boxd sandbox provider", () => {
 		client.execs.length = 0;
 		await expect(run(adapter.resolveEndpoint("vm_1", 47_837))).resolves.toEqual(
 			{
-				httpBaseUrl: "https://p47837.zuse-cloud-workspace-1.boxd.sh",
-				wsBaseUrl: "wss://p47837.zuse-cloud-workspace-1.boxd.sh",
+				httpBaseUrl: `https://p47837.${boxdMachineName("zuse-cloud-workspace-1")}.boxd.sh`,
+				wsBaseUrl: `wss://p47837.${boxdMachineName("zuse-cloud-workspace-1")}.boxd.sh`,
 			},
 		);
 		expect(client.execs[0]?.params.command).toMatch(/^node -e '.*' 47837$/su);
@@ -1643,5 +1660,101 @@ describe("native boxd machine forks", () => {
 		).rejects.toMatchObject({ code: "rejected" });
 		expect(client.methods("machines.fork")).toHaveLength(0);
 		expect(client.methods("machines.setEgressAllow")).toHaveLength(0);
+	});
+});
+
+test("custom snapshot version mismatch is rejected before runtime preparation", async () => {
+	const client = new FakeBoxd();
+	const provider = makeAdapter(client, { runtimeUser: "developer" });
+	const result = await failure(
+		provider.fork({
+			...createInput,
+			snapshotId: "immutable-source",
+			snapshotVersion: 999,
+		}),
+	);
+	expect(result.code).toBe("rejected");
+	expect(client.methods("machines.delete")).toHaveLength(1);
+	expect(
+		client.execs.some((call) =>
+			call.params.command.includes("/run/zuse-secrets"),
+		),
+	).toBe(false);
+});
+
+describe("boxd completed usage", () => {
+	test.each([
+		"valid",
+		"fractional",
+		"incomplete",
+		"eur",
+		"wrong-window",
+		"wrong-machine",
+		"negative",
+		"unsafe",
+	])("validates %s evidence before billing", async (kind) => {
+		const config = {
+			apiKey: Redacted.make("usage-test"),
+			templateSnapshot: "base",
+			templateVersion: "v1",
+			billingUsageEnabled: true,
+		};
+		const client = boxdSandboxClientFor(config);
+		const window = {
+			startedAtMs: 1_800_000_000_000 + (kind === "fractional" ? 250 : 0),
+			endedAtMs: 1_800_000_060_000 + (kind === "fractional" ? 250 : 0),
+		};
+		const usage = vi.spyOn(client.machines, "usage").mockResolvedValue({
+			machineId: kind === "wrong-machine" ? "other" : "vm",
+			name: "vm",
+			ownerId: null,
+			ownerName: null,
+			shared: false,
+			status: "deleted",
+			period: {
+				start: new Date(Math.ceil(window.startedAtMs / 1000) * 1000),
+				end: new Date(
+					Math.ceil(window.endedAtMs / 1000) * 1000 +
+						(kind === "wrong-window" ? 1000 : 0),
+				),
+			},
+			currency: kind === "eur" ? "eur" : "usd",
+			complete: kind !== "incomplete",
+			resources: { vcpu: 1, memoryBytes: 4 * 1024 ** 3, diskBytes: 0 },
+			seconds: { running: 10, standby: 20, stopped: 30, hibernated: 0 },
+			vcpuHours: 0,
+			ramGibHours: 0,
+			diskGibHours: 0,
+			costMicro:
+				kind === "negative"
+					? -1
+					: kind === "unsafe"
+						? Number.MAX_SAFE_INTEGER + 1
+						: 123,
+			rates: { vcpuHourMicro: 1, ramGibHourMicro: 1, diskGibHourMicro: 1 },
+		});
+		try {
+			expect(
+				makeBoxdSandboxProvider({ ...config, billingUsageEnabled: false })
+					.getUsage,
+			).toBeUndefined();
+			const adapter = makeBoxdSandboxProvider(config);
+			if (adapter.getUsage === undefined) throw new Error("usage disabled");
+			const result = await Effect.runPromise(
+				Effect.result(adapter.getUsage("vm", window)),
+			);
+			expect(result._tag).toBe(
+				kind === "valid" || kind === "fractional" ? "Success" : "Failure",
+			);
+			if (result._tag === "Success")
+				expect(result.success.providerCostMicros).toBe(123);
+			expect(usage).toHaveBeenCalledWith("vm", {
+				since: Math.ceil(window.startedAtMs / 1000),
+				until: Math.ceil(window.endedAtMs / 1000),
+				org: undefined,
+			});
+		} finally {
+			usage.mockRestore();
+		}
 	});
 });

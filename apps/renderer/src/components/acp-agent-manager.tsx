@@ -391,6 +391,30 @@ function AcpAgentRow({
 					>
 						{t("settings:acp_agents_duplicate")}
 					</MenuItem>
+					{(agent.accountProvider ||
+						agent.catalogId === "claude-acp" ||
+						agent.catalogId === "codex-acp") && (
+						<MenuItem
+							className="h-7"
+							onClick={() => {
+								void runAcpOperation(
+									environmentId,
+									t("settings:acp_agents_busy_adding_account"),
+									(client) =>
+										client["provider.acp.duplicate"]({
+											id: agent.id,
+											accountProvider:
+												agent.accountProvider ??
+												(agent.catalogId === "claude-acp" ? "claude" : "codex"),
+										}),
+								).then((account) => {
+									if (account) void testAcpAgent(environmentId, account.id);
+								});
+							}}
+						>
+							{t("settings:acp_agents_add_account")}
+						</MenuItem>
+					)}
 					{agent.catalogId && (
 						<MenuItem
 							className="h-7"

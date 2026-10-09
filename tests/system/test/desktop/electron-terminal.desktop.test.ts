@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { installFakeAcpProvider, waitForFile } from "@zuse/testkit";
 import { Effect } from "effect";
@@ -178,6 +178,33 @@ describe("built Electron terminal", () => {
 			await page.keyboard.press("Enter");
 			await waitForFile(orderedMarker, 10_000);
 
+			if (process.platform === "darwin") {
+				const previousClipboard = await electron.app.evaluate(({ clipboard }) =>
+					clipboard.readText(),
+				);
+				try {
+					const pasteMarker = join(scope.root, "native-paste-output");
+					const pasteFence = join(scope.root, "native-paste-finished");
+					const command = `printf '%s\\n' \\\n 'native-paste-once' >> ${shellQuote(pasteMarker)}`;
+					await electron.app.evaluate(({ clipboard }, text) => {
+						clipboard.writeText(text);
+					}, command);
+					// Real keyboard input must produce the native paste event; injecting
+					// ClipboardEvent here would bypass the menu accelerator regression.
+					await page.keyboard.press("Meta+v");
+					await page.keyboard.press("Enter");
+					await waitForFile(pasteMarker, 10_000);
+					await page.keyboard.type(`/usr/bin/touch ${shellQuote(pasteFence)}`);
+					await page.keyboard.press("Enter");
+					await waitForFile(pasteFence, 10_000);
+					expect(readFileSync(pasteMarker, "utf8")).toBe("native-paste-once\n");
+				} finally {
+					await electron.app.evaluate(({ clipboard }, text) => {
+						clipboard.writeText(text);
+					}, previousClipboard);
+				}
+			}
+
 			// An interactive startup/update prompt must accept a response after a
 			// normal canvas click, without reaching into the hidden input to focus it.
 			const promptMarker = join(scope.root, "interactive-prompt-ok");
@@ -195,7 +222,27 @@ describe("built Electron terminal", () => {
 				.getByRole("button", { name: /^Terminal actions:/ })
 				.click();
 			const terminalName = page.getByRole("textbox", { name: "Terminal name" });
-			await terminalName.fill("Shell check");
+			if (process.platform === "darwin") {
+				const previousClipboard = await electron.app.evaluate(({ clipboard }) =>
+					clipboard.readText(),
+				);
+				try {
+					await electron.app.evaluate(({ clipboard }) => {
+						clipboard.writeText("Shell check");
+					});
+					await terminalName.fill("");
+					await terminalName.press("Meta+v");
+					await expect
+						.poll(() => terminalName.inputValue())
+						.toBe("Shell check");
+				} finally {
+					await electron.app.evaluate(({ clipboard }, text) => {
+						clipboard.writeText(text);
+					}, previousClipboard);
+				}
+			} else {
+				await terminalName.fill("Shell check");
+			}
 			await terminalName.press("Enter");
 			await expect
 				.poll(() =>

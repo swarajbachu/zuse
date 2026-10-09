@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 import { resolveDownloadTarget, selectReleaseAsset } from "@/lib/download";
+import { captureDownloadResolution } from "@/lib/download-analytics";
 import { RELEASES_URL } from "@/lib/site";
 
 const RELEASE_API_URL =
@@ -25,7 +26,24 @@ export async function GET(request: Request) {
 		userAgent: request.headers.get("user-agent"),
 	});
 
-	if (target === null) return redirect(FALLBACK_URL);
+	const finish = (
+		destination: string,
+		outcome: "installer" | "releases_fallback",
+	) => {
+		if (process.env.NODE_ENV === "production")
+			after(() =>
+				captureDownloadResolution({
+					request,
+					key: process.env.NEXT_PUBLIC_POSTHOG_KEY?.trim() ?? "",
+					host:
+						process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com",
+					target: target ?? "unsupported",
+					outcome,
+				}),
+			);
+		return redirect(destination);
+	};
+	if (target === null) return finish(FALLBACK_URL, "releases_fallback");
 
 	try {
 		const response = await fetch(RELEASE_API_URL, {
@@ -36,7 +54,7 @@ export async function GET(request: Request) {
 		});
 
 		if (!response.ok) {
-			return redirect(FALLBACK_URL);
+			return finish(FALLBACK_URL, "releases_fallback");
 		}
 
 		const release = (await response.json()) as GitHubRelease;
@@ -44,11 +62,11 @@ export async function GET(request: Request) {
 		const installer = selectReleaseAsset(assets, target);
 
 		if (installer !== null) {
-			return redirect(installer.browser_download_url);
+			return finish(installer.browser_download_url, "installer");
 		}
 	} catch {
 		// Fall through to the public releases page.
 	}
 
-	return redirect(FALLBACK_URL);
+	return finish(FALLBACK_URL, "releases_fallback");
 }

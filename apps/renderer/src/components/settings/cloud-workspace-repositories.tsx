@@ -19,7 +19,7 @@ import {
 	COMPACT_CLOUD_ACTION,
 } from "./cloud-settings-ui.tsx";
 
-function RepositoryAvatar({
+export function RepositoryAvatar({
 	repository,
 	name,
 }: {

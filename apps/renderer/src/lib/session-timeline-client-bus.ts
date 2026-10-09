@@ -20,6 +20,7 @@ import type {
 import type {
 	EnvironmentFault,
 	EnvironmentResolver,
+	EnvironmentRetryPolicy,
 	ResourceActivation,
 } from "@zuse/client-runtime/environment-runtime";
 import { subscribeOnAnimationFrame } from "@zuse/client-runtime/frame-subscription";
@@ -1201,6 +1202,16 @@ const isCloudTimelineEnvironment = (environmentId: EnvironmentId): boolean =>
 	activationByEnvironment.get(environmentId)?.environmentKind ===
 	"cloud-workspace";
 
+// Cloud workspaces keep a bounded ladder so retries never keep waking billable
+// compute. Self-hosted computers retry until they come back from sleep.
+export const environmentRetryPolicy = (
+	environmentId: EnvironmentId,
+): EnvironmentRetryPolicy =>
+	isCloudTimelineEnvironment(environmentId) ||
+	isCloudWorkspaceEnvironment(environmentId)
+		? "bounded"
+		: "unbounded";
+
 const makeTimelineDriver = (
 	reportFailure: (
 		environmentId: EnvironmentId,
@@ -1298,6 +1309,7 @@ const createBus = (): ClientBus<MemoizeClient> => {
 		runtime: {
 			isOnline: isPlatformOnline,
 			requiresNetwork: environmentRequiresNetwork,
+			retryPolicy: environmentRetryPolicy,
 		},
 		synchronizer: {
 			synchronize: async <Data>(
@@ -1472,6 +1484,28 @@ export const dispatchSessionCommand = <Payload, Result>(input: {
 		retry: input.retry ?? "safe",
 		createdAt: Date.now(),
 		awaitResourceReflection: input.kind === "messages.send",
+	});
+
+/**
+ * Session-addressed workspace I/O (attachment bytes, context files) whose
+ * caller owns the failure. It is not a transcript command: a new chat probes
+ * these before its workspace exists, and those expected "not ready" failures
+ * must never surface as a pending or failed command on the chat timeline.
+ */
+export const dispatchSessionWorkspaceCommand = <Payload, Result>(input: {
+	readonly ref: SessionRef;
+	readonly kind: string;
+	readonly commandId: ClientCommand["commandId"];
+	readonly payload: Payload;
+}): Promise<CommandReceipt<Result>> =>
+	rendererClientBus.dispatch({
+		kind: input.kind,
+		commandId: input.commandId,
+		environmentId: input.ref.environmentId,
+		resource: null,
+		payload: input.payload,
+		retry: "never",
+		createdAt: Date.now(),
 	});
 
 export const dispatchSessionCommandHandle = <Payload, Result>(input: {

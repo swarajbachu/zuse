@@ -21,6 +21,20 @@ afterEach(() => {
 	query.mockReset();
 });
 describe("Claude control query lifecycle", () => {
+	it("uses the named account for identity and usage without inherited tokens", async () => {
+		vi.stubEnv("ANTHROPIC_API_KEY", "default-key");
+		vi.stubEnv("CLAUDE_CODE_OAUTH_TOKEN", "default-token");
+		query.mockReturnValue({ close: vi.fn() });
+		await withClaudeControlClient(
+			{ ...options, accountHome: "/accounts/work" },
+			async () => "ok",
+		);
+		const env = query.mock.calls[0]?.[0].options.env;
+		expect(env.CLAUDE_CONFIG_DIR).toBe("/accounts/work");
+		expect(env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe("/accounts/work");
+		expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+		expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+	});
 	it("delegates credential resolution and custom config to the CLI without submitting a turn", async () => {
 		vi.stubEnv("CLAUDE_CONFIG_DIR", "/custom/config");
 		const close = vi.fn();

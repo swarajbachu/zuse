@@ -315,7 +315,7 @@ export function CloudWorkspaceAuth() {
 				throw new Error("Cloud authentication is not ready");
 			}
 			const ciphertext = await sealSecret(encryptionPublicJwk, secret);
-			await runCloudControl((client) =>
+			const configured = await runCloudControl((client) =>
 				client["cloud.auth.configure"]({
 					providerId: selectedProvider,
 					method,
@@ -331,6 +331,9 @@ export function CloudWorkspaceAuth() {
 						: {}),
 				}),
 			);
+			if (configured.state !== "connected") {
+				throw new Error("Agent credential verification failed");
+			}
 			setSecret("");
 			setSelectedProvider(null);
 			void refresh();
@@ -437,7 +440,7 @@ export function CloudWorkspaceAuth() {
 		<>
 			<CloudSettingsGroup
 				title={uiMessage("settings:cloud_workspace_auth_agent_authentication")}
-				description={uiMessage(
+				help={uiMessage(
 					"settings:cloud_workspace_auth_authorize_each_provider_once_account_credentials_are_shared_by_new_clo",
 				)}
 				action={

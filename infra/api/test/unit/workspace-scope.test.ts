@@ -23,9 +23,9 @@ describe("organization configuration route permissions", () => {
 	});
 
 	it.each([
+		ApiPaths.cloudProviderConnections,
 		ApiPaths.cloudAuthLoginStart,
 		ApiPaths.cloudAuthLoginPoll("operation_a"),
-		ApiPaths.cloudGithub,
 		ApiPaths.cloudAccountImageBuild,
 		`${ApiPaths.cloudProjects}/project_a`,
 	])("keeps %s restricted to administrators", (path) => {
@@ -63,4 +63,14 @@ describe("organization command and lifecycle route allowlist", () => {
 	])("does not expand access to %s %s", (method, suffix) => {
 		expect(workspaceAccessForPath(`${base}/${suffix}`, method)).toBeUndefined();
 	});
+});
+
+it("lets members connect their own GitHub but reserves installation removal for admins", () => {
+	expect(workspaceAccessForPath(ApiPaths.cloudGithub, "GET")).toBe("content");
+	expect(workspaceAccessForPath(ApiPaths.cloudGithubInstall, "POST")).toBe(
+		"content",
+	);
+	expect(
+		workspaceAccessForPath("/v1/cloud/github/installations/1", "DELETE"),
+	).toBe("administration");
 });

@@ -65,6 +65,15 @@ export function LogoTraceLoader({
 		setPhase("closingTrace");
 	}, [complete, phase]);
 
+	// A retry can put a finished loader back to work; trace again instead of
+	// leaving a static mark during the new wait.
+	useEffect(() => {
+		if (complete || phase === "loop") return;
+		if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+		doneCalledRef.current = false;
+		setPhase("loop");
+	}, [complete, phase]);
+
 	useEffect(() => {
 		if (phase !== "closingTrace") return;
 		const timeout = window.setTimeout(

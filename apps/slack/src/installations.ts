@@ -12,17 +12,27 @@ export interface Cipher {
 }
 export type AccessMode = "installer" | "shared" | "personal";
 export interface ZuseConnection {
+	readonly organizationId?: string;
+	readonly organizationName?: string;
 	readonly accountId: string;
 	readonly webhookId: string;
 	readonly webhookSecret: string;
 	readonly agent?: string;
 	readonly model?: string;
+	readonly providerId?: string;
 	readonly projectId?: string;
 }
+export type HomeSetting =
+	| "agentModel"
+	| "providerId"
+	| "projectId"
+	| "replyMode";
 export interface MemberProfile {
 	readonly revision: number;
 	readonly connection: ZuseConnection | null;
 	readonly defaults: {
+		readonly homeActionTs?: Partial<Record<HomeSetting, string>>;
+		readonly homeRevision?: { readonly base: number; readonly current: number };
 		readonly replyMode?: "mentions" | "all";
 		readonly projectId?: string;
 		readonly channels: Readonly<Record<string, string>>;

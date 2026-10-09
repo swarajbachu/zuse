@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { Cancel01Icon, PlusSignIcon } from "@zuse/icons/solid-rounded";
+import { Cancel01Icon } from "@zuse/icons/solid-rounded";
 import { router, Stack } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { Search } from "lucide-react-native";
@@ -471,7 +471,7 @@ export default function HomeScreen() {
 								variant="ghost"
 								onPress={() => updateGroup(item.groupKey, "show-more")}
 							>
-								{`Show ${item.hiddenCount} more`}
+								{`${item.hiddenCount} More`}
 							</Button>
 						) : null}
 						{item.canShowLess ? (
@@ -480,7 +480,7 @@ export default function HomeScreen() {
 								variant="ghost"
 								onPress={() => updateGroup(item.groupKey, "show-less")}
 							>
-								Show less
+								Show Less
 							</Button>
 						) : null}
 					</View>
@@ -561,12 +561,12 @@ export default function HomeScreen() {
 					<GlassSurface
 						style={{
 							width: Math.min(width - 88, 520),
-							minHeight: 44,
+							height: 44,
+							borderRadius: 22,
 							flexDirection: "row",
 							alignItems: "center",
-							gap: 9,
+							gap: 8,
 							paddingHorizontal: 14,
-							paddingVertical: 8,
 						}}
 					>
 						<Search size={17} color={colors.secondaryFg} />
@@ -611,7 +611,7 @@ export default function HomeScreen() {
 				keyExtractor={(item) => item.key}
 				renderItem={renderItem}
 				contentInsetAdjustmentBehavior="automatic"
-				contentContainerClassName="px-4 pb-28 pt-2"
+				contentContainerClassName="px-4 pb-28 pt-1"
 				initialNumToRender={12}
 				windowSize={7}
 				removeClippedSubviews={!dragging}
@@ -630,7 +630,7 @@ export default function HomeScreen() {
 						{cloudCatalog.error ? (
 							<Text
 								role="alert"
-								className="px-4 py-2 font-sans text-sm text-destructive"
+								className="px-4 py-2 font-sans text-sm text-danger"
 							>
 								{cloudCatalog.error}
 							</Text>
@@ -679,31 +679,31 @@ export default function HomeScreen() {
 								Keep Zuse open on your Mac and check your connection, then try
 								again.
 							</Text>
-							<View className="gap-3">
-								<Button onPress={retryHome}>Try again</Button>
-								<Button
-									variant="secondary"
-									onPress={() => router.push("/settings")}
-								>
-									Connection settings
-								</Button>
-								<Button
-									variant="ghost"
-									onPress={() => router.push("/connect/scan")}
-								>
-									Scan a new QR code
-								</Button>
+							<View className="gap-1">
+								<Button onPress={retryHome}>Try Again</Button>
+								<View className="flex-row justify-center gap-2">
+									<Button
+										size="sm"
+										variant="ghost"
+										onPress={() => router.push("/settings")}
+									>
+										Settings
+									</Button>
+									<Button
+										size="sm"
+										variant="ghost"
+										onPress={() => router.push("/connect/scan")}
+									>
+										Scan QR Code
+									</Button>
+								</View>
 							</View>
 						</View>
 					) : waitingForHome ? (
 						<View className="items-center gap-3 pt-12">
 							<HomeSkeleton />
-							<Text className="font-sans-medium text-base text-foreground">
-								Connecting to your chats
-							</Text>
-							<Text className="px-8 text-center font-sans text-sm leading-5 text-muted-foreground">
-								Keep your computer awake and Zuse running. We’ll show recovery
-								options if it doesn’t respond within 30 seconds.
+							<Text className="font-sans text-sm text-muted-foreground">
+								Connecting…
 							</Text>
 						</View>
 					) : (
@@ -717,17 +717,17 @@ export default function HomeScreen() {
 								title={searching ? "No matching chats" : "No chats yet"}
 								detail={
 									searching
-										? "Try a project, chat title, model, status, or computer name."
+										? "Try a project, chat, or computer name."
 										: account === null
-											? "Sign in to see your cloud chats, or connect a computer."
-											: "Start a cloud chat, or connect a computer to see its chats too."
+											? "Sign in or connect a computer."
+											: "Start a cloud chat or connect a computer."
 								}
 							/>
 							{!searching && reachableConnections.length === 0 ? (
-								<View className="mx-auto mt-8 w-full max-w-[380px] gap-3 px-4">
+								<View className="mx-auto mt-8 w-full max-w-[380px] gap-3 px-6">
 									{account === null ? (
 										<Button disabled={busy} onPress={() => void signIn()}>
-											{busy ? "Signing in…" : "Sign in"}
+											{busy ? "Signing In…" : "Sign In"}
 										</Button>
 									) : null}
 									<Button
@@ -741,27 +741,24 @@ export default function HomeScreen() {
 												account === null ? colors.fg : colors.primaryForeground
 											}
 										/>
-										Scan QR code
+										Scan QR Code
 									</Button>
-									<Button
-										variant="secondary"
-										onPress={() => router.push("/connect/nearby")}
-									>
-										<SymbolView
-											name="wifi"
-											size={18}
-											weight="light"
-											tintColor={colors.fg}
-										/>
-										Find nearby Mac
-									</Button>
-									<Button
-										variant="ghost"
-										onPress={() => router.push("/connect/manual")}
-									>
-										<HugeIcon icon={PlusSignIcon} size={18} color={colors.fg} />
-										Add manually
-									</Button>
+									<View className="flex-row justify-center gap-2">
+										<Button
+											size="sm"
+											variant="ghost"
+											onPress={() => router.push("/connect/nearby")}
+										>
+											Find Nearby
+										</Button>
+										<Button
+											size="sm"
+											variant="ghost"
+											onPress={() => router.push("/connect/manual")}
+										>
+											Add Manually
+										</Button>
+									</View>
 									{account === null && authError ? (
 										<Text
 											selectable

@@ -198,6 +198,8 @@ export interface UpdatesBridge {
 export interface PowerBridge {
 	readonly getState: () => Promise<PowerMonitorState>;
 	readonly onState: (handler: (state: PowerMonitorState) => void) => () => void;
+	/** Fires when this computer resumes from sleep or the screen unlocks. */
+	readonly onResume?: (handler: () => void) => () => void;
 	readonly startRecording: (
 		durationMinutes: PowerRecordingDurationMinutes,
 	) => Promise<PowerMonitorState>;
@@ -508,6 +510,7 @@ export interface NotchBridge {
 }
 
 export interface ZuseBridge {
+	readonly htmlVisualPublicNetwork?: boolean;
 	readonly locale?: import("@zuse/contracts").LocaleBridge;
 	readonly host?: HostDescriptor;
 	readonly rpc: RpcBridge;

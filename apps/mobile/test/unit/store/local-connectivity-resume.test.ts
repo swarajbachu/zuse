@@ -61,6 +61,7 @@ vi.mock("~/store/connections", () => ({
 	connectionsAtom: {},
 	connectionsHydratedAtom: {},
 	currentConnections: () => state.connections,
+	restorePairedConnectionRoutes: vi.fn(async () => []),
 	updateDiscoveredConnectionRoute: vi.fn(),
 }));
 vi.mock("~/store/registry", () => ({

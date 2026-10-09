@@ -25,7 +25,7 @@ const deferred = <A>() => {
 
 const makeHarness = (input?: {
 	online?: boolean;
-	maxAutomaticAttempts?: number;
+	maxAutomaticAttempts?: number | ((options: Options) => number);
 	prepareOptions?: (options: Options) => Promise<Options>;
 	createClient?: (options: Options) => Promise<{
 		readonly client: Client;
@@ -246,6 +246,32 @@ describe("connection supervisor", () => {
 		entry.retryNow();
 		await runClient(entry.getClient());
 		expect(entry.snapshot().status).toBe("connected");
+	});
+
+	test("applies a per-connection retry limit", async () => {
+		const harness = makeHarness({
+			maxAutomaticAttempts: (options) =>
+				options.key.startsWith("workspace:") ? 1 : Number.POSITIVE_INFINITY,
+			createClient: async () => {
+				throw new Error("socket did not open");
+			},
+		});
+		const cloud = harness.supervisor.get({ key: "workspace:one" });
+		const computer = harness.supervisor.get({ key: "environment:mac" });
+
+		await expect(runClient(cloud.getClient())).rejects.toThrow();
+		await expect(runClient(computer.getClient())).rejects.toThrow();
+		for (let index = 0; index < 8; index += 1) {
+			const before = harness.scheduled.length;
+			harness.scheduled.at(-1)?.fn();
+			await waitUntil(() => harness.scheduled.length === before + 1);
+		}
+
+		expect(cloud.snapshot().status).toBe("error");
+		expect(computer.snapshot()).toMatchObject({
+			status: "reconnecting",
+			attempt: 9,
+		});
 	});
 
 	test("stops automatic retries at the configured limit and resets on manual retry", async () => {

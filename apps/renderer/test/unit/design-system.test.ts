@@ -35,7 +35,7 @@ describe("renderer design system", () => {
 
 	it("keeps compact settings actions at 28px", () => {
 		const settings = rendererSource("components/ui/settings-panel.tsx");
-		const buttons = rendererSource("components/ui/button.tsx");
+		const buttons = rendererSource("components/ui/button-variants.ts");
 
 		expect(settings).toContain('className="flex h-7 shrink-0 items-center"');
 		expect(buttons).toContain('default: "h-7');
@@ -53,7 +53,7 @@ describe("renderer design system", () => {
 	});
 
 	it("gives text buttons deliberate horizontal spacing", () => {
-		const buttons = rendererSource("components/ui/button.tsx");
+		const buttons = rendererSource("components/ui/button-variants.ts");
 
 		expect(buttons).toContain('default: "h-7 px-[calc(--spacing(4)-1px)]"');
 		expect(buttons).toContain(
@@ -82,7 +82,10 @@ describe("renderer design system", () => {
 
 		expect(composer).toContain("<RuntimeAccessPicker");
 		expect(accessPicker).toContain("chat:chat_composer_agent_access");
-		expect(composer).toContain("mx-auto flex min-h-8 w-14/15");
+		expect(composer).toContain(
+			"composer-attached-toolbar relative z-10 mx-auto w-14/15",
+		);
+		expect(composer).toContain("flex min-h-8 items-center");
 		expect(composer).toContain("rounded-b-none rounded-t-[1.2rem]");
 		expect(composer).toContain("composer-glass rounded-[1.2rem]");
 		expect(composer).not.toContain("<FrameFooter");
@@ -113,10 +116,10 @@ describe("renderer design system", () => {
 	it("uses 28px visible controls in browser authentication", () => {
 		const accessGate = rendererSource("components/browser-access-gate.tsx");
 
-		expect(accessGate).toContain(
-			'className="h-7 min-w-0 flex-1 rounded-md border border-input',
-		);
-		expect(accessGate).not.toContain("min-h-11 rounded-lg bg-primary");
+		// The shared Input and default Button are both h-7.
+		expect(accessGate).toContain("<Input");
+		expect(accessGate).toContain("<Button");
+		expect(accessGate).not.toMatch(/\b(?:h-8|h-11|min-h-11)\b/);
 	});
 
 	it("keeps the project rail quiet while giving every chat a rich hover state", () => {

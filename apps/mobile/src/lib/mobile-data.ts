@@ -20,7 +20,6 @@ import { clearPinnedChats } from "../store/pinned-chats";
 import { resetPrStateRuntime } from "../store/pr-state";
 import { resetProjectOriginRuntime } from "../store/project-origins";
 import { resetSessionsRuntime } from "../store/sessions";
-import { resetAiSharingConsent } from "./ai-sharing-consent";
 import { resetMobileAnalyticsIdentity } from "./analytics";
 import { optionsForConnection } from "./connection-params";
 import { clearLastCrashReport } from "./crash-reporting";
@@ -44,7 +43,6 @@ export const clearDownloadedMobileData = async (): Promise<void> => {
 };
 
 export const resetLocalMobileData = async (): Promise<void> => {
-	resetAiSharingConsent();
 	const connections = currentConnections();
 	await resetOutboxRuntime();
 	await Promise.all(

@@ -201,6 +201,8 @@ jobs:
           }
           await import("./bin.mjs");
           NODE
+          node cli/zuse commands > "$RUNNER_TEMP/zuse-commands.json"
+          node --input-type=module -e 'import fs from "node:fs"; const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (!result.ok || !result.data.commands.includes("preview set") || !result.data.commands.includes("workspace create")) throw new Error("Cloud CLI missing orchestration commands");' "$RUNNER_TEMP/zuse-commands.json"
           node --check runtime-updater.mjs
           node --check runtime-update-trigger.mjs
           node --check toolchain-reconciler.mjs
@@ -213,6 +215,7 @@ jobs:
           path: |
             apps/server/dist-cloud/zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
             apps/server/dist-cloud/stable-manifest.json
+            apps/server/dist-cloud/zuse-snapshot-installer.tar.gz
           if-no-files-found: error
           retention-days: 1
 
@@ -252,4 +255,5 @@ jobs:
             --clobber
           gh release upload "$RELEASE_TAG" \
             "dist-cloud/stable-manifest.json" \
+            "dist-cloud/zuse-snapshot-installer.tar.gz" \
             --clobber

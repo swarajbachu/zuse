@@ -11,7 +11,7 @@ const dispatch = vi.hoisted(() => vi.fn());
 const download = vi.hoisted(() => vi.fn());
 vi.mock("../../src/lib/download-blob.ts", () => ({ downloadBlob: download }));
 vi.mock("../../src/lib/session-timeline-client-bus.ts", () => ({
-	dispatchSessionCommand: dispatch,
+	dispatchSessionWorkspaceCommand: dispatch,
 }));
 const sessionId = SessionId.make("image-session");
 describe("workspace attachment previews", () => {
@@ -186,7 +186,6 @@ describe("workspace attachment previews", () => {
 			expect(command).toMatchObject({
 				ref,
 				kind: "attachments.uploadChunk",
-				retry: "never",
 				payload: { sessionId, originalName: "archive.zip" },
 			});
 		}

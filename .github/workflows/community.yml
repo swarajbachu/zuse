@@ -46,6 +46,18 @@ jobs:
           ZUSE_ICON_MODE: free
         run: bun --filter renderer build
 
+      - name: Build hosted renderer with production features
+        # Public placeholders retain feature code without production credentials.
+        env:
+          ZUSE_ICON_MODE: free
+          VITE_ZUSE_HOSTED: "1"
+          VITE_ORGANIZATION_WORKSPACES: "true"
+          VITE_ZUSE_API_URL: https://api.zuse.sh
+          VITE_ZUSE_WS_URL: wss://api.zuse.sh/rpc
+          VITE_WORKOS_CLIENT_ID: client_0123456789abcdefghijklmnop
+          VITE_POSTHOG_KEY: phc_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ
+        run: bun --filter renderer build
+
       - name: Bundle mobile app with public icons
         env:
           EXPO_NO_BUNDLE_SPLITTING: "1"

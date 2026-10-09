@@ -1,9 +1,6 @@
 import { Pressable, Text, View } from "react-native";
 
-import {
-	modelOptionsForProvider,
-	reasoningValueForModel,
-} from "~/lib/model-options";
+import { modelOptionsForProvider } from "~/lib/model-options";
 import { activeModelCatalog } from "~/store/model-catalog";
 import type { ModelModeValue } from "./model-mode-menu";
 import { ProviderLogo } from "./provider-logo";
@@ -13,7 +10,12 @@ const labelForModel = (value: ModelModeValue): string =>
 		(model) => model.value === value.model,
 	)?.label ?? value.model;
 
-/** Shared 44pt trigger for the model sheet in new and existing chats. */
+const LOGO_SIZE = 13;
+
+/**
+ * Compact model button for new and existing chats. Shows only the model name;
+ * reasoning and approval live in the sheet. hitSlop keeps a 44pt target.
+ */
 export function ModelSheetTrigger({
 	value,
 	onPress,
@@ -21,34 +23,26 @@ export function ModelSheetTrigger({
 	value: ModelModeValue;
 	onPress: () => void;
 }) {
-	const reasoning = reasoningValueForModel(
-		activeModelCatalog(),
-		value.providerId,
-		value.model,
-		value.modelOptions,
-	);
-	const modelLabel = [labelForModel(value), reasoning?.label]
-		.filter((part): part is string => part !== undefined)
-		.join(" ");
 	return (
 		<Pressable
 			accessibilityRole="button"
 			accessibilityLabel="Model settings"
 			onPress={onPress}
-			hitSlop={8}
-			className="h-10 min-w-7 max-w-[150px] flex-shrink flex-row items-center gap-1.5 px-1 active:opacity-60"
+			hitSlop={10}
+			className="h-8 min-w-6 max-w-[140px] flex-shrink flex-row items-center gap-1 px-1 active:opacity-60"
 		>
 			<View
 				collapsable={false}
-				className="h-[18px] w-[18px] flex-none items-center justify-center"
+				style={{ width: LOGO_SIZE, height: LOGO_SIZE, flexShrink: 0 }}
+				className="items-center justify-center"
 			>
-				<ProviderLogo providerId={value.providerId} size={18} />
+				<ProviderLogo providerId={value.providerId} size={LOGO_SIZE} />
 			</View>
 			<Text
-				className="min-w-0 flex-shrink font-sans-medium text-[15px] text-foreground"
+				className="min-w-0 flex-shrink font-sans-medium text-[13px] text-muted-foreground"
 				numberOfLines={1}
 			>
-				{modelLabel}
+				{labelForModel(value)}
 			</Text>
 		</Pressable>
 	);

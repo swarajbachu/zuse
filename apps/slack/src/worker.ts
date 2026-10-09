@@ -11,10 +11,12 @@ import { reportJobFailure } from "./failures.ts";
 import {
 	disconnectMember,
 	publishHome,
+	selectExecutionDefault,
 	selectProject,
 	selectReplyMode,
 } from "./home.ts";
 import { interactions } from "./interactions.ts";
+import { retryReactionClear } from "./reactions.ts";
 import {
 	acceptRepository,
 	loadRepositoryView,
@@ -120,7 +122,10 @@ const events = async (
 		// Subscription cleanup is best effort after local access is removed.
 		if (zuse)
 			context.waitUntil(
-				deleteWebhook(env.cloud(zuse.accountId), zuse.webhookId).catch(() =>
+				deleteWebhook(
+					env.cloud(zuse.accountId, zuse.organizationId),
+					zuse.webhookId,
+				).catch(() =>
 					console.error("[slack-app] remote webhook cleanup failed", {
 						teamId: installation.teamId,
 					}),
@@ -277,7 +282,9 @@ export default {
 					message.ack();
 					continue;
 				}
-				if (job.kind === "status-clear")
+				if (job.kind === "reaction-clear")
+					await retryReactionClear(env, installation, job);
+				else if (job.kind === "status-clear")
 					await retryStatusClear(env, installation, job);
 				else if (job.kind === "home")
 					await publishHome(env, installation, job.userId);
@@ -308,6 +315,17 @@ export default {
 						job.userId,
 						job.connectionId,
 					);
+				else if (job.kind === "execution-default")
+					await selectExecutionDefault(
+						env,
+						installation,
+						job.userId,
+						job.field,
+						job.value,
+						job.revision,
+						job.memberRevision,
+						job.homeSelection,
+					);
 				else if (job.kind === "policy") {
 					if (
 						job.userId === installation.ownerId &&
@@ -335,6 +353,7 @@ export default {
 						job.userId,
 						job.mode,
 						job.memberRevision,
+						job.homeSelection,
 					);
 				else if (job.kind === "project")
 					await selectProject(
@@ -344,6 +363,7 @@ export default {
 						job.userId,
 						job.revision,
 						job.memberRevision,
+						job.homeSelection,
 					);
 				else if (job.kind === "conversation")
 					await runConversation(env, installation, job);

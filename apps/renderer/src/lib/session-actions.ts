@@ -8,6 +8,7 @@ import {
 	type AgentErrorKind,
 	CommandId,
 	ComposerInput,
+	type Message,
 	MessageId,
 	type ProviderId,
 	QueuedMessage,
@@ -114,6 +115,39 @@ export const classifyErrorContent = (
 	if (content.kind === "network")
 		return { kind: "network", message: content.message };
 	return classifyMessage(content.message, providerId);
+};
+
+// Bookkeeping rows a provider can append after a failed turn; they neither
+// resolve nor restate the failure.
+const PASSIVE_CONTENT = new Set<Message["content"]["_tag"]>([
+	"usage",
+	"context_usage",
+	"usage_limit",
+	"subagent_progress",
+]);
+
+export interface TranscriptError {
+	readonly message: Message;
+	readonly error: ChatError;
+}
+
+/**
+ * The failure the transcript currently ends on, if any. Any later user or agent
+ * activity means the session moved on.
+ */
+export const latestTranscriptError = (
+	messages: ReadonlyArray<Message>,
+	providerId?: ProviderId,
+): TranscriptError | null => {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message === undefined) break;
+		const content = message.content;
+		if (PASSIVE_CONTENT.has(content._tag)) continue;
+		if (content._tag !== "error") return null;
+		return { message, error: classifyErrorContent(content, providerId) };
+	}
+	return null;
 };
 
 export const classifyError = (
@@ -718,7 +752,27 @@ export const retryLastSessionMessage = async (
 	ref: SessionRef,
 	providerId?: ProviderId,
 ): Promise<boolean> => {
-	const messages = projectionFor(ref)?.messages ?? [];
+	const projection = projectionFor(ref);
+	if (projection?.status === "error" && projection.currentTurn !== null) {
+		// The runtime owns the persisted failed request. Resume replays that turn;
+		// submitting a new message would hit TurnAlreadyRunning or duplicate it.
+		const commandId = CommandId.make(`session-resume:${crypto.randomUUID()}`);
+		setSessionError(ref, null);
+		try {
+			await dispatchSessionCommand({
+				ref,
+				kind: "session.resume",
+				commandId,
+				payload: { sessionId: ref.sessionId },
+				retry: "never",
+			});
+			return true;
+		} catch (cause) {
+			setSessionError(ref, classifyError(cause, providerId));
+			return false;
+		}
+	}
+	const messages = projection?.messages ?? [];
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const content = messages[index]?.content;
 		if (content?._tag === "user_rich") {

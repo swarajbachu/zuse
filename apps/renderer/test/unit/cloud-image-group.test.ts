@@ -115,3 +115,20 @@ it("requests each provider once and preserves accepted builds when another fails
 	]);
 	expect(result.failedProviderIds).toEqual(["e2b"]);
 });
+
+it("preserves a saved image on partial failure while accepting successful provider updates", () => {
+	const saved = image("box", "ready");
+	const other = image("e2b", "building");
+	const completed = { ...image("e2b", "ready"), updatedAt: 2 };
+	expect(reconcileCloudImages([saved, other], [completed], false)).toEqual([
+		completed,
+		saved,
+	]);
+	expect(reconcileCloudImages([saved, other], [], false)).toEqual([
+		saved,
+		other,
+	]);
+	expect(reconcileCloudImages([saved, other], [completed], true)).toEqual([
+		completed,
+	]);
+});

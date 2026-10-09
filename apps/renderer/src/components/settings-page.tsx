@@ -61,6 +61,10 @@ import { useModelCatalogStore } from "~/store/model-catalog";
 import { useAuth } from "../hooks/use-auth.ts";
 import type { BrowserCookieImportStatus } from "../lib/bridge.ts";
 import {
+	setThreadListSidebarEnabled,
+	useThreadListSidebarEnabled,
+} from "../lib/browser-device-preferences.ts";
+import {
 	COMPLETION_SOUND_PRESETS,
 	playCompletionSound,
 	prepareCompletionSound,
@@ -70,7 +74,10 @@ import {
 	computerAwakeStatusText,
 } from "../lib/computer-awake.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
-import { useOrganizationWorkspaces } from "../lib/organization-workspaces.ts";
+import {
+	organizationWorkspacesAvailable,
+	useOrganizationWorkspaces,
+} from "../lib/organization-workspaces.ts";
 import { providerDisplayName } from "../lib/provider-labels.ts";
 import {
 	rendererWorkspaceSnapshot,
@@ -87,6 +94,7 @@ import { LanguageSelector } from "./language-selector.tsx";
 import { ModelPicker } from "./model-picker.tsx";
 import { ProviderSettingsRow } from "./provider-card.tsx";
 import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
+import { AccountGithubConnection } from "./settings/account-github.tsx";
 import { CloudWorkspacePool } from "./settings/cloud-workspace-pool.tsx";
 import { DeveloperPane } from "./settings/developer-pane.tsx";
 import { DevicesPane } from "./settings/devices-pane.tsx";
@@ -168,7 +176,9 @@ export function SettingsPage() {
 							(item) => item.section.kind === section.kind,
 						)
 					? { kind: "organizations" }
-					: !CLOUD_MACHINES_AVAILABLE && section.kind === "machines"
+					: (!CLOUD_MACHINES_AVAILABLE && section.kind === "machines") ||
+							(workspace.scope.kind === "personal" &&
+								section.kind === "organizations")
 						? { kind: "general" }
 						: section;
 
@@ -446,6 +456,12 @@ function SectionTitle({
 				subtitle: "These also appear under the menu bar.",
 			};
 		}
+		if (section.kind === "experimental") {
+			return {
+				title: uiMessage("settings:settings_page_experimental"),
+				subtitle: uiMessage("settings:settings_page_experimental_description"),
+			};
+		}
 		if (section.kind === "developer") {
 			return {
 				title: uiMessage("settings:settings_page_developer"),
@@ -503,15 +519,9 @@ function Pane({ section }: { section: SettingsSection }) {
 		return <CloudWorkspacePool section={section.page} />;
 	}
 	if (section.kind === "organizations")
-		return (
-			<OrganizationsPane
-				organizationId={
-					workspace.scope.kind === "organization"
-						? workspace.scope.organizationId
-						: undefined
-				}
-			/>
-		);
+		return workspace.scope.kind === "organization" ? (
+			<OrganizationsPane organizationId={workspace.scope.organizationId} />
+		) : null;
 	if (section.kind === "general")
 		return (
 			<div className="flex flex-col gap-4">
@@ -539,6 +549,7 @@ function Pane({ section }: { section: SettingsSection }) {
 	if (section.kind === "pokedex") return <PokedexPane />;
 	if (section.kind === "diagnostics") return <FullDiagnosticsPane />;
 	if (section.kind === "shortcuts") return <KeybindingsPane />;
+	if (section.kind === "experimental") return <ExperimentalPane />;
 	if (section.kind === "developer") return <DeveloperPane />;
 	return <RepositorySettings projectId={section.projectId} />;
 }
@@ -917,6 +928,37 @@ function BrowserTestLoginsPane() {
 	);
 }
 
+/**
+ * Opt-in previews. These toggles shape this app's own UI, so they are saved
+ * on this install (local storage), not in the active computer's settings:
+ * switching to a remote or cloud computer never flips them.
+ */
+function ExperimentalPane() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
+	const threadListSidebar = useThreadListSidebarEnabled();
+
+	return (
+		<SettingsGroup
+			title={uiMessage("settings:settings_page_experimental_sidebar")}
+		>
+			<SettingsRow
+				title={uiMessage("settings:settings_page_thread_list_sidebar")}
+				description={uiMessage(
+					"settings:settings_page_thread_list_sidebar_description",
+				)}
+				action={
+					<Switch
+						checked={threadListSidebar}
+						onCheckedChange={setThreadListSidebarEnabled}
+						aria-label={uiMessage("settings:settings_page_thread_list_sidebar")}
+					/>
+				}
+			/>
+		</SettingsGroup>
+	);
+}
+
 function NotchSettingsPane() {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 
@@ -1223,6 +1265,7 @@ function ComputerAwakeSettings() {
 }
 
 function GeneralPane() {
+	useOrganizationWorkspaces();
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 
 	const appearanceMode = useSettingsStore((s) => s.appearanceMode);
@@ -1368,7 +1411,10 @@ function GeneralPane() {
 							{uiMessage("common:signOut")}
 						</Button>
 					</div>
-				) : isLoading ? (
+				) : null}
+				{isSignedIn && organizationWorkspacesAvailable() ? (
+					<AccountGithubConnection />
+				) : isSignedIn ? null : isLoading ? (
 					<SettingsRow
 						title={
 							isUnavailable

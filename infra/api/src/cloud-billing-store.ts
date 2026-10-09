@@ -15,6 +15,10 @@ import {
 	DEFAULT_CLOUD_BILLING_POLICY,
 } from "./cloud-billing.ts";
 import {
+	type CloudSnapshotStoreApi,
+	makeCloudSnapshotStorePg,
+} from "./cloud-snapshot-store.ts";
+import {
 	type CloudUsageStoreApi,
 	confirmedUsageExport,
 	makeCloudUsageStorePg,
@@ -42,6 +46,7 @@ export type CloudBillingUsageRecord = CloudBillingUsageItem & {
 };
 
 export interface CloudBillingStoreApi extends CloudUsageStoreApi {
+	readonly snapshots: CloudSnapshotStoreApi;
 	readonly hasProviderEvent: (
 		provider: string,
 		eventId: string,
@@ -220,7 +225,7 @@ interface PeriodRow {
 }
 interface UsageRow {
 	readonly entry_id: string;
-	readonly resource_kind: "workspace" | "build" | "other";
+	readonly resource_kind: "workspace" | "build" | "other" | "snapshot";
 	readonly resource_id: string;
 	readonly provider: string;
 	readonly provider_execution_id: string | null;
@@ -245,19 +250,27 @@ const toPeriod = (row: PeriodRow): CloudBillingPeriodRecord => ({
 	priceCatalogVersion: row.price_catalog_version,
 	overageCapMicros: Number(row.overage_cap_micros),
 });
-const toUsage = (row: UsageRow): CloudBillingUsageItem => ({
-	entryId: row.entry_id,
-	resourceKind: row.resource_kind,
-	resourceId: row.resource_id,
-	provider: row.provider,
-	providerExecutionId: row.provider_execution_id ?? undefined,
-	startedAt: Number(row.started_at),
-	endedAt: Number(row.ended_at),
-	vcpuCount: Number(row.vcpu_count),
-	memoryMib: Number(row.memory_mib),
-	providerCostMicros: Number(row.provider_cost_micros),
-	status: row.status,
-});
+/** Older clients understand `other`; the additive classification identifies storage. */
+export const publicCloudBillingUsage = (
+	item: CloudBillingUsageItem,
+): CloudBillingUsageItem =>
+	item.resourceKind === "snapshot"
+		? { ...item, resourceKind: "other", usageKind: "snapshot-storage" }
+		: item;
+const toUsage = (row: UsageRow): CloudBillingUsageItem =>
+	publicCloudBillingUsage({
+		entryId: row.entry_id,
+		resourceKind: row.resource_kind,
+		resourceId: row.resource_id,
+		provider: row.provider,
+		providerExecutionId: row.provider_execution_id ?? undefined,
+		startedAt: Number(row.started_at),
+		endedAt: Number(row.ended_at),
+		vcpuCount: Number(row.vcpu_count),
+		memoryMib: Number(row.memory_mib),
+		providerCostMicros: Number(row.provider_cost_micros),
+		status: row.status,
+	});
 
 export const CloudBillingStorePg = Layer.effect(
 	CloudBillingStore,
@@ -276,10 +289,12 @@ export const CloudBillingStorePg = Layer.effect(
 				const nowMs = yield* Clock.currentTimeMillis;
 				const totalsRows = yield* sql<{
 					readonly confirmed_provider_cost: number;
+					readonly storage_cost: number;
 					readonly confirmed_overage_charge: number;
 					readonly reserved_provider_cost: number;
 				}>`SELECT
 					(SELECT COALESCE(SUM(amount_micros), 0) FROM api_cloud_billing_ledger WHERE period_id = ${period.periodId} AND kind = 'provider-cost') AS confirmed_provider_cost,
+ (SELECT COALESCE(SUM(provider_cost_micros), 0) FROM api_cloud_billing_usage WHERE period_id = ${period.periodId} AND resource_kind = 'snapshot') AS storage_cost,
 					(SELECT COALESCE(SUM(amount_micros), 0) FROM api_cloud_billing_ledger WHERE period_id = ${period.periodId} AND kind = 'overage-charge') AS confirmed_overage_charge,
 					(SELECT COALESCE(SUM(provider_cost_micros), 0) FROM api_cloud_billing_reservations WHERE period_id = ${period.periodId} AND expires_at > ${nowMs}) AS reserved_provider_cost`;
 				const provisionalRows = yield* sql<{
@@ -335,6 +350,7 @@ export const CloudBillingStorePg = Layer.effect(
 				});
 				return {
 					currency: "USD" as const,
+					storageCostMicros: Number(totalsRows[0]?.storage_cost ?? 0),
 					status,
 					periodStart: period.periodStartMs,
 					periodEnd: period.periodEndMs,
@@ -362,6 +378,7 @@ export const CloudBillingStorePg = Layer.effect(
 		const usageExports = makeCloudUsageStorePg(sql);
 		return CloudBillingStore.of({
 			...usageExports,
+			snapshots: makeCloudSnapshotStorePg(sql),
 			hasProviderEvent: (provider, eventId) =>
 				sql<{
 					readonly present: boolean;

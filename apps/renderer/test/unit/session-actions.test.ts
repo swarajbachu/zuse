@@ -1,7 +1,10 @@
 import { CloudCommandTerminalError } from "@zuse/client-runtime/client-persistence";
 import {
+	AgentTurnId,
 	ComposerInput,
 	EnvironmentId,
+	Message,
+	MessageId,
 	QueuedMessage,
 	QueuedMessageNotFoundError,
 	QueueState,
@@ -27,6 +30,7 @@ import {
 	pendingSessionCommandError,
 	persistQueuedMessage,
 	queueSessionMessage,
+	retryLastSessionMessage,
 	sendSessionMessage,
 	stageSessionMessage,
 	updateQueuedMessage,
@@ -58,6 +62,71 @@ describe("session actions", () => {
 	afterEach(() => {
 		resetSessionTimelineClientBusForTest();
 		usePendingSessionMessages.setState({ byResource: {} });
+	});
+
+	it.each([
+		false,
+		true,
+	])("resumes an unresolved failed turn without submitting a duplicate (resume failure: %s)", async (resumeFails) => {
+		const frames = Effect.runSync(Queue.unbounded());
+		let resumes = 0;
+		let sends = 0;
+		setSessionTimelineRpcClientForTest(
+			async () =>
+				({
+					"session.events": () => Stream.fromQueue(frames),
+					"session.resume": () =>
+						Effect.sync(() => {
+							resumes += 1;
+						}).pipe(
+							Effect.andThen(
+								resumeFails
+									? Effect.fail(new SessionNotFoundError({ sessionId }))
+									: Effect.void,
+							),
+						),
+					"messages.send": () =>
+						Effect.sync(() => {
+							sends += 1;
+						}),
+				}) as never,
+		);
+		const retained = retainSessionTimeline(ref, "connect");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		Queue.offerUnsafe(frames, {
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 0,
+			cursor: { epoch: "retry-epoch", version: 0 },
+			projection: SessionTimelineProjection.make({
+				messages: [
+					Message.make({
+						id: MessageId.make("failed-message"),
+						sessionId,
+						role: "user",
+						content: { _tag: "user", text: "continue the review", goal: false },
+						createdAt: new Date(),
+					}),
+				],
+				status: "error",
+				currentTurn: {
+					turnId: AgentTurnId.make("failed-turn"),
+					phase: "running",
+				},
+				queue: QueueState.make({ items: [], paused: false }),
+				permissionMode: "default",
+				runtimeMode: "approval-required",
+			}),
+		});
+		await waitUntil(
+			() =>
+				getRendererClientBus().snapshot(retained.key).data?.status === "error",
+		);
+		expect(await retryLastSessionMessage(ref)).toBe(!resumeFails);
+		expect(resumes).toBe(1);
+		expect(sends).toBe(0);
+		expect(pendingSessionMessages(ref)).toEqual([]);
+		retained.lease.release();
 	});
 
 	it("classifies provider authentication failures once at the boundary", () => {

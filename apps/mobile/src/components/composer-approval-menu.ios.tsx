@@ -28,7 +28,7 @@ export function ComposerApprovalMenu({
 				label={
 					<Image
 						systemName={sf(selected.systemImage)}
-						size={19}
+						size={16}
 						color={selected.tint}
 						modifiers={[frame({ width: 40, height: 40 })]}
 					/>

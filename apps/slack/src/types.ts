@@ -1,3 +1,4 @@
+import type { HomeSelection } from "./home-settings.ts";
 import type { InstallationStore } from "./installations.ts";
 import type { ZuseClientConfig } from "./zuse.ts";
 
@@ -11,15 +12,25 @@ export interface StateStore {
 }
 export interface AppEnv {
 	readonly store: InstallationStore;
-	readonly cloud: (accountId: string) => ZuseClientConfig;
+	readonly cloud: (
+		accountId: string,
+		organizationId?: string,
+	) => ZuseClientConfig;
 	readonly identity: {
 		readonly clientId: string;
-		exchange(code: string, verifier: string): Promise<{ accountId: string }>;
+		exchange(
+			code: string,
+			verifier: string,
+		): Promise<{
+			accountId: string;
+			organization?: { id: string; name: string };
+		}>;
 	};
 	readonly JOBS: {
 		send(job: AppJob, options?: { delaySeconds: number }): Promise<void>;
 	};
 	readonly APP_ORIGIN: string;
+	readonly WORKSPACE_APP_ORIGIN?: string;
 	readonly SLACK_APP_ID: string;
 	readonly SLACK_CLIENT_ID: string;
 	readonly SLACK_CLIENT_SECRET: string;
@@ -32,10 +43,27 @@ export type AppJob = {
 } & (
 	| { readonly kind: "home"; readonly userId: string }
 	| {
+			readonly kind: "execution-default";
+			readonly homeSelection?: HomeSelection;
+			readonly userId: string;
+			readonly field: "agent" | "model" | "agentModel" | "providerId";
+			readonly value: string;
+			readonly revision: number;
+			readonly memberRevision: number;
+	  }
+	| {
 			readonly kind: "reply-mode";
+			readonly homeSelection?: HomeSelection;
 			readonly userId: string;
 			readonly mode: "mentions" | "all";
 			readonly memberRevision: number;
+	  }
+	| {
+			readonly kind: "reaction-clear";
+			readonly channel: string;
+			readonly messageTs: string;
+			readonly name: string;
+			readonly version: string;
 	  }
 	| {
 			readonly kind: "status-clear";
@@ -63,6 +91,7 @@ export type AppJob = {
 	| {
 			readonly kind: "selection";
 			readonly agentChoice?: string;
+			readonly agentDefault?: boolean;
 			readonly userId: string;
 			readonly token: string;
 			readonly viewId: string;
@@ -83,6 +112,7 @@ export type AppJob = {
 	  }
 	| {
 			readonly kind: "project";
+			readonly homeSelection?: HomeSelection;
 			readonly memberRevision?: number;
 			readonly userId: string;
 			readonly projectId: string;

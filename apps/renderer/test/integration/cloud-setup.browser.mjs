@@ -50,6 +50,7 @@ const server = await createServer({
 				if (id === "\0cloud-setup-cache")
 					return `
     export const loadCloudEntitlements = () => new Promise((_resolve, reject) => { window.failStatus = () => reject(new Error('offline')); });
+    export const loadCloudProviders = () => Promise.reject(new Error('offline'));
     export const hasCloudEntitlement = () => true;
     export const loadCloudWorkspacePlacement = () => new Promise(() => {});
    `;

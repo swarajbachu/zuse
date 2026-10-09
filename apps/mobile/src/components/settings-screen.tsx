@@ -13,7 +13,6 @@ import {
 	View,
 } from "react-native";
 import { ListRow, ListSection } from "~/components/ui/list";
-import { resetAiSharingConsent } from "~/lib/ai-sharing-consent";
 import { captureMobileAnalytics } from "~/lib/analytics";
 import { computerRows } from "~/lib/computers";
 import { returnToInbox } from "~/lib/connection-navigation";
@@ -48,6 +47,7 @@ import {
 	connectionsAtom,
 	connectionsHydratedAtom,
 	hydrateConnections,
+	removeConnection,
 } from "~/store/connections";
 import {
 	connectToEnvironment,
@@ -183,6 +183,43 @@ export default function SettingsScreen({
 			setConnecting(null);
 		}
 	};
+
+	// Paired and manually added Macs are saved on this phone; account-linked
+	// computers come back from the account, so only saved ones can be removed.
+	const manageSavedComputer = (
+		key: string,
+		label: string,
+		connect?: () => void,
+	) =>
+		Alert.alert(label, undefined, [
+			connect === undefined
+				? { text: "Show Chats", onPress: () => returnToInbox(router) }
+				: { text: "Connect", onPress: connect },
+			{
+				text: "Remove Computer",
+				style: "destructive",
+				onPress: () =>
+					Alert.alert(
+						`Remove ${label}?`,
+						"Its chats disappear from this phone. Pair again to reconnect.",
+						[
+							{ text: "Cancel", style: "cancel" },
+							{
+								text: "Remove",
+								style: "destructive",
+								onPress: () =>
+									void removeConnection(key).catch(() =>
+										Alert.alert(
+											"Could not remove computer",
+											"Please try again.",
+										),
+									),
+							},
+						],
+					),
+			},
+			{ text: "Cancel", style: "cancel" },
+		]);
 
 	const changeNotifications = async (enabled: boolean) => {
 		if (!enabled) {
@@ -355,7 +392,7 @@ export default function SettingsScreen({
 				{page === "computers" ? (
 					<ListSection
 						header="Connections"
-						footer="Pairing works directly over your local network and does not require an account."
+						footer="Pairs over your local network. No account needed."
 					>
 						<ListRow
 							analyticsId="connections.nearby.open"
@@ -387,22 +424,38 @@ export default function SettingsScreen({
 											: environment?.presence === "offline"
 												? "Offline"
 												: "Checking…";
+							const title = visibleConnectionLabel(
+								connection?.label ?? environment?.label,
+							);
+							const saved =
+								connection !== undefined &&
+								(connection.source === "paired" ||
+									connection.source === "manual");
 							return (
 								<ListRow
 									key={key}
 									symbol="desktopcomputer"
 									iconTone={connected ? "brand" : "neutral"}
-									title={visibleConnectionLabel(
-										connection?.label ?? environment?.label,
-									)}
+									title={title}
 									subtitle={subtitle}
-									chevron={canConnect}
+									chevron={canConnect || saved}
 									onPress={
-										canConnect
-											? () => void onConnect(environment.environmentId)
-											: connection
-												? () => returnToInbox(router)
-												: undefined
+										// Saved computers always open their menu so an offline one
+										// can still be removed; Connect is offered when possible.
+										saved
+											? () =>
+													manageSavedComputer(
+														connection.key,
+														title,
+														canConnect
+															? () => void onConnect(environment.environmentId)
+															: undefined,
+													)
+											: canConnect
+												? () => void onConnect(environment.environmentId)
+												: connection
+													? () => returnToInbox(router)
+													: undefined
 									}
 								/>
 							);
@@ -444,7 +497,7 @@ export default function SettingsScreen({
 								/>
 								<ListRow
 									symbol="key.fill"
-									title="Cloud Authentication"
+									title="Cloud Providers"
 									subtitle="Shared across your cloud chats"
 									onPress={() => router.push("/cloud-auth")}
 								/>
@@ -625,17 +678,6 @@ export default function SettingsScreen({
 						header="Privacy"
 						footer="Optional: share app activity and sanitized reliability events with PostHog to improve Zuse. Prompts, code, files and recordings are excluded. Turning this off discards pending mobile events."
 					>
-						<ListRow
-							title="Reset AI sharing choices"
-							subtitle="Ask again before sending to an AI provider"
-							onPress={() => {
-								resetAiSharingConsent();
-								Alert.alert(
-									"Sharing choices reset",
-									"Zuse will ask before your next message or recording. Data already sent and work already running are not recalled.",
-								);
-							}}
-						/>
 						<ListRow
 							title="Share usage analytics"
 							chevron={false}

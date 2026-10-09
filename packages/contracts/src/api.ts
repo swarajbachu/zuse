@@ -30,6 +30,18 @@ import { EnvironmentId } from "./ids.ts";
 export const ApiPaths = {
 	authToken: "/v1/auth/token",
 	organizations: "/v1/organizations",
+	organizationCapabilities: "/v1/organizations/capabilities",
+	organizationGithubAuthorize: "/v1/organizations/github/authorize",
+	organizationGithubCallback: "/v1/organizations/github/callback",
+	organizationGithubConnection: "/v1/organizations/github/connection",
+	organizationDomains: "/v1/organizations/domains",
+	organizationDomainAdd: "/v1/organizations/domains/add",
+	organizationDomainRemove: "/v1/organizations/domains/remove",
+	organizationDomainRestore: "/v1/organizations/domains/restore",
+	organizationGithubSettings: "/v1/organizations/github/settings",
+	organizationGithubPolicy: "/v1/organizations/github/policy",
+	organizationGithubRestore: "/v1/organizations/github/restore",
+
 	organizationAuthorize: "/v1/organizations/authorize",
 	organizationDetails: "/v1/organizations/details",
 	organizationInvite: "/v1/organizations/invite",
@@ -78,6 +90,7 @@ export const ApiPaths = {
 	cloudBillingUsage: "/v1/cloud/billing/usage",
 	cloudBillingCap: "/v1/cloud/billing/cap",
 	cloudProviders: "/v1/cloud/providers",
+	cloudProviderConnections: "/v1/cloud/provider-connections",
 	cloudAuth: "/v1/cloud/auth",
 	cloudAuthProvision: "/v1/cloud/auth/provision",
 	cloudAuthConfigure: "/v1/cloud/auth/configure",
@@ -98,13 +111,17 @@ export const ApiPaths = {
 	cloudProject: (projectId: string) =>
 		`/v1/cloud/projects/${encodeURIComponent(projectId)}`,
 	cloudAccountImage: "/v1/cloud/image",
+	cloudAccountImageDelete: "/v1/cloud/image/delete",
 	cloudAccountImageBuild: "/v1/cloud/image/build",
+	cloudSnapshotImport: "/v1/cloud/image/snapshot",
 	cloudProjectPrepare: (projectId: string) =>
 		`/v1/cloud/projects/${encodeURIComponent(projectId)}/prepare`,
 	cloudApiKeys: "/v1/cloud/api-keys",
 	cloudApiKey: (keyId: string) =>
 		`/v1/cloud/api-keys/${encodeURIComponent(keyId)}`,
 	apiProjects: "/v1/api/projects",
+	apiProviders: "/v1/api/providers",
+	apiAgents: "/v1/api/agents",
 	apiWorkspaces: "/v1/api/workspaces",
 	apiWorkspace: (workspaceId: string) =>
 		`/v1/api/workspaces/${encodeURIComponent(workspaceId)}`,
@@ -375,6 +392,13 @@ export class ApiLocalPairingBinding extends Schema.Class<ApiLocalPairingBinding>
 export const EnvironmentsListRpc = Rpc.make("environments.list", {
 	payload: Schema.Void,
 	success: ApiEnvironmentList,
+	error: ConnectAuthError,
+});
+
+/** Delete an account computer registration without touching its local data. */
+export const EnvironmentRemoveRpc = Rpc.make("environments.remove", {
+	payload: Schema.Struct({ environmentId: EnvironmentId }),
+	success: Schema.Void,
 	error: ConnectAuthError,
 });
 

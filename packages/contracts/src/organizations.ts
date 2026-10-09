@@ -32,6 +32,8 @@ export class OrganizationMember extends Schema.Class<OrganizationMember>(
 	displayName: Schema.String,
 	role: Schema.String,
 	directoryManaged: Schema.Boolean,
+	githubManaged: Schema.optional(Schema.Boolean),
+	profilePictureUrl: Schema.optional(Schema.String),
 }) {}
 
 export class OrganizationInvitation extends Schema.Class<OrganizationInvitation>(
@@ -92,6 +94,22 @@ export const OrganizationRevokeInviteInput = Schema.Struct({
 	invitationId: Identifier,
 });
 
+export class OrganizationCapabilities extends Schema.Class<OrganizationCapabilities>(
+	"OrganizationCapabilities",
+)({
+	canCreate: Schema.Boolean,
+	organizations: Schema.Array(Organization),
+}) {}
+
+export const OrganizationsCapabilitiesRpc = Rpc.make(
+	"organizations.capabilities",
+	{
+		payload: Schema.Struct({}),
+		success: OrganizationCapabilities,
+		error: OrganizationError,
+	},
+);
+
 export const OrganizationsListRpc = Rpc.make("organizations.list", {
 	payload: Schema.Struct({}),
 	success: Schema.Array(Organization),
@@ -131,6 +149,129 @@ export const OrganizationsRemoveMemberRpc = Rpc.make(
 	"organizations.removeMember",
 	{
 		payload: OrganizationMemberInput,
+		success: Schema.Void,
+		error: OrganizationError,
+	},
+);
+
+export const OrganizationGithubInput = Schema.Struct({
+	organizationId: Identifier,
+});
+export const OrganizationGithubPolicyInput = Schema.Struct({
+	organizationId: Identifier,
+	installationId: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
+	enabled: Schema.Boolean,
+});
+export const OrganizationGithubRestoreInput = Schema.Struct({
+	organizationId: Identifier,
+	accountId: Identifier,
+});
+export const OrganizationGithubSettings = Schema.Struct({
+	installations: Schema.Array(
+		Schema.Struct({
+			installationId: Schema.Number,
+			login: Schema.String,
+			avatarUrl: Schema.optional(Schema.String),
+			enabled: Schema.Boolean,
+			suspended: Schema.Boolean,
+		}),
+	),
+	blockedMembers: Schema.Array(
+		Schema.Struct({ accountId: Identifier, displayName: Schema.String }),
+	),
+});
+/** The GitHub account linked to this Zuse account for auto-join, if any. */
+export const OrganizationGithubConnection = Schema.Struct({
+	connected: Schema.Boolean,
+	login: Schema.optional(Schema.String),
+});
+export const OrganizationsGithubConnectionRpc = Rpc.make(
+	"organizations.githubConnection",
+	{
+		payload: Schema.Struct({}),
+		success: OrganizationGithubConnection,
+		error: OrganizationError,
+	},
+);
+export const OrganizationGithubAuthorization = Schema.Struct({
+	url: Schema.String,
+	attemptId: Schema.String,
+});
+/** Links a GitHub account through Zuse's GitHub App; any email works. */
+export const OrganizationsGithubAuthorizeRpc = Rpc.make(
+	"organizations.githubAuthorize",
+	{
+		payload: Schema.Struct({}),
+		success: OrganizationGithubAuthorization,
+		error: OrganizationError,
+	},
+);
+const EmailDomain = Schema.String.check(
+	Schema.isMaxLength(253),
+	Schema.isPattern(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/u),
+);
+const BlockedMember = Schema.Struct({
+	accountId: Identifier,
+	displayName: Schema.String,
+});
+export const OrganizationDomainSettings = Schema.Struct({
+	/** Domains whose verified emails auto-join this organization. */
+	domains: Schema.Array(Schema.String),
+	/** The admin's own email domain, when it can still be added. */
+	suggestedDomain: Schema.NullOr(Schema.String),
+	blockedMembers: Schema.Array(BlockedMember),
+});
+export const OrganizationDomainInput = Schema.Struct({
+	organizationId: Identifier,
+	domain: EmailDomain,
+});
+export const OrganizationsDomainsRpc = Rpc.make("organizations.domains", {
+	payload: OrganizationGithubInput,
+	success: OrganizationDomainSettings,
+	error: OrganizationError,
+});
+/** Turns on auto-join for the domain the admin's verified email uses. */
+export const OrganizationsDomainAddRpc = Rpc.make("organizations.domainAdd", {
+	payload: OrganizationDomainInput,
+	success: Schema.Void,
+	error: OrganizationError,
+});
+export const OrganizationsDomainRemoveRpc = Rpc.make(
+	"organizations.domainRemove",
+	{
+		payload: OrganizationDomainInput,
+		success: Schema.Void,
+		error: OrganizationError,
+	},
+);
+export const OrganizationsDomainRestoreRpc = Rpc.make(
+	"organizations.domainRestore",
+	{
+		payload: OrganizationGithubRestoreInput,
+		success: Schema.Void,
+		error: OrganizationError,
+	},
+);
+export const OrganizationsGithubSettingsRpc = Rpc.make(
+	"organizations.githubSettings",
+	{
+		payload: OrganizationGithubInput,
+		success: OrganizationGithubSettings,
+		error: OrganizationError,
+	},
+);
+export const OrganizationsGithubPolicyRpc = Rpc.make(
+	"organizations.githubPolicy",
+	{
+		payload: OrganizationGithubPolicyInput,
+		success: Schema.Void,
+		error: OrganizationError,
+	},
+);
+export const OrganizationsGithubRestoreRpc = Rpc.make(
+	"organizations.githubRestore",
+	{
+		payload: OrganizationGithubRestoreInput,
 		success: Schema.Void,
 		error: OrganizationError,
 	},

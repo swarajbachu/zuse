@@ -12,6 +12,7 @@ import {
 	openAddComputerDialog,
 	StatusDot,
 } from "../../add-computer-dialog.tsx";
+import { RemoveComputerButton } from "../../remove-computer-button.tsx";
 import { Button } from "../../ui/button.tsx";
 import { Card } from "../../ui/card.tsx";
 import { Frame, FrameFooter } from "../../ui/frame.tsx";
@@ -93,12 +94,14 @@ export function UsingComputersCard() {
 									{entry.status === "error" || entry.status === "offline" ? (
 										<Button
 											size="xs"
+											className="h-7"
 											variant="outline"
 											onClick={() => retryEntry(entry)}
 										>
 											{uiMessage("common:retry")}
 										</Button>
 									) : null}
+									<RemoveComputerButton entry={entry} />
 								</div>
 							))}
 						</div>

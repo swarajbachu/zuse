@@ -60,5 +60,9 @@
 	"plugins_skills_personal": "Personal",
 	"plugins_skills_project": "Project",
 	"plugins_skills_codex_note": "Codex toggles are saved in Codex's own config, so they also apply outside Zuse.",
-	"plugins_skills_loading": "Loading skills…"
+	"plugins_skills_loading": "Loading skills…",
+	"plugins_connection_name": "Connection name",
+	"plugins_connection_name_placeholder": "Work, personal, or company name",
+	"plugins_connect_another": "Connect another account",
+	"plugins_connection_name_exists": "This name is already in use. Choose a different connection name."
 }

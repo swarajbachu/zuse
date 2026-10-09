@@ -444,6 +444,9 @@ export function ArchivedChatsPage({
 						<CenteredState text="No messages in this session." />
 					) : (
 						<ArchivedChatTimeline
+							environmentId={EnvironmentId.make(
+								selectedCloud?.workspaceId ?? environmentId,
+							)}
 							projectId={projectId}
 							sessionId={selectedSession.id}
 							messages={messages}

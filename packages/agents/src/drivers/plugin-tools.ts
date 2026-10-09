@@ -25,13 +25,15 @@ export const handlePluginTool = async (
 	permissions: PluginPermissionOptions,
 ) => {
 	const action =
-		name === "plugins_search"
-			? "search"
-			: name === "plugins_schema"
-				? "schema"
-				: name === "plugins_call"
-					? "call"
-					: undefined;
+		name === "plugins_list"
+			? "list"
+			: name === "plugins_search"
+				? "search"
+				: name === "plugins_schema"
+					? "schema"
+					: name === "plugins_call"
+						? "call"
+						: undefined;
 	if (!action) throw new Error("Unknown plugin tool");
 	const input = Schema.decodeUnknownSync(PluginToolRequest)({
 		...args,
@@ -87,4 +89,10 @@ export const createHttpPluginClient = (
 			);
 		return response.json();
 	},
+});
+
+/** Revocable session auth; AUTH survives provider shell filters for KEY/SECRET/TOKEN. */
+export const pluginCliEnv = (endpoint: string, token: string) => ({
+	ZUSE_PLUGIN_URL: new URL("/plugins", endpoint).href,
+	ZUSE_PLUGIN_AUTH: token,
 });

@@ -7,11 +7,12 @@ import {
 	type CloudProjectState,
 	type CloudWorkspaceDesiredState,
 	type CloudWorkspaceState,
+	SnapshotAgentAccess,
 	type TurnSettlementOutcome,
 	WorkspaceSettings,
 	type WorkspaceSettingsUpdate,
 } from "@zuse/contracts";
-import { Context, Effect, Layer, Ref, Schema } from "effect";
+import { Context, Effect, Layer, Ref, Schema, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import {
 	cloudWorkspaceGatewayEpoch,
@@ -48,6 +49,15 @@ export interface CloudProjectRecord {
 	readonly idempotencyKey: string;
 	readonly createdAtMs: number;
 	readonly updatedAtMs: number;
+}
+
+/** User credentials are sealed with account-bound authenticated encryption. */
+export interface CloudGithubUserRecord {
+	readonly accountId: string;
+	readonly login: string;
+	readonly name: string;
+	readonly email: string;
+	readonly sealedCredentials: string;
 }
 
 export interface CloudGithubInstallationRecord {
@@ -91,7 +101,8 @@ export interface CloudAuthAuthorityClaim {
 
 export interface CloudProjectBuildRecord {
 	readonly buildId: string;
-	readonly projectId: string;
+	/** Imported account snapshots can be inspected before discovering any project. */
+	readonly projectId: string | null;
 	readonly accountId: string;
 	readonly provider: string;
 	readonly providerSandboxId?: string;
@@ -195,7 +206,7 @@ export interface CloudWorkspaceLifecycleTransitionInput {
 	readonly expectedDesiredState: CloudWorkspaceDesiredState;
 	readonly commandId?: string;
 	readonly action: CloudWorkspaceLifecycleAction;
-	/** Persist the receipt without rewriting an already-requested normal resume. */
+	/** Preserve an already-requested resume while receipting it and advancing activity. */
 	readonly deduplicateRequestedResume?: boolean;
 	readonly createdAtMs: number;
 }
@@ -218,6 +229,7 @@ export interface CloudWorkspaceLaunchIntentRecord {
  * revisions so reconciler writes cannot regress a newer runtime summary.
  */
 export interface CloudWorkspaceRuntimeSummaryRecord {
+	readonly nativeAgentAccess?: ReadonlyArray<SnapshotAgentAccess>;
 	readonly workspaceId: string;
 	readonly runtimeGeneration: number;
 	readonly summaryRevision: number;
@@ -571,6 +583,16 @@ export interface CloudWorkspaceStoreApi {
 		readonly providerSandboxId: string;
 		readonly nowMs: number;
 	}) => Effect.Effect<CloudAuthAuthorityRecord | null>;
+	readonly getGithubUser: (
+		accountId: string,
+	) => Effect.Effect<CloudGithubUserRecord | null>;
+	readonly saveGithubUser: (user: CloudGithubUserRecord) => Effect.Effect<void>;
+	readonly removeGithubUser: (accountId: string) => Effect.Effect<void>;
+	/** Serialize OAuth exchange, refresh and disconnect across API workers. */
+	readonly withGithubUserLock: <A, E, R>(
+		accountId: string,
+		effect: Effect.Effect<A, E, R>,
+	) => Effect.Effect<A, E, R>;
 	readonly listGithubInstallations: (
 		accountId: string,
 	) => Effect.Effect<ReadonlyArray<CloudGithubInstallationRecord>>;
@@ -903,6 +925,7 @@ export class CloudWorkspaceStore extends Context.Service<
 interface MemoryState {
 	readonly workspaceSettings: Map<string, WorkspaceSettings>;
 	readonly authAuthorities: Map<string, CloudAuthAuthorityRecord>;
+	readonly githubUsers: Map<string, CloudGithubUserRecord>;
 	readonly githubInstallations: Map<string, CloudGithubInstallationRecord>;
 	readonly projects: Map<string, CloudProjectRecord>;
 	readonly builds: Map<string, CloudProjectBuildRecord>;
@@ -1491,8 +1514,22 @@ const prepareWorkspaceLifecycleTransition = (
 		input.deduplicateRequestedResume === true &&
 		current.desiredState === "ready" &&
 		current.state !== "failed"
-	)
-		return { kind: "ready", workspace: current };
+	) {
+		const lastActivityAtMs = Math.max(
+			current.lastActivityAtMs,
+			input.workspace.lastActivityAtMs,
+		);
+		const workspace =
+			lastActivityAtMs === current.lastActivityAtMs
+				? current
+				: {
+						...current,
+						lastActivityAtMs,
+						revision: current.revision + 1,
+						updatedAtMs: Math.max(input.createdAtMs, current.updatedAtMs + 1),
+					};
+		return { kind: "ready", workspace };
+	}
 
 	const currentFence = workspaceDestructionFence(current);
 	const destructiveAction =
@@ -1651,10 +1688,12 @@ const canRecoverMissingLaunchIntent = (
 export const CloudWorkspaceStoreMemory = Layer.effect(
 	CloudWorkspaceStore,
 	Effect.gen(function* () {
+		const githubLocks = new Map<string, Semaphore.Semaphore>();
 		const catalogs = new Map<string, { signature: string; revision: number }>();
 		const state = yield* Ref.make<MemoryState>({
 			workspaceSettings: new Map(),
 			authAuthorities: new Map(),
+			githubUsers: new Map(),
 			githubInstallations: new Map(),
 			projects: new Map(),
 			builds: new Map(),
@@ -1820,6 +1859,30 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						},
 					] as const;
 				}),
+			getGithubUser: (accountId) =>
+				Ref.get(state).pipe(
+					Effect.map((current) => current.githubUsers.get(accountId) ?? null),
+				),
+			saveGithubUser: (user) =>
+				Ref.update(state, (current) => ({
+					...current,
+					githubUsers: new Map(current.githubUsers).set(user.accountId, user),
+				})),
+			removeGithubUser: (accountId) =>
+				Ref.update(state, (current) => {
+					const githubUsers = new Map(current.githubUsers);
+					githubUsers.delete(accountId);
+					return { ...current, githubUsers };
+				}),
+			withGithubUserLock: (accountId, effect) =>
+				Effect.suspend(() => {
+					let lock = githubLocks.get(accountId);
+					if (lock === undefined) {
+						lock = Semaphore.makeUnsafe(1);
+						githubLocks.set(accountId, lock);
+					}
+					return lock.withPermit(effect);
+				}),
 			listGithubInstallations: (accountId) =>
 				Ref.get(state).pipe(
 					Effect.map((current) =>
@@ -1930,6 +1993,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 				Ref.modify(state, (current) => {
 					const existing = [...current.builds.values()].find(
 						(candidate) =>
+							candidate.accountId === build.accountId &&
 							candidate.projectId === build.projectId &&
 							candidate.provider === build.provider &&
 							candidate.idempotencyKey === build.idempotencyKey,
@@ -3238,6 +3302,8 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						)
 					)
 						return [false, current] as const;
+					const githubUsers = new Map(current.githubUsers);
+					githubUsers.delete(accountId);
 					const githubInstallations = new Map(
 						[...current.githubInstallations].filter(
 							([, installation]) => installation.accountId !== accountId,
@@ -3316,6 +3382,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						{
 							...current,
 							authAuthorities,
+							githubUsers,
 							workspaceSettings,
 							githubInstallations,
 							projects,
@@ -3960,7 +4027,7 @@ const projectFromRow = (row: Row): CloudProjectRecord => ({
 });
 const buildFromRow = (row: Row): CloudProjectBuildRecord => ({
 	buildId: String(row.build_id),
-	projectId: String(row.project_id),
+	projectId: row.project_id == null ? null : String(row.project_id),
 	accountId: String(row.account_id),
 	provider: String(row.provider),
 	providerSandboxId: optionalString(row.provider_sandbox_id),
@@ -4057,6 +4124,12 @@ const launchIntentFromRow = (
 const runtimeSummaryFromRow = (
 	row: Row,
 ): CloudWorkspaceRuntimeSummaryRecord => ({
+	nativeAgentAccess:
+		row.native_agent_access == null
+			? undefined
+			: Schema.decodeUnknownSync(Schema.Array(SnapshotAgentAccess))(
+					row.native_agent_access,
+				),
 	workspaceId: String(row.workspace_id),
 	runtimeGeneration: numberValue(row.runtime_generation),
 	summaryRevision: numberValue(row.summary_revision),
@@ -4408,6 +4481,44 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						),
 					),
 				),
+			getGithubUser: (accountId) =>
+				sql<{
+					account_id: string;
+					login: string;
+					name: string;
+					email: string;
+					sealed_credentials: string;
+				}>`SELECT * FROM api_cloud_github_users WHERE account_id=${accountId}`.pipe(
+					Effect.map((rows) =>
+						rows[0] === undefined
+							? null
+							: {
+									accountId: rows[0].account_id,
+									login: rows[0].login,
+									name: rows[0].name,
+									email: rows[0].email,
+									sealedCredentials: rows[0].sealed_credentials,
+								},
+					),
+					Effect.orDie,
+				),
+			saveGithubUser: (user) =>
+				sql`INSERT INTO api_cloud_github_users (account_id, login, name, email, sealed_credentials) VALUES (${user.accountId}, ${user.login}, ${user.name}, ${user.email}, ${user.sealedCredentials}) ON CONFLICT (account_id) DO UPDATE SET login=EXCLUDED.login, name=EXCLUDED.name, email=EXCLUDED.email, sealed_credentials=EXCLUDED.sealed_credentials`.pipe(
+					Effect.asVoid,
+					Effect.orDie,
+				),
+			removeGithubUser: (accountId) =>
+				sql`DELETE FROM api_cloud_github_users WHERE account_id=${accountId}`.pipe(
+					Effect.asVoid,
+					Effect.orDie,
+				),
+			withGithubUserLock: (accountId, effect) =>
+				Effect.gen(function* () {
+					yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`github-user:${accountId}`}, 0))`.pipe(
+						Effect.orDie,
+					);
+					return yield* effect;
+				}).pipe(sql.withTransaction, Effect.catchTag("SqlError", Effect.die)),
 			listGithubInstallations: (accountId) =>
 				orDie(
 					sql`SELECT * FROM api_cloud_github_installations WHERE account_id=${accountId} ORDER BY created_at`.pipe(
@@ -4476,7 +4587,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						Effect.flatMap((rows) =>
 							rows.length > 0
 								? Effect.succeed(buildFromRow(rows[0] as Row))
-								: sql`SELECT * FROM api_cloud_project_builds WHERE project_id=${b.projectId} AND provider=${b.provider} AND idempotency_key=${b.idempotencyKey}`.pipe(
+								: sql`SELECT * FROM api_cloud_project_builds WHERE account_id=${b.accountId} AND project_id IS NOT DISTINCT FROM ${b.projectId} AND provider=${b.provider} AND idempotency_key=${b.idempotencyKey}`.pipe(
 										Effect.map((found) => buildFromRow(found[0] as Row)),
 									),
 						),
@@ -4492,7 +4603,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				),
 			getActiveAccountBuild: (accountId, provider) =>
 				orDie(
-					sql`SELECT * FROM api_cloud_project_builds WHERE account_id=${accountId} AND provider=${provider} AND state='ready' ORDER BY updated_at DESC LIMIT 1`.pipe(
+					sql`SELECT * FROM api_cloud_project_builds b WHERE account_id=${accountId} AND provider=${provider} AND state='ready' AND NOT EXISTS (SELECT 1 FROM api_cloud_snapshots s WHERE s.provider = b.provider AND s.snapshot_id = b.snapshot_id AND s.state IN ('deleting', 'deleted')) ORDER BY updated_at DESC LIMIT 1`.pipe(
 						Effect.map((rows) =>
 							rows[0] ? buildFromRow(rows[0] as Row) : null,
 						),
@@ -5245,14 +5356,15 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 					Effect.gen(function* () {
 						const rows = yield* sql`
 							INSERT INTO api_cloud_workspace_runtime_summaries
-								(workspace_id, runtime_generation, summary_revision, title, last_activity_at, last_user_message_at, active_session_id, session_head_version, updated_at)
-							SELECT ${input.workspaceId}, ${input.runtimeGeneration}, ${input.summaryRevision}, ${input.title}, ${input.lastActivityAtMs}, ${input.lastUserMessageAtMs ?? null}, ${input.activeSessionId}, ${input.sessionHeadVersion}, ${input.updatedAtMs}
+								(workspace_id, runtime_generation, summary_revision, title, last_activity_at, last_user_message_at, active_session_id, session_head_version, updated_at, native_agent_access)
+							SELECT ${input.workspaceId}, ${input.runtimeGeneration}, ${input.summaryRevision}, ${input.title}, ${input.lastActivityAtMs}, ${input.lastUserMessageAtMs ?? null}, ${input.activeSessionId}, ${input.sessionHeadVersion}, ${input.updatedAtMs}, ${JSON.stringify(input.nativeAgentAccess ?? [])}::jsonb
 							FROM api_cloud_workspaces AS workspace
 							WHERE workspace.workspace_id=${input.workspaceId}
 								AND COALESCE((workspace.request_config->>'runtimeGeneration')::bigint, 1)=${input.runtimeGeneration}
 							ON CONFLICT (workspace_id) DO UPDATE SET
 								runtime_generation=EXCLUDED.runtime_generation,
 								summary_revision=EXCLUDED.summary_revision,
+ native_agent_access=EXCLUDED.native_agent_access,
 								title=EXCLUDED.title,
 								last_user_message_at=COALESCE(EXCLUDED.last_user_message_at, api_cloud_workspace_runtime_summaries.last_user_message_at),
 								last_activity_at=CASE
@@ -5371,10 +5483,12 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						yield* sql`DELETE FROM api_cloud_workspace_usage WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_project_builds WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_projects WHERE account_id=${accountId}`;
+						yield* sql`DELETE FROM api_cloud_github_users WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_github_installations WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_api_webhooks WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_api_keys WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_auth_authorities WHERE account_id=${accountId}`;
+						yield* sql`DELETE FROM api_cloud_provider_connections WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_workspace_settings WHERE owner_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_catalog_changes WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_catalog_heads WHERE account_id=${accountId}`;

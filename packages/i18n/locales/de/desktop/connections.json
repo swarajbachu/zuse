@@ -6,7 +6,6 @@
 	"cloud_workspace_info_the_workspace_must_be_running_for_ssh_access": "Für den SSH-Zugriff muss der Arbeitsbereich ausgeführt werden",
 	"cloud_workspace_info_copy_ssh_command": "Kopieren Sie den Befehl SSH",
 	"cloud_workspace_info_sync_to_a_local_directory": "Mit einem lokalen Verzeichnis synchronisieren",
-	"cloud_workspace_info_performance": "Leistung",
 	"cloud_workspace_info_status": "Status",
 	"cloud_workspace_info_live_usage_needs_the_updated_workspace_runtime": "Für die Live-Nutzung ist die aktualisierte Workspace-Laufzeit erforderlich.",
 	"cloud_workspace_info_restart_workspace": "Arbeitsbereich neu starten",

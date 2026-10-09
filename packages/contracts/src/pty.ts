@@ -161,6 +161,7 @@ export const PtyCommand = Schema.Struct({
 	cmd: Schema.String,
 	args: Schema.Array(Schema.String),
 	env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+	unsetEnv: Schema.optional(Schema.Array(Schema.String)),
 });
 export type PtyCommand = typeof PtyCommand.Type;
 

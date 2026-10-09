@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./background-agent-presentation": "./src/background-agent-presentation.ts",
 		"./chat-sharing": "./src/chat-sharing.ts",
 		"./attachment-upload": "./src/attachment-upload.ts",
 		"./chat-recency": "./src/chat-recency.ts",
@@ -13,6 +14,9 @@
 		"./cloud-transcript": "./src/cloud-transcript.ts",
 		"./cloud-catalog": "./src/cloud-catalog.ts",
 		"./cloud-provider-availability": "./src/cloud-provider-availability.ts",
+		"./cloud-sandbox-providers": "./src/cloud-sandbox-providers.ts",
+		"./cloud-send-delivery": "./src/cloud-send-delivery.ts",
+		"./cloud-startup-presentation": "./src/cloud-startup-presentation.ts",
 		"./cloud-command-transport": "./src/cloud-command-transport.ts",
 		"./cloud-control-request": "./src/cloud-control-request.ts",
 		"./cloud-control-client": "./src/cloud-control-client.ts",
@@ -51,7 +55,8 @@
 		"./frame-subscription": "./src/frame-subscription.ts",
 		"./background-history": "./src/background-history.ts",
 		"./organization-control-client": "./src/organization-control-client.ts",
-		"./control-api-error": "./src/control-api-error.ts"
+		"./control-api-error": "./src/control-api-error.ts",
+		"./html-render": "./src/html-render.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",

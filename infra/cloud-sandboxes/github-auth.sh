@@ -2,8 +2,9 @@
 set -euo pipefail
 
 runtime_dir="${ZUSE_USER_DATA:-/home/zuse/.zuse-data}"
-token_file="${ZUSE_GITHUB_TOKEN_FILE:-$runtime_dir/github-installation-token}"
-token_expiry_file="$runtime_dir/github-installation-token-expires-at"
+context_dir="${ZUSE_GITHUB_CONTEXT_DIR:-$runtime_dir}"
+token_file="${ZUSE_GITHUB_TOKEN_FILE:-$context_dir/github-installation-token}"
+token_expiry_file="$context_dir/github-installation-token-expires-at"
 broker_config_file="$runtime_dir/github-broker.json"
 runtime_credential_file="$runtime_dir/cloud-runtime-credential"
 gh_binary="${ZUSE_GH_BINARY:-/usr/bin/gh}"
@@ -27,8 +28,13 @@ refresh_token() {
 	# Check every fallible operation explicitly before replacing cached access.
 	endpoint=$(jq -er '.credentialUrl | select(type == "string" and length > 0)' "$broker_config_file") || return 1
 	runtime_credential=$(<"$runtime_credential_file") || return 1
+	request_body='{}'
+	if [[ -n "${ZUSE_GITHUB_CONTEXT_DIR:-}" ]]; then
+		[[ -s "$context_dir/request.json" ]] || return 1
+		request_body=$(cat "$context_dir/request.json") || return 1
+	fi
 	response=$(curl --fail --silent --show-error --max-time 15 \
-		-X POST -H "Authorization: Bearer $runtime_credential" "$endpoint") || return 1
+		-X POST -H "Authorization: Bearer $runtime_credential" -H "Content-Type: application/json" --data "$request_body" "$endpoint") || return 1
 	token=$(jq -er '.token | select(type == "string" and length > 0)' <<<"$response") || return 1
 	expires_at=$(jq -er '.expiresAtMs | select(type == "number")' <<<"$response") || return 1
 	[[ "$expires_at" =~ ^[0-9]+$ && -n "$token" ]] || return 1
@@ -42,9 +48,9 @@ refresh_token() {
 
 ensure_token() {
 	cached_token_valid && return
-	mkdir -p "$runtime_dir"
-	chmod 700 "$runtime_dir"
-	exec 9>"$runtime_dir/github-auth.lock"
+	mkdir -p "$context_dir"
+	chmod 700 "$context_dir"
+	exec 9>"$context_dir/github-auth.lock"
 	flock 9
 	cached_token_valid && return
 	if refresh_token; then return; fi
@@ -66,8 +72,9 @@ read_token() {
 }
 
 # The image shadows the packaged gh binary. Each invocation resolves a current
-# installation token, so shells never retain an expired credential.
-if [[ "$(basename "$0")" == "gh" ]]; then
+# repository-scoped GitHub token, so shells never retain an expired credential.
+if [[ "$(basename "$0")" == "gh" || "${1:-}" == "gh" ]]; then
+	[[ "${1:-}" != "gh" ]] || shift
 	GH_TOKEN=$(read_token) || exit 1
 	export GH_TOKEN
 	exec "$gh_binary" "$@"

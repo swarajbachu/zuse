@@ -1,3 +1,4 @@
+import { childProcessEnv } from "@zuse/utils/process-env";
 /**
  * Terminal support for ACP clients (Grok, Gemini, Cursor, etc.).
  *
@@ -171,13 +172,21 @@ async function createTerminal(
 	const child = useShell
 		? spawn(command, {
 				cwd: spawnCwd,
-				env: { ...process.env, ...env },
+				env: childProcessEnv(
+					process.env,
+					{ ...env, ...ctx.executionEnv },
+					ctx.unsetExecutionEnv,
+				),
 				shell: true,
 				stdio: ["pipe", "pipe", "pipe"],
 			})
 		: spawn(command, args, {
 				cwd: spawnCwd,
-				env: { ...process.env, ...env },
+				env: childProcessEnv(
+					process.env,
+					{ ...env, ...ctx.executionEnv },
+					ctx.unsetExecutionEnv,
+				),
 				shell: false,
 				stdio: ["pipe", "pipe", "pipe"],
 			});

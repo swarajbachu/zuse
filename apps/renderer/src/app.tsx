@@ -1,6 +1,4 @@
-import { CloudBuildMonitor } from "./components/cloud-build-monitor.tsx";
-import { PluginReturnHandler } from "./components/plugin-return-handler.tsx";
-import { Spinner } from "./components/ui/spinner.tsx";
+import { ErrorBoundary } from "./components/ui/error-boundary.tsx";
 import { useCloudOnboarding } from "./hooks/use-cloud-onboarding.ts";
 import { SurfaceFallback } from "./shell/surface-fallback.tsx";
 import "@zuse/i18n/english/shell";
@@ -14,7 +12,6 @@ import { useAuth } from "./hooks/use-auth.ts";
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 
 import { useMenuShortcuts } from "./hooks/use-menu-shortcuts.ts";
-import { useModelCatalogUpdates } from "./hooks/use-model-catalog-updates.ts";
 
 import {
 	startDesktopAnalytics,
@@ -23,7 +20,10 @@ import {
 
 import { AppearanceController } from "./lib/appearance.tsx";
 
-import { installClientBusOnlineBridge } from "./lib/client-bus-online.ts";
+import {
+	installClientBusOnlineBridge,
+	installConnectionWakeups,
+} from "./lib/client-bus-online.ts";
 import { prefetchCloudWorkspaceSession } from "./lib/cloud-workspace-session-cache.ts";
 import {
 	clearControlPlaneSessionCache,
@@ -50,6 +50,19 @@ import { useProvidersStore } from "./store/providers.ts";
 import { useUiStore } from "./store/ui.ts";
 
 import { useWorkspaceStore } from "./store/workspace.ts";
+
+// Build monitoring starts after account access is ready and needs no startup UI.
+const CloudBuildMonitor = lazy(() =>
+	import("./components/cloud-build-monitor.tsx").then((module) => ({
+		default: module.CloudBuildMonitor,
+	})),
+);
+
+const ModelCatalogUpdates = lazy(() =>
+	import("./hooks/use-model-catalog-updates.ts").then((module) => ({
+		default: module.ModelCatalogUpdates,
+	})),
+);
 
 const PrWatchController = lazy(() =>
 	import("./components/pr-watch-controller.tsx").then((module) => ({
@@ -107,6 +120,22 @@ const ChatSwitcher = lazy(() =>
 	})),
 );
 
+const LazyPluginReturnHandler = lazy(() =>
+	import("./components/plugin-return-handler.tsx").then((module) => ({
+		default: module.PluginReturnHandler,
+	})),
+);
+
+// Plugin callbacks run across every surface without making their client and
+// schemas part of the shell's static startup graph.
+function PluginReturnHandler() {
+	return (
+		<Suspense fallback={null}>
+			<LazyPluginReturnHandler />
+		</Suspense>
+	);
+}
+
 function AmbientSurfaces() {
 	const chatSwitcherOpen = useUiStore((state) => state.chatSwitcherOpen);
 	return (
@@ -158,13 +187,24 @@ export function App({ onReady }: { readonly onReady?: () => void }) {
 	);
 	return (
 		<>
+			{!isHostedProduct() && onboardingCompleted ? (
+				<ErrorBoundary fallback={null}>
+					<Suspense fallback={null}>
+						<ModelCatalogUpdates />
+					</Suspense>
+				</ErrorBoundary>
+			) : null}
 			<ReadyApp
 				onboardingCompleted={isHostedProduct() || onboardingCompleted}
 				onReady={onReady}
 				cloudOnboarding={cloudOnboarding}
 			/>
 			{onboardingCompleted && canConfigureCloud ? (
-				<CloudBuildMonitor key={workspace.key} />
+				<ErrorBoundary fallback={null} resetKey={workspace.key}>
+					<Suspense fallback={null}>
+						<CloudBuildMonitor key={workspace.key} />
+					</Suspense>
+				</ErrorBoundary>
 			) : null}
 		</>
 	);
@@ -199,6 +239,15 @@ function ReadyApp({
 	);
 	const loadProviderAvailability = useProvidersStore((state) => state.load);
 	useEffect(() => installClientBusOnlineBridge(), []);
+	useEffect(
+		() =>
+			installConnectionWakeups(() => {
+				const catalog = useEnvironmentCatalogStore.getState();
+				if (!catalog.initialized) return;
+				void catalog.syncAccountEnvironments().catch(() => undefined);
+			}),
+		[],
+	);
 	useEffect(() => installQueueOnlineRecovery(), []);
 	useEffect(() => {
 		let stop: (() => void) | undefined;
@@ -297,11 +346,6 @@ function ReadyApp({
 		loadProviderAvailability,
 		onboardingCompleted,
 	]);
-	useModelCatalogUpdates(
-		isHostedProduct() || !onboardingCompleted || !catalogInitialized
-			? null
-			: activeEnvironmentId,
-	);
 	useEffect(() => {
 		if (!onboardingCompleted) return;
 		const identity = user?.id ?? null;
@@ -349,17 +393,7 @@ function ReadyApp({
 				<AppearanceController />
 				<PluginReturnHandler />
 				<div className="relative z-50 flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
-					<Suspense
-						fallback={
-							<div
-								role="status"
-								aria-busy="true"
-								className="flex flex-1 items-center justify-center"
-							>
-								<Spinner className="size-5" />
-							</div>
-						}
-					>
+					<Suspense fallback={<SurfaceFallback />}>
 						<CloudOnboardingWizard
 							key={user?.id}
 							onFinish={() => {

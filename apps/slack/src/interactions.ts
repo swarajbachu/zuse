@@ -2,6 +2,7 @@ import { resolveAgentChoice } from "./agent-choice.ts";
 import { pendingRepository, repositoryLoadingView } from "./repositories.ts";
 import { slackApi, verifySlackSignature } from "./slack.ts";
 import type { AppEnv, AppJob } from "./types.ts";
+import { listAgents } from "./zuse.ts";
 
 export const interactions = async (
 	request: Request,
@@ -103,6 +104,25 @@ export const interactions = async (
 				response_action: "errors",
 				errors: { agent: "Choose an available agent and model." },
 			});
+		const agent = resolveAgentChoice(agentChoice)?.agent;
+		if (
+			agent &&
+			!(
+				await listAgents(
+					env.cloud(
+						selected.active.connection.accountId,
+						selected.active.connection.organizationId,
+					),
+				)
+			).agents.includes(agent)
+		)
+			return Response.json({
+				response_action: "errors",
+				errors: {
+					agent:
+						"This agent is no longer connected. Choose another connected agent or reconnect it in Zuse Cloud Workspaces.",
+				},
+			});
 		if (!projectId)
 			return Response.json({
 				response_action: "errors",
@@ -120,6 +140,7 @@ export const interactions = async (
 			viewId: payload.view.id ?? "",
 			channelDefault: remembered.some((v) => v.value === "channel"),
 			personalDefault: remembered.some((v) => v.value === "personal"),
+			agentDefault: remembered.some((v) => v.value === "agent"),
 		});
 		return Response.json({ response_action: "clear" });
 	}
@@ -150,7 +171,11 @@ export const interactions = async (
 		});
 		return new Response("ok");
 	}
-	let metadata: { revision?: number; memberRevision?: number };
+	let metadata: {
+		revision?: number;
+		memberRevision?: number;
+		connectionId?: string;
+	};
 	try {
 		const parsed = JSON.parse(payload.view?.private_metadata ?? "null");
 		metadata =
@@ -158,11 +183,17 @@ export const interactions = async (
 	} catch {
 		return new Response("invalid view", { status: 400 });
 	}
+	const homeSelection =
+		typeof metadata.connectionId === "string" &&
+		typeof action.action_ts === "string"
+			? { connectionId: metadata.connectionId, actionTs: action.action_ts }
+			: undefined;
 	let job: AppJob;
 	if (action.action_id === "select_project" && action.selected_option?.value)
 		job = {
 			...identity,
 			kind: "project",
+			homeSelection,
 			userId,
 			projectId: action.selected_option.value,
 			revision: metadata.revision ?? -1,
@@ -182,9 +213,39 @@ export const interactions = async (
 		job = {
 			...identity,
 			kind: "reply-mode",
+			homeSelection,
 			userId,
 			mode,
 			memberRevision: metadata.memberRevision ?? -2,
+		};
+	} else if (
+		[
+			"default_agent",
+			"default_model",
+			"default_agent_model",
+			"default_provider",
+		].includes(action.action_id ?? "")
+	) {
+		const field =
+			action.action_id === "default_agent_model"
+				? "agentModel"
+				: action.action_id === "default_agent"
+					? "agent"
+					: action.action_id === "default_model"
+						? "model"
+						: "providerId";
+		const value = action.selected_option?.value;
+		if (!value || value.length > 150)
+			return new Response("invalid default", { status: 400 });
+		job = {
+			...identity,
+			kind: "execution-default",
+			homeSelection,
+			userId,
+			field,
+			value,
+			revision: metadata.revision ?? -1,
+			memberRevision: metadata.memberRevision ?? -1,
 		};
 	} else if (action.action_id === "access_mode") {
 		if (userId !== installation.ownerId)

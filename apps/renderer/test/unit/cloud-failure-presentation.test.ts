@@ -6,6 +6,18 @@ import {
 } from "../../src/lib/cloud-failure-presentation.ts";
 
 describe("cloud failure presentation", () => {
+	it("explains an active-turn rejection without claiming uncertain delivery", () => {
+		expect(
+			cloudFailurePresentation({
+				state: "rejected",
+				category: "session-turn-active",
+			}),
+		).toMatchObject({
+			kind: "rejected",
+			headline: "Previous turn is still pending",
+			message: expect.stringContaining("This message was not sent."),
+		});
+	});
 	it("uses storage-loss copy only for storage replacement outcomes", () => {
 		expect(
 			cloudFailurePresentation({ category: "runtime-storage-replaced" }),

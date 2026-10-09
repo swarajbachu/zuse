@@ -8,6 +8,7 @@ import {
 	CloudWorkspaceStartupPhase,
 	CloudWorkspaceState,
 } from "./cloud-workspaces.ts";
+import { WorkspaceActor } from "./collaboration.ts";
 import { TurnSettlementOutcome } from "./session.ts";
 
 // ---------------------------------------------------------------------------
@@ -252,6 +253,8 @@ export const CLOUD_RUNTIME_API_ASSETS_CAPABILITY = "api-assets-v1";
 export class CloudRuntimeCommand extends Schema.Class<CloudRuntimeCommand>(
 	"CloudRuntimeCommand",
 )({
+	githubBot: Schema.optional(Schema.Boolean),
+	actor: Schema.optional(WorkspaceActor),
 	messageId: Schema.String,
 	/** Domain command id (`api:<messageId>`) so redelivery stays idempotent. */
 	commandId: Schema.String,

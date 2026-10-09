@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
 const appFile = (relativePath: string): string =>
@@ -70,14 +70,48 @@ describe("mobile UI contracts", () => {
 		expect(turn).not.toContain('accessibilityLabel="Share response"');
 		expect(turn).not.toContain('accessibilityLabel="Copy response"');
 	});
+	test("lets existing chats choose reasoning and sends it with each message", () => {
+		const composer = readFileSync(
+			`${process.cwd()}/src/components/composer.tsx`,
+			"utf8",
+		);
+		const actions = readFileSync(`${process.cwd()}/src/rpc/actions.ts`, "utf8");
+		expect(composer).not.toContain("canChangeReasoning={fresh}");
+		expect(composer).toContain(
+			"setSessionModelOptions(stateKey, next.modelOptions)",
+		);
+		expect(composer).toMatch(/clientMessageId: messageId,\s*modelOptions,/);
+		expect(actions.match(/\.\.\.modelOptionsPayload\(options\)/g)).toHaveLength(
+			3,
+		);
+	});
+	test("starts cloud chats from the same New Chat screen", () => {
+		const newChat = appFile("new-chat.tsx");
+		expect(newChat).toContain("launchMobileCloudChat(");
+		expect(newChat).toContain(
+			"onSelect: () => setCloudSandbox(provider.providerId)",
+		);
+		expect(newChat).not.toContain("/new-cloud-chat");
+		expect(existsSync(`${process.cwd()}/app/new-cloud-chat.tsx`)).toBe(false);
+	});
+	test("lets people remove a saved computer from Settings", () => {
+		const settings = readFileSync(
+			`${process.cwd()}/src/components/settings-screen.tsx`,
+			"utf8",
+		);
+		expect(settings).toContain('text: "Remove Computer"');
+		expect(settings).toContain("void removeConnection(key)");
+		// Account-linked computers come back from the account; only saved ones.
+		expect(settings).toContain('connection.source === "paired"');
+	});
 	test("offers bounded home loading and explicit recovery actions", () => {
 		const home = appFile("index.tsx");
 		expect(home).toContain("startLoadingDeadline");
 		expect(home).toContain("showHomeRecovery ? (");
 		expect(home).toContain("Couldn’t load your chats");
-		expect(home).toContain("<Button onPress={retryHome}>Try again</Button>");
-		expect(home).toContain("Connection settings");
-		expect(home).toContain("Scan a new QR code");
+		expect(home).toContain("<Button onPress={retryHome}>Try Again</Button>");
+		expect(home).toContain('router.push("/settings")');
+		expect(home).toContain("Scan QR Code");
 		const connection = readFileSync(
 			`${process.cwd()}/src/rpc/connection.ts`,
 			"utf8",
@@ -332,7 +366,7 @@ describe("mobile UI contracts", () => {
 		expect(onboarding).toContain(
 			'"Connection", "Desktop", "Settings", "Connect"',
 		);
-		expect(onboarding).toContain("Zuse is open on my computer");
+		expect(onboarding).toContain("Zuse Is Open");
 		expect(onboarding).toContain("Cloud sandboxes");
 		expect(onboarding).toContain("Local connection");
 		expect(onboarding).toContain("You can use both");
@@ -362,14 +396,14 @@ describe("mobile UI contracts", () => {
 			"utf8",
 		);
 		expect(home).toContain('onPress={() => router.push("/connect/nearby")}');
-		expect(home).toContain("Find nearby Mac");
+		expect(home).toContain("Find Nearby");
 		const emptyActions = home.slice(
 			home.indexOf("!searching && reachableConnections.length === 0"),
 		);
-		expect(emptyActions).toContain('"Sign in"');
-		expect(emptyActions).toContain("Scan QR code");
-		expect(emptyActions.indexOf('"Sign in"')).toBeLessThan(
-			emptyActions.indexOf("Scan QR code"),
+		expect(emptyActions).toContain('"Sign In"');
+		expect(emptyActions).toContain("Scan QR Code");
+		expect(emptyActions.indexOf('"Sign In"')).toBeLessThan(
+			emptyActions.indexOf("Scan QR Code"),
 		);
 		expect(emptyActions).toContain('router.push("/connect/scan")');
 		expect(nearby).toContain("<ScrollView");

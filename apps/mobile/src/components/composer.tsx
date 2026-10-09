@@ -14,23 +14,11 @@ import {
 	type SessionStatus,
 	type SkillRef,
 } from "@zuse/contracts";
-import {
-	ArrowUp02Icon,
-	CloudOffIcon,
-	StopIcon,
-} from "@zuse/icons/solid-rounded";
 import { Effect } from "effect";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-	ActivityIndicator,
-	Keyboard,
-	Pressable,
-	Text,
-	View,
-} from "react-native";
-import { requestAiSharingConsent } from "~/lib/ai-sharing-consent";
+import { Keyboard, Pressable, Text, View } from "react-native";
 import {
 	captureComposerImage,
 	type LocalComposerAttachment,
@@ -82,6 +70,10 @@ import {
 } from "~/store/model-catalog";
 import { enqueueOutboxMessage } from "~/store/outbox";
 import {
+	sessionModelOptionsAtom,
+	setSessionModelOptions,
+} from "~/store/session-model-options";
+import {
 	setPermissionMode as setPermissionModeOptimistic,
 	setRuntimeMode as setRuntimeModeOptimistic,
 } from "~/store/sessions";
@@ -97,6 +89,7 @@ import { ComposerContextTray } from "./composer-context-tray";
 import { ComposerInputFrame } from "./composer-input-frame";
 import { ComposerModeChip } from "./composer-mode-chip";
 import { ComposerPlusMenu } from "./composer-plus-menu";
+import { ComposerSendButton } from "./composer-send-button";
 import {
 	ComposerTextInput,
 	type ComposerTextInputHandle,
@@ -106,9 +99,7 @@ import { InlineErrorNotice } from "./inline-error-notice";
 import type { ModelModeValue } from "./model-mode-menu";
 import { ModelSheet } from "./model-sheet";
 import { ModelSheetTrigger } from "./model-sheet-trigger";
-import { Button } from "./ui/button";
 import { GlassSurface } from "./ui/glass-surface";
-import { HugeIcon } from "./ui/huge-icon";
 
 export const Composer = ({
 	connKey,
@@ -245,6 +236,7 @@ export const Composer = ({
 
 	const canSend = (hasText || attachments.length > 0) && !busy;
 	const showInterrupt = isInterruptVisible(status);
+	const modelOptions = useAtomValue(sessionModelOptionsAtom(stateKey));
 	const modelValue: ModelModeValue | null =
 		session === null
 			? null
@@ -253,6 +245,8 @@ export const Composer = ({
 					model: session.model,
 					runtimeMode: session.runtimeMode,
 					permissionMode: session.permissionMode,
+					modelOptions:
+						modelOptions === undefined ? undefined : { ...modelOptions },
 				};
 	const planMode = modelValue?.permissionMode === "plan";
 	// Modes remain visible in both layouts, but only editor activity expands the
@@ -289,16 +283,6 @@ export const Composer = ({
 		}
 		const value = (inputRef.current?.getText() ?? "").trim();
 		if (value.length === 0 && attachments.length === 0) return;
-		if (
-			!(await requestAiSharingConsent({
-				recipient: session.providerId,
-				scope: connKey,
-				model: session.model,
-				destination:
-					connection.cloudWorkspaceId === undefined ? "computer" : "cloud",
-			}))
-		)
-			return;
 		if (!online && connection.cloudWorkspaceId === undefined) {
 			if (attachments.length > 0) {
 				setComposerError("Attachments require an active connection.");
@@ -380,6 +364,7 @@ export const Composer = ({
 				input,
 				asGoal: goalMode,
 				clientMessageId: messageId,
+				modelOptions,
 			};
 			if (connection.cloudWorkspaceId !== undefined) {
 				const handle = sendCloudMessage(messageOptions);
@@ -472,6 +457,8 @@ export const Composer = ({
 		if (session === null) return;
 		const actions = nextModelChangeActions(session, next, fresh);
 		setComposerError(null);
+		// Reasoning is chosen per chat and sent with each message.
+		setSessionModelOptions(stateKey, next.modelOptions);
 		try {
 			for (const action of actions) {
 				switch (action.type) {
@@ -576,11 +563,17 @@ export const Composer = ({
 			) : null}
 
 			<GlassSurface
+				tinted
 				style={{
 					gap: 8,
-					paddingHorizontal: expanded ? 16 : 12,
-					paddingVertical: expanded ? 10 : 6,
-					borderRadius: 26,
+					// Collapsed, the composer is a narrow capsule floating over the
+					// transcript; focused, it widens to the full input frame.
+					marginHorizontal: expanded ? 0 : 12,
+					paddingLeft: expanded ? 12 : 6,
+					// Inset the collapsed send circle from the capsule's curved end.
+					paddingRight: expanded ? 12 : 8,
+					paddingVertical: expanded ? 8 : 0,
+					borderRadius: 22,
 				}}
 			>
 				{expanded ? (
@@ -717,7 +710,7 @@ export const Composer = ({
 											onError={setComposerError}
 										/>
 									) : null}
-									<SendButton
+									<ComposerSendButton
 										showInterrupt={showInterrupt}
 										online={online}
 										busy={busy}
@@ -729,7 +722,7 @@ export const Composer = ({
 						/>
 					</>
 				) : (
-					<View className="h-11 flex-row items-center gap-1">
+					<View className="h-11 flex-row items-center gap-0.5">
 						{modelValue === null ? null : (
 							<ComposerActionSlot>
 								<ComposerPlusMenu
@@ -768,11 +761,15 @@ export const Composer = ({
 								setFocused(true);
 							}}
 						>
-							<Text className="font-sans text-[17px] text-muted-foreground">
+							<Text
+								numberOfLines={1}
+								className="font-sans text-[16px] text-muted-foreground"
+							>
 								{online ? "Ask Zuse" : "Offline · message will queue"}
 							</Text>
 						</Pressable>
-						<SendButton
+						<ComposerSendButton
+							round
 							showInterrupt={showInterrupt}
 							online={online}
 							busy={busy}
@@ -790,59 +787,13 @@ export const Composer = ({
 					availableProviders={availableProviders}
 					strictProviders={connection.cloudWorkspaceId !== undefined}
 					canChangeProvider={fresh}
-					canChangeReasoning={fresh}
+					canChangeReasoning
 					onChange={(next) => void changeModelMode(next)}
 				/>
 			)}
 		</View>
 	);
 };
-
-const SendButton = ({
-	showInterrupt,
-	online,
-	busy,
-	disabled,
-	onPress,
-}: {
-	showInterrupt: boolean;
-	online: boolean;
-	busy: boolean;
-	disabled: boolean;
-	onPress: () => void;
-}) => (
-	<Button
-		size="sm"
-		variant={showInterrupt ? "secondary" : online ? "primary" : "secondary"}
-		className="h-10 w-10 rounded-2xl px-0"
-		hitSlop={4}
-		disabled={disabled}
-		onPress={onPress}
-		accessibilityLabel={
-			showInterrupt
-				? "Stop response"
-				: online
-					? "Send message"
-					: "Queue message"
-		}
-	>
-		{busy ? (
-			<ActivityIndicator
-				color={showInterrupt ? colors.fg : colors.primaryForeground}
-			/>
-		) : showInterrupt ? (
-			<HugeIcon icon={StopIcon} size={15} color={colors.fg as string} />
-		) : online ? (
-			<HugeIcon
-				icon={ArrowUp02Icon}
-				size={16}
-				color={colors.primaryForeground}
-			/>
-		) : (
-			<HugeIcon icon={CloudOffIcon} size={15} color={colors.fg as string} />
-		)}
-	</Button>
-);
 
 function StatusPill({
 	label,

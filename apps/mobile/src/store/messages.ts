@@ -1,4 +1,5 @@
 import { cloudFailurePresentation } from "@zuse/client-runtime/cloud-failure-presentation";
+import { isWaitingCloudSend } from "@zuse/client-runtime/cloud-send-delivery";
 import { subscribeOnAnimationFrame } from "@zuse/client-runtime/frame-subscription";
 import type {
 	FailedCommand,
@@ -31,6 +32,7 @@ import {
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
 import {
 	markSessionTurnStartFailed,
+	markSessionTurnWaiting,
 	resetSessionTurnActivity,
 	syncSessionTurnActivity,
 } from "./session-turn-activity";
@@ -104,6 +106,8 @@ export const sessionMessagesErrorAtom = Atom.family((key: string) =>
 
 type RetainedTimeline = Readonly<{
 	environmentId: EnvironmentId;
+	/** Cloud sends wait in the account mailbox until a runtime claims them. */
+	cloud: boolean;
 	key: ReturnType<typeof sessionTimelineKey>;
 	lease: ReturnType<ReturnType<typeof mobileClientBus>["retain"]>;
 	unsubscribe: () => void;
@@ -175,11 +179,23 @@ const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 		...state,
 		[liveKey]: projection?.olderMessageSequence != null,
 	}));
+	// A cloud message the mailbox accepted but no runtime has claimed yet is
+	// "Waiting for agent", not a running turn (desktop shares this rule).
 	const running =
 		projection?.currentTurn != null ||
-		view.pendingCommands.some((command) => command.kind === "messages.send");
+		view.pendingCommands.some(
+			(command) =>
+				command.kind === "messages.send" &&
+				!(retained.cloud && isWaitingCloudSend(command)),
+		);
 	if (!running && view.failedCommands.length > 0)
 		markSessionTurnStartFailed(liveKey);
+	else if (
+		!running &&
+		retained.cloud &&
+		view.pendingCommands.some(isWaitingCloudSend)
+	)
+		markSessionTurnWaiting(liveKey);
 	syncSessionTurnActivity(liveKey, running);
 	if (projection !== null && projection !== undefined) {
 		appAtomRegistry.update(transcriptReadyBySessionAtom, (state) =>
@@ -212,15 +228,19 @@ const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 		view.connection === "waking";
 	batchAtomUpdates(() => {
 		patchReconnecting(liveKey, reconnecting);
+		// A failed message send is marked on the message itself (Resend/Remove).
+		const failedOther = view.failedCommands.filter(
+			(command) => command.kind !== "messages.send",
+		);
 		patchError(
 			liveKey,
-			view.failedCommands.length > 0
+			failedOther.length > 0
 				? (cloudFailurePresentation({
-						state: view.failedCommands.at(-1)?.terminal?.state,
-						category: view.failedCommands.at(-1)?.terminal?.category,
-						cause: view.failedCommands.at(-1)?.error,
+						state: failedOther.at(-1)?.terminal?.state,
+						category: failedOther.at(-1)?.terminal?.category,
+						cause: failedOther.at(-1)?.error,
 					})?.message ??
-						view.failedCommands.at(-1)?.error ??
+						failedOther.at(-1)?.error ??
 						null)
 				: view.sync === "failed" || view.sync === "stale"
 					? "Transcript synchronization failed."
@@ -291,6 +311,7 @@ export const hydrateMessages = async (
 	const lease = mobileClientBus().retain(key, { activation });
 	const retained: RetainedTimeline = {
 		environmentId,
+		cloud: options.cloudWorkspaceId !== undefined,
 		key,
 		lease,
 		unsubscribe: () => undefined,

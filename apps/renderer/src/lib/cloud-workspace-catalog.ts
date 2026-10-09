@@ -138,6 +138,9 @@ export const mergeCloudChatSummaries = (
 	);
 	for (const summary of incoming) {
 		const previous = byEnvironment.get(summary.workspaceId);
+		// Project binding can register the currently selected row from a React
+		// effect. Keep its identity stable so binding does not restart that effect.
+		if (summary === previous) continue;
 		const comparison =
 			previous === undefined
 				? 1

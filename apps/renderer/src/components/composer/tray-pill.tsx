@@ -5,18 +5,20 @@ import { cn } from "~/lib/utils";
 export const composerTraySurfaceClass =
 	"composer-attached-rail mx-auto w-14/15 overflow-hidden border border-white/6 bg-card/72 shadow-overlay-sm backdrop-blur-xl";
 
-type Tone = "default" | "warning" | "accent";
+type Tone = "default" | "warning" | "accent" | "danger";
 
 const TONE_ICON: Record<Tone, string> = {
 	default: "text-muted-foreground",
 	warning: "text-amber-300",
 	accent: "text-primary",
+	danger: "text-destructive",
 };
 
 const TONE_TITLE: Record<Tone, string> = {
 	default: "text-foreground",
 	warning: "text-amber-100",
 	accent: "text-foreground",
+	danger: "text-foreground",
 };
 
 interface TrayPillProps extends Omit<ComponentPropsWithoutRef<"div">, "title"> {

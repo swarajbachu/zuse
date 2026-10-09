@@ -50,6 +50,8 @@ export interface QueueServiceRuntimeDeps {
 		clientMessageId: MessageId,
 		actor?: WorkspaceActor,
 	) => Effect.Effect<boolean, SessionNotFoundError | DirectoryUnavailableError>;
+	/** Explicit user recovery; automatic drains must never call it. */
+	readonly resumeFailedSession: (sessionId: SessionId) => Effect.Effect<void>;
 	readonly setQueuePaused: (
 		sessionId: SessionId,
 		paused: boolean,
@@ -114,6 +116,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			sql,
 			lookupSession,
 			submitUserMessage,
+			resumeFailedSession,
 			setQueuePaused,
 			dispatchSessionCommand,
 			dispatchSessionCommandWithId,
@@ -648,11 +651,10 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			Effect.gen(function* () {
 				const session = yield* lookupSession(sessionId);
 				if (session.status === "error") {
-					yield* dispatchSessionCommand(sessionId, {
-						_tag: "SetStatus",
-						status: "idle",
-						updatedAt: Date.now(),
-					});
+					// Failed provider effects are acknowledged to stop automatic replay.
+					// Resume the retained durable request through the same explicit Retry
+					// seam used by the session, before consuming any restored queue row.
+					yield* resumeFailedSession(sessionId);
 				}
 				yield* setPaused(sessionId, false, `${commandId}:unpause`);
 				yield* flushQueuedMessages(`${commandId}:flush`, sessionId);

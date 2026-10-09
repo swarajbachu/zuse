@@ -149,7 +149,7 @@ describe("Box sandbox provider", () => {
 		await Effect.runPromise(adapter.recoverByLabel("zuse-cloud-workspace-1"));
 
 		expect(http.calls[0]?.url).toBe(
-			"https://boat.dev/api/v1/sandboxes?limit=100&state=init%2Cprovisioning%2Cprovisioned%2Ccloning%2Cready%2Cidle%2Crunning%2Carchiving%2Carchived",
+			"https://boat.dev/api/v1/sandboxes?limit=100&state=init%2Cprovisioning%2Cprovisioned%2Ccloning%2Cready%2Cidle%2Crunning%2Carchiving%2Carchived%2Cstopped",
 		);
 		expect(http.calls[0]?.init?.headers).toMatchObject({
 			authorization: "Bearer secret-key",
@@ -290,14 +290,17 @@ describe("Box sandbox provider", () => {
 		expect(http.calls[3]?.init?.method).toBe("DELETE");
 	});
 
-	test("recovers a timed-out create by deterministic label", async () => {
+	test.each([
+		"archived",
+		"stopped",
+	])("recovers a %s sandbox by deterministic label", async (state) => {
 		const http = makeHttp([
 			{
 				status: 200,
 				body: {
 					sandboxes: [
 						{ id: "bx_other", state: "running", name: "something-else" },
-						{ id: "bx_9", state: "archived", name: "zuse-cloud-workspace-9" },
+						{ id: "bx_9", state, name: "zuse-cloud-workspace-9" },
 					],
 				},
 			},
@@ -387,6 +390,20 @@ describe("Box sandbox provider", () => {
 
 		expect(recovered?.providerSandboxId).toBe("bx_2");
 		expect(http.calls[1]?.url).toContain("cursor=cursor-2");
+	});
+
+	test.each([
+		"archiving",
+		"archived",
+		"stopped",
+	])("recognizes %s as a paused sandbox", async (state) => {
+		const http = makeHttp([{ status: 200, body: readyBox("bx_1", state) }]);
+		await expect(
+			Effect.runPromise(makeAdapter(http.client).inspect("bx_1")),
+		).resolves.toMatchObject({
+			providerSandboxId: "bx_1",
+			state: "paused",
+		});
 	});
 
 	test("treats a missing inspected box as absent", async () => {
@@ -955,6 +972,34 @@ describe("Box sandbox provider", () => {
 		await expect(
 			Effect.runPromise(makeAdapter(http.client).kill("bx_1")),
 		).rejects.toMatchObject({ code: "rejected" });
+	});
+
+	test("inspects a named snapshot without creating or waking a sandbox", async () => {
+		const http = makeHttp([
+			{
+				status: 200,
+				body: { snapshot: { name: "zuse-build-1", status: "ready" } },
+			},
+			{ status: 404 },
+			{ status: 503 },
+		]);
+		const adapter = makeAdapter(http.client);
+		if (adapter.inspectSnapshot === undefined)
+			throw new Error("missing snapshot inspection");
+		await expect(
+			Effect.runPromise(adapter.inspectSnapshot("zuse-build-1")),
+		).resolves.toBe("ready");
+		await expect(
+			Effect.runPromise(adapter.inspectSnapshot("zuse-build-1")),
+		).resolves.toBeNull();
+		expect(
+			(
+				await Effect.runPromise(
+					adapter.inspectSnapshot("zuse-build-1").pipe(Effect.result),
+				)
+			)._tag,
+		).toBe("Failure");
+		expect(http.calls.every((call) => call.init?.method === "GET")).toBe(true);
 	});
 
 	test("deletes named snapshots idempotently", async () => {

@@ -16,6 +16,55 @@ const withOrganizations = <A>(
 	);
 
 export const OrganizationHandlersLayer = Layer.mergeAll(
+	MemoizeRpcs.toLayerHandler("organizations.githubAuthorize", (input) =>
+		withOrganizations((service) =>
+			service.organizationAutoJoin["organizations.githubAuthorize"](input),
+		),
+	),
+	MemoizeRpcs.toLayerHandler("organizations.domains", (input) =>
+		withOrganizations((service) =>
+			service.organizationAutoJoin["organizations.domains"](input),
+		),
+	),
+	MemoizeRpcs.toLayerHandler("organizations.domainAdd", (input) =>
+		withOrganizations((service) =>
+			service.organizationAutoJoin["organizations.domainAdd"](input),
+		),
+	),
+	MemoizeRpcs.toLayerHandler("organizations.domainRemove", (input) =>
+		withOrganizations((service) =>
+			service.organizationAutoJoin["organizations.domainRemove"](input),
+		),
+	),
+	MemoizeRpcs.toLayerHandler("organizations.domainRestore", (input) =>
+		withOrganizations((service) =>
+			service.organizationAutoJoin["organizations.domainRestore"](input),
+		),
+	),
+	MemoizeRpcs.toLayerHandler("organizations.githubConnection", (input) =>
+		withOrganizations((service) =>
+			service.organizationAutoJoin["organizations.githubConnection"](input),
+		),
+	),
+	MemoizeRpcs.toLayerHandler("organizations.githubSettings", (input) =>
+		withOrganizations((service) =>
+			service.organizationAutoJoin["organizations.githubSettings"](input),
+		),
+	),
+	MemoizeRpcs.toLayerHandler("organizations.githubPolicy", (input) =>
+		withOrganizations((service) =>
+			service.organizationAutoJoin["organizations.githubPolicy"](input),
+		),
+	),
+	MemoizeRpcs.toLayerHandler("organizations.githubRestore", (input) =>
+		withOrganizations((service) =>
+			service.organizationAutoJoin["organizations.githubRestore"](input),
+		),
+	),
+
+	MemoizeRpcs.toLayerHandler("organizations.capabilities", () =>
+		withOrganizations((service) => service.organizationCapabilities()),
+	),
 	MemoizeRpcs.toLayerHandler("organizations.list", () =>
 		withOrganizations((service) => service.listOrganizations()),
 	),

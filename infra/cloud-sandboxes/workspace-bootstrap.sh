@@ -21,6 +21,33 @@ fail() {
 }
 trap fail ERR
 
+if [[ "${ZUSE_SNAPSHOT_NATIVE:-}" == 1 ]]; then
+  source /etc/zuse/snapshot.env
+  phase=snapshot-runtime-incompatible
+  "$ZUSE_RUNTIME_NODE" --input-type=module - <<'JS'
+import { readFileSync } from 'node:fs';
+import { userInfo } from 'node:os';
+const manifest = JSON.parse(readFileSync('/etc/zuse/snapshot.json', 'utf8'));
+const runtime = JSON.parse(readFileSync('/opt/zuse/current/runtime-metadata.json', 'utf8'));
+if (manifest.schemaVersion !== 1 || manifest.runtimeUser !== userInfo().username || runtime.snapshotSupportVersion !== 1 || runtime.wireProtocolVersion !== Number(process.env.ZUSE_RUNTIME_WIRE_PROTOCOL)) process.exit(1);
+JS
+  phase=initializing
+  owner_file="$status_dir/owner"
+  if [[ -f "$owner_file" ]]; then
+    [[ "$(cat "$owner_file")" == "$ZUSE_CLOUD_WORKSPACE_ID" ]] || { phase=snapshot-inherited-runtime-state; false; }
+  elif [[ -e /var/lib/zuse/user-data/zuse.sqlite ]]; then
+    phase=snapshot-inherited-runtime-state
+    false
+  fi
+  printf '%s\n' "$ZUSE_CLOUD_WORKSPACE_ID" >"$owner_file"
+  mkdir -p /var/lib/zuse/user-data "${ZUSE_SSH_DIRECTORY:?}"
+  chmod 700 /var/lib/zuse/user-data "$ZUSE_SSH_DIRECTORY"
+  if [[ ! -f "$ZUSE_SSH_DIRECTORY/host_ed25519_key" ]]; then
+    ssh-keygen -q -t ed25519 -N "" -f "$ZUSE_SSH_DIRECTORY/host_ed25519_key"
+  fi
+  sed -e "s|/home/zuse/.ssh|$ZUSE_SSH_DIRECTORY|g" -e "s/^AllowUsers zuse$/AllowUsers $(id -un)/" /usr/local/share/zuse/sshd_config >"$ZUSE_SSH_DIRECTORY/sshd_config"
+  chmod 600 "$ZUSE_SSH_DIRECTORY/sshd_config"
+else
 # Runtime and GitHub identity must never survive a fork. Provider-owned agent
 # authentication intentionally belongs to the private account image.
 rm -rf /home/zuse/.zuse-data /home/zuse/.config/gh
@@ -70,6 +97,8 @@ rm -f /home/zuse/.ssh/host_ed25519_key /home/zuse/.ssh/host_ed25519_key.pub \
   /home/zuse/.ssh/authorized_keys
 ssh-keygen -q -t ed25519 -N "" -f /home/zuse/.ssh/host_ed25519_key
 
+fi
+
 # Start the real runtime once: it creates a fresh identity, enrolls, installs credentials,
 # and then remains available for the desktop connection.
 export ZUSE_RUNTIME_KIND=cloud-workspace
@@ -84,7 +113,7 @@ export ZUSE_USER_DATA=/var/lib/zuse/user-data
 credentials_event="$status_dir/credentials-ready-event"
 rm -f "$credentials_event"
 mkfifo -m 600 "$credentials_event"
-runtime_command=(node /opt/zuse/current/bin.mjs serve)
+runtime_command=("${ZUSE_RUNTIME_NODE:-node}" /opt/zuse/current/bin.mjs serve)
 [[ -f /opt/zuse/current/bin.mjs ]] || runtime_command=(zuse serve --foreground)
 phase=starting-runtime
 (

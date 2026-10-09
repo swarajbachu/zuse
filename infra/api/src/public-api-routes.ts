@@ -24,10 +24,15 @@ import {
 	openApiMessageString,
 	sealApiString,
 } from "./api-sealing.ts";
+import { readApiTurnFailure } from "./api-turn-failure.ts";
 import { safeApiWebhookTarget } from "./api-webhook-target.ts";
 import { requireApiKey } from "./auth.ts";
+import { availableCloudAgents } from "./cloud-auth-authority.ts";
+import { connectionIdFor } from "./cloud-provider-connections.ts";
+import { cloudWorkspacePermission } from "./cloud-workspace-access.ts";
 import {
 	type CloudWorkspaceRouteContext,
+	cloudProviderOptions,
 	cloudWorkspaceResumeIsAlreadyRequested,
 	cloudWorkspaceResumeTarget,
 	createCloudWorkspaceForAccount,
@@ -48,10 +53,12 @@ import {
 	type ApiError,
 	badRequest,
 	conflict,
+	forbidden,
 	notFound,
 	serviceUnavailable,
 } from "./errors.ts";
 import { decodeBody, decodePathSegment, json } from "./http.ts";
+import { resolveWorkspaceActorAccess } from "./workspace-authorization.ts";
 
 // The `/v1/api/**` surface: the machine-caller (API-key) counterpart of the
 // first-party `/v1/cloud/**` routes. It exposes only the core loop — create a
@@ -222,7 +229,14 @@ export const routePublicApiRequest = (
 export const routeAccountWorkspaceRequest = (
 	request: Request,
 	accountId: string,
-	options?: { readonly internalWebhookTarget?: (url: string) => boolean },
+	options?: {
+		readonly githubBot?: boolean;
+		/** Slack asks the user rather than inheriting another workspace's agent. */
+		readonly requireExplicitAgent?: boolean;
+		/** Organization scope for authenticated internal integrations. */
+		readonly organizationId?: string;
+		readonly internalWebhookTarget?: (url: string) => boolean;
+	},
 ): Effect.Effect<Response | null, ApiError, CloudWorkspaceRouteContext> =>
 	Effect.gen(function* () {
 		const url = new URL(request.url);
@@ -232,12 +246,42 @@ export const routeAccountWorkspaceRequest = (
 		const store = yield* CloudWorkspaceStore;
 		const config = yield* ApiConfiguration;
 		const nowMs = yield* Clock.currentTimeMillis;
-		const principal = { accountId };
+		const access =
+			options?.organizationId === undefined
+				? undefined
+				: yield* resolveWorkspaceActorAccess(
+						{ accountId, orgId: undefined },
+						{ kind: "organization", organizationId: options.organizationId },
+						"content",
+					);
+		const principal = { accountId: access?.ownerId ?? accountId };
+		const actor = access?.membership
+			? { subject: accountId, membershipId: access.membership.id }
+			: undefined;
+		const checkWorkspacePermission = (
+			workspace: CloudWorkspaceRecord,
+			edit: boolean,
+		) =>
+			access === undefined
+				? Effect.void
+				: cloudWorkspacePermission(access, workspace).pipe(
+						Effect.flatMap((permission) =>
+							edit && permission.permission !== "edit"
+								? Effect.fail(forbidden("workspace_access_denied"))
+								: Effect.void,
+						),
+					);
 		const headerIdempotencyKey =
 			request.headers.get("idempotency-key") ?? undefined;
 		if (!(method === "DELETE" && /^\/v1\/api\/webhooks\/[^/]+$/u.test(path))) {
 			yield* requireCloudWorkspaceEntitlement(principal.accountId, nowMs);
 		}
+
+		if (method === "GET" && path === ApiPaths.apiAgents)
+			return json({ agents: yield* availableCloudAgents(principal.accountId) });
+
+		if (method === "GET" && path === ApiPaths.apiProviders)
+			return json(yield* cloudProviderOptions(principal.accountId, nowMs));
 
 		if (method === "GET" && path === ApiPaths.apiProjects) {
 			const projects = yield* store.listProjects(principal.accountId);
@@ -273,6 +317,8 @@ export const routeAccountWorkspaceRequest = (
 				`workspace-create-receipt\n${principal.accountId}\n${selectedIdempotencyKey}`,
 				JSON.stringify({
 					prompt,
+					...(options?.githubBot === true ? { githubBot: true } : {}),
+					...(actor === undefined ? {} : { actor }),
 					projectId: body.projectId ?? null,
 					providerId: body.providerId ?? null,
 					baseRef: body.baseRef ?? null,
@@ -298,6 +344,7 @@ export const routeAccountWorkspaceRequest = (
 						);
 			let legacyWorkspaceValidated = false;
 			if (existingWorkspace !== undefined) {
+				yield* checkWorkspacePermission(existingWorkspace, true);
 				const storedDigest = requestConfigString(
 					existingWorkspace,
 					"publicApiRequestDigest",
@@ -371,21 +418,42 @@ export const routeAccountWorkspaceRequest = (
 							? badRequest("cloud_project_required")
 							: notFound("cloud_project_not_found"),
 					);
-				const recent = [...accountWorkspaces].sort(
+				const accessibleWorkspaces = yield* Effect.filter(
+					accountWorkspaces,
+					(candidate) =>
+						checkWorkspacePermission(candidate, true).pipe(
+							Effect.as(true),
+							Effect.catch((error) =>
+								error.status === 403
+									? Effect.succeed(false)
+									: Effect.fail(error),
+							),
+						),
+					{ concurrency: 4 },
+				);
+				const recent = [...accessibleWorkspaces].sort(
 					(a, b) => b.createdAtMs - a.createdAtMs,
 				)[0];
 				const agent =
 					body.agent ??
-					(recent === undefined
+					(options?.requireExplicitAgent || recent === undefined
 						? undefined
 						: requestConfigString(recent, "agent"));
 				const model =
 					body.model ??
-					(recent === undefined
+					(options?.requireExplicitAgent || recent === undefined
 						? undefined
 						: requestConfigString(recent, "model"));
 				if (agent === undefined || model === undefined)
 					return yield* Effect.fail(badRequest("agent_and_model_required"));
+				if (
+					options?.requireExplicitAgent &&
+					!(yield* availableCloudAgents(principal.accountId)).some(
+						(candidate) => candidate === agent,
+					)
+				)
+					return yield* Effect.fail(badRequest("agent_not_available"));
+
 				const outcome = yield* createCloudWorkspaceForAccount(
 					principal.accountId,
 					{
@@ -403,8 +471,10 @@ export const routeAccountWorkspaceRequest = (
 								}),
 						idempotencyKey: `api:${selectedIdempotencyKey}`,
 						publicApiRequestDigest: requestDigest,
+						githubBot: options?.githubBot,
 					},
 					nowMs,
+					actor,
 				);
 				workspace = outcome.workspace;
 				created = outcome.created;
@@ -427,7 +497,12 @@ export const routeAccountWorkspaceRequest = (
 						workspace.workspaceId,
 						`msg_launch_${workspace.workspaceId}`,
 					),
-					encodeApiMessageContent({ text: prompt, attachments: [] }),
+					encodeApiMessageContent({
+						text: prompt,
+						attachments: [],
+						githubBot: options?.githubBot,
+						actor,
+					}),
 				);
 				yield* store.appendApiMessage({
 					messageId: `msg_launch_${workspace.workspaceId}`,
@@ -456,8 +531,16 @@ export const routeAccountWorkspaceRequest = (
 
 		if (method === "GET" && path === ApiPaths.apiWorkspaces) {
 			const workspaces = yield* store.listWorkspaces(principal.accountId);
-			const visible = workspaces.filter(
-				(workspace) => workspace.state !== "deleted",
+			const visible = yield* Effect.filter(
+				workspaces.filter((workspace) => workspace.state !== "deleted"),
+				(workspace) =>
+					checkWorkspacePermission(workspace, false).pipe(
+						Effect.as(true),
+						Effect.catch((error) =>
+							error.status === 403 ? Effect.succeed(false) : Effect.fail(error),
+						),
+					),
+				{ concurrency: 4 },
 			);
 			const statuses = yield* Effect.forEach(
 				visible,
@@ -489,6 +572,8 @@ export const routeAccountWorkspaceRequest = (
 				workspace.state === "deleted"
 			)
 				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
+
+			yield* checkWorkspacePermission(workspace, method === "POST");
 
 			if (method === "GET" && workspaceMatch !== null)
 				return json({ workspace: yield* apiWorkspaceStatus(workspace) });
@@ -539,7 +624,38 @@ export const routeAccountWorkspaceRequest = (
 				const messages = yield* Effect.forEach(rows, (row) =>
 					publicApiMessage(row),
 				);
+				const submitted = [...rows]
+					.reverse()
+					.find((row) => row.role === "user" && row.turnId !== undefined);
+				const settled =
+					submitted &&
+					rows.some(
+						(row) =>
+							row.role === "assistant" &&
+							row.turnId === submitted.turnId &&
+							row.outcome !== undefined &&
+							row.outcome !== "error",
+					);
+				const turnFailure =
+					submitted && !settled
+						? yield* readApiTurnFailure(workspace, submitted).pipe(
+								Effect.catch(() => Effect.succeed(undefined)),
+							)
+						: undefined;
 				return json({
+					...(turnFailure
+						? {
+								turnFailure,
+								...(turnFailure.code === "agent_not_installed"
+									? {
+											startupFailure: {
+												turnId: turnFailure.turnId,
+												agent: turnFailure.agent,
+											},
+										}
+									: {}),
+							}
+						: {}),
 					messages,
 					latestSeq:
 						messages.length > 0 ? (messages.at(-1)?.seq ?? afterSeq) : afterSeq,
@@ -572,7 +688,12 @@ export const routeAccountWorkspaceRequest = (
 						),
 					{ concurrency: 4 },
 				);
-				const messageContent = encodeApiMessageContent({ text, attachments });
+				const messageContent = encodeApiMessageContent({
+					text,
+					attachments,
+					githubBot: options?.githubBot,
+					actor,
+				});
 				const selectedIdempotencyKey = yield* idempotencyKey(
 					body.idempotencyKey,
 					headerIdempotencyKey,
@@ -607,7 +728,11 @@ export const routeAccountWorkspaceRequest = (
 					);
 				// Authorization is a precondition for the durable command. A denied
 				// request must never leave a row that can execute on a later wake.
-				yield* requireCloudBillingCapacity(principal.accountId, nowMs);
+				yield* requireCloudBillingCapacity(
+					principal.accountId,
+					nowMs,
+					connectionIdFor(workspace),
+				);
 				const sealed = yield* sealApiString(
 					apiMessageSealContext(principal.accountId, workspaceId, messageId),
 					messageContent,

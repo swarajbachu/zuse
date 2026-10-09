@@ -2,6 +2,31 @@ import { describe, expect, it } from "vitest";
 import { launchAcpProcess } from "../../src/process.js";
 
 describe("ACP process lifecycle", () => {
+	it("removes inherited auth overrides from the actual child environment", async () => {
+		const child = launchAcpProcess(
+			{
+				command: process.execPath,
+				args: [
+					"-e",
+					`process.stdin.once('data',()=>process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:1,result:{token:process.env.ZUSE_TEST_AUTH_TOKEN,home:process.env.CODEX_HOME}})+'\\n'))`,
+				],
+				env: {
+					ZUSE_TEST_AUTH_TOKEN: "must-not-reach-child",
+					CODEX_HOME: "/accounts/work",
+				},
+				unsetEnv: ["ZUSE_TEST_AUTH_TOKEN"],
+			},
+			process.cwd(),
+			() => {},
+		);
+		try {
+			expect(await child.rpc.request("initialize", {})).toEqual({
+				home: "/accounts/work",
+			});
+		} finally {
+			child.close();
+		}
+	});
 	it("rejects pending requests on malformed output", async () => {
 		const child = launchAcpProcess(
 			{

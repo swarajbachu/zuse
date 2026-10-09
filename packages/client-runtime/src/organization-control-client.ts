@@ -1,8 +1,17 @@
 import {
 	ApiPaths,
 	Organization,
+	OrganizationCapabilities,
 	type OrganizationCreateInput,
 	OrganizationDetails,
+	type OrganizationDomainInput,
+	OrganizationDomainSettings,
+	OrganizationGithubAuthorization,
+	OrganizationGithubConnection,
+	type OrganizationGithubInput,
+	type OrganizationGithubPolicyInput,
+	type OrganizationGithubRestoreInput,
+	OrganizationGithubSettings,
 	OrganizationInvitation,
 	type OrganizationInviteInput,
 	type OrganizationMemberInput,
@@ -23,6 +32,9 @@ const acknowledgement = Schema.Struct({ ok: Schema.Literal(true) });
 export const makeOrganizationControlClient = <E>(
 	request: OrganizationControlRequest<E>,
 ) => ({
+	...makeOrganizationAutoJoinControlClient(request),
+	"organizations.capabilities": (_input: Record<string, never>) =>
+		request(ApiPaths.organizationCapabilities, OrganizationCapabilities),
 	"organizations.list": (_input: Record<string, never>) =>
 		request(ApiPaths.organizations, Schema.Array(Organization)),
 	"organizations.get": (input: { organizationId: string }) =>
@@ -43,6 +55,59 @@ export const makeOrganizationControlClient = <E>(
 		),
 	"organizations.removeMember": (input: typeof OrganizationMemberInput.Type) =>
 		request(ApiPaths.organizationRemoveMember, acknowledgement, input).pipe(
+			Effect.asVoid,
+		),
+});
+
+export const makeOrganizationAutoJoinControlClient = <E>(
+	request: OrganizationControlRequest<E>,
+) => ({
+	"organizations.githubAuthorize": (_input: Record<string, never>) =>
+		request(
+			ApiPaths.organizationGithubAuthorize,
+			OrganizationGithubAuthorization,
+			{},
+		),
+	"organizations.githubConnection": (_input: Record<string, never>) =>
+		request(
+			ApiPaths.organizationGithubConnection,
+			OrganizationGithubConnection,
+			{},
+		),
+	"organizations.githubSettings": (
+		input: typeof OrganizationGithubInput.Type,
+	) =>
+		request(
+			ApiPaths.organizationGithubSettings,
+			OrganizationGithubSettings,
+			input,
+		),
+	"organizations.githubPolicy": (
+		input: typeof OrganizationGithubPolicyInput.Type,
+	) =>
+		request(ApiPaths.organizationGithubPolicy, acknowledgement, input).pipe(
+			Effect.asVoid,
+		),
+	"organizations.githubRestore": (
+		input: typeof OrganizationGithubRestoreInput.Type,
+	) =>
+		request(ApiPaths.organizationGithubRestore, acknowledgement, input).pipe(
+			Effect.asVoid,
+		),
+	"organizations.domains": (input: typeof OrganizationGithubInput.Type) =>
+		request(ApiPaths.organizationDomains, OrganizationDomainSettings, input),
+	"organizations.domainAdd": (input: typeof OrganizationDomainInput.Type) =>
+		request(ApiPaths.organizationDomainAdd, acknowledgement, input).pipe(
+			Effect.asVoid,
+		),
+	"organizations.domainRemove": (input: typeof OrganizationDomainInput.Type) =>
+		request(ApiPaths.organizationDomainRemove, acknowledgement, input).pipe(
+			Effect.asVoid,
+		),
+	"organizations.domainRestore": (
+		input: typeof OrganizationGithubRestoreInput.Type,
+	) =>
+		request(ApiPaths.organizationDomainRestore, acknowledgement, input).pipe(
 			Effect.asVoid,
 		),
 });

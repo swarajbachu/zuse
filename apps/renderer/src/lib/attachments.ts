@@ -9,7 +9,7 @@ import {
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { downloadBlob } from "./download-blob.ts";
 import { subscribeRendererAccount } from "./renderer-account.ts";
-import { dispatchSessionCommand } from "./session-timeline-client-bus.ts";
+import { dispatchSessionWorkspaceCommand } from "./session-timeline-client-bus.ts";
 
 /** Downloads are intentionally uncached: each request rechecks session authority. */
 export const downloadAttachment = async (
@@ -61,14 +61,13 @@ export const uploadAttachmentBytes = async (
 		payload: unknown,
 	) =>
 		(
-			await dispatchSessionCommand({
+			await dispatchSessionWorkspaceCommand({
 				ref,
 				kind,
 				commandId: CommandId.make(
 					`attachment-upload:${ref.sessionId}:${crypto.randomUUID()}`,
 				),
 				payload,
-				retry: "never",
 			})
 		).result;
 	const result = await uploadAttachmentInChunks(
@@ -124,14 +123,13 @@ const readAttachment = async (
 	Readonly<{ bytes: Uint8Array; mimeType: string; originalName: string }>
 > =>
 	(
-		await dispatchSessionCommand({
+		await dispatchSessionWorkspaceCommand({
 			ref,
 			kind: "attachments.read",
 			commandId: CommandId.make(
 				`attachment-read:${ref.sessionId}:${crypto.randomUUID()}`,
 			),
 			payload: { sessionId: ref.sessionId, id },
-			retry: "never",
 		})
 	).result as Readonly<{
 		bytes: Uint8Array;

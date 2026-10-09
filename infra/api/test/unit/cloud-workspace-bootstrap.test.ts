@@ -1,21 +1,31 @@
 import { BillingProvidersManual } from "@zuse/billing-providers";
 import {
 	ApiPaths,
+	CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY,
 	CLOUD_RUNTIME_WORKSPACE_AUTHORIZATION_CAPABILITY,
 } from "@zuse/contracts";
 import { MachineProvidersFake } from "@zuse/machine-providers/testing";
-import { SandboxProviders } from "@zuse/sandbox-providers";
+import {
+	makeSandboxProviders,
+	SandboxProviders,
+} from "@zuse/sandbox-providers";
 import { SandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
-import { exportJWK, generateKeyPair } from "jose";
+import { exportJWK, exportPKCS8, generateKeyPair } from "jose";
 import { describe, expect, test, vi } from "vitest";
 import {
 	AccountIdentity,
 	type AccountIdentityApi,
 } from "../../src/account-identity.ts";
+import { encodeApiMessageContent } from "../../src/api-message-content.ts";
+import { apiMessageSealContext, sealApiString } from "../../src/api-sealing.ts";
 import { CloudBillingStore } from "../../src/cloud-billing-store.ts";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
 import { takeCloudMailboxDirective } from "../../src/cloud-mailbox-directive.ts";
+import {
+	CloudProviderConnections,
+	type ProviderConnectionRecord,
+} from "../../src/cloud-provider-connections.ts";
 import {
 	CloudWorkspaceLaunchIntentCipher,
 	CloudWorkspaceLaunchIntentCipherLive,
@@ -42,23 +52,22 @@ import { SandboxOfferConfiguration } from "../../src/sandbox-provider-module.ts"
 import { ApiStoreMemory } from "../../src/store.ts";
 import { WorkosVerifierTest } from "../../src/workos.ts";
 
-vi.mock("../../src/cloud-github-app.ts", async (importOriginal) => {
-	const { Effect: TestEffect } = await import("effect");
-	return {
-		...(await importOriginal<typeof import("../../src/cloud-github-app.ts")>()),
-		githubInstallationCredentialForRepository: () =>
-			TestEffect.succeed({
-				token: "workspace-installation-token",
-				expiresAtMs: 4_102_444_800_000,
-			}),
-	};
-});
-
 const ISSUER = "https://api.test";
 
 const makeRuntime = async (organizationWorkspacesEnabled = false) => {
 	const mint = await generateKeyPair("EdDSA", { extractable: true });
 	const config = configurationLayer({
+		githubApp: {
+			appId: "app",
+			slug: "zuse",
+			clientId: "client",
+			clientSecret: Redacted.make("secret"),
+			privateKey: Redacted.make(
+				await exportPKCS8(
+					(await generateKeyPair("RS256", { extractable: true })).privateKey,
+				),
+			),
+		},
 		apiIssuer: ISSUER,
 		workosJwksUrl: "https://unused.test/jwks",
 		workosIssuer: "https://unused.test",
@@ -559,7 +568,10 @@ describe("cloud workspace runtime bootstrap", () => {
 						gatewayEpoch: 8,
 						sealedTranscriptKey: "sealed",
 						enrolledAtMs: now,
-						capabilities: [CLOUD_RUNTIME_WORKSPACE_AUTHORIZATION_CAPABILITY],
+						capabilities: [
+							CLOUD_RUNTIME_WORKSPACE_AUTHORIZATION_CAPABILITY,
+							CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY,
+						],
 					},
 				},
 			};
@@ -1026,11 +1038,160 @@ describe("cloud workspace runtime bootstrap", () => {
 				),
 			),
 		);
-		expect(githubCredential.status).toBe(200);
+		const forContext = (context: unknown) =>
+			runtime.runPromise(
+				handleRequest(
+					new Request(
+						`${ISSUER}${ApiPaths.cloudWorkspaceRuntimeGithubCredential(workspaceId)}`,
+						{
+							method: "POST",
+							headers: {
+								authorization: `Bearer ${credential}`,
+								"content-type": "application/json",
+							},
+							body: JSON.stringify(context),
+						},
+					),
+				),
+			);
+		for (const context of [
+			{ actor: { subject: "someone-else", membershipId: "fake" } },
+			{ slackMessageId: "missing" },
+		])
+			expect((await forContext(context)).status).toBe(403);
+		const slackMessageId = "slack-message";
+		await runtime.runPromise(
+			store.appendApiMessage({
+				messageId: slackMessageId,
+				workspaceId,
+				accountId: "account-1",
+				role: "user",
+				sealedContent: await runtime.runPromise(
+					sealApiString(
+						apiMessageSealContext("account-1", workspaceId, slackMessageId),
+						encodeApiMessageContent({
+							text: "commit",
+							attachments: [],
+							githubBot: true,
+						}),
+					),
+				),
+				status: "delivered",
+				createdAtMs: now,
+			}),
+		);
+		expect(githubCredential.status).toBe(403);
 		expect(await githubCredential.json()).toEqual({
-			token: "workspace-installation-token",
-			expiresAtMs: 4_102_444_800_000,
+			error: "github_user_connection_required",
 		});
+		const personal = {
+			name: "Octo Cat",
+			email: "123+octocat@users.noreply.github.com",
+		};
+		await runtime.runPromise(
+			store.saveGithubUser({
+				accountId: "account-1",
+				login: "octocat",
+				...personal,
+				sealedCredentials: await runtime.runPromise(
+					sealApiString(
+						"github-user\naccount-1",
+						JSON.stringify({
+							accessToken: "ghu_personal",
+							expiresAtMs: now + 3_600_000,
+						}),
+					),
+				),
+			}),
+		);
+		await runtime.runPromise(
+			store.saveGithubInstallation({
+				accountId: "account-1",
+				installationId: 99,
+				githubAccountId: 100,
+				accountLogin: "acme",
+				accountType: "Organization",
+				repositorySelection: "selected",
+				suspended: false,
+				createdAtMs: now,
+				updatedAtMs: now,
+			}),
+		);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (url: string, init?: RequestInit) => {
+				if (url.includes("/users/"))
+					return Response.json({ id: 42, login: "zuse[bot]" });
+				expect(JSON.parse(String(init?.body))).toEqual({
+					repositories: ["example"],
+					permissions: { contents: "write", pull_requests: "write" },
+				});
+				return Response.json({
+					token: "bot-token",
+					expires_at: new Date(now + 3600000).toISOString(),
+				});
+			}),
+		);
+		const botResponse = await forContext({ slackMessageId });
+		expect(botResponse.status).toBe(200);
+		expect(await botResponse.json()).toMatchObject({
+			token: "bot-token",
+			identity: {
+				name: "zuse[bot]",
+				email: "42+zuse[bot]@users.noreply.github.com",
+			},
+		});
+		vi.unstubAllGlobals();
+		const withIdentity = await bootstrap();
+		expect((await withIdentity.json()).gitIdentity).toMatchObject(personal);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				Response.json({
+					token: "ghu_scoped",
+					expires_at: new Date(now + 3600000).toISOString(),
+				}),
+			),
+		);
+		try {
+			const personalCredential = await runtime.runPromise(
+				handleRequest(
+					new Request(
+						`${ISSUER}${ApiPaths.cloudWorkspaceRuntimeGithubCredential(workspaceId)}`,
+						{
+							method: "POST",
+							headers: { authorization: `Bearer ${credential}` },
+						},
+					),
+				),
+			);
+			expect(personalCredential.status).toBe(200);
+			expect(await personalCredential.json()).toMatchObject({
+				token: "ghu_scoped",
+				identity: personal,
+			});
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () => Response.json({}, { status: 403 })),
+			);
+			const denied = await runtime.runPromise(
+				handleRequest(
+					new Request(
+						`${ISSUER}${ApiPaths.cloudWorkspaceRuntimeGithubCredential(workspaceId)}`,
+						{
+							method: "POST",
+							headers: { authorization: `Bearer ${credential}` },
+						},
+					),
+				),
+			);
+			expect(denied.status).toBe(503);
+			expect(await denied.json()).toMatchObject({
+				error: "github_user_repository_access_required",
+			});
+		} finally {
+			vi.unstubAllGlobals();
+		}
 		const rejectedGithubCredential = await runtime.runPromise(
 			handleRequest(
 				new Request(
@@ -1206,5 +1367,411 @@ describe("cloud workspace runtime bootstrap", () => {
 		);
 		expect(leaseDuringDelete.status).toBe(401);
 		await runtime.dispose();
+	});
+});
+
+test("provider connections require account authentication and organization administration", async () => {
+	const runtime = await makeRuntime(true);
+	let role = "admin";
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: string) =>
+			Response.json({
+				data: [
+					{
+						id: "membership",
+						user_id: "alice",
+						organization_id: new URL(input).searchParams.get("organization_id"),
+						status: "active",
+						role: { slug: role },
+					},
+				],
+				list_metadata: { after: null },
+			}),
+		),
+	);
+	const call = (scope: string, method = "GET", authenticated = true) =>
+		runtime.runPromise(
+			handleRequest(
+				new Request(`${ISSUER}${ApiPaths.cloudProviderConnections}`, {
+					method,
+					headers: {
+						...(authenticated
+							? { authorization: "Bearer test-token:alice" }
+							: {}),
+						"x-zuse-workspace": scope,
+						"content-type": "application/json",
+					},
+					...(method === "GET"
+						? {}
+						: { body: JSON.stringify({ connectionId: "retained" }) }),
+				}),
+			),
+		);
+	try {
+		expect((await call("personal", "GET", false)).status).toBe(401);
+		const personal = await call("personal");
+		expect(personal.status).toBe(200);
+		expect(personal.headers.get("cache-control")).toBe("no-store");
+		expect(await personal.json()).toEqual({
+			connections: [],
+			customSnapshotsEnabled: false,
+		});
+		expect((await call("organization:org_a")).status).toBe(200);
+		for (const deniedRole of ["member", "billing"]) {
+			role = deniedRole;
+			for (const method of ["GET", "POST", "DELETE"])
+				expect((await call("organization:org_a", method)).status).toBe(403);
+		}
+	} finally {
+		vi.unstubAllGlobals();
+		await runtime.dispose();
+	}
+});
+
+test("free provider keys pin image builds and cannot authorize managed compute", async () => {
+	const runtime = await makeRuntime();
+	const records: ProviderConnectionRecord[] = [];
+	const connections = CloudProviderConnections.of({
+		list: (accountId) =>
+			Effect.succeed(
+				records.filter((record) => record.accountId === accountId),
+			),
+		save: (record) =>
+			Effect.sync(() => {
+				records.push(record);
+			}),
+		disconnect: () => Effect.void,
+	});
+	try {
+		const registry = await runtime.runPromise(SandboxProviders);
+		const fake = await runtime.runPromise(registry.get("fake"));
+		const own = {
+			...fake,
+			providerId: "boxd",
+			withCredentials: () => ({ ...fake, providerId: "boxd" }),
+		};
+		const providers = await runtime.runPromise(
+			makeSandboxProviders({
+				defaultProviderId: "fake",
+				registrations: [{ adapter: fake }, { adapter: own }],
+			}),
+		);
+		const call = (path: string, body?: unknown) =>
+			runtime.runPromise(
+				handleRequest(
+					new Request(`${ISSUER}${path}`, {
+						method: body === undefined ? "GET" : "POST",
+						headers: {
+							authorization: "Bearer test-token:alice",
+							"content-type": "application/json",
+						},
+						...(body === undefined ? {} : { body: JSON.stringify(body) }),
+					}),
+				).pipe(
+					Effect.provideService(CloudProviderConnections, connections),
+					Effect.provideService(SandboxProviders, providers),
+				),
+			);
+		const saved = await call(ApiPaths.cloudProviderConnections, {
+			providerId: "boxd",
+			apiKey: "customer-key",
+		});
+		expect(saved.status).toBe(200);
+		expect(await saved.text()).not.toContain("customer-key");
+		const available = await call(ApiPaths.cloudProviders);
+		expect(await available.json()).toMatchObject({
+			entitled: true,
+			providers: [{ providerId: "boxd", billingSource: "provider" }],
+		});
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(
+			store.connectProject({
+				projectId: "project",
+				accountId: "alice",
+				repositoryIdentity: "github.com/acme/app",
+				repositoryUrl: "https://github.com/acme/app.git",
+				displayName: "App",
+				defaultBranch: "main",
+				visibility: "private",
+				gitConnectionKind: "github-app",
+				cloudEnvironment: {},
+				secretBindings: [],
+				configurationDigest: "digest",
+				state: "ready",
+				idempotencyKey: "project",
+				createdAtMs: 1,
+				updatedAtMs: 1,
+			}),
+		);
+		const buildResponse = await call(ApiPaths.cloudAccountImageBuild, {
+			providerId: "boxd",
+			idempotencyKey: "own-build",
+			mode: "rebuild",
+		});
+		expect(buildResponse.status).toBe(202);
+		const builds = await runtime.runPromise(
+			store.listAccountBuilds("alice", "boxd"),
+		);
+		expect(builds).toHaveLength(1);
+		expect(builds[0]?.settings?.providerConnectionId).toBe(
+			records[0]?.connectionId,
+		);
+		expect(builds[0]?.templateVersion).toContain(records[0]?.connectionId);
+		const denied = await call(ApiPaths.cloudAccountImageBuild, {
+			providerId: "fake",
+			idempotencyKey: "managed-build",
+			mode: "rebuild",
+		});
+		expect(denied.status).toBe(403);
+	} finally {
+		await runtime.dispose();
+	}
+});
+
+test.each([
+	"immutable-snapshot",
+	"my-snapshot-name",
+])("custom snapshot import %s is gated, connection-pinned and idempotent", async (snapshotReference) => {
+	const runtime = await makeRuntime();
+	const records: ProviderConnectionRecord[] = [];
+	const connections = CloudProviderConnections.of({
+		list: (accountId) =>
+			Effect.succeed(
+				records.filter((record) => record.accountId === accountId),
+			),
+		save: (record) =>
+			Effect.sync(() => {
+				records.push(record);
+			}),
+		disconnect: () => Effect.void,
+	});
+	try {
+		const config = await runtime.runPromise(ApiConfiguration);
+		const fake = await runtime.runPromise(
+			(await runtime.runPromise(SandboxProviders)).get("fake"),
+		);
+		const resolveSnapshotSource = vi.fn(() =>
+			Effect.succeed({ snapshotId: "immutable-snapshot", version: 3 }),
+		);
+		const own = {
+			...fake,
+			providerId: "boxd",
+			resolveSnapshotSource,
+		};
+		const providers = await runtime.runPromise(
+			makeSandboxProviders({
+				defaultProviderId: "boxd",
+				registrations: [{ adapter: { ...own, withCredentials: () => own } }],
+			}),
+		);
+		const call = (path: string, body?: unknown, enabled = true) =>
+			runtime.runPromise(
+				handleRequest(
+					new Request(`${ISSUER}${path}`, {
+						method: body === undefined ? "GET" : "POST",
+						headers: {
+							authorization: "Bearer test-token:alice",
+							"content-type": "application/json",
+						},
+						...(body === undefined ? {} : { body: JSON.stringify(body) }),
+					}),
+				).pipe(
+					Effect.provideService(ApiConfiguration, {
+						...config,
+						cloudBoxdCustomSnapshotsEnabled: enabled,
+					}),
+					Effect.provideService(CloudProviderConnections, connections),
+					Effect.provideService(SandboxProviders, providers),
+				),
+			);
+		expect(
+			(
+				await call(ApiPaths.cloudProviderConnections, {
+					providerId: "boxd",
+					apiKey: "own-key",
+				})
+			).status,
+		).toBe(200);
+		const connectionId = records[0]?.connectionId;
+		const body = {
+			connectionId,
+			snapshotId: snapshotReference,
+			runtimeUser: "developer",
+			repositoryPaths: [],
+			idempotencyKey: "import-one",
+		};
+		expect((await call(ApiPaths.cloudSnapshotImport, body, false)).status).toBe(
+			409,
+		);
+		expect(
+			(
+				await call(ApiPaths.cloudSnapshotImport, {
+					...body,
+					connectionId: "someone-else",
+				})
+			).status,
+		).toBe(403);
+		expect((await call(ApiPaths.cloudSnapshotImport, body)).status).toBe(202);
+		expect(resolveSnapshotSource).toHaveBeenCalledWith(snapshotReference);
+		resolveSnapshotSource.mockImplementation(() =>
+			Effect.succeed({ snapshotId: "replacement-snapshot", version: 4 }),
+		);
+		expect((await call(ApiPaths.cloudSnapshotImport, body)).status).toBe(202);
+		expect(
+			(
+				await call(ApiPaths.cloudSnapshotImport, {
+					...body,
+					runtimeUser: "other",
+				})
+			).status,
+		).toBe(409);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		const builds = await runtime.runPromise(
+			store.listAccountBuilds("alice", "boxd"),
+		);
+		expect(resolveSnapshotSource).toHaveBeenCalledTimes(1);
+		expect(builds).toHaveLength(1);
+		expect(builds[0]?.projectId).toBeNull();
+		expect(builds[0]?.settings).toMatchObject({
+			source: "custom-snapshot",
+			providerConnectionId: connectionId,
+			snapshotVersion: 3,
+			snapshot: { snapshotId: "immutable-snapshot" },
+		});
+		expect(await runtime.runPromise(store.listProjects("alice"))).toHaveLength(
+			0,
+		);
+	} finally {
+		await runtime.dispose();
+	}
+});
+
+describe("cloud runtime orchestration", () => {
+	test("authenticates runtime delegation, isolates accounts, and fences expired credentials", async () => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			const now = Date.now();
+			const seed = async (
+				workspaceId: string,
+				accountId: string,
+				expiresAt = now + 60_000,
+			) => {
+				await runtime.runPromise(
+					store.createWorkspace(
+						{
+							workspaceId,
+							accountId,
+							projectId: "project",
+							buildId: "build",
+							provider: "fake",
+							providerSandboxId: "sandbox",
+							runtimeState: "online",
+							chatId: `chat-${workspaceId}`,
+							initialSessionId: `session-${workspaceId}`,
+							branch: workspaceId,
+							baseRef: "main",
+							state: "ready",
+							desiredState: "ready",
+							statusCode: "ready",
+							idempotencyKey: workspaceId,
+							runtimeCredentialHash: await runtime.runPromise(
+								sha256Hex("runtime-secret"),
+							),
+							nextActionAtMs: now,
+							revision: 1,
+							createdAtMs: now,
+							updatedAtMs: now,
+							lastActivityAtMs: now,
+							requestConfig: { runtimeCredentialExpiresAtMs: expiresAt },
+						},
+						{
+							workspaceId,
+							accountId,
+							chatId: `chat-${workspaceId}`,
+							sessionId: `session-${workspaceId}`,
+							turnId: "turn",
+							commandId: `launch-${workspaceId}`,
+							ciphertext: "unused",
+							expiresAtMs: now + 60_000,
+							createdAtMs: now,
+						},
+					),
+				);
+			};
+			await seed("source", "alice");
+			await seed("sibling", "alice");
+			await seed("foreign", "bob");
+			await seed("expired", "alice", now - 1);
+			await seed("organization", "organization:org");
+			const call = (
+				path: string,
+				method = "GET",
+				source = "source",
+				token = "runtime-secret",
+				body?: unknown,
+			) =>
+				runtime.runPromise(
+					handleRequest(
+						new Request(
+							`${ISSUER}/v1/cloud/workspaces/${source}/runtime/control`,
+							{
+								method: "POST",
+								headers: {
+									authorization: `Bearer ${token}`,
+									"content-type": "application/json",
+								},
+								body: JSON.stringify({ path, method, body }),
+							},
+						),
+					),
+				);
+			const list = await call("/v1/cloud/workspaces");
+			expect(list.status).toBe(200);
+			expect(
+				(await list.json()).workspaces.map(
+					(workspace: { workspaceId: string }) => workspace.workspaceId,
+				),
+			).not.toContain("foreign");
+			expect((await call("/v1/cloud/workspaces/sibling")).status).toBe(200);
+			expect((await call("/v1/cloud/workspaces/foreign")).status).toBe(404);
+			expect(
+				(
+					await call(
+						"/v1/cloud/workspaces/foreign/preview-url",
+						"POST",
+						"source",
+						"runtime-secret",
+						{ port: 8123 },
+					)
+				).status,
+			).toBe(404);
+			const preview = await call(
+				"/v1/cloud/workspaces/source/preview-url",
+				"POST",
+				"source",
+				"runtime-secret",
+				{ port: 8123 },
+			);
+			expect(preview.status).toBe(200);
+			expect(await preview.json()).toMatchObject({
+				workspaceId: "source",
+				port: 8123,
+				url: expect.any(String),
+			});
+			expect((await call("/v1/cloud/api-keys", "POST")).status).toBe(403);
+			expect(
+				(await call("/v1/cloud/workspaces", "GET", "source", "wrong")).status,
+			).toBe(401);
+			expect(
+				(await call("/v1/cloud/workspaces", "GET", "expired")).status,
+			).toBe(401);
+			expect(
+				(await call("/v1/cloud/workspaces", "GET", "organization")).status,
+			).toBe(403);
+		} finally {
+			await runtime.dispose();
+		}
 	});
 });

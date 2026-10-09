@@ -21,7 +21,7 @@ describe("CloudWorkspaceGithub", () => {
 			/>,
 		);
 
-		expect(markup).toContain("Install GitHub App");
+		expect(markup).toContain("Connect GitHub");
 		expect(markup).not.toContain("Already installed?");
 		expect(markup).not.toContain("Connect existing account");
 		expect(markup).not.toContain(
@@ -56,10 +56,40 @@ describe("CloudWorkspaceGithub", () => {
 
 		expect(markup).toContain("acme");
 		expect(markup).toContain("Organization · selected repositories");
-		expect(markup).toContain("Connected");
-		expect(markup).toContain("Configure app");
+		expect(markup).toContain("Connect GitHub");
 		expect(markup).toContain("Repository access");
 		expect(markup).toContain("Refresh");
 		expect(markup).toContain("never need to be removed first");
+	});
+	it("uses one GitHub connection for repository access and personal identity", () => {
+		const markup = renderToStaticMarkup(
+			<CloudWorkspaceGithub
+				status={{
+					configured: true,
+					user: {
+						login: "octocat",
+						name: "Octo",
+						email: "123+octocat@users.noreply.github.com",
+					},
+					installations: [
+						{
+							installationId: 99,
+							accountLogin: "acme",
+							accountType: "Organization",
+							repositorySelection: "selected",
+							suspended: false,
+						},
+					],
+					repositories: [],
+				}}
+				loading={false}
+				busy={null}
+				{...callbacks}
+			/>,
+		);
+		expect(markup).toContain("Connected as octocat");
+		expect(markup).not.toContain("Connect account");
+		expect(markup).not.toContain("Your GitHub identity");
+		expect(markup).toContain("selected repositories");
 	});
 });

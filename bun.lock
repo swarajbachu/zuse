@@ -27,6 +27,7 @@
         "electron-updater": "^6.3.9",
         "keytar": "^7.9.0",
         "node-pty": "^1.1.0",
+        "playwright": "1.62.1",
         "selfsigned": "^5.5.0",
         "tree-sitter": "^0.21.1",
         "tree-sitter-javascript": "^0.23.1",
@@ -63,11 +64,13 @@
       "dependencies": {
         "@fontsource-variable/geist-mono": "^5.3.0",
         "@fontsource-variable/inter": "^5.3.0",
+        "@zuse/analytics": "workspace:*",
         "fumadocs-core": "^16.10.4",
         "fumadocs-mdx": "^15.0.12",
         "fumadocs-ui": "^16.10.4",
         "lucide-react": "^1.20.0",
         "next": "16.0.10",
+        "posthog-js": "^1.406.2",
         "react": "19.2.3",
         "react-dom": "19.2.3",
         "zod": "^4.4.3",
@@ -263,6 +266,7 @@
         "fflate": "^0.8.3",
         "keytar": "^7.9.0",
         "node-pty": "^1.1.0",
+        "playwright": "1.62.1",
         "strip-ansi": "^7.2.0",
         "tar": "^7.5.22",
         "tree-sitter": "^0.21.1",
@@ -309,6 +313,7 @@
       "name": "@zuse/slack",
       "version": "0.0.0",
       "dependencies": {
+        "@zuse/client-runtime": "*",
         "@zuse/contracts": "*",
         "@zuse/utils": "*",
       },
@@ -329,6 +334,7 @@
         "@tabler/icons-react": "^3.36.0",
         "@tailwindcss/typography": "^0.5.20",
         "@types/mdx": "^2.0.13",
+        "@zuse/analytics": "workspace:*",
         "@zuse/i18n": "workspace:*",
         "@zuse/icons": "workspace:*",
         "clsx": "^2.1.1",
@@ -401,6 +407,7 @@
       "name": "@zuse/acp",
       "version": "0.0.0",
       "dependencies": {
+        "@zuse/utils": "*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -442,6 +449,7 @@
         "@noble/hashes": "^1.8.0",
         "@zuse/contracts": "*",
         "effect": "catalog:",
+        "posthog-js": "^1.406.2",
       },
       "devDependencies": {
         "@repo/typescript-config": "*",
@@ -646,7 +654,7 @@
       "name": "@zuse/sandbox-providers",
       "version": "0.0.0",
       "dependencies": {
-        "@boxd-sh/sdk": "0.2.11",
+        "@boxd-sh/sdk": "0.2.14",
         "@zuse/provider-registry": "*",
         "@zuse/utils": "*",
         "effect": "catalog:",
@@ -1074,7 +1082,7 @@
 
     "@blazediff/core": ["@blazediff/core@1.9.1", "", {}, "sha512-ehg3jIkYKulZh+8om/O25vkvSsXXwC+skXmyA87FFx6A/45eqOkZsBltMw/TVteb0mloiGT8oGRTcjRAz66zaA=="],
 
-    "@boxd-sh/sdk": ["@boxd-sh/sdk@0.2.11", "", { "dependencies": { "@bufbuild/protobuf": "^2.10.2", "@grpc/grpc-js": "^1.12.0" } }, "sha512-WsLgO+pb5JEXpnteiQ9BMe9q9/Q0WkDNQSCnahLp1wsCT+Wk0UARRth3tEyMP8dopdpLHjACpNQe4kLZnirLJQ=="],
+    "@boxd-sh/sdk": ["@boxd-sh/sdk@0.2.14", "", { "dependencies": { "@bufbuild/protobuf": "^2.10.2", "@grpc/grpc-js": "^1.12.0" } }, "sha512-QmUMsAOOEj+E5YPDxxI3WafjIfPwfn/rk3GOzyF8mH6ekPr+iYKic3xQQITqfyCi8EPn5hCbh9uVAjNwo8DXFQ=="],
 
     "@braintree/sanitize-url": ["@braintree/sanitize-url@7.1.2", "", {}, "sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA=="],
 
@@ -4096,7 +4104,7 @@
 
     "powershell-utils": ["powershell-utils@0.1.0", "http://registry.npmjs.org/powershell-utils/-/powershell-utils-0.1.0.tgz", {}, "sha512-dM0jVuXJPsDN6DvRpea484tCUaMiXWjuCn++HGTqUWzGDjv5tZkEZldAJ/UMlqRYGFrD/etByo4/xOuC/snX2A=="],
 
-    "preact": ["preact@11.0.0-beta.0", "", {}, "sha512-IcODoASASYwJ9kxz7+MJeiJhvLriwSb4y4mHIyxdgaRZp6kPUud7xytrk/6GZw8U3y6EFJaRb5wi9SrEK+8+lg=="],
+    "preact": ["preact@10.29.7", "", { "peerDependencies": { "preact-render-to-string": ">=5" }, "optionalPeers": ["preact-render-to-string"] }, "sha512-DCHYrK/B10yUD3ZjLfhZ3WIE/9Vf9VFUODcRE2dRomTYDpJk6z6L9wecSfhfE6M9ZTHUdyQkoC46arIDhEV84Q=="],
 
     "preact-render-to-string": ["preact-render-to-string@6.6.5", "", { "peerDependencies": { "preact": ">=10 || >= 11.0.0-0" } }, "sha512-O6MHzYNIKYaiSX3bOw0gGZfEbOmlIDtDfWwN1JJdc/T3ihzRT6tGGSEWE088dWrEDGa1u7101q+6fzQnO9XCPA=="],
 
@@ -5076,6 +5084,8 @@
 
     "@pierre/theming/@pierre/theme": ["@pierre/theme@1.1.0", "", {}, "sha512-GC2OWTAfTIIWWYhPCygwG8t2EtePQkRfON4MI2rwIkJylmiyqIttJID2dCL8sUD8cNdEvYkEyfEHHKMeCiDLoQ=="],
 
+    "@pierre/trees/preact": ["preact@11.0.0-beta.0", "", {}, "sha512-IcODoASASYwJ9kxz7+MJeiJhvLriwSb4y4mHIyxdgaRZp6kPUud7xytrk/6GZw8U3y6EFJaRb5wi9SrEK+8+lg=="],
+
     "@poppinss/dumper/supports-color": ["supports-color@10.2.2", "", {}, "sha512-SS+jx45GF1QjgEXQx4NJZV9ImqmO2NPz5FNsIHrsDjh2YsHnawpan7SNQ1o8NuhrbHZy9AZhIoCUiCeaW/C80g=="],
 
     "@react-native/babel-preset/@react-native/babel-plugin-codegen": ["@react-native/babel-plugin-codegen@0.86.0", "", { "dependencies": { "@babel/traverse": "^7.29.0", "@react-native/codegen": "0.86.0" } }, "sha512-qdsABWNW7uTll90l4Vh03gjeyu3WVDi2CyiiyvYGMRDcoYbjbQi6df3BMAm9lQI2yslZ1T14LlDDAsgTwNxplA=="],
@@ -5493,8 +5503,6 @@
     "postcss/nanoid": ["nanoid@3.3.12", "http://registry.npmjs.org/nanoid/-/nanoid-3.3.12.tgz", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-ZB9RH/39qpq5Vu6Y+NmUaFhQR6pp+M2Xt76XBnEwDaGcVAqhlvxrl3B2bKS5D3NH3QR76v3aSrKaF/Kiy7lEtQ=="],
 
     "posthog-js/fflate": ["fflate@0.4.9", "", {}, "sha512-zdxgIEddhfsyCaWpJ2SdXEP8ZMrKJ6+5jl4OupODcywU0IhRk6gdXuVGcPICyfx2H97hVK7xmJtRLPjkxAX8Vw=="],
-
-    "posthog-js/preact": ["preact@10.29.7", "", { "peerDependencies": { "preact-render-to-string": ">=5" }, "optionalPeers": ["preact-render-to-string"] }, "sha512-DCHYrK/B10yUD3ZjLfhZ3WIE/9Vf9VFUODcRE2dRomTYDpJk6z6L9wecSfhfE6M9ZTHUdyQkoC46arIDhEV84Q=="],
 
     "prebuild-install/node-abi": ["node-abi@3.90.0", "http://registry.npmjs.org/node-abi/-/node-abi-3.90.0.tgz", { "dependencies": { "semver": "^7.3.5" } }, "sha512-pZNQT7UnYlMwMBy5N1lV5X/YLTbZM5ncytN3xL7CHEzhDN8uVe0u55yaPUJICIJjaCW8NrM5BFdqr7HLweStNA=="],
 

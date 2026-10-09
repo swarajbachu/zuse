@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Enable organization beta access for selected users and their teams, with automatic access for approved creators' members and optional access for existing teams.
+
 ### Fixed
 - Restore reliable provider usage limits with CLI-backed Claude readings, isolated provider failures, automatic retries, accurate percentages, and visible stale readings.
+- Connect cloud workspaces to GitHub with repository-scoped user credentials so commits, pushes, and pull requests use the connected account.
 - Let idle cloud workspaces pause even when connected clients send RPC heartbeats, poll status, or receive subscription updates, while preserving activity from user actions and active agent turns.
 
 ## [0.22.1]

@@ -8,6 +8,11 @@ import {
 	decodeAcpSession,
 	initializeAcp,
 } from "@zuse/agents/drivers/acp/discovery";
+import {
+	type AccountProvider,
+	providerAccountEnv,
+	providerAccountUnsetEnv,
+} from "@zuse/agents/drivers/provider-account-env";
 import { isWithin } from "@zuse/agents/kernel/file-validation";
 import {
 	AcpDefinition,
@@ -261,11 +266,26 @@ export const makeAcpAgentStore = (
 		const entry = await get(id);
 		if (!entry.enabled) throw new Error("This ACP agent is disabled.");
 		const secret = await secrets.get(entry.credentialId ?? id);
+		const accountHome = entry.accountProvider
+			? join(directory, "accounts", entry.id)
+			: undefined;
+		if (accountHome) await mkdir(accountHome, { recursive: true, mode: 0o700 });
 		return {
 			command: await (dependencies.resolveExecutable?.(entry.command) ??
 				Promise.resolve(entry.command)),
 			args: [...entry.args],
-			env: secret ? Schema.decodeUnknownSync(Secrets)(JSON.parse(secret)) : {},
+			mcpEnabled: entry.mcpEnabled,
+			env: {
+				...(secret
+					? Schema.decodeUnknownSync(Secrets)(JSON.parse(secret))
+					: {}),
+				...(entry.accountProvider && accountHome
+					? providerAccountEnv(entry.accountProvider, accountHome)
+					: {}),
+			},
+			...(entry.accountProvider
+				? { unsetEnv: providerAccountUnsetEnv(entry.accountProvider) }
+				: {}),
 		};
 	};
 	const save = (input: AcpDefinitionInput) =>
@@ -294,7 +314,8 @@ export const makeAcpAgentStore = (
 				!old ||
 				input.command !== old.command ||
 				JSON.stringify(input.args) !== JSON.stringify(old.args) ||
-				input.env !== undefined;
+				input.env !== undefined ||
+				(input.mcpEnabled !== undefined && input.mcpEnabled !== old.mcpEnabled);
 			const definition: StoredDefinition = {
 				...old,
 				credentialId,
@@ -303,6 +324,7 @@ export const makeAcpAgentStore = (
 				name: input.name.trim(),
 				command: input.command,
 				args: [...input.args],
+				mcpEnabled: input.mcpEnabled ?? old?.mcpEnabled,
 				enabled: input.enabled,
 				envKeys: input.env ? Object.keys(input.env) : (old?.envKeys ?? []),
 				probe: changed ? undefined : old?.probe,
@@ -378,19 +400,40 @@ export const makeAcpAgentStore = (
 		launch,
 		save,
 		test,
-		duplicate: async (id: AcpProviderId) => {
-			const entry = await get(id);
-			const secret = await secrets.get(entry.credentialId ?? id);
-			return save({
-				name: `${entry.name} copy`,
-				command: entry.command,
-				args: entry.args,
-				enabled: entry.enabled,
-				env: secret
-					? Schema.decodeUnknownSync(Secrets)(JSON.parse(secret))
-					: {},
-			});
-		},
+		duplicate: (id: AcpProviderId, accountProvider?: AccountProvider) =>
+			exclusive(async () => {
+				const entry = await get(id);
+				const provider = accountProvider ?? entry.accountProvider;
+				const secret = await secrets.get(entry.credentialId ?? id);
+				const env = secret
+					? { ...Schema.decodeUnknownSync(Secrets)(JSON.parse(secret)) }
+					: {};
+				// A new account must never inherit a token or another profile's selectors.
+				if (provider) {
+					for (const key of [
+						...providerAccountUnsetEnv(provider),
+						"CLAUDE_CONFIG_DIR",
+						"CLAUDE_SECURESTORAGE_CONFIG_DIR",
+						"CODEX_HOME",
+					])
+						delete env[key];
+				}
+				const nextId: AcpProviderId = `acp-${randomUUID()}`;
+				const credentialId = `${nextId}:${randomUUID()}`;
+				const definition: StoredDefinition = {
+					...entry,
+					id: nextId,
+					credentialId,
+					revision: randomUUID(),
+					name: `${entry.name} ${provider ? "account" : "copy"}`,
+					probe: undefined,
+					envKeys: Object.keys(env),
+					...(provider ? { accountProvider: provider } : {}),
+				};
+				await secrets.set(credentialId, JSON.stringify(env));
+				await write([...(await read()), definition]);
+				return publicDefinition(definition);
+			}),
 		remove: (id: AcpProviderId) =>
 			exclusive(async () => {
 				const entry = await get(id);
@@ -446,17 +489,39 @@ export const makeAcpAgentStore = (
 					// one. New agents are saved immediately and tested afterwards, so a
 					// slow first download does not hold the dialog or the store lock.
 					const result = old
-						? await probe(prepared, directory, undefined, undefined, 180_000)
+						? await probe(
+								old.accountProvider
+									? {
+											...prepared,
+											env: {
+												...prepared.env,
+												...providerAccountEnv(
+													old.accountProvider,
+													join(directory, "accounts", old.id),
+												),
+											},
+											unsetEnv: providerAccountUnsetEnv(old.accountProvider),
+										}
+									: prepared,
+								directory,
+								undefined,
+								undefined,
+								180_000,
+							)
 						: undefined;
 					if (result?.status === "error") throw new Error(result.message);
 					const credentialId = `${id}:${randomUUID()}`;
 					const entry: StoredDefinition = {
+						...(old?.accountProvider
+							? { accountProvider: old.accountProvider }
+							: {}),
 						credentialId,
 						revision: randomUUID(),
 						id,
 						name: old?.name ?? agent.name,
 						command: prepared.command,
 						args: prepared.args,
+						mcpEnabled: prepared.mcpEnabled,
 						enabled: old?.enabled ?? true,
 						envKeys: Object.keys(prepared.env),
 						catalogId,

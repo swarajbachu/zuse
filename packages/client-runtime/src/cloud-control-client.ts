@@ -8,6 +8,7 @@ import {
 	type ChatSharingUpdate,
 	CloudAccountImage,
 	type CloudAccountImageBuildRequest,
+	type CloudAccountImageDeleteRequest,
 	CloudApiKey,
 	CloudApiKeyCreated,
 	CloudApiKeyList,
@@ -27,7 +28,10 @@ import {
 	CloudProject,
 	type CloudProjectConnectRequest,
 	CloudProjectList,
+	type CloudProviderConnectionInput,
+	CloudProviderConnectionList,
 	CloudProviderList,
+	type CloudSnapshotImportRequest,
 	CloudTranscriptCheckpointResult,
 	CloudTranscriptMessagePageResult,
 	CloudWorkspace,
@@ -65,8 +69,26 @@ export type CloudControlRequest = <A>(
 ) => Effect.Effect<A, CloudWorkspaceOpError>;
 
 export const makeCloudControlClient = (request: CloudControlRequest) => ({
+	"cloud.snapshot.import": (input: CloudSnapshotImportRequest) =>
+		request(ApiPaths.cloudSnapshotImport, CloudAccountImage, "POST", input),
 	"plugins.request": (input: PluginRequest) =>
 		request("/v1/plugins", PluginResponse, "POST", input),
+	"cloud.providerConnections.list": () =>
+		request(ApiPaths.cloudProviderConnections, CloudProviderConnectionList),
+	"cloud.providerConnections.save": (input: CloudProviderConnectionInput) =>
+		request(
+			ApiPaths.cloudProviderConnections,
+			CloudProviderConnectionList,
+			"POST",
+			input,
+		),
+	"cloud.providerConnections.disconnect": (input: { connectionId: string }) =>
+		request(
+			ApiPaths.cloudProviderConnections,
+			CloudProviderConnectionList,
+			"DELETE",
+			input,
+		),
 	"cloud.providers": () => request(ApiPaths.cloudProviders, CloudProviderList),
 	"cloud.projects.connect": (input: CloudProjectConnectRequest) =>
 		request(ApiPaths.cloudProjects, CloudProject, "POST", input),
@@ -173,6 +195,8 @@ export const makeCloudControlClient = (request: CloudControlRequest) => ({
 			`${ApiPaths.cloudAccountImage}${input.providerId === undefined ? "" : `?providerId=${encodeURIComponent(input.providerId)}`}`,
 			CloudAccountImage,
 		),
+	"cloud.image.delete": (input: CloudAccountImageDeleteRequest) =>
+		request(ApiPaths.cloudAccountImageDelete, CloudAccountImage, "POST", input),
 	"cloud.image.build": (input: CloudAccountImageBuildRequest) =>
 		request(ApiPaths.cloudAccountImageBuild, CloudAccountImage, "POST", input),
 	"cloud.auth.status": () => request(ApiPaths.cloudAuth, CloudAuthStatus),

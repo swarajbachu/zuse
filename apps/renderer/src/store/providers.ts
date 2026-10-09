@@ -1,5 +1,4 @@
 import { getLocalEnvironmentId } from "../lib/rpc-client.ts";
-import { useUsageLimitsStore } from "./usage-limits.ts";
 import "@zuse/i18n/english/providers";
 import type {
 	AgentAvailability,
@@ -17,6 +16,7 @@ import {
 	peekCloudAuth,
 } from "../lib/cloud-workspace-session-cache.ts";
 import { subscribeControlPlaneSessionCache } from "../lib/control-plane-client.ts";
+import { createDeferredRuntime } from "../lib/deferred-runtime.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 import { formatError } from "../lib/format-error.ts";
 import { isHostedProduct } from "../lib/hosted-connect.ts";
@@ -26,6 +26,15 @@ import { StreamOperationOwner } from "../lib/stream-operation.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { useEnvironmentCatalogStore } from "./environment-catalog.ts";
 import { useModelCatalogStore } from "./model-catalog.ts";
+
+// Usage history is not needed for initial provider discovery. Load it only when
+// usage is displayed or an existing provider's credentials need invalidation.
+const usageLimits = createDeferredRuntime(() => import("./usage-limits.ts"));
+const invalidateUsage = async (providerId: ProviderId) => {
+	(await usageLimits.ready()).useUsageLimitsStore
+		.getState()
+		.invalidate(providerId);
+};
 
 // Stable reference for the "no capabilities" case so the `capabilitiesFor`
 // selector doesn't return a fresh array each call (which would churn the
@@ -283,9 +292,11 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 							old.authEmail !== provider.authEmail ||
 							old.authType !== provider.authType)
 					)
-						useUsageLimitsStore.getState().invalidate(provider.providerId);
+						await invalidateUsage(provider.providerId);
 				}
 			}
+			// A newer discovery may finish while the optional usage chunk loads.
+			if (availabilityRequests.get(key) !== request) return;
 			const publishActive = environmentId === activeEnvironmentId();
 			set((state) => ({
 				availabilityByEnvironment: {
@@ -412,14 +423,14 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 				CredentialSetResult
 			>(environmentId, "provider.setCredential", { providerId, apiKey });
 			if (environmentId === getLocalEnvironmentId())
-				useUsageLimitsStore.getState().invalidate(providerId);
+				await invalidateUsage(providerId);
 			await get().refresh();
 			// A new key can unlock a different live model list (Cursor).
 			void useModelCatalogStore.getState().refresh();
 			return result;
 		} catch (err) {
 			if (environmentId === getLocalEnvironmentId())
-				useUsageLimitsStore.getState().invalidate(providerId);
+				await invalidateUsage(providerId);
 			set({ error: formatError(err) });
 			throw err;
 		}
@@ -431,12 +442,12 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 				providerId,
 			});
 			if (environmentId === getLocalEnvironmentId())
-				useUsageLimitsStore.getState().invalidate(providerId);
+				await invalidateUsage(providerId);
 			await get().refresh();
 			void useModelCatalogStore.getState().refresh();
 		} catch (err) {
 			if (environmentId === getLocalEnvironmentId())
-				useUsageLimitsStore.getState().invalidate(providerId);
+				await invalidateUsage(providerId);
 			set({ error: formatError(err) });
 			throw err;
 		}

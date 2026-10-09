@@ -24,8 +24,12 @@ export function useReportRuntimeActivity(): void {
 	const hasLocalEnvironment = useEnvironmentCatalogStore((state) =>
 		state.entries.some((entry) => entry.connectionKind === "local"),
 	);
-	const { sessionsByProject, view } =
-		useEnvironmentEntities(localEnvironmentId);
+	// Machine-wide: Personal agents keep running while an organization is open.
+	const { sessionsByProject, view } = useEnvironmentEntities(
+		localEnvironmentId,
+		true,
+		"all",
+	);
 	const summaries = useCloudChatCatalogStore((state) => state.summaries);
 	const runningCount = useMemo(
 		() =>

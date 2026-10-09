@@ -12,7 +12,6 @@ import { CommandId } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Alert01Icon,
-	ArrowLeftRightIcon,
 	CheckListIcon,
 	ComputerPhoneSyncIcon,
 	GitCompareIcon,
@@ -53,14 +52,8 @@ import {
 	summaryRowClass as rowClass,
 } from "./cloud-workspace-info.tsx";
 import { SubagentAvatar } from "./subagent-identity.tsx";
-import { BranchMenuButton, ResolveConflictsButton } from "./top-bar.tsx";
-import {
-	Menu,
-	MenuItem,
-	MenuPopup,
-	MenuSeparator,
-	MenuTrigger,
-} from "./ui/menu.tsx";
+import { BranchMenuButton } from "./top-bar.tsx";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu.tsx";
 import {
 	PreviewCard,
 	PreviewCardPopup,
@@ -91,20 +84,18 @@ export function EnvironmentSummary() {
 	const activeEnvironmentId = useEnvironmentCatalogStore(
 		(state) => state.activeEnvironmentId,
 	);
-	const activeEnvironmentEntry = useEnvironmentCatalogStore(
+	const locationEnvironmentId =
+		ctx.status === "ready" ? ctx.environmentId : activeEnvironmentId;
+	const locationEntry = useEnvironmentCatalogStore(
 		(state) =>
 			state.entries.find(
-				(entry) => entry.environmentId === state.activeEnvironmentId,
+				(entry) => entry.environmentId === locationEnvironmentId,
 			) ?? null,
 	);
 	const environmentLocation = deriveEnvironmentLocation({
-		activeEnvironmentId:
-			ctx.status === "ready" ? ctx.environmentId : activeEnvironmentId,
+		activeEnvironmentId: locationEnvironmentId,
 		localEnvironmentId: getLocalEnvironmentId(),
-		activeEntry:
-			ctx.status === "ready" && ctx.environmentId !== activeEnvironmentId
-				? null
-				: activeEnvironmentEntry,
+		activeEntry: locationEntry,
 	});
 	const EnvironmentIcon = environmentLocation.isLocal
 		? LaptopIcon
@@ -357,7 +348,7 @@ export function EnvironmentSummary() {
 			>
 				<HugeiconsIcon icon={GitCompareIcon} className="size-4 shrink-0" />
 				<span className="min-w-0 flex-1 truncate">{changesLabel}</span>
-				{diffStat !== null ? (
+				{diffStat !== null && diffStat.additions + diffStat.deletions > 0 ? (
 					<span className="flex shrink-0 items-center gap-1 font-mono text-[11px] tabular-nums">
 						<span className="text-[var(--accent-green)]">
 							+{compactNumber(diffStat.additions)}
@@ -368,55 +359,57 @@ export function EnvironmentSummary() {
 					</span>
 				) : null}
 			</button>
-			<Menu modal={false}>
-				<MenuTrigger
-					className={`${rowClass} hover:bg-muted/60 data-[popup-open]:bg-muted/60`}
-					title={`${environmentLocation.menuLabel} · ${displayPath(ctx.rootPath)}`}
-				>
-					<HugeiconsIcon
-						icon={EnvironmentIcon}
-						className="size-4 shrink-0 text-muted-foreground"
-					/>
-					<span className="min-w-0 flex-1 truncate">
-						{environmentLocation.label}
-					</span>
-					<span className="size-1.5 rounded-full bg-[var(--accent-green)]" />
-				</MenuTrigger>
-				<MenuPopup side="left" align="start" sideOffset={8} className="w-60">
-					<div className="px-2.5 py-1.5 text-xs font-medium text-muted-foreground">
-						{uiMessage("chat:environment_summary_running_on")}
-					</div>
-					<MenuItem className="h-7 gap-2 px-2 py-0 text-xs">
-						<HugeiconsIcon icon={EnvironmentIcon} className="size-4" />
-						<span className="flex-1">{environmentLocation.menuLabel}</span>
-						<span className="text-[11px] text-[var(--accent-green)]">
-							{uiMessage("chat:environment_summary_active")}
-						</span>
-					</MenuItem>
-					<MenuSeparator />
-					<MenuItem
-						onClick={openDevices}
-						className="h-7 gap-2 px-2 py-0 text-xs"
-					>
-						<HugeiconsIcon icon={ComputerPhoneSyncIcon} className="size-4" />
-						<span className="flex-1">
-							{uiMessage("chat:environment_summary_connected_devices")}
-						</span>
-					</MenuItem>
-					<MenuItem
-						onClick={openDevices}
-						className="h-7 gap-2 px-2 py-0 text-xs"
-					>
-						<HugeiconsIcon icon={ArrowLeftRightIcon} className="size-4" />
-						<span className="flex-1">
-							{uiMessage("chat:environment_summary_worktree_handoff")}
-						</span>
-					</MenuItem>
-				</MenuPopup>
-			</Menu>
 			{cloudWorkspaceId !== null ? (
 				<CloudWorkspaceInfo workspaceId={cloudWorkspaceId} />
-			) : null}
+			) : (
+				<Menu modal={false}>
+					<MenuTrigger
+						className={`${rowClass} hover:bg-muted/60 data-[popup-open]:bg-muted/60`}
+						title={`${environmentLocation.menuLabel} · ${displayPath(ctx.rootPath)}`}
+					>
+						<HugeiconsIcon
+							icon={EnvironmentIcon}
+							className="size-4 shrink-0 text-muted-foreground"
+						/>
+						<span className="min-w-0 flex-1 truncate">
+							{environmentLocation.label}
+						</span>
+						{environmentLocation.isLocal ? null : (
+							<span
+								className={`size-1.5 shrink-0 rounded-full ${environmentLocation.connected ? "bg-[var(--accent-green)]" : "bg-[var(--accent-amber)]"}`}
+							/>
+						)}
+					</MenuTrigger>
+					<MenuPopup side="left" align="start" sideOffset={8} className="w-64">
+						<div className="px-2 pb-0.5 pt-1 text-xs font-medium text-muted-foreground">
+							{uiMessage("chat:environment_summary_running_on")}
+						</div>
+						<div className="flex flex-col gap-0.5 px-2 pb-1 text-xs">
+							<span className="flex items-center gap-2">
+								<HugeiconsIcon icon={EnvironmentIcon} className="size-4" />
+								<span className="min-w-0 flex-1 truncate">
+									{environmentLocation.menuLabel}
+								</span>
+							</span>
+							<span
+								className="truncate pl-6 font-mono text-[11px] text-muted-foreground"
+								title={ctx.rootPath}
+							>
+								{displayPath(ctx.rootPath)}
+							</span>
+						</div>
+						<MenuItem
+							onClick={openDevices}
+							className="h-7 gap-2 px-2 py-0 text-xs"
+						>
+							<HugeiconsIcon icon={ComputerPhoneSyncIcon} className="size-4" />
+							<span className="flex-1">
+								{uiMessage("chat:environment_summary_connected_devices")}
+							</span>
+						</MenuItem>
+					</MenuPopup>
+				</Menu>
+			)}
 			<BranchMenuButton
 				branchLabel={branchLabel}
 				branches={branches}
@@ -424,6 +417,7 @@ export function EnvironmentSummary() {
 				className={`${rowClass} max-w-none justify-start hover:bg-muted/60 data-[popup-open]:bg-muted/60`}
 				popupSide="left"
 				dirtyFiles={status?.dirtyFiles ?? 0}
+				variant="summary"
 				error={branchError}
 				loading={branchesLoading}
 				onOpen={() => void refreshBranches()}
@@ -444,7 +438,8 @@ export function EnvironmentSummary() {
 					pr={pr}
 					details={prDetails}
 					sessionId={sessionId}
-					className={`${rowClass} hover:bg-muted/60`}
+					action={prRows.action}
+					className={`${rowClass} hover:bg-muted/60 has-[[data-popup-open]]:bg-muted/60`}
 					onView={() => revealPanel("pr")}
 					onChat={() => {
 						suppressChecksPreview.current = true;
@@ -529,26 +524,6 @@ export function EnvironmentSummary() {
 							/>
 						</PreviewCardPopup>
 					</PreviewCard>
-				</div>
-			) : null}
-			{prRows.conflicts ? (
-				<div className={`${rowClass} justify-between`}>
-					<button
-						type="button"
-						className="flex min-h-7 min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
-						onClick={() => revealPanel("pr")}
-					>
-						<HugeiconsIcon
-							icon={Alert01Icon}
-							className="size-4 shrink-0 text-[var(--accent-red)]"
-						/>
-						<span className="min-w-0 flex-1 truncate">
-							{uiMessage("chat:environment_summary_merge_conflicts")}
-						</span>
-					</button>
-					<span className="pointer-events-none shrink-0 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 motion-reduce:transition-none">
-						<ResolveConflictsButton presentation="inline" />
-					</span>
 				</div>
 			) : null}
 			{planAvailable ? (

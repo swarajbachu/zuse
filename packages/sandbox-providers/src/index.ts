@@ -1,9 +1,11 @@
+export { zuseSnapshotName } from "./snapshot-name.ts";
+
 import {
 	makeProviderRegistry,
 	type ProviderRegistry,
 	type ProviderRegistryConfigError,
 } from "@zuse/provider-registry";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, type Redacted, Schema } from "effect";
 
 export class SandboxProviderError extends Schema.TaggedErrorClass<SandboxProviderError>()(
 	"SandboxProviderError",
@@ -69,6 +71,8 @@ export interface SandboxProcessSelector {
 
 /** Provider-reported list-price usage for one exact time window. */
 export interface ProviderSandboxUsage {
+	/** Original provider evidence for settlement audits. */
+	readonly evidence?: unknown;
 	readonly startedAtMs: number;
 	readonly endedAtMs: number;
 	/** Provider billing units; any size multiplier is already applied. */
@@ -79,7 +83,18 @@ export interface ProviderSandboxUsage {
 	readonly costMicrosPerSecond: number;
 }
 
+export interface SandboxProviderCredentials {
+	readonly apiKey: Redacted.Redacted<string>;
+	readonly templateId?: string;
+	readonly organization?: string;
+	readonly runtimeUser?: string;
+}
+
 export interface SandboxProviderAdapter {
+	/** Rebind infrastructure access without changing the provider identity. */
+	readonly withCredentials?: (
+		credentials: SandboxProviderCredentials,
+	) => SandboxProviderAdapter;
 	readonly providerId: string;
 	readonly displayName: string;
 	readonly getUsage?: (
@@ -112,6 +127,9 @@ export interface SandboxProviderAdapter {
 		readonly metadata?: Readonly<Record<string, string>>;
 		readonly sizeId?: string;
 		readonly snapshotId: string;
+		readonly snapshotVersion?: number;
+		/** User-owned snapshots retain provider integrations and native logins. */
+		readonly snapshotSource?: "custom-snapshot";
 		readonly timeoutSeconds: number;
 		readonly env: Readonly<Record<string, string>>;
 		readonly network: SandboxNetworkPolicy;
@@ -180,6 +198,12 @@ export interface SandboxProviderAdapter {
 		providerSandboxId: string,
 		network: SandboxNetworkPolicy,
 	) => Effect.Effect<void, SandboxProviderError>;
+	readonly resolveSnapshotSource?: (
+		snapshotId: string,
+	) => Effect.Effect<
+		{ readonly snapshotId: string; readonly version: number },
+		SandboxProviderError
+	>;
 	readonly snapshot: (
 		providerSandboxId: string,
 		name: string,
@@ -187,6 +211,12 @@ export interface SandboxProviderAdapter {
 	readonly kill: (
 		providerSandboxId: string,
 	) => Effect.Effect<void, SandboxProviderError>;
+	readonly inspectSnapshot?: (
+		snapshotId: string,
+	) => Effect.Effect<
+		"saving" | "ready" | "failed" | null,
+		SandboxProviderError
+	>;
 	readonly deleteSnapshot: (
 		snapshotId: string,
 	) => Effect.Effect<void, SandboxProviderError>;

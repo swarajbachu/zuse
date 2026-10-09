@@ -165,6 +165,22 @@ export const runCachedControlPlane = <Result>(
 		client: Awaited<ReturnType<typeof getCloudControlClient>>,
 	) => Effect.Effect<Result, unknown>,
 	options?: ControlPlaneCacheOptions<Result>,
+): Promise<Result> =>
+	runCachedRead(
+		key,
+		() =>
+			runCloudControl(
+				effect,
+				options?.scope === "account" ? { scope: "account" } : undefined,
+			),
+		options,
+	);
+
+/** The same session cache for any control-plane read (e.g. organizations). */
+export const runCachedRead = <Result>(
+	key: string,
+	read: () => Promise<Result>,
+	options?: ControlPlaneCacheOptions<Result>,
 ): Promise<Result> => {
 	const account = rendererAccountSnapshot();
 	const workspace = rendererWorkspaceSnapshot();
@@ -201,10 +217,7 @@ export const runCachedControlPlane = <Result>(
 		return cached.then(current);
 	if (!entry.pending) {
 		sessionCache.set(memoryKey, entry);
-		const request = runCloudControl(
-			effect,
-			accountScoped ? { scope: "account" } : undefined,
-		).then(
+		const request = read().then(
 			(value) => {
 				current(value);
 				if (

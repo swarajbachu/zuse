@@ -9,6 +9,8 @@ import type {
 
 export interface AcpPermissionContext {
 	readonly cwd: string;
+	readonly unsetExecutionEnv?: readonly string[];
+	readonly executionEnv?: Readonly<Record<string, string>>;
 	readonly sessionId?: AgentSessionId;
 	readonly projectId?: FolderId;
 	readonly requestPermission?: (
@@ -21,7 +23,13 @@ export interface AcpPermissionContext {
 
 export const makeAcpPermissionContext =
 	(
-		context: Required<AcpPermissionContext>,
-	): (() => Required<AcpPermissionContext>) =>
+		context: Required<
+			Omit<AcpPermissionContext, "executionEnv" | "unsetExecutionEnv">
+		> &
+			Pick<AcpPermissionContext, "executionEnv" | "unsetExecutionEnv">,
+	): (() => Required<
+		Omit<AcpPermissionContext, "executionEnv" | "unsetExecutionEnv">
+	> &
+		Pick<AcpPermissionContext, "executionEnv" | "unsetExecutionEnv">) =>
 	() =>
 		context;

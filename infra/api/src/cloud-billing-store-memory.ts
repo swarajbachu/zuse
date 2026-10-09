@@ -12,7 +12,9 @@ import {
 import {
 	type CloudBillingPeriodRecord,
 	CloudBillingStore,
+	publicCloudBillingUsage,
 } from "./cloud-billing-store.ts";
+import { makeCloudSnapshotStoreMemory } from "./cloud-snapshot-store.ts";
 import {
 	confirmedUsageExport,
 	makeCloudUsageStoreMemory,
@@ -62,6 +64,13 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 		);
 		return {
 			currency: "USD",
+			storageCostMicros: [...usage.values()]
+				.filter(
+					(item) =>
+						item.periodId === period.periodId &&
+						item.resourceKind === "snapshot",
+				)
+				.reduce((total, item) => total + item.providerCostMicros, 0),
 			status: cloudBillingStatus({
 				subscriptionStatus:
 					period.status === "ended"
@@ -92,6 +101,7 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 	const usageExports = makeCloudUsageStoreMemory();
 	return CloudBillingStore.of({
 		...usageExports,
+		snapshots: makeCloudSnapshotStoreMemory(),
 		hasProviderEvent: (provider, eventId) =>
 			Effect.succeed(events.has(`${provider}:${eventId}`)),
 		isProviderEventFinalized: (provider, eventId, providerExecutionId) =>
@@ -218,7 +228,9 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 					...[...reservations.values()]
 						.filter((item) => item.periodId === periodId)
 						.map((item) => item.item),
-				].slice(0, limit);
+				]
+					.slice(0, limit)
+					.map(publicCloudBillingUsage);
 				return { items };
 			}),
 		recordProviderExecutionBatch: (batch) =>

@@ -85,7 +85,7 @@ done
 
 echo "==> uploading provisioning payload"
 machine_exec 60 "mkdir -p $provision_dir/artifacts $provision_dir/boxd"
-for file in provision.sh project-builder.sh workspace-bootstrap.sh git-askpass.sh github-auth.sh repository-script.ts sshd_config; do
+for file in provision.sh install-grok.sh project-builder.sh workspace-bootstrap.sh git-askpass.sh github-auth.sh repository-script.ts sshd_config; do
 	boxd machine cp ${org_args[@]+"${org_args[@]}"} "$script_dir/$file" "$machine_id:$provision_dir/$file"
 done
 for file in "$script_dir"/boxd/*; do

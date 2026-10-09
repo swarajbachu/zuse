@@ -17,6 +17,9 @@ export default defineConfig({
 	deps: {
 		alwaysBundle: [/.*/u],
 		neverBundle: [
+			"playwright",
+			"playwright-core",
+			"@cursor/sdk",
 			"bindings",
 			"node-pty",
 			"tree-sitter",
@@ -25,6 +28,9 @@ export default defineConfig({
 			"tree-sitter-typescript",
 		],
 		onlyImport: [
+			"playwright",
+			"playwright-core",
+			"@cursor/sdk",
 			"bindings",
 			"node-pty",
 			"tree-sitter",

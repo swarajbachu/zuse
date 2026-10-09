@@ -653,6 +653,12 @@ export const makeE2bSandboxProvider = (
 
 	const resources = config.resources ?? { vcpuCount: 2, memoryMib: 1_024 };
 	return {
+		withCredentials: (credentials) =>
+			makeE2bSandboxProvider({
+				...config,
+				apiKey: credentials.apiKey,
+				templateId: credentials.templateId ?? config.templateId,
+			}),
 		providerId: E2B_PROVIDER_ID,
 		displayName: "E2B",
 		templateVersion: config.templateVersion ?? config.templateId,

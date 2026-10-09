@@ -27,6 +27,7 @@ import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import type { RpcBridge } from "./bridge.ts";
 import { requestBrowserWebSocketUrl } from "./browser-session.ts";
 import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
+import { cloudSummaryForEnvironment } from "./cloud-workspace-catalog.ts";
 import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";
 import { isPlatformOnline, subscribePlatformOnline } from "./network-status.ts";
@@ -316,6 +317,18 @@ export const rendererWebSocketOpenTimeout = (key: string) =>
 		? CLOUD_WEBSOCKET_OPEN_TIMEOUT
 		: RENDERER_WEBSOCKET_OPEN_TIMEOUT;
 
+const CLOUD_WORKSPACE_MAX_AUTOMATIC_ATTEMPTS = 6;
+
+// Retrying a cloud workspace can wake a billable machine, so its background
+// retries stop after a short ladder. A self-hosted computer that sleeps or
+// drops off the network must reconnect on its own when it comes back.
+export const rendererMaxAutomaticAttempts = (
+	options: Pick<RendererConnectionOptions, "key">,
+): number =>
+	options.key.startsWith("workspace:")
+		? CLOUD_WORKSPACE_MAX_AUTOMATIC_ATTEMPTS
+		: Number.POSITIVE_INFINITY;
+
 export const isIgnorableRendererFailure = (cause: unknown): boolean =>
 	cause instanceof Error &&
 	cause.message === "All fibers interrupted without error";
@@ -413,7 +426,7 @@ const supervisor = createConnectionSupervisor<
 	isOnline: isPlatformOnline,
 	requiresNetwork: connectionRequiresNetwork,
 	isIgnorableFailure: isIgnorableRendererFailure,
-	maxAutomaticAttempts: 6,
+	maxAutomaticAttempts: rendererMaxAutomaticAttempts,
 	schedule: (delayMs, reconnect) => {
 		const timer = setTimeout(reconnect, delayMs);
 		return () => clearTimeout(timer);
@@ -653,14 +666,26 @@ export const getControlPlaneRpcClient = async (
 export const getCloudWorkspaceScope = (
 	workspaceId: string,
 ): WorkspaceScope | undefined =>
-	cloudWorkspaceRegistrations.get(workspaceId)?.workspaceScope;
+	cloudWorkspaceRegistrations.get(workspaceId)?.workspaceScope ??
+	cloudSummaryForEnvironment(workspaceId)?.workspaceScope;
 
-/** Local/legacy device connections remain Personal until explicitly enrolled. */
+/**
+ * This desktop's own server. It serves every workspace: each of its projects
+ * records an owning workspace, and `scopeEnvironmentShell` shows only the
+ * projects of the selected one.
+ */
+export const isDesktopLocalEnvironment = (environmentId: string): boolean =>
+	!isHostedProduct() &&
+	(environmentId === LOCAL_ENVIRONMENT_KEY ||
+		environmentId === localEnvironmentId);
+
+/** Remote device connections (SSH, tailnet, paired) remain Personal. */
 export const environmentBelongsToWorkspace = (
 	environmentId: string,
 	scope: WorkspaceScope = rendererWorkspaceSnapshot().scope,
 ): boolean =>
-	(environmentId === LOCAL_ENVIRONMENT_KEY && isHostedProduct()) ||
+	environmentId === LOCAL_ENVIRONMENT_KEY ||
+	isDesktopLocalEnvironment(environmentId) ||
 	workspaceScopeKey(
 		getCloudWorkspaceScope(environmentId) ?? { kind: "personal" },
 	) === workspaceScopeKey(scope);
@@ -877,6 +902,19 @@ export const subscribeRendererRpcConnection = (
 	listener: (snapshot: ConnectionSnapshot) => void,
 	environmentId = activeEnvironmentId,
 ): (() => void) => getRendererEntry(environmentId).subscribe(listener);
+
+/**
+ * Restart interrupted self-hosted connections after this device resumes or
+ * regains focus. Cloud workspaces keep their bounded ladder so a wake never
+ * starts billable compute without user intent.
+ */
+export const retryInterruptedRendererRpcConnections = (): void => {
+	for (const entry of rendererEntries.values()) {
+		const { key, status } = entry.snapshot();
+		if (key.startsWith("workspace:")) continue;
+		if (status === "reconnecting" || status === "error") entry.retryNow();
+	}
+};
 
 export const retryRendererRpcConnection = (environmentId?: unknown): void =>
 	getRendererEntry(

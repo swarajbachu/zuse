@@ -175,6 +175,7 @@ import {
 	PlanApprovalTray,
 } from "./composer/plan-approval-tray.tsx";
 import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
+import { ProviderErrorTray } from "./composer/provider-error-tray.tsx";
 import { ProviderSignInTray } from "./composer/provider-sign-in-tray.tsx";
 import { QueueTray } from "./composer/queue-tray.tsx";
 import { SlashCommandPopover } from "./composer/slash-command-popover.tsx";
@@ -231,6 +232,7 @@ export function ChatComposer({
 	onDraftSubmit,
 	composerDraftKey,
 	headerSlot,
+	draftTray,
 	constrain = true,
 	directoryUnavailable = false,
 	submitDisabled = false,
@@ -251,6 +253,12 @@ export function ChatComposer({
 	 * (draft mode only). Non-draft composers pass nothing.
 	 */
 	headerSlot?: ReactNode;
+	/**
+	 * Draft-only notice rendered in the attached tray above the editor, next to
+	 * the offline notice. The new-chat landing uses it to explain why Send is
+	 * blocked.
+	 */
+	draftTray?: ReactNode;
 	/**
 	 * When set, the composer runs in "draft" mode for the new-chat landing:
 	 * `session` is a synthetic draft (see `sessions.beginDraft`) with no real
@@ -1404,6 +1412,90 @@ export function ChatComposer({
 		headDeviceCommand !== undefined ||
 		pendingQuestion !== null;
 
+	const composerTrays = (
+		<>
+			<NoConnectionTray />
+			{isDraft ? draftTray : null}
+			<ComposerAttachmentTray
+				draftKey={draftKey}
+				sessionId={isDraft ? null : sessionId}
+				folderId={session.projectId}
+				worktreeId={session.worktreeId}
+			/>
+			{!isDraft && isCloudSession ? <CloudConnectionNotice /> : null}
+			{!isDraft ? (
+				<ProviderSignInTray
+					environmentId={qualifiedEnvironmentId}
+					sessionId={sessionId}
+					providerId={session.providerId}
+				/>
+			) : null}
+			{!isDraft ? (
+				<>
+					<ProviderErrorTray
+						environmentId={qualifiedEnvironmentId}
+						sessionId={sessionId}
+						providerId={session.providerId}
+					/>
+					<PlanApprovalTray
+						environmentId={qualifiedEnvironmentId}
+						sessionId={sessionId}
+						emulatedPlanReady={emulatedPlanReady}
+						onApproveEmulatedPlan={approveEmulatedPlan}
+						onCancelEmulatedPlan={cancelEmulatedPlan}
+					/>
+					{goal !== null ? (
+						<GoalBanner
+							goal={goal}
+							inPlanMode={inPlanMode}
+							onPause={() =>
+								void setSessionGoal({
+									ref: goalRef,
+									goal: {
+										status: goal.status === "active" ? "paused" : "active",
+									},
+								}).catch(() => undefined)
+							}
+							onSave={(objective, tokenBudget) =>
+								void setSessionGoal({
+									ref: goalRef,
+									goal: {
+										objective,
+										status: "active",
+										tokenBudget,
+									},
+								}).catch(() => undefined)
+							}
+							onClear={() =>
+								void clearSessionGoal({ ref: goalRef }).catch(() => undefined)
+							}
+						/>
+					) : null}
+					<ContextTray
+						environmentId={qualifiedEnvironmentId}
+						sessionId={sessionId}
+					/>
+					{!inPlanMode ? (
+						<ProjectPlanTray
+							environmentId={qualifiedEnvironmentId}
+							key={sessionId}
+							sessionId={sessionId}
+						/>
+					) : null}
+					<QueueTray
+						environmentId={qualifiedEnvironmentId}
+						sessionId={sessionId}
+						creationInProgress={creationInProgress}
+						cloudSummary={cloudSummary}
+						waitingForSandbox={
+							cloudSummary !== null && !isCloudWorkspaceReady(cloudSummary)
+						}
+					/>
+				</>
+			) : null}
+		</>
+	);
+
 	return (
 		<TooltipProvider delay={0}>
 			{showCard ? (
@@ -1451,89 +1543,26 @@ export function ChatComposer({
 			>
 				<div className={constrain ? "mx-auto w-full max-w-4xl" : "w-full"}>
 					<div className="relative">
-						<div
-							className={cn(
-								composerTraySurfaceClass,
-								"relative z-10 rounded-b-none rounded-t-[1.2rem] empty:hidden",
-							)}
-						>
-							<NoConnectionTray />
-							<ComposerAttachmentTray
-								draftKey={draftKey}
-								sessionId={isDraft ? null : sessionId}
-								folderId={session.projectId}
-								worktreeId={session.worktreeId}
-							/>
-							{!isDraft && isCloudSession ? <CloudConnectionNotice /> : null}
-							{!isDraft ? (
-								<ProviderSignInTray
-									environmentId={qualifiedEnvironmentId}
-									sessionId={sessionId}
-									providerId={session.providerId}
-								/>
-							) : null}
-							{!isDraft ? (
-								<>
-									<PlanApprovalTray
-										environmentId={qualifiedEnvironmentId}
-										sessionId={sessionId}
-										emulatedPlanReady={emulatedPlanReady}
-										onApproveEmulatedPlan={approveEmulatedPlan}
-										onCancelEmulatedPlan={cancelEmulatedPlan}
-									/>
-									{goal !== null ? (
-										<GoalBanner
-											goal={goal}
-											inPlanMode={inPlanMode}
-											onPause={() =>
-												void setSessionGoal({
-													ref: goalRef,
-													goal: {
-														status:
-															goal.status === "active" ? "paused" : "active",
-													},
-												}).catch(() => undefined)
-											}
-											onSave={(objective, tokenBudget) =>
-												void setSessionGoal({
-													ref: goalRef,
-													goal: {
-														objective,
-														status: "active",
-														tokenBudget,
-													},
-												}).catch(() => undefined)
-											}
-											onClear={() =>
-												void clearSessionGoal({ ref: goalRef }).catch(
-													() => undefined,
-												)
-											}
-										/>
-									) : null}
-									<ContextTray
-										environmentId={qualifiedEnvironmentId}
-										sessionId={sessionId}
-									/>
-									{!inPlanMode ? (
-										<ProjectPlanTray
-											environmentId={qualifiedEnvironmentId}
-											key={sessionId}
-											sessionId={sessionId}
-										/>
-									) : null}
-									<QueueTray
-										environmentId={qualifiedEnvironmentId}
-										sessionId={sessionId}
-										creationInProgress={creationInProgress}
-										waitingForSandbox={
-											cloudSummary !== null &&
-											!isCloudWorkspaceReady(cloudSummary)
-										}
-									/>
-								</>
-							) : null}
-						</div>
+						{/* With a header toolbar (new-chat landing), notices and the
+						    toolbar share one attached surface so they read as a
+						    single strip on top of the composer. */}
+						{headerSlot !== undefined ? (
+							<div className="composer-attached-toolbar relative z-10 mx-auto w-14/15 overflow-hidden rounded-b-none rounded-t-[1.2rem]">
+								{composerTrays}
+								<div className="flex min-h-8 items-center overflow-x-auto px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+									{headerSlot}
+								</div>
+							</div>
+						) : (
+							<div
+								className={cn(
+									composerTraySurfaceClass,
+									"relative z-10 rounded-b-none rounded-t-[1.2rem] empty:hidden",
+								)}
+							>
+								{composerTrays}
+							</div>
+						)}
 						{editingQueuedItem !== null ? (
 							<div className="mb-1 flex h-7 items-center justify-between rounded-md bg-muted/35 px-2.5 text-xs text-muted-foreground">
 								<span>
@@ -1546,11 +1575,6 @@ export function ChatComposer({
 								>
 									{uiMessage("common:cancel")}
 								</button>
-							</div>
-						) : null}
-						{headerSlot !== undefined ? (
-							<div className="composer-attached-toolbar relative z-10 mx-auto flex min-h-8 w-14/15 items-center overflow-x-auto rounded-b-none rounded-t-[1.2rem] px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-								{headerSlot}
 							</div>
 						) : null}
 						<Card

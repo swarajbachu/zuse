@@ -71,8 +71,12 @@ export type ConnectionSupervisorDeps<Options, Client> = {
 		previous: Options,
 		next: Options,
 	) => boolean;
-	/** Stop background retry churn after this many consecutive failures. */
-	readonly maxAutomaticAttempts?: number;
+	/**
+	 * Stop background retry churn after this many consecutive failures. A
+	 * function lets one supervisor bound billable cloud connections while
+	 * self-hosted computers keep retrying until they come back.
+	 */
+	readonly maxAutomaticAttempts?: number | ((options: Options) => number);
 	readonly onDiagnostic?: (diagnostic: ConnectionDiagnostic) => void;
 };
 
@@ -300,6 +304,13 @@ class SupervisorEntryImpl<Options, Client>
 		return this.deps.requiresNetwork?.(this.options) ?? true;
 	}
 
+	private maxAutomaticAttempts(): number {
+		const limit = this.deps.maxAutomaticAttempts;
+		return typeof limit === "function"
+			? limit(this.options)
+			: (limit ?? Number.POSITIVE_INFINITY);
+	}
+
 	/** Platform connectivity only gates transports that cross the network. */
 	private isOnline(): boolean {
 		return !this.needsNetwork() || this.deps.isOnline();
@@ -314,8 +325,7 @@ class SupervisorEntryImpl<Options, Client>
 		if (
 			this.state.status === "blockedAuth" ||
 			(this.state.status === "error" &&
-				this.state.attempt >=
-					(this.deps.maxAutomaticAttempts ?? Number.POSITIVE_INFINITY))
+				this.state.attempt >= this.maxAutomaticAttempts())
 		) {
 			throw new Error(this.state.error ?? "connection unavailable");
 		}
@@ -388,9 +398,7 @@ class SupervisorEntryImpl<Options, Client>
 			return;
 		}
 		const attempt = this.state.attempt + 1;
-		const maxAttempts =
-			this.deps.maxAutomaticAttempts ?? Number.POSITIVE_INFINITY;
-		if (attempt >= maxAttempts) {
+		if (attempt >= this.maxAutomaticAttempts()) {
 			this.emit({ status: "error", attempt, error: messageOf(cause) });
 			this.diagnostic("retry.exhausted", {
 				attempt,

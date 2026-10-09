@@ -1,5 +1,7 @@
-import { BROWSER_PAGE_HEADERS } from "@zuse/utils/browser-page";
-import { renderIntegrationPage } from "@zuse/utils/integration-page";
+import {
+	INTEGRATION_PAGE_HEADERS,
+	renderIntegrationPage,
+} from "@zuse/utils/integration-page";
 
 export const renderGithubConnectedPage = (accountLogin: string): string => {
 	const account = accountLogin.trim().slice(0, 80) || "Your GitHub account";
@@ -11,4 +13,4 @@ export const renderGithubConnectedPage = (accountLogin: string): string => {
 		actions: [{ label: "Open Zuse", href: "zuse://" }],
 	});
 };
-export const githubCallbackPageHeaders = BROWSER_PAGE_HEADERS;
+export const githubCallbackPageHeaders = INTEGRATION_PAGE_HEADERS;

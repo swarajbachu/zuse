@@ -6,12 +6,14 @@ import {
 import { batchAtomUpdates } from "../state/registry.tsx";
 import { useChatsStore } from "../store/chats.ts";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
+import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import {
 	cloudProjectFolderId,
 	cloudProjectFolders,
 } from "./cloud-project-folders.ts";
+import { cloudSummaryForSelection } from "./cloud-workspace-catalog.ts";
 import { loadCloudProjects } from "./cloud-workspace-session-cache.ts";
 import { environmentShellResourceKey } from "./environment-shell-client-bus.ts";
 import { openNewChatLanding } from "./open-new-chat-landing.ts";
@@ -44,11 +46,21 @@ export const seedHostedProjects = (
 	});
 	if (useEnvironmentCatalogStore.getState().activeEnvironmentId === "local") {
 		const previous = useWorkspaceStore.getState().selectedFolderId;
+		// A workspace link waits for its runtime shell to supply the real folder.
+		// Selecting a default project here would clear that chat and session.
+		const pendingCloudSelection =
+			previous === null &&
+			cloudSummaryForSelection({
+				chatId: useChatsStore.getState().selectedChatId,
+				sessionId: useSessionsStore.getState().selectedSessionId,
+			}) !== null;
 		useWorkspaceStore.setState({
 			folders,
-			selectedFolderId: folders.some((f) => f.id === previous)
-				? previous
-				: (folders[0]?.id ?? null),
+			selectedFolderId: pendingCloudSelection
+				? null
+				: folders.some((f) => f.id === previous)
+					? previous
+					: (folders[0]?.id ?? null),
 			loading: false,
 		});
 	}

@@ -30,6 +30,7 @@ import {
 	type PowerMonitorState,
 	type PowerRecordingDurationMinutes,
 	type PowerWorkloadState,
+	SYSTEM_RESUME_CHANNEL,
 	UPDATE_CHANNEL_GET,
 	UPDATE_CHANNEL_SET,
 	UPDATE_CHECK_CHANNEL,
@@ -54,6 +55,7 @@ let computerAwakeSubscriberCount = 0;
  * listener for response frames from main and returns an unsubscribe handle.
  */
 const bridge = {
+	htmlVisualPublicNetwork: true,
 	locale: {
 		get: (): Promise<import("@zuse/contracts").LocaleSnapshot> =>
 			ipcRenderer.invoke("locale:get"),
@@ -616,6 +618,13 @@ const bridge = {
 				if (powerStateSubscriberCount === 0) {
 					ipcRenderer.send(POWER_UNSUBSCRIBE_CHANNEL);
 				}
+			};
+		},
+		onResume: (handler: () => void) => {
+			const wrapped = () => handler();
+			ipcRenderer.on(SYSTEM_RESUME_CHANNEL, wrapped);
+			return () => {
+				ipcRenderer.off(SYSTEM_RESUME_CHANNEL, wrapped);
 			};
 		},
 		startRecording: (durationMinutes: PowerRecordingDurationMinutes) =>

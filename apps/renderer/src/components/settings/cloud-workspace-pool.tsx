@@ -1,5 +1,6 @@
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import { githubInstallationSettingsUrl } from "@zuse/utils/github-installation";
+import { startCloudCheckout } from "../../lib/cloud-checkout.ts";
 import {
 	cloudImageGroupStatus,
 	rebuildCloudImages,
@@ -10,15 +11,20 @@ import {
 	subscribeCloudImages,
 } from "../../lib/cloud-image-monitor.ts";
 import {
-	CLOUD_CHECKOUT_STARTED,
 	type CloudSetupProgress,
 	type CloudSetupStep,
+	readyCloudOnboardingSnapshot,
 	requestCloudOnboarding,
 } from "../../lib/cloud-onboarding.ts";
 import { peekCloudGithub } from "../../lib/cloud-workspace-session-cache.ts";
+import { connectGithub } from "../../lib/connect-github.ts";
+import {
+	type CloudHostingMode,
+	CloudHostingSettings,
+} from "./cloud-hosting-settings.tsx";
+import { CloudSnapshotAuthSetup } from "./cloud-snapshot-auth-setup.tsx";
 import "@zuse/i18n/english/settings";
 import {
-	CLOUD_WORKSPACE_OFFER_ID,
 	type CloudAccountImage,
 	type CloudBillingSummary,
 	type CloudBillingUsageItem,
@@ -31,14 +37,16 @@ import {
 	type WorkspaceScope,
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
-import { Cloud } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import {
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useRef,
 	useState,
 	useSyncExternalStore,
 } from "react";
+import { cn } from "~/lib/utils";
 import { useAuth } from "../../hooks/use-auth.ts";
 import {
 	cloudProviderLabel,
@@ -56,6 +64,9 @@ import {
 	loadCloudProviderImages,
 	loadCloudProviders,
 	loadCloudWorkspaces,
+	peekCloudEntitlements,
+	peekCloudImage,
+	peekCloudProviders,
 } from "../../lib/cloud-workspace-session-cache.ts";
 import {
 	runCloudControl,
@@ -69,6 +80,11 @@ import {
 } from "../../lib/renderer-workspace.ts";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
+import {
+	Collapsible,
+	CollapsiblePanel,
+	CollapsibleTrigger,
+} from "../ui/collapsible.tsx";
 import { Input } from "../ui/input.tsx";
 import { SegmentedTabs } from "../ui/segmented-tabs.tsx";
 import { CloudApiKeys } from "./cloud-api-keys.tsx";
@@ -79,6 +95,10 @@ import {
 	CloudSettingsRow,
 	COMPACT_CLOUD_ACTION,
 } from "./cloud-settings-ui.tsx";
+import {
+	CloudSnapshotAgentAuthentication,
+	CloudSnapshotRepositories,
+} from "./cloud-snapshot-access.tsx";
 import { CloudWorkspaceAuth } from "./cloud-workspace-auth.tsx";
 import { CloudWorkspaceGithub } from "./cloud-workspace-github.tsx";
 import { CloudWorkspaceRepositories } from "./cloud-workspace-repositories.tsx";
@@ -113,6 +133,7 @@ type CloudWorkspacePoolProps = {
 	};
 };
 
+/** Resolves workspace permissions and resets Cloud settings when the active scope changes. */
 export function CloudWorkspacePool({
 	section = "all",
 	onboarding,
@@ -145,38 +166,61 @@ export function CloudWorkspacePool({
 			workspaceName={name}
 			workspaceScope={workspace.scope}
 			canManageBilling={canManageBilling}
+			canManageProviders={
+				workspace.scope.kind === "personal" || organization?.role === "admin"
+			}
 			onboarding={onboarding}
 		/>
 	);
 }
 
+/** Displays cloud workspaces, saved images and billing controls for the selected workspace scope. */
 function ScopedCloudWorkspacePool({
 	onboarding,
 	section,
 	workspaceName,
 	workspaceScope,
 	canManageBilling,
+	canManageProviders,
 }: {
 	onboarding?: CloudWorkspacePoolProps["onboarding"];
 	section: NonNullable<CloudWorkspacePoolProps["section"]>;
 	workspaceName: string;
 	workspaceScope: WorkspaceScope;
 	canManageBilling: boolean;
+	canManageProviders: boolean;
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 
 	const { isLoading: authLoading, isSignedIn, signIn, signingIn } = useAuth();
 	const [setupLoading, setSetupLoading] = useState(true);
-	const [entitlementSubscribed, setEntitlementSubscribed] = useState(false);
+	const [entitlementSubscribed, setEntitlementSubscribed] = useState(() => {
+		const cached = peekCloudEntitlements();
+		return (
+			peekCloudProviders()?.entitled ??
+			(cached === undefined ? false : hasCloudEntitlement(cached))
+		);
+	});
+	const [paidSubscription, setPaidSubscription] = useState<boolean | null>(
+		() => {
+			const cached = peekCloudEntitlements();
+			return cached === undefined ? null : hasCloudEntitlement(cached);
+		},
+	);
 	const [serviceAvailable, setServiceAvailable] = useState(true);
 	const [providers, setProviders] = useState<
 		ReadonlyArray<CloudProviderOption>
-	>([]);
+	>(() => peekCloudProviders()?.providers ?? []);
 	const loadSequence = useRef(0);
 	const [projects, setProjects] = useState<ReadonlyArray<CloudProject>>([]);
 	const [providerImages, setProviderImages] = useState<
 		readonly CloudAccountImage[]
-	>([]);
+	>(() =>
+		(peekCloudProviders()?.providers ?? []).flatMap((provider) => {
+			const cached = peekCloudImage(provider.providerId);
+			return cached ? [cached] : [];
+		}),
+	);
 	useEffect(
 		() =>
 			subscribeCloudImages((images) =>
@@ -225,7 +269,7 @@ function ScopedCloudWorkspacePool({
 			? null
 			: imageLoadError;
 	const [projectError, setProjectError] = useState<string | null>(null);
-	const [view, setView] = useState<"setup" | "usage" | "activity">("setup");
+	const [view, setView] = useState<"setup" | "usage">("setup");
 	const access = cloudWorkspaceAccessPresentation({
 		entitlementSubscribed,
 		serviceAvailable,
@@ -259,6 +303,18 @@ function ScopedCloudWorkspacePool({
 		async (refresh = false) => {
 			if (!isSignedIn) return;
 			const requestSequence = ++loadSequence.current;
+			const billingImages =
+				section === "billing"
+					? loadCloudProviders(refresh)
+							.then(async (result) => ({
+								...result,
+								images: await loadCloudProviderImages(
+									result.providers,
+									refresh,
+								),
+							}))
+							.catch(() => undefined)
+					: undefined;
 			const workspaceData =
 				section === "billing"
 					? undefined
@@ -276,6 +332,7 @@ function ScopedCloudWorkspacePool({
 					const entitlements = await loadCloudEntitlements(refresh);
 					if (requestSequence !== loadSequence.current) return;
 					loadedSubscribed = hasCloudEntitlement(entitlements);
+					setPaidSubscription(loadedSubscribed);
 					setEntitlementSubscribed(loadedSubscribed);
 					if (loadedSubscribed && canManageBilling) {
 						const [summary, usage] = await Promise.all([
@@ -297,6 +354,20 @@ function ScopedCloudWorkspacePool({
 				}
 
 				if (workspaceData === undefined) {
+					const images = await billingImages;
+					if (requestSequence !== loadSequence.current) return;
+					if (images !== undefined) {
+						setProviders(images.providers);
+						if (images.entitled !== undefined)
+							setEntitlementSubscribed(images.entitled);
+						setProviderImages((current) =>
+							reconcileCloudImages(
+								current,
+								images.images.images,
+								images.images.complete,
+							),
+						);
+					}
 					setServiceAvailable(true);
 					return;
 				}
@@ -315,6 +386,10 @@ function ScopedCloudWorkspacePool({
 				setServiceAvailable(apiAvailable);
 				if (providerResult.status === "fulfilled") {
 					setProviders(providerResult.value.providers);
+					if (providerResult.value.entitled !== undefined) {
+						loadedSubscribed = providerResult.value.entitled;
+						setEntitlementSubscribed(loadedSubscribed);
+					}
 				}
 				if (projectResult.status === "fulfilled")
 					setProjects(projectResult.value.projects);
@@ -322,7 +397,11 @@ function ScopedCloudWorkspacePool({
 					setWorkspaces(workspaceResult.value.workspaces);
 				if (imageResult.status === "fulfilled")
 					setProviderImages((current) =>
-						reconcileCloudImages(current, imageResult.value.images),
+						reconcileCloudImages(
+							current,
+							imageResult.value.images,
+							imageResult.value.complete,
+						),
 					);
 				setFailedImageProviders(
 					imageResult.status === "fulfilled" &&
@@ -381,10 +460,19 @@ function ScopedCloudWorkspacePool({
 		});
 	}, [authLoading, isSignedIn, load, loadGithubRepos, section]);
 
-	const githubReady = githubAuthenticated && projects.length > 0;
-	const authReady = providerImages.some((image) =>
-		image.providers.some((provider) => provider.state === "connected"),
+	const readySnapshot = readyCloudOnboardingSnapshot(
+		providerImages,
+		selectedProvider,
 	);
+	const githubReady =
+		readySnapshot !== undefined || (githubAuthenticated && projects.length > 0);
+	const authReady =
+		(readySnapshot !== undefined &&
+			readySnapshot.agentAuthentication !== "zuse") ||
+		providerImages.some((image) =>
+			image.providers.some((provider) => provider.state === "connected"),
+		);
+
 	const imageReady =
 		accountImage?.state === "ready" &&
 		!busy?.startsWith("image:") &&
@@ -462,16 +550,7 @@ function ScopedCloudWorkspacePool({
 		}
 	};
 
-	const checkout = () =>
-		run("checkout", () =>
-			openExternal(async () => {
-				const result = await runCloudControl((client) =>
-					client["machines.checkout"]({ offerId: CLOUD_WORKSPACE_OFFER_ID }),
-				);
-				window.dispatchEvent(new Event(CLOUD_CHECKOUT_STARTED));
-				return result.checkoutUrl;
-			}),
-		);
+	const checkout = () => run("checkout", startCloudCheckout);
 
 	const saveOverageCap = () =>
 		run("billing-cap", async () => {
@@ -497,15 +576,7 @@ function ScopedCloudWorkspacePool({
 			}),
 		);
 
-	const installGithub = () =>
-		run("github-install", () =>
-			openExternal(async () => {
-				const result = await runCloudControl((client) =>
-					client["cloud.github.install"](),
-				);
-				return result.url;
-			}),
-		);
+	const installGithub = () => run("github-install", connectGithub);
 
 	const manageGithub = (installationId: number) => {
 		const installation = githubStatus?.installations.find(
@@ -689,6 +760,73 @@ function ScopedCloudWorkspacePool({
 					? `You have used ${overageCapPercent}% of this period's overage cap.`
 					: null;
 
+	// Once GitHub is connected, adding repositories is the common task; before
+	// that, connecting GitHub is the only way forward.
+	const githubGroup = (
+		<CloudWorkspaceGithub
+			status={githubStatus}
+			loading={reposLoading}
+			busy={busy}
+			onInstall={() => void installGithub()}
+			onManage={(installationId) => void manageGithub(installationId)}
+			onRefresh={() => void loadGithubRepos(true)}
+			onDisconnect={(installationId) => void disconnectGithub(installationId)}
+		/>
+	);
+	const snapshotImage =
+		accountImage?.source === "custom-snapshot" ? accountImage : null;
+	const activeHosting: CloudHostingMode | null =
+		snapshotImage !== null
+			? "snapshot"
+			: providers.find((provider) => provider.providerId === selectedProvider)
+						?.billingSource === "provider"
+				? "provider"
+				: paidSubscription === true && !setupLoading
+					? "zuse"
+					: null;
+	const repositoriesGroup =
+		snapshotImage !== null ? (
+			<CloudSnapshotRepositories image={snapshotImage} />
+		) : (
+			<CloudWorkspaceRepositories
+				projects={projects}
+				repositories={githubRepos}
+				githubAuthenticated={githubAuthenticated}
+				loading={reposLoading}
+				busy={busy}
+				error={projectError}
+				onRefresh={() => void loadGithubRepos(true)}
+				onAdd={(names) => void connectProjects(names)}
+				onRemove={(project) => void removeProject(project)}
+			/>
+		);
+	const showTabs =
+		onboarding === undefined &&
+		subscribed &&
+		serviceAvailable &&
+		section === "all";
+	const setupVisible =
+		subscribed &&
+		serviceAvailable &&
+		section !== "billing" &&
+		(section !== "all" || view === "setup");
+	const usageVisible =
+		section === "billing" || (section === "all" && view === "usage");
+	const showsSection = (
+		pageSection: "repositories" | "image" | "agents",
+		step: CloudSetupStep,
+	) =>
+		(section === "all" || section === pageSection) &&
+		(onboarding === undefined || onboarding.step === step);
+	const advancedApiKeys =
+		setupVisible && (section === "all" || section === "agents");
+	const advancedGuide = setupVisible && section === "all";
+	const showAdvanced =
+		onboarding === undefined &&
+		section !== "billing" &&
+		(!subscribed || setupVisible) &&
+		(advancedApiKeys || advancedGuide);
+
 	return (
 		<>
 			{onboarding !== undefined && setupLoading ? (
@@ -696,11 +834,20 @@ function ScopedCloudWorkspacePool({
 					{uiMessage("common:loading")}
 				</p>
 			) : null}
-			<p className="text-xs font-medium text-foreground">
-				{uiMessage("settings:workspace_billing_identity", {
-					workspace: workspaceName,
-				})}
-			</p>
+			<div className="flex min-h-7 items-center justify-between gap-3">
+				<p className="text-xs font-medium text-foreground">
+					{uiMessage("settings:workspace_billing_identity", {
+						workspace: workspaceName,
+					})}
+				</p>
+				{onboarding === undefined && subscribed ? (
+					<Badge variant={serviceAvailable ? "success" : "warning"}>
+						{serviceAvailable
+							? uiMessage("settings:cloud_images_state_ready")
+							: uiMessage("settings:cloud_workspace_pool_update_required")}
+					</Badge>
+				) : null}
+			</div>
 			{!canManageBilling && (
 				<p className="text-xs text-muted-foreground">
 					{uiMessage("settings:workspace_billing_managers_only")}
@@ -714,134 +861,67 @@ function ScopedCloudWorkspacePool({
 					{error}
 				</div>
 			)}
-			{onboarding === undefined ? (
-				<CloudSettingsGroup
-					title={uiMessage("settings:cloud_workspace_pool_cloud_access")}
-					description={uiMessage(
-						"settings:cloud_workspace_pool_cloud_workspaces_keep_agents_running_when_this_app_or_your_laptop_is_o",
-					)}
-					action={
-						subscribed ? (
-							<Badge variant={serviceAvailable ? "success" : "warning"}>
-								{serviceAvailable
-									? uiMessage("settings:cloud_workspace_pool_active")
-									: uiMessage("settings:cloud_workspace_pool_update_required")}
-							</Badge>
-						) : canManageBilling ? (
-							<Button
-								size="xs"
-								className={COMPACT_CLOUD_ACTION}
-								loading={busy === "checkout"}
-								onClick={() => void checkout()}
-							>
-								{uiMessage("settings:cloud_workspace_pool_subscribe_40_month")}
-							</Button>
-						) : null
+			{onboarding !== undefined ||
+			section === "all" ||
+			section === "image" ||
+			section === "billing" ? (
+				<CloudHostingSettings
+					paidSubscription={paidSubscription}
+					loading={setupLoading}
+					canManageBilling={canManageBilling}
+					canManageProviders={canManageProviders}
+					activeMode={activeHosting}
+					selectedProviderId={selectedProvider}
+					snapshot={
+						providerImages.find(
+							(image) =>
+								image.source === "custom-snapshot" ||
+								image.snapshot !== undefined,
+						) ?? null
 					}
-				>
-					<CloudSettingsRow
-						title={
-							subscribed
-								? uiMessage(
-										"settings:cloud_workspace_pool_cloud_workspace_is_ready",
-									)
-								: uiMessage(
-										"settings:cloud_workspace_pool_enable_cloud_workspace",
-									)
-						}
-						description={uiMessage(
-							"settings:cloud_workspace_pool_each_chat_gets_an_isolated_workspace_compute_pauses_when_it_is_not_nee",
-						)}
-						action={
-							<Cloud className="size-4 text-muted-foreground" aria-hidden />
-						}
-					/>
-				</CloudSettingsGroup>
+					busy={busy}
+					onCheckout={() => void checkout()}
+					onManage={() => void openBillingPortal()}
+					onChanged={() => load(true)}
+				/>
 			) : null}
 
-			{onboarding === undefined &&
-			subscribed &&
-			serviceAvailable &&
-			section === "all" ? (
+			{showTabs ? (
 				<SegmentedTabs
 					value={view}
 					onValueChange={setView}
 					ariaLabel={uiMessage("common:cloud_workspace_settings")}
-					className="max-w-sm"
+					className="max-w-56"
 					options={[
-						{ value: "setup", label: "Setup" },
-						...(canManageBilling
-							? [{ value: "usage" as const, label: "Usage" }]
-							: []),
-						{ value: "activity", label: "Activity" },
+						{
+							value: "setup",
+							label: uiMessage("settings:cloud_workspace_pool_tab_setup"),
+						},
+						{
+							value: "usage",
+							label: uiMessage("settings:cloud_workspace_pool_tab_usage"),
+						},
 					]}
 				/>
 			) : null}
 
-			{subscribed &&
-			serviceAvailable &&
-			section !== "billing" &&
-			(section !== "all" || view === "setup") ? (
+			{setupVisible ? (
 				<>
-					{(section === "all" || section === "repositories") &&
-					(onboarding === undefined || onboarding.step === "github") ? (
-						<>
-							<CloudWorkspaceGithub
-								status={githubStatus}
-								loading={reposLoading}
-								busy={busy}
-								onInstall={() => void installGithub()}
-								onManage={(installationId) => void manageGithub(installationId)}
-								onRefresh={() => void loadGithubRepos(true)}
-								onDisconnect={(installationId) =>
-									void disconnectGithub(installationId)
-								}
-							/>
-							<CloudWorkspaceRepositories
-								projects={projects}
-								repositories={githubRepos}
-								githubAuthenticated={githubAuthenticated}
-								loading={reposLoading}
-								busy={busy}
-								error={projectError}
-								onRefresh={() => void loadGithubRepos(true)}
-								onAdd={(names) => void connectProjects(names)}
-								onRemove={(project) => void removeProject(project)}
-							/>
-						</>
-					) : null}
-					{(section === "all" || section === "agents") &&
-					(onboarding === undefined || onboarding.step === "auth") ? (
-						<>
-							<CloudWorkspaceAuth />
-							<CloudApiKeys scope={workspaceScope} />
-						</>
-					) : null}
-					{(section === "all" || section === "image") &&
-					(onboarding === undefined || onboarding.step === "image") ? (
+					{/* Show image status after hosting and provider configuration. */}
+					{/* A single-provider custom snapshot is fully described under Hosting. */}
+					{showsSection("image", "image") &&
+					(snapshotImage === null || providers.length > 1) ? (
 						<CloudSettingsGroup
 							title={uiMessage("settings:cloud_workspace_pool_cloud_image")}
-							description={uiMessage(
-								"settings:cloud_images_selected_description",
-							)}
+							help={uiMessage("settings:cloud_images_selected_description")}
 						>
-							{onboarding === undefined ? (
-								<CloudSettingsRow
-									title={uiMessage("settings:cloud_setup_title")}
-									description={uiMessage(
-										"settings:cloud_setup_guide_description",
-									)}
-									action={
-										<Button
-											className={COMPACT_CLOUD_ACTION}
-											variant="ghost"
-											onClick={requestCloudOnboarding}
-										>
-											{uiMessage("settings:cloud_setup_open_guide")}
-										</Button>
-									}
-								/>
-							) : null}
+							<CloudImageReadiness
+								image={accountImage}
+								projects={projects}
+								busy={busy}
+								unavailable={imageError !== null || providers.length === 0}
+								onBuild={(mode) => void buildAccountImage(mode)}
+							/>
 							<CloudImageProviders
 								providers={providers}
 								images={providerImages}
@@ -851,13 +931,6 @@ function ScopedCloudWorkspacePool({
 									setBuildError(null);
 								}}
 								disabled={busy !== null}
-							/>
-							<CloudImageReadiness
-								image={accountImage}
-								projects={projects}
-								busy={busy}
-								unavailable={imageError !== null || providers.length === 0}
-								onBuild={(mode) => void buildAccountImage(mode)}
 							/>
 							{imageError === null ? null : (
 								<div className="flex items-center justify-between gap-3 bg-destructive/10 px-3 py-2">
@@ -889,40 +962,177 @@ function ScopedCloudWorkspacePool({
 							)}
 						</CloudSettingsGroup>
 					) : null}
+					{showsSection("repositories", "github") ? (
+						snapshotImage !== null &&
+						snapshotImage.snapshot?.gitAuthentication !== "zuse" ? (
+							repositoriesGroup
+						) : githubAuthenticated ? (
+							<>
+								{repositoriesGroup}
+								{githubGroup}
+							</>
+						) : (
+							<>
+								{githubGroup}
+								{repositoriesGroup}
+							</>
+						)
+					) : null}
+					{showsSection("agents", "auth") ? (
+						snapshotImage !== null &&
+						snapshotImage.snapshot?.agentAuthentication !== "zuse" ? (
+							<>
+								<CloudSnapshotAgentAuthentication image={snapshotImage} />
+								{canManageProviders ? (
+									<CloudSnapshotAuthSetup onChanged={() => load(true)} />
+								) : null}
+							</>
+						) : (
+							<CloudWorkspaceAuth />
+						)
+					) : null}
 				</>
 			) : null}
 
-			{canManageBilling &&
-			(section === "billing" || (section === "all" && view === "usage")) ? (
-				<CloudSettingsGroup title={uiMessage("settings:workspace_billing")}>
-					<CloudSettingsRow
-						title={uiMessage("settings:cloud_workspace_pool_invoices")}
-						description={uiMessage(
-							"settings:cloud_machines_pane_manage_payment_details_and_invoices_in_the_billing_portal",
-						)}
-						action={
+			{showAdvanced ? (
+				<CloudAdvancedSettings>
+					{advancedGuide ? (
+						<div className="flex items-center justify-between gap-3 px-2.5">
+							<p className="text-[11px] leading-4 text-muted-foreground">
+								{uiMessage("settings:cloud_setup_guide_description")}
+							</p>
 							<Button
 								size="xs"
 								variant="ghost"
 								className={COMPACT_CLOUD_ACTION}
-								loading={busy === "billing-portal"}
-								onClick={() => void openBillingPortal()}
+								onClick={requestCloudOnboarding}
 							>
-								{uiMessage("settings:cloud_workspace_pool_invoices")}
+								{uiMessage("settings:cloud_setup_open_guide")}
 							</Button>
+						</div>
+					) : null}
+					{advancedApiKeys ? <CloudApiKeys scope={workspaceScope} /> : null}
+				</CloudAdvancedSettings>
+			) : null}
+
+			{serviceAvailable &&
+			canManageBilling &&
+			providerImages.some((image) => image.storage !== undefined) &&
+			(section === "billing" ||
+				section === "image" ||
+				(section === "all" && view === "usage")) ? (
+				<CloudSettingsGroup
+					title={uiMessage("settings:cloud_snapshot_storage")}
+					description={uiMessage("settings:cloud_snapshot_storage_rate")}
+				>
+					<CloudSettingsRow
+						title={uiMessage("settings:cloud_snapshot_retained_images")}
+						description={uiMessage("settings:cloud_snapshot_storage_allowance")}
+						action={
+							<Badge variant="outline">
+								{
+									providerImages.filter(
+										(image) => image.storage?.state === "retained",
+									).length
+								}
+							</Badge>
 						}
+					/>
+					{providerImages
+						.filter((image) => image.storage !== undefined)
+						.map((image) => {
+							const storage = image.storage;
+							if (storage === undefined) return null;
+							return (
+								<CloudSettingsRow
+									key={storage.snapshotId}
+									title={cloudProviderLabel(image.providerId ?? "box")}
+									description={
+										storage.state === "deleting"
+											? uiMessage("settings:cloud_snapshot_deletion_pending")
+											: storage.graceUntil !== undefined
+												? uiMessage("settings:cloud_snapshot_grace", {
+														date: new Date(storage.graceUntil).toLocaleString(),
+													})
+												: storage.billingEnabled
+													? uiMessage(
+															"settings:cloud_snapshot_delete_explanation",
+														)
+													: uiMessage(
+															"settings:cloud_snapshot_billing_not_started",
+														)
+									}
+									action={
+										<Button
+											size="xs"
+											variant="ghost"
+											className={COMPACT_CLOUD_ACTION}
+											disabled={storage.state === "deleting" || busy !== null}
+											loading={busy === "delete-image"}
+											onClick={() =>
+												window.confirm(
+													uiMessage(
+														"settings:cloud_snapshot_delete_explanation",
+													),
+												) &&
+												void run("delete-image", async () => {
+													await runCloudControl((client) =>
+														client["cloud.image.delete"]({
+															snapshotId: storage.snapshotId,
+														}),
+													);
+													await refreshCloudImages().catch(() => undefined);
+												})
+											}
+										>
+											{uiMessage("settings:cloud_snapshot_delete_image")}
+										</Button>
+									}
+								/>
+							);
+						})}
+					<CloudSettingsRow
+						title={uiMessage("settings:cloud_snapshot_usage")}
+						action={
+							<Badge variant="outline">
+								{billing?.storageCostMicros === undefined
+									? "—"
+									: formatUsdMicros(billing.storageCostMicros)}
+							</Badge>
+						}
+						description={uiMessage("settings:cloud_snapshot_usage_recent")}
 					/>
 				</CloudSettingsGroup>
 			) : null}
-
 			{subscribed &&
 			serviceAvailable &&
 			canManageBilling &&
-			(section === "billing" || (section === "all" && view === "usage")) ? (
+			usageVisible &&
+			providers.some((provider) => provider.billingSource === "provider") ? (
+				<CloudSettingsGroup
+					title={uiMessage("settings:cloud_workspace_pool_provider_billing")}
+					help={uiMessage(
+						"settings:cloud_workspace_pool_provider_billing_description",
+					)}
+				>
+					<CloudSettingsRow
+						title={uiMessage(
+							"settings:cloud_workspace_pool_billed_by_your_provider",
+						)}
+						description={uiMessage(
+							"settings:cloud_workspace_pool_billed_by_your_provider_description",
+						)}
+					/>
+				</CloudSettingsGroup>
+			) : null}
+			{paidSubscription === true &&
+			serviceAvailable &&
+			canManageBilling &&
+			usageVisible ? (
 				billing === null ? (
 					<CloudSettingsGroup
 						title={uiMessage("settings:cloud_workspace_pool_usage_and_billing")}
-						description={uiMessage(
+						help={uiMessage(
 							"settings:cloud_workspace_pool_usage_details_are_temporarily_unavailable",
 						)}
 					>
@@ -948,7 +1158,7 @@ function ScopedCloudWorkspacePool({
 				) : (
 					<CloudSettingsGroup
 						title={uiMessage("settings:cloud_workspace_pool_usage_and_billing")}
-						description={uiMessage(
+						help={uiMessage(
 							"settings:cloud_workspace_pool_40_month_includes_35_of_sandbox_compute_additional_compute_is_billed_a",
 						)}
 						action={
@@ -1036,7 +1246,7 @@ function ScopedCloudWorkspacePool({
 											.slice(0, 3)
 											.map(
 												(item) =>
-													`${item.resourceKind} ${item.resourceId}: ${formatUsdMicros(item.providerCostMicros)}${item.status === "provisional" ? " (provisional)" : ""}`,
+													`${item.usageKind ?? item.resourceKind} ${item.resourceId}: ${formatUsdMicros(item.providerCostMicros)}${item.status === "provisional" ? " (provisional)" : ""}`,
 											)
 											.join(" · ")
 							}
@@ -1045,13 +1255,34 @@ function ScopedCloudWorkspacePool({
 				)
 			) : null}
 
+			{/* Reachable without an active subscription for invoices and reactivation. */}
+			{canManageBilling && usageVisible ? (
+				<CloudSettingsGroup title={uiMessage("settings:workspace_billing")}>
+					<CloudSettingsRow
+						title={uiMessage("settings:cloud_hosting_manage_subscription")}
+						description={uiMessage("settings:cloud_hosting_portal_description")}
+						action={
+							<Button
+								size="xs"
+								variant="ghost"
+								className={COMPACT_CLOUD_ACTION}
+								loading={busy === "billing-portal"}
+								onClick={() => void openBillingPortal()}
+							>
+								{uiMessage("settings:cloud_hosting_manage_subscription")}
+							</Button>
+						}
+					/>
+				</CloudSettingsGroup>
+			) : null}
+
 			{subscribed &&
 			serviceAvailable &&
 			section === "all" &&
-			view === "activity" ? (
+			view === "usage" ? (
 				<CloudSettingsGroup
 					title={uiMessage("settings:cloud_workspace_pool_workspace_activity")}
-					description={uiMessage(
+					help={uiMessage(
 						"settings:cloud_workspace_pool_current_and_recent_cloud_workspaces_for_this_account",
 					)}
 					action={<Badge variant="outline">{workspaces.length}</Badge>}
@@ -1070,7 +1301,13 @@ function ScopedCloudWorkspacePool({
 							<CloudSettingsRow
 								key={workspace.workspaceId}
 								title={workspace.branch}
-								description={workspace.statusCode}
+								description={[
+									workspace.statusCode,
+									...(workspace.nativeAgentAccess ?? []).map(
+										(access) =>
+											`${access.providerId}: ${access.state} (last checked ${new Date(access.checkedAt).toLocaleString()})`,
+									),
+								].join(" · ")}
 								action={
 									<Badge variant={stateVariant(workspace.state)}>
 										{workspace.state}
@@ -1082,5 +1319,33 @@ function ScopedCloudWorkspacePool({
 				</CloudSettingsGroup>
 			) : null}
 		</>
+	);
+}
+
+/** Rarely needed controls stay out of the main setup flow until asked for. */
+function CloudAdvancedSettings({ children }: { readonly children: ReactNode }) {
+	const { message: uiMessage } = useUiMessages(["settings"]);
+	const [open, setOpen] = useState(false);
+	return (
+		<Collapsible open={open} onOpenChange={setOpen}>
+			<CollapsibleTrigger className="flex h-7 items-center gap-1.5 rounded-md text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+				<ChevronRight
+					className={cn(
+						"size-3.5 transition-transform duration-150",
+						open && "rotate-90",
+					)}
+					aria-hidden
+				/>
+				<span className="font-medium">
+					{uiMessage("settings:cloud_advanced_title")}
+				</span>
+				<span className="text-[11px] text-muted-foreground/75">
+					{uiMessage("settings:cloud_advanced_hint")}
+				</span>
+			</CollapsibleTrigger>
+			<CollapsiblePanel>
+				<div className="flex flex-col gap-4 pt-2">{children}</div>
+			</CollapsiblePanel>
+		</Collapsible>
 	);
 }

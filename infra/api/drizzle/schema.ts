@@ -393,6 +393,14 @@ export const apiCloudProjects = pgTable(
 	],
 );
 
+export const apiCloudGithubUsers = pgTable("api_cloud_github_users", {
+	accountId: text("account_id").primaryKey(),
+	login: text("login").notNull(),
+	name: text("name").notNull(),
+	email: text("email").notNull(),
+	sealedCredentials: text("sealed_credentials").notNull(),
+});
+
 export const apiCloudGithubInstallations = pgTable(
 	"api_cloud_github_installations",
 	{
@@ -460,9 +468,9 @@ export const apiCloudProjectBuilds = pgTable(
 	"api_cloud_project_builds",
 	{
 		buildId: text("build_id").primaryKey(),
-		projectId: text("project_id")
-			.notNull()
-			.references(() => apiCloudProjects.projectId, { onDelete: "cascade" }),
+		projectId: text("project_id").references(() => apiCloudProjects.projectId, {
+			onDelete: "cascade",
+		}),
 		accountId: text("account_id").notNull(),
 		provider: text("provider").notNull(),
 		providerSandboxId: text("provider_sandbox_id"),
@@ -484,6 +492,9 @@ export const apiCloudProjectBuilds = pgTable(
 		updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 	},
 	(table) => [
+		uniqueIndex("api_cloud_imported_builds_idempotency_idx")
+			.on(table.accountId, table.provider, table.idempotencyKey)
+			.where(sql`${table.projectId} IS NULL`),
 		uniqueIndex("api_cloud_builds_project_provider_idempotency_idx").on(
 			table.projectId,
 			table.provider,
@@ -651,6 +662,7 @@ export const apiCloudWorkspaceRuntimeSummaries = pgTable(
 			mode: "number",
 		}).notNull(),
 		summaryRevision: bigint("summary_revision", { mode: "number" }).notNull(),
+		nativeAgentAccess: jsonb("native_agent_access").notNull().default([]),
 		title: text("title").notNull(),
 		lastActivityAt: bigint("last_activity_at", { mode: "number" }).notNull(),
 		lastUserMessageAt: bigint("last_user_message_at", { mode: "number" }),
@@ -1362,5 +1374,156 @@ export const apiModelConnectionLeases = pgTable(
 			"model_connection_lease_provider",
 			sql`${table.provider} IN ('chatgpt','supergrok')`,
 		),
+	],
+);
+
+export const apiGithubIdentities = pgTable("api_github_identities", {
+	accountId: text("account_id").primaryKey(),
+	githubUserId: bigint("github_user_id", { mode: "number" }).notNull().unique(),
+	data: jsonb("data").notNull(),
+});
+/** Last complete GitHub roster per installation, so auto-join is one lookup. */
+export const apiGithubOrgMembers = pgTable(
+	"api_github_org_members",
+	{
+		installationId: bigint("installation_id", { mode: "number" }).notNull(),
+		githubUserId: bigint("github_user_id", { mode: "number" }).notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.installationId, t.githubUserId] }),
+		index("api_github_org_members_user").on(t.githubUserId),
+	],
+);
+/** An email domain belongs to at most one organization. */
+export const apiOrganizationDomains = pgTable(
+	"api_organization_domains",
+	{
+		domain: text("domain").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		data: jsonb("data").notNull(),
+	},
+	(t) => [index("api_organization_domains_org").on(t.organizationId)],
+);
+export const apiOrganizationDomainEnrollments = pgTable(
+	"api_organization_domain_enrollments",
+	{
+		organizationId: text("organization_id").notNull(),
+		accountId: text("account_id").notNull(),
+		data: jsonb("data").notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.organizationId, t.accountId] })],
+);
+export const apiGithubJoinPolicies = pgTable(
+	"api_github_join_policies",
+	{
+		organizationId: text("organization_id").notNull(),
+		installationId: bigint("installation_id", { mode: "number" }).notNull(),
+		githubOrgId: bigint("github_org_id", { mode: "number" }).notNull(),
+		data: jsonb("data").notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.organizationId, t.installationId] }),
+		index("api_github_join_policies_org").on(t.githubOrgId),
+		index("api_github_join_policies_installation").on(t.installationId),
+	],
+);
+export const apiGithubEnrollments = pgTable(
+	"api_github_enrollments",
+	{
+		organizationId: text("organization_id").notNull(),
+		accountId: text("account_id").notNull(),
+		installationId: bigint("installation_id", { mode: "number" }).notNull(),
+		data: jsonb("data").notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.organizationId, t.accountId] }),
+		index("api_github_enrollments_installation").on(t.installationId),
+	],
+);
+
+export const apiCloudSnapshotLeases = pgTable(
+	"api_cloud_snapshot_leases",
+	{
+		accountId: text("account_id").notNull(),
+		owner: text("owner").notNull(),
+		mode: text("mode").notNull().default("exclusive"),
+		expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+	},
+	(table) => [primaryKey({ columns: [table.accountId, table.owner] })],
+);
+
+export const apiCloudSnapshots = pgTable(
+	"api_cloud_snapshots",
+	{
+		provider: text("provider").notNull(),
+		snapshotId: text("snapshot_id").notNull(),
+		accountId: text("account_id").notNull(),
+		buildId: text("build_id").notNull(),
+		state: text("state").notNull(),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		record: jsonb("record").notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.provider, table.snapshotId] }),
+		index("api_cloud_snapshots_account_idx").on(table.accountId, table.state),
+		uniqueIndex("api_cloud_snapshots_retained_idx")
+			.on(table.accountId, table.provider)
+			.where(sql`${table.state} = 'retained'`),
+		index("api_cloud_snapshots_live_idx")
+			.on(table.state)
+			.where(sql`${table.state} != 'deleted'`),
+		index("api_cloud_snapshots_unsettled_idx")
+			.on(table.accountId)
+			.where(
+				sql`${table.state} = 'deleted' AND (${table.record}->>'retainedAtMs')::bigint IS NOT NULL AND COALESCE((${table.record}->>'checkpointAtMs')::bigint, (${table.record}->>'retainedAtMs')::bigint) < (${table.record}->>'stoppedAtMs')::bigint`,
+			),
+		check("api_cloud_snapshots_provider_check", sql`${table.provider} = 'box'`),
+		check(
+			"api_cloud_snapshots_state_check",
+			sql`${table.state} IN ('creating','retained','deleting','deleted')`,
+		),
+	],
+);
+export const apiSnapshotPriceSchedule = pgTable(
+	"api_snapshot_price_schedule",
+	{
+		provider: text("provider").notNull(),
+		version: text("version").notNull(),
+		monthlyMicros: bigint("monthly_micros", { mode: "number" }).notNull(),
+		durationMs: bigint("duration_ms", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.provider, table.version] }),
+		check(
+			"api_snapshot_price_schedule_monthly_micros_check",
+			sql`${table.monthlyMicros} >= 0`,
+		),
+		check(
+			"api_snapshot_price_schedule_duration_ms_check",
+			sql`${table.durationMs} = 2592000000`,
+		),
+	],
+);
+export const apiCloudProviderConnections = pgTable(
+	"api_cloud_provider_connections",
+	{
+		connectionId: text("connection_id").primaryKey(),
+		accountId: text("account_id").notNull(),
+		provider: text("provider").notNull(),
+		envelope: text("envelope").notNull(),
+		active: boolean("active").notNull().default(true),
+		templateId: text("template_id"),
+		organization: text("organization"),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		check(
+			"cloud_provider_connection_provider",
+			sql`${table.provider} IN ('e2b', 'boxd', 'box')`,
+		),
+		uniqueIndex("api_cloud_provider_connections_active")
+			.on(table.accountId, table.provider)
+			.where(sql`${table.active}`),
+		index("api_cloud_provider_connections_owner").on(table.accountId),
 	],
 );

@@ -30,8 +30,14 @@ export interface ManagedTunnelConfig {
 }
 
 export interface ApiConfig {
-	/** Staging-only rollout gate. Keep off until all resource paths are scoped. */
+	/** Global organization kill switch; targeted rollout can narrow enabled deployments. */
 	readonly organizationWorkspacesEnabled: boolean;
+	/** When enabled, PostHog must explicitly approve creation and team access. */
+	readonly organizationRolloutEnabled?: boolean;
+	readonly organizationPosthog?: {
+		readonly projectKey: Redacted.Redacted<string>;
+		readonly host: string;
+	};
 	readonly apiIssuer: string;
 	/** Public origin for DPoP request binding, independent of credential issuer. */
 	readonly publicApiOrigin?: string;
@@ -66,8 +72,11 @@ export interface ApiConfig {
 	readonly cloudBillingExportEnabled: boolean;
 	readonly cloudUsageExportEnabled: boolean;
 	readonly cloudBillingCutoverAtMs?: number;
+	readonly cloudBillingProviderCutoverAtMs?: ReadonlyMap<string, number>;
+	readonly cloudSnapshotBillingCutoverAtMs?: number;
 	readonly cloudBillingPolarMeterId?: string;
 	readonly cloudCommandMailboxEnabled: boolean;
+	readonly cloudBoxdCustomSnapshotsEnabled: boolean;
 	/** Allows newly-created workspaces to opt into broker-v1 Codex auth. */
 	readonly cloudCodexAuthBrokerEnrollmentEnabled: boolean;
 	/** Must remain enabled while any broker-v1 workspace exists. */
@@ -114,6 +123,7 @@ const DEFAULTS = {
 	cloudBillingExportEnabled: false,
 	cloudUsageExportEnabled: false,
 	cloudCommandMailboxEnabled: false,
+	cloudBoxdCustomSnapshotsEnabled: false,
 	cloudCodexAuthBrokerEnrollmentEnabled: false,
 	cloudCodexAuthBrokerServingEnabled: false,
 	cloudProviderAuthBrokerEnrollmentEnabled: false,

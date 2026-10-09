@@ -619,6 +619,23 @@ export class ClientBus<Client> {
 		return true;
 	}
 
+	/** Clears one acknowledged failure, keeping the resource's other failures. */
+	dismissFailedCommand(
+		key: ResourceKey<unknown>,
+		commandId: CommandId,
+	): boolean {
+		if (this.disposed) return false;
+		const entry = this.entries.get(resourceKeyId(key));
+		if (entry === undefined) return false;
+		const failedCommands = entry.view.failedCommands.filter(
+			(command) => command.commandId !== commandId,
+		);
+		if (failedCommands.length === entry.view.failedCommands.length)
+			return false;
+		this.setView(entry, { ...entry.view, failedCommands });
+		return true;
+	}
+
 	connection(environmentId: EnvironmentId): ConnectionView {
 		return this.environment(environmentId).runtime.snapshot();
 	}
@@ -628,8 +645,10 @@ export class ClientBus<Client> {
 	 * The registry remains the sole reconnect owner, so many retained surfaces
 	 * still create only one transport attempt per environment.
 	 */
-	retryRetainedConnections(): void {
-		if (!this.disposed) this.runtimes.retryRetained();
+	retryRetainedConnections(
+		include?: (environmentId: EnvironmentId) => boolean,
+	): void {
+		if (!this.disposed) this.runtimes.retryRetained(include);
 	}
 
 	retryConnection(environmentId: EnvironmentId): void {

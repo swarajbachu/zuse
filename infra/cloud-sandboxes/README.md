@@ -165,10 +165,12 @@ operation. Repository freshness changes only through Update image.
 Every derived image retains the base template's Git credential helper and `gh`
 wrapper. The workspace runtime publishes only the broker address and its
 renewable runtime credential during normal bootstrap. The first GitHub command
-lazily requests a short-lived GitHub App token; later commands reuse the cached
-token and refresh it shortly before expiry. No GitHub request is added to the
-workspace or session startup path, and no installation token is stored in a
-template or account snapshot.
+lazily requests a repository-scoped GitHub App user token; later commands reuse
+the cached token and refresh it shortly before expiry. The parent user token and
+refresh token stay encrypted on the API server. No GitHub request is added to the
+workspace or session startup path, and no GitHub token is stored in a template
+or account snapshot. See [GitHub connection and user credentials](../../internal-docs/cloud/github-user-identity.md)
+for the single connection flow and rollout requirements.
 
 The runtime exchanges the one-time token for a renewable workspace credential,
 installs any runtime-scoped credential grant, opens the selected local branch,

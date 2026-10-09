@@ -1,10 +1,10 @@
 import {
 	ApiAuthTokenGrant,
+	ApiPaths,
 	EnvironmentSharingAudience,
 	WORKSPACE_API_PREFIX,
 	WORKSPACE_SCOPE_HEADER,
 } from "@zuse/contracts";
-import { SandboxProviders } from "@zuse/sandbox-providers";
 import { Clock, Effect, Option, Redacted, Schema } from "effect";
 import { AccountIdentity } from "./account-identity.ts";
 import {
@@ -22,6 +22,9 @@ import {
 	type CloudBillingRouteContext,
 	routeCloudBillingRequest,
 } from "./cloud-billing-routes.ts";
+import { resolveResourceProvider } from "./cloud-provider-connections.ts";
+import { importedSnapshot } from "./cloud-snapshot.ts";
+import { queueAccountSnapshotDeletion } from "./cloud-snapshot-storage.ts";
 import {
 	type CloudWorkspaceRouteContext,
 	routeCloudWorkspaceRequest,
@@ -47,6 +50,10 @@ import {
 	notFound,
 	serviceUnavailable,
 } from "./errors.ts";
+import {
+	routeGithubOrganizationRequest,
+	syncGithubAutoJoin,
+} from "./github-organizations.ts";
 import { json } from "./http.ts";
 import { requestMachineDestruction } from "./machine-lifecycle.ts";
 import {
@@ -57,6 +64,10 @@ import { MachineStore } from "./machine-store.ts";
 import { ManagedTunnelProvider } from "./managed-tunnel.ts";
 import { routeModelConnectionRequest } from "./model-connection-routes.ts";
 import { ModelConnectionStore } from "./model-connection-store.ts";
+import {
+	routeOrganizationDomainRequest,
+	syncDomainAutoJoin,
+} from "./organization-domains.ts";
 import { routeOrganizationRequest } from "./organizations.ts";
 import { routePluginRequest } from "./plugin-routes.ts";
 import { routePublicApiRequest } from "./public-api-routes.ts";
@@ -350,6 +361,35 @@ const route = (
 		const accountIdentity = yield* AccountIdentity;
 		const workos = yield* WorkosVerifier;
 		const nowMs = yield* Clock.currentTimeMillis;
+		const githubOrganizationResponse =
+			yield* routeGithubOrganizationRequest(request);
+		if (githubOrganizationResponse !== null) return githubOrganizationResponse;
+		// Loading organizations is when members are matched to auto-join.
+		// Matching is best effort: it must never block listing organizations.
+		if (
+			(path === ApiPaths.organizations ||
+				path === ApiPaths.organizationCapabilities) &&
+			method === "GET" &&
+			config.organizationWorkspacesEnabled
+		)
+			yield* requireWorkos(request).pipe(
+				Effect.flatMap(({ accountId }) =>
+					Effect.all(
+						[
+							syncGithubAutoJoin(accountId).pipe(
+								Effect.catch(() => Effect.void),
+							),
+							syncDomainAutoJoin(accountId).pipe(
+								Effect.catch(() => Effect.void),
+							),
+						],
+						{ discard: true },
+					),
+				),
+				Effect.catch(() => Effect.void),
+			);
+		const domainResponse = yield* routeOrganizationDomainRequest(request);
+		if (domainResponse !== null) return domainResponse;
 		const organizationResponse = yield* routeOrganizationRequest(request);
 		if (organizationResponse !== null) return organizationResponse;
 		const modelConnectionResponse = yield* routeModelConnectionRequest(request);
@@ -842,18 +882,18 @@ const route = (
 			) {
 				return json({ ok: true, cleanupPending: true }, 202);
 			}
+			if (yield* queueAccountSnapshotDeletion(principal.accountId, nowMs))
+				return json({ ok: true, cleanupPending: true }, 202);
 			const cloudProjects = yield* cloudStore.listProjects(principal.accountId);
-			const sandboxProviders = yield* SandboxProviders;
 			for (const project of cloudProjects) {
 				for (const build of yield* cloudStore.listBuilds(project.projectId)) {
-					if (build.snapshotId === undefined) continue;
-					const provider = yield* sandboxProviders
-						.get(build.provider)
-						.pipe(
-							Effect.mapError(() =>
-								serviceUnavailable("cloud_provider_unavailable"),
-							),
-						);
+					if (build.snapshotId === undefined || importedSnapshot(build))
+						continue;
+					const provider = yield* resolveResourceProvider(build).pipe(
+						Effect.mapError(() =>
+							serviceUnavailable("cloud_provider_unavailable"),
+						),
+					);
 					yield* provider
 						.deleteSnapshot(build.snapshotId)
 						.pipe(

@@ -1,4 +1,9 @@
 import { secureStorageMasterKey } from "@zusehq/server/secure-storage-master-key";
+import {
+	guardHtmlVisualNavigation,
+	installHtmlVisualNetwork,
+	VISUAL_ASSET_SCHEMES,
+} from "./html-visual-network.ts";
 import { CloudSyncFileBridge } from "./sync/cloud-sync-file-bridge.ts";
 import { installTerminalShortcutRouting } from "./terminal-shortcuts.ts";
 import "@zuse/i18n/english/desktop";
@@ -66,6 +71,7 @@ import {
 	PowerWorkloadState,
 	PRODUCTION_API_URL,
 	STAGING_API_URL,
+	SYSTEM_RESUME_CHANNEL,
 	TailnetShareState,
 } from "@zuse/contracts";
 import {
@@ -126,6 +132,7 @@ import {
 	readLocalePreference,
 	writeLocalePreference,
 } from "./locale-preference.ts";
+import { desktopRemoteAccessPolicy } from "./remote-access-policy.ts";
 import {
 	createTitleBarOverlay,
 	createWindowTitleBarOptions,
@@ -403,7 +410,24 @@ process.on("unhandledRejection", (reason) => {
  * `https`; `supportFetchAPI` lets the renderer use `fetch()` against it;
  * `stream: true` lets us hand back a body that the renderer can stream.
  */
+// Untrusted visual scripts must not use UDP transports outside the asset proxy.
+app.commandLine.appendSwitch(
+	"force-webrtc-ip-handling-policy",
+	"disable_non_proxied_udp",
+);
+app.commandLine.appendSwitch("disable-quic");
+
 protocol.registerSchemesAsPrivileged([
+	...VISUAL_ASSET_SCHEMES.map((scheme) => ({
+		scheme,
+		privileges: {
+			standard: true,
+			secure: true,
+			corsEnabled: true,
+			supportFetchAPI: true,
+			stream: true,
+		},
+	})),
 	{
 		scheme: "zuse",
 		privileges: {
@@ -610,6 +634,7 @@ const startAuthLoopback = async (): Promise<void> => {
 
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL?.trim() || "";
 const isDevelopment = Boolean(DEV_SERVER_URL);
+const remoteAccessPolicy = desktopRemoteAccessPolicy(isDevelopment);
 
 const APP_NAME = isDevelopment ? "Zuse (Beta) (Dev)" : "Zuse (Beta)";
 const STABLE_USER_DATA_NAME = zuseDesktopProfileName(isDevelopment);
@@ -1973,6 +1998,7 @@ async function createMainWindow() {
 		elapsedMs: Math.round(performance.now() - startupStartedAt),
 		processElapsedMs: Math.round(performance.now() - desktopProcessStartedAt),
 	});
+	guardHtmlVisualNavigation(mainWindow.webContents);
 	installTerminalShortcutRouting(mainWindow.webContents);
 	installPowerMeasurementMonitor();
 	const sampleWindowTransition = () => {
@@ -3383,11 +3409,15 @@ async function createMainWindow() {
 			makeMainLayer({
 				userData,
 				telemetryIdentity: { kind: "desktop", instance: "local" },
-				autoApiLink: {
-					apiUrl:
-						process.env.ZUSE_API_URL?.trim() ||
-						(isDevelopment ? STAGING_API_URL : PRODUCTION_API_URL),
-				},
+				resumeApiLink: remoteAccessPolicy.resumeLink,
+				retireApiLink: remoteAccessPolicy.retireLink,
+				autoApiLink: remoteAccessPolicy.autoLink
+					? {
+							apiUrl:
+								process.env.ZUSE_API_URL?.trim() ||
+								(isDevelopment ? STAGING_API_URL : PRODUCTION_API_URL),
+						}
+					: undefined,
 				folderPicker,
 				serverProtocol,
 				additionalServerProtocols: [
@@ -3936,6 +3966,10 @@ ipcMain.handle(
 let localeController: ReturnType<typeof createLocaleController> | undefined;
 
 void app.whenReady().then(async () => {
+	const closeVisualNetwork = installHtmlVisualNetwork(session.defaultSession);
+	app.once("will-quit", () => {
+		void closeVisualNetwork();
+	});
 	// Non-primary instance is on its way out (lost the single-instance lock) —
 	// don't build a window or boot the runtime.
 	if (!gotSingleInstanceLock) return;
@@ -4013,6 +4047,16 @@ void app.whenReady().then(async () => {
 		(arg) => isAuthDeepLink(arg) && !isPairingDeepLink(arg),
 	);
 	if (initialDeepLink !== undefined) handleAuthCallback(initialDeepLink);
+
+	// Sockets can die silently while the machine sleeps. Tell every window to
+	// re-probe its connections now instead of waiting for retry backoff.
+	const broadcastSystemResume = (): void => {
+		for (const window of BrowserWindow.getAllWindows()) {
+			if (!window.isDestroyed()) window.webContents.send(SYSTEM_RESUME_CHANNEL);
+		}
+	};
+	nativePowerMonitor.on("resume", broadcastSystemResume);
+	nativePowerMonitor.on("unlock-screen", broadcastSystemResume);
 
 	if (process.platform === "darwin") {
 		const mode = await readComputerAwakePreference(app.getPath("userData"));

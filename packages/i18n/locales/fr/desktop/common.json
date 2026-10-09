@@ -64,5 +64,6 @@
 	"startup_surface_try_again": "Réessayez",
 	"startup_surface_reload": "Recharger",
 	"startup_surface_copy_details": "Copier les détails",
-	"copy_failed": "Échec de la copie"
+	"copy_failed": "Échec de la copie",
+	"removeNamedItem": "Supprimer {{value}} ?"
 }

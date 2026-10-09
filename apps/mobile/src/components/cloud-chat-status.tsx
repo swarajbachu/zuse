@@ -5,6 +5,7 @@ import { router } from "expo-router";
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { Button } from "~/components/ui/button";
+import { cloudLifecycle } from "~/lib/cloud-lifecycle";
 import { connectionSessionKey } from "~/lib/session-key";
 import { cloudCatalogAtom, refreshCloudCatalog } from "~/store/cloud-catalog";
 import { sessionDeliveryAtom } from "~/store/messages";
@@ -35,7 +36,10 @@ export function CloudChatStatus({
 	const lastUserIndex = messages.findLastIndex(
 		(message) => message.role === "user",
 	);
-	const lastFailed = delivery.failed.at(-1);
+	// Failed message sends are marked on the message (UndeliveredMessage).
+	const lastFailed = delivery.failed.findLast(
+		(command) => command.kind !== "messages.send",
+	);
 	const failed =
 		pending === undefined &&
 		(lastFailed?.failedAt ?? 0) >=
@@ -49,10 +53,15 @@ export function CloudChatStatus({
 		providerError?.content._tag === "error"
 			? providerError.content.message
 			: undefined;
+	// CloudLifecycleBar shows startup progress and a failed startup; every
+	// other delivery, account or provider problem is still reported here.
+	const lifecycle = cloudLifecycle(summary);
 	const failure = cloudFailurePresentation({
 		state: failed?.terminal?.state,
 		category:
-			failed?.terminal?.category ?? pending?.category ?? summary?.statusCode,
+			failed?.terminal?.category ??
+			pending?.category ??
+			(lifecycle === "failed" ? undefined : summary?.statusCode),
 		blockedUntil: pending?.blockedUntil,
 		cause: failed?.error ?? providerText ?? error,
 	});
@@ -71,31 +80,18 @@ export function CloudChatStatus({
 			? summary.codexAuthMode
 			: summary?.providerAuthMode) === "legacy-image";
 	const storageLost = failure?.kind === "workspace-storage-unavailable";
-	const outcomeUnknown = failure?.kind === "outcome-unknown";
-	const waking =
-		summary !== undefined &&
-		summary.state !== "ready" &&
-		summary.desiredState === "ready" &&
-		summary.state !== "failed";
 	const reconnectingAuth = (pending?.category ?? providerText ?? "").includes(
 		"-auth-reconnecting",
 	);
 	const label = legacy
 		? "This retained chat uses legacy authentication."
 		: providerAuthFailure
-			? "Reconnect your provider once in Cloud Authentication."
+			? "Reconnect your provider once in Cloud Providers."
 			: reconnectingAuth
 				? "Reconnecting agent authentication…"
 				: (failure?.message ??
-					(pending !== undefined
-						? "Waiting for agent"
-						: waking
-							? "Waking cloud workspace…"
-							: summary?.state === "paused"
-								? "Cloud workspace is sleeping. Your next message will wake it."
-								: error
-									? "Cloud history could not refresh. Pull to retry."
-									: null));
+					// "Waiting for agent" lives in CloudLifecycleBar above the composer.
+					(error ? "Cloud history could not refresh. Pull to retry." : null));
 	if (label === null && actionError === null) return null;
 	const lastUser = messages[lastUserIndex];
 	const draft =
@@ -105,15 +101,11 @@ export function CloudChatStatus({
 	return (
 		<View role="status" aria-live="polite" className="gap-2 px-4 py-2">
 			<Text className="font-sans text-sm text-muted-foreground">{label}</Text>
-			{pending !== undefined && waking ? (
-				<Text className="font-sans text-xs text-muted-foreground">
-					Waking cloud workspace · {summary?.startupPhase.replaceAll("-", " ")}
-				</Text>
-			) : null}
+
 			<View className="flex-row flex-wrap gap-2">
 				{pending?.cancellable ? (
 					<Button
-						className="h-7"
+						size="sm"
 						variant="ghost"
 						onPress={() =>
 							void mobileClientBus()
@@ -125,55 +117,59 @@ export function CloudChatStatus({
 								)
 						}
 					>
-						Cancel queued message
+						Cancel Message
 					</Button>
 				) : null}
 				{providerAuthFailure ? (
 					<Button
-						className="h-7"
+						size="sm"
 						variant="ghost"
 						onPress={() => router.push("/cloud-auth")}
 					>
-						Cloud Authentication
+						Providers
 					</Button>
 				) : null}
-				{legacy || storageLost || outcomeUnknown ? (
+				{legacy || storageLost ? (
 					<Button
-						className="h-7"
+						size="sm"
 						variant="ghost"
 						onPress={() =>
 							router.push({
-								pathname: "/new-cloud-chat",
-								params: { projectId: summary?.projectId, draft },
+								pathname: "/new-chat",
+								params: {
+									sandbox: "",
+									cloudProjectId: summary?.projectId,
+									draft,
+								},
 							})
 						}
 					>
-						{outcomeUnknown ? "Create draft" : "Create replacement chat"}
+						New Chat
 					</Button>
 				) : null}
 				{failure?.kind === "update-required" ? (
 					<Button
-						className="h-7"
+						size="sm"
 						variant="ghost"
 						onPress={() => router.push("/cloud-auth")}
 					>
-						Cloud settings
+						Settings
 					</Button>
 				) : null}
 				{failure?.kind === "network" && !reconnectingAuth ? (
 					<Button
-						className="h-7"
+						size="sm"
 						variant="ghost"
 						onPress={() => void refreshCloudCatalog()}
 					>
-						Refresh status
+						Refresh
 					</Button>
 				) : null}
 			</View>
 			{actionError ? (
 				<Text
 					accessibilityRole="alert"
-					className="font-sans text-xs text-destructive"
+					className="font-sans text-xs text-danger"
 				>
 					{actionError}
 				</Text>

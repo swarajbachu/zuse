@@ -88,7 +88,7 @@ function useHostedAccount(): UseAuth {
 		name: displayName.trim() || profileName(user),
 		displayName,
 		setDisplayName,
-		signIn: beginHostedSignIn,
+		signIn: () => beginHostedSignIn(),
 		signOut: signOutHostedProduct,
 	};
 }

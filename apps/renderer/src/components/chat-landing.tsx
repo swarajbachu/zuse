@@ -9,12 +9,25 @@ import {
 	peekCloudAuth,
 } from "../lib/cloud-workspace-session-cache.ts";
 import { isHostedProduct } from "../lib/hosted-connect.ts";
-import { connectedCloudProviders } from "../lib/model-picker-availability.ts";
+import {
+	type CloudAuthLoadState,
+	cloudSendBlocker,
+	connectedCloudProviders,
+} from "../lib/model-picker-availability.ts";
 import { environmentBelongsToWorkspace } from "../lib/rpc-client.ts";
 import { useCloudProjects } from "../lib/use-cloud-projects.ts";
+import { CloudAgentSignInTray } from "./composer/cloud-agent-sign-in-tray.tsx";
+import {
+	CloudQueuedPrompt,
+	CloudQueueStatusHeader,
+} from "./composer/cloud-mailbox-queue.tsx";
 import "@zuse/i18n/english/common";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
+import {
+	type CloudSandboxSetup,
+	cloudSandboxSetup,
+} from "@zuse/client-runtime/cloud-sandbox-providers";
 import {
 	resourceRefKey,
 	type SessionRef,
@@ -85,8 +98,20 @@ import { resolveChatRuntimeMode } from "~/lib/auto-worktree";
 import {
 	type CloudLaunchStep,
 	chatLandingProgress,
+	cloudLaunchStepLabel,
 } from "~/lib/chat-landing-progress";
 import { cloudImageReadyForProject } from "~/lib/cloud-image-group.ts";
+import { cloudLifecycleLabel } from "~/lib/cloud-queue-status";
+
+const CLOUD_SETUP_MESSAGE = {
+	unavailable: "chat:cloud_setup_unavailable",
+	"subscription-required": "chat:cloud_setup_subscription_required",
+	"connect-repository": "chat:cloud_setup_connect_repository",
+	"building-image": "chat:cloud_setup_building_image",
+	"rebuild-authentication": "chat:cloud_setup_rebuild_authentication",
+	"update-image": "chat:cloud_setup_update_image",
+} as const satisfies Record<Exclude<CloudSandboxSetup, "ready">, string>;
+
 import { cloudLaunchRequestForSource } from "~/lib/cloud-launch-source";
 import { cloudWorkspaceBetaAvailable } from "~/lib/cloud-machines-availability.ts";
 import {
@@ -100,6 +125,7 @@ import {
 	summaryFromLaunch,
 	useCloudChatSummaryForSelection,
 } from "~/lib/cloud-workspaces.ts";
+import { dispatchCommand } from "~/lib/commands";
 import { runCloudControl } from "~/lib/control-plane-client.ts";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { useEnvironmentShellCatalog } from "~/lib/environment-shell-client-bus";
@@ -115,6 +141,7 @@ import {
 	defaultNewChatTarget,
 	type LogicalProjectGroup,
 	type LogicalProjectMember,
+	landingDefaultProject,
 	type NewChatTarget,
 	preferredGroupMember,
 } from "~/lib/project-groups";
@@ -148,7 +175,6 @@ import {
 	rendererWorkspaceSnapshot,
 	subscribeRendererWorkspace,
 } from "../lib/renderer-workspace.ts";
-import { ChatStartupView } from "./chat-startup-view.tsx";
 import {
 	type CloudComputerPickerItem,
 	ComputerPicker,
@@ -163,10 +189,7 @@ import {
 } from "./composer/workspace-picker.tsx";
 import { ProviderIcon } from "./provider-icons";
 import { WallpaperBackground } from "./wallpaper-background";
-import {
-	CloudWorkspaceSetupView,
-	SetupCardView,
-} from "./worktree-setup-card.tsx";
+import { SetupCardView } from "./worktree-setup-card.tsx";
 
 const ChatComposer = lazy(() =>
 	import("./chat-composer.tsx").then((module) => ({
@@ -341,9 +364,6 @@ function WorkspaceChatLanding({
 	// setup-card bridge so the form can be hidden during the RPC without the
 	// user losing visual continuity with what they sent (shown as queued).
 	const [pendingInput, setPendingInput] = useState<ComposerInput | null>(null);
-	const [pendingPreviews, setPendingPreviews] = useState<
-		Readonly<Record<string, string>>
-	>({});
 	const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
 	// The worktree resolved for this submit (null = main checkout). Lets the
 	// bridge card show the real worktree name/branch the instant it exists.
@@ -513,17 +533,13 @@ function WorkspaceChatLanding({
 			restoredProject.current = true;
 			return;
 		}
-		const rememberedKey = newChatPreferences.lastProjectKey();
-		if (rememberedKey === null) {
-			restoredProject.current = true;
-			return;
-		}
-		const group = projectGroups.find(
-			(candidate) => candidate.key === rememberedKey,
-		);
-		if (group === undefined) return;
 		restoredProject.current = true;
-		if (group.key === selectedGroup?.key) return;
+		const group = landingDefaultProject(
+			projectGroups,
+			newChatPreferences.lastProjectKey(),
+			selectedGroup?.key ?? null,
+		);
+		if (group === null || group.key === selectedGroup?.key) return;
 		const member = preferredGroupMember(group);
 		if (member === null) return;
 		if (member.isActive) {
@@ -561,46 +577,74 @@ function WorkspaceChatLanding({
 		null,
 	);
 	const cloudTarget = cloudOnlyHome || selectedCloudProviderId !== null;
+	const [cloudAccountImages, setCloudAccountImages] = useState<
+		ReadonlyArray<CloudAccountImage>
+	>([]);
+	const snapshotNative = cloudAccountImages.some(
+		(image) =>
+			image.providerId === selectedCloudProviderId &&
+			image.snapshot !== undefined &&
+			image.snapshot.agentAuthentication !== "zuse",
+	);
 	const [cloudAuth, setCloudAuth] = useState<CloudAuthStatus | null>(null);
+	const [cloudAuthLoad, setCloudAuthLoad] =
+		useState<CloudAuthLoadState>("loading");
+	const [cloudAuthAttempt, setCloudAuthAttempt] = useState(0);
 	const enabledProviders = useSettingsStore((state) => state.providerEnabled);
 	const cloudProviderIds = useMemo(
 		() =>
-			connectedCloudProviders(cloudAuth).filter(
-				(id) => enabledProviders[id] !== false,
-			),
-		[cloudAuth, enabledProviders],
+			(snapshotNative
+				? (["claude", "codex"] as const)
+				: connectedCloudProviders(cloudAuth)
+			).filter((id) => enabledProviders[id] !== false),
+		[cloudAuth, enabledProviders, snapshotNative],
 	);
 	useEffect(() => {
 		if (!cloudTarget) {
 			setCloudAuth(null);
+			setCloudAuthLoad("loading");
 			return;
 		}
 		let cancelled = false;
 		let loading = false;
-		const load = async () => {
+		const load = async (refresh: boolean) => {
 			if (loading || cancelled) return;
 			loading = true;
 			try {
-				await loadCloudAuth();
-				if (!cancelled) setCloudAuth(peekCloudAuth() ?? null);
+				await loadCloudAuth(refresh);
+				if (cancelled) return;
+				setCloudAuth(peekCloudAuth() ?? null);
+				setCloudAuthLoad("ready");
 			} catch {
-				if (!cancelled) setCloudAuth(null);
+				if (cancelled) return;
+				setCloudAuth(null);
+				setCloudAuthLoad("failed");
 			} finally {
 				loading = false;
 			}
 		};
-		void load();
+		setCloudAuthLoad("loading");
+		void load(cloudAuthAttempt > 0);
 		const unsubscribe = subscribeControlPlaneSessionCache((key) => {
 			if (key === "cloud-workspace:auth") {
 				setCloudAuth(peekCloudAuth() ?? null);
-				void load();
+				void load(false);
 			}
 		});
 		return () => {
 			cancelled = true;
 			unsubscribe();
 		};
-	}, [cloudTarget]);
+	}, [cloudTarget, cloudAuthAttempt]);
+	// Why a cloud draft can't be sent yet. Without this the Send button is
+	// simply disabled with no explanation or way forward.
+	const cloudAuthBlocker =
+		!cloudTarget || draftSession === null
+			? null
+			: cloudSendBlocker(
+					snapshotNative ? "ready" : cloudAuthLoad,
+					cloudProviderIds,
+				);
 	useEffect(() => {
 		if (
 			!cloudTarget ||
@@ -623,9 +667,6 @@ function WorkspaceChatLanding({
 		ReadonlyArray<CloudProviderOption>
 	>([]);
 	const [cloudProject, setCloudProject] = useState<CloudProject | null>(null);
-	const [cloudAccountImages, setCloudAccountImages] = useState<
-		ReadonlyArray<CloudAccountImage>
-	>([]);
 	const [cloudSubscribed, setCloudSubscribed] = useState(false);
 	const [cloudPlacementError, setCloudPlacementError] = useState(false);
 	const setView = useUiStore((state) => state.setView);
@@ -708,20 +749,14 @@ function WorkspaceChatLanding({
 					cloudAccountImage,
 					cloudProject?.projectId,
 				);
+				const setup = cloudSandboxSetup({
+					image: cloudAccountImage,
+					subscribed: cloudSubscribed,
+					projectId: cloudProject?.projectId ?? null,
+					placementFailed: cloudPlacementError,
+				});
 				const statusText =
-					cloudPlacementError || cloudAccountImage === undefined
-						? uiMessage("chat:cloud_setup_unavailable")
-						: !cloudSubscribed
-							? uiMessage("chat:cloud_setup_subscription_required")
-							: cloudProject === null
-								? uiMessage("chat:cloud_setup_connect_repository")
-								: ready
-									? null
-									: cloudAccountImage?.state === "building"
-										? uiMessage("chat:cloud_setup_building_image")
-										: cloudAccountImage?.state === "auth-broken"
-											? uiMessage("chat:cloud_setup_rebuild_authentication")
-											: uiMessage("chat:cloud_setup_update_image");
+					setup === "ready" ? null : uiMessage(CLOUD_SETUP_MESSAGE[setup]);
 				return {
 					providerId: provider.providerId,
 					disabled: cloudPlacementError || cloudAccountImage === undefined,
@@ -1015,7 +1050,6 @@ function WorkspaceChatLanding({
 			if (!ownsLanding()) return;
 			resetCompletedChatDraft(draftRevision, () => {
 				setPendingInput(null);
-				setPendingPreviews({});
 				setPendingPrompt(null);
 				setPendingWorktreeId(null);
 				setPendingCloudStep(null);
@@ -1081,11 +1115,6 @@ function WorkspaceChatLanding({
 				input.text.trim().length > 0 ? input.text.trim() : "New chat",
 			);
 			setPendingInput(startupInput);
-			setPendingPreviews(
-				Object.fromEntries(
-					opts.pendingAttachments.map((item) => [item.tempId, item.previewUrl]),
-				),
-			);
 			setPendingCloudStep("creating");
 			let staged = false;
 			let stagedMessage: { ref: SessionRef; id: MessageId } | null = null;
@@ -1255,7 +1284,6 @@ function WorkspaceChatLanding({
 						forgetAttachmentPreview(stagedMessage.ref, item.tempId);
 				}
 				setPendingInput(null);
-				setPendingPreviews({});
 				releaseDraftAttachmentPreviews(opts.pendingAttachments);
 				setPendingCloudStep(null);
 				setPendingCloudChatId(null);
@@ -1448,6 +1476,32 @@ function WorkspaceChatLanding({
 
 	// Bridge: covers the brief create() RPC window (worktree → chat) before the
 	// session exists and MainShell swaps us for the real ChatView + composer.
+	// Until the chat exists, the submitted prompt waits in the same queue tray
+	// the live chat uses, so it never jumps between transcript and queue.
+	const pendingCloudQueue =
+		submitting && pendingPrompt !== null && pendingCloudStep !== null ? (
+			<div>
+				<CloudQueueStatusHeader
+					status={{
+						busy: true,
+						label: cloudLaunchStepLabel(
+							pendingCloudStep,
+							cloudLifecycleLabel({
+								summary: pendingCloudSummary,
+								activity: null,
+								connection: "dormant",
+							}),
+						),
+					}}
+				/>
+				<CloudQueuedPrompt
+					text={pendingInput?.text ?? pendingPrompt}
+					attachmentNames={(pendingInput?.attachments ?? []).map(
+						(file) => file.originalName,
+					)}
+				/>
+			</div>
+		) : null;
 	const composer =
 		draftSession !== null ? (
 			<Suspense fallback={<div className="h-28" aria-busy="true" />}>
@@ -1485,6 +1539,19 @@ function WorkspaceChatLanding({
 								)
 					}
 					onDraftSubmit={(input, opts) => void handleDraftSubmit(input, opts)}
+					draftTray={
+						pendingCloudQueue ??
+						(cloudAuthBlocker === null ? undefined : (
+							<CloudAgentSignInTray
+								blocker={cloudAuthBlocker}
+								onRetry={() => setCloudAuthAttempt((attempt) => attempt + 1)}
+								onOpenSettings={() => {
+									setSettingsSection({ kind: "cloud", page: "agents" });
+									setView("settings");
+								}}
+							/>
+						))
+					}
 					headerSlot={
 						submitting ? undefined : (
 							<div className="flex w-full items-center justify-between gap-2">
@@ -1562,7 +1629,8 @@ function WorkspaceChatLanding({
 											}}
 										/>
 									) : null}
-									{!cloudOnlyHome && (
+									{/* Imports register Personal projects; keep them out of organizations. */}
+									{!cloudOnlyHome && workspace.scope.kind === "personal" && (
 										<ImportChatMenu
 											threads={externalThreads}
 											loading={externalThreadsLoading}
@@ -1623,12 +1691,26 @@ function WorkspaceChatLanding({
 					}
 				/>
 			</Suspense>
-		) : (
+		) : projectGroups.length > 0 ? (
 			<p className="text-center text-sm text-muted-foreground">
-				{uiMessage(
-					"chat:chat_landing_pick_a_project_below_to_start_a_new_chat",
-				)}
+				{uiMessage("chat:chat_landing_choose_a_project_in_the_sidebar")}
 			</p>
+		) : (
+			<div className="flex flex-col items-center gap-3">
+				<p className="text-center text-sm text-muted-foreground">
+					{uiMessage("chat:chat_landing_add_a_project_to_start")}
+				</p>
+				{isHostedProduct() ? null : (
+					<Button
+						size="xs"
+						className="h-7"
+						onClick={() => dispatchCommand("open-project")}
+					>
+						<HugeiconsIcon icon={FolderAddIcon} aria-hidden />
+						{uiMessage("chat:chat_landing_add_project")}
+					</Button>
+				)}
+			</div>
 		);
 
 	// Show the submitted bubble before the cloud chat has an identity.
@@ -1642,28 +1724,14 @@ function WorkspaceChatLanding({
 		});
 		if (progress.kind === "cloud") {
 			return (
-				<ChatStartupView
-					input={
-						pendingInput ??
-						ComposerInput.make({
-							text: pendingPrompt,
-							attachments: [],
-							fileRefs: [],
-							skillRefs: [],
-						})
-					}
-					previews={pendingPreviews}
-					composer={composer}
-					progress={
-						<CloudWorkspaceSetupView
-							phase={pendingCloudSummary?.startupPhase ?? "allocating"}
-							statusCode={pendingCloudSummary?.statusCode}
-							failureDiagnostic={
-								pendingCloudSummary?.failureDiagnostic ?? undefined
-							}
-						/>
-					}
-				/>
+				<div className="chat-session-layout relative flex min-h-0 min-w-0 flex-1 flex-col [container-type:inline-size]">
+					<div className="min-h-0 flex-1" />
+					<div className="shrink-0 px-[var(--chat-row-gutter)] pb-4 pt-2">
+						<div className="mx-auto w-full max-w-[var(--chat-reading-column)]">
+							{composer}
+						</div>
+					</div>
+				</div>
 			);
 		}
 		return (

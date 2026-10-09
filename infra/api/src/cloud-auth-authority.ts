@@ -16,6 +16,7 @@ import {
 	SandboxProviders,
 } from "@zuse/sandbox-providers";
 import { Effect, Schedule } from "effect";
+import { CLAUDE_AUTH_VALIDATION_SOURCE } from "./cloud-claude-auth-validation.ts";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import { sha256Hex } from "./crypto.ts";
@@ -166,8 +167,9 @@ writeFileSync(home + "/grok-toolchain-version", grokVersion(managedGrokBinary) |
 writeFileSync(completionPath, "ready", { mode: 0o600 });
 `;
 
-const CONFIGURATOR_SOURCE =
+export const CONFIGURATOR_SOURCE =
 	AUTH_CODEX_PATH_SOURCE +
+	CLAUDE_AUTH_VALIDATION_SOURCE +
 	String.raw`import { constants, privateDecrypt } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
@@ -178,7 +180,8 @@ const input = JSON.parse(await readFile(requestPath, "utf8"));
 const keyId = (await readFile(home + "/key-id", "utf8")).trim();
 if (input.sealedSecret.keyId !== keyId) throw new Error("stale_encryption_key");
 const privateKey = await readFile(home + "/private.pem", "utf8");
-const secret = privateDecrypt({ key: privateKey, oaepHash: "sha256", padding: constants.RSA_PKCS1_OAEP_PADDING }, Buffer.from(input.sealedSecret.ciphertext, "base64url")).toString("utf8").trim();
+const decryptedSecret = privateDecrypt({ key: privateKey, oaepHash: "sha256", padding: constants.RSA_PKCS1_OAEP_PADDING }, Buffer.from(input.sealedSecret.ciphertext, "base64url")).toString("utf8").trim();
+const secret = input.providerId === "claude" && input.method === "subscription" ? normalizeClaudeSetupToken(decryptedSecret) : decryptedSecret;
 if (secret.length < 8 || secret.length > 32768 || /[\r\n\0]/u.test(secret)) throw new Error("invalid_credential");
 const command = input.providerId === "cursor" ? "cursor-agent" : input.providerId === "grok" ? "/home/zuse/.local/bin/grok" : input.providerId;
 const statusArgs = input.providerId === "claude" ? ["auth", "status", "--json"] : input.providerId === "codex" ? ["login", "status"] : input.providerId === "cursor" ? ["status"] : ["models"];
@@ -201,7 +204,7 @@ if (input.providerId === "codex" && input.method === "api-key") {
     process.exit(0);
   }
 }
-const status = await run(statusArgs);
+const status = input.providerId === "claude" ? await verifyClaudeCredential({ method: input.method, secret, baseUrl: input.baseUrl }) : await run(statusArgs);
 if (status.code === 0) {
   await mkdir(home + "/providers", { recursive: true, mode: 0o700 });
   const credentialPath = home + "/providers/" + input.providerId + ".json";
@@ -215,7 +218,7 @@ if (status.code === 0) {
   await writeFile(imageSecretsPath, JSON.stringify(imageSecrets), { mode: 0o600 });
   await chmod(imageSecretsPath, 0o600);
 }
-const result = { state: status.code === 0 ? "connected" : status.error === "missing-tool" ? "missing-tool" : "expired", method: input.method, verifiedAt: status.code === 0 ? Date.now() : undefined, errorCode: status.code === 0 ? undefined : status.error ?? "verification-failed" };
+const result = { state: status.code === 0 ? "connected" : status.error === "missing-tool" ? "missing-tool" : input.providerId !== "claude" || status.error === "authentication-required" ? "expired" : "error", method: input.method, verifiedAt: status.code === 0 ? Date.now() : undefined, errorCode: status.code === 0 ? undefined : status.error ?? "verification-failed" };
 await writeFile(home + "/status/" + input.providerId + ".json", JSON.stringify(result), { mode: 0o600 });
 await writeFile(resultPath, JSON.stringify(result), { mode: 0o600 });
 `;
@@ -262,6 +265,7 @@ await writeFile(path, JSON.stringify({ providerId: current.providerId, state: "c
 
 const VERIFY_SOURCE =
 	AUTH_CODEX_PATH_SOURCE +
+	CLAUDE_AUTH_VALIDATION_SOURCE +
 	`import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
@@ -308,9 +312,9 @@ const verify = async (providerId) => {
     });
     child.stdin.write(JSON.stringify({ id: 1, method: "initialize", params: { clientInfo: { name: "zuse-cloud-auth", version: "1" }, capabilities: { experimentalApi: true } } }) + "\\n");
   });
-  const result = providerId === "codex" && credential.native === true ? await readManagedCodexAccount() : await runStatus();
-  const state = result.code === 0 ? "connected" : result.error === "missing-tool" ? "missing-tool" : "expired";
-  await writeFile(home + "/status/" + providerId + ".json", JSON.stringify({ providerId, method: credential.method, native: credential.native === true, state, verifiedAt: result.code === 0 ? credential.updatedAt ?? Date.now() : undefined, errorCode: result.code === 0 ? undefined : result.error ?? "verification-failed" }), { mode: 0o600 });
+  const result = providerId === "claude" && credential.native !== true ? await verifyClaudeCredential(credential) : providerId === "codex" && credential.native === true ? await readManagedCodexAccount() : await runStatus();
+  const state = result.code === 0 ? "connected" : result.error === "missing-tool" ? "missing-tool" : providerId === "claude" && result.error !== "authentication-required" ? "error" : "expired";
+  await writeFile(home + "/status/" + providerId + ".json", JSON.stringify({ providerId, method: credential.method, native: credential.native === true, state, verifiedAt: result.code === 0 ? (providerId === "claude" ? Date.now() : credential.updatedAt ?? Date.now()) : undefined, errorCode: result.code === 0 ? undefined : result.error ?? "verification-failed" }), { mode: 0o600 });
 };
 await mkdir(home + "/status", { recursive: true, mode: 0o700 });
 await Promise.all(providers.map(verify));
@@ -1633,3 +1637,15 @@ export type CloudAuthAuthorityContext =
 	| SandboxProviders
 	| ApiConfiguration
 	| CloudWorkspaceStore;
+
+/** Cached account-scoped authorization; does not wake the authentication VM. */
+export const availableCloudAgents = Effect.fn("availableCloudAgents")(
+	function* (accountId: string) {
+		const status = yield* cloudAuthStatus(accountId);
+		return status.authorityState === "ready"
+			? status.providers
+					.filter((provider) => provider.state === "connected")
+					.map((provider) => provider.providerId)
+			: [];
+	},
+);

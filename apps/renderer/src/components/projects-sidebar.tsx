@@ -1,4 +1,5 @@
 import { chatRecency } from "@zuse/client-runtime/chat-recency";
+import { useThreadListSidebarEnabled } from "../lib/browser-device-preferences.ts";
 import {
 	isCloudProjectFolder,
 	mergeCloudProjectFolders,
@@ -13,12 +14,11 @@ import {
 	rendererWorkspaceSnapshot,
 	subscribeRendererWorkspace,
 } from "../lib/renderer-workspace.ts";
+import { buildThreadList, type ThreadListEntry } from "../lib/thread-list.ts";
+import { useChatAttention } from "../lib/use-chat-attention.ts";
 import { useCloudProjects } from "../lib/use-cloud-projects.ts";
 import { HostedLaptopSection } from "./hosted-sidebar.tsx";
-import {
-	organizationWorkspacesAvailable,
-	WorkspaceSwitcher,
-} from "./workspace-switcher.tsx";
+import { WorkspaceSwitcher } from "./workspace-switcher.tsx";
 import "@zuse/i18n/english/projects";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import {
@@ -27,8 +27,9 @@ import {
 	type CloudChatSummary,
 	EnvironmentId,
 	type Folder,
-	type FolderId,
+	FolderId,
 	type GitOriginInfo,
+	type GitPrInfo,
 	type ProviderId,
 	type SessionId,
 	type SessionStatus,
@@ -45,6 +46,7 @@ import {
 	Folder01Icon,
 	FolderAddIcon,
 	GitBranchIcon,
+	GithubIcon,
 	HelpCircleIcon,
 	Login03Icon,
 	PencilIcon,
@@ -77,16 +79,14 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useAuth } from "~/hooks/use-auth.ts";
 import {
 	type ChatAttentionState,
+	chatAttentionLabel,
 	deriveChatAttentionState,
 	derivePermissionAttention,
 	mergeChatAttentionStates,
 } from "~/lib/chat-attention-state";
 import { displayPath } from "~/lib/display-path";
 import { activeSessionById } from "~/lib/environment-entities.ts";
-import {
-	useActiveEnvironmentEntities,
-	useEnvironmentEntities,
-} from "~/lib/environment-entity-hooks.ts";
+import { useEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { useEnvironmentPermissions } from "~/lib/environment-permissions-client-bus.ts";
 import { useEnvironmentQuestionAttachments } from "~/lib/environment-question-attachments-client-bus.ts";
 import { formatError } from "~/lib/format-error.ts";
@@ -97,11 +97,16 @@ import {
 	cloudChatShowsWorking,
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
+import { startCloudCheckout } from "../lib/cloud-checkout.ts";
 import { cloudWorkspaceBetaAvailable } from "../lib/cloud-machines-availability.ts";
 import {
 	cloudSummaryActiveSessionId,
 	useCloudChatCatalogStore,
 } from "../lib/cloud-workspace-catalog.ts";
+import {
+	hasCloudEntitlement,
+	loadCloudEntitlements,
+} from "../lib/cloud-workspace-session-cache.ts";
 import {
 	openCloudChat,
 	repositoryIdentityForOrigin,
@@ -114,14 +119,21 @@ import {
 	useEnvironmentShellCatalog,
 	useEnvironmentShellResource,
 } from "../lib/environment-shell-client-bus.ts";
-import { useGitWorkspaceResource } from "../lib/git-workspace-client-bus.ts";
+import {
+	type GitDiffStat,
+	useGitWorkspaceResource,
+} from "../lib/git-workspace-client-bus.ts";
 import { openNewChatLanding } from "../lib/open-new-chat-landing.ts";
 import {
 	activeAgentCountLabel,
 	getPowerRuntimeActivity,
 	subscribePowerRuntimeActivity,
 } from "../lib/power-runtime-activity.ts";
-import { branchStateFor, diffStatsFor } from "../lib/pr-branch-state.ts";
+import {
+	branchStateFor,
+	diffStatsFor,
+	prStateLabelFor,
+} from "../lib/pr-branch-state.ts";
 import {
 	buildLogicalProjectGroups,
 	type LogicalChatRef,
@@ -167,11 +179,12 @@ import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { openAddComputerDialog } from "./add-computer-dialog.tsx";
-import { BranchIcon, type BranchState } from "./branch-icon.tsx";
+import { BranchIcon, type BranchState, PrStateIcon } from "./branch-icon.tsx";
 import { DitherCloudIcon } from "./dither-cloud-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
+import { DitherActionButton } from "./ui/dither-action-button.tsx";
 import { Spinner } from "./ui/spinner";
 
 const CLOUD_WORKSPACE_BETA_AVAILABLE = cloudWorkspaceBetaAvailable();
@@ -252,16 +265,18 @@ const avatarUrlFor = (origin: GitOriginInfo | null): string | null => {
 	return `https://github.com/${encodeURIComponent(origin.owner)}.png?size=80`;
 };
 
-const formatRelative = (iso: Date): string => {
+/** `compact` drops " ago" ("5m") for dense rows that need the title room. */
+const formatRelative = (iso: Date, compact = false): string => {
 	const ms = Date.now() - iso.getTime();
 	const sec = Math.floor(ms / 1000);
-	if (sec < 60) return "just now";
+	if (sec < 60) return compact ? "now" : "just now";
+	const suffix = compact ? "" : " ago";
 	const min = Math.floor(sec / 60);
-	if (min < 60) return `${min}m ago`;
+	if (min < 60) return `${min}m${suffix}`;
 	const hr = Math.floor(min / 60);
-	if (hr < 24) return `${hr}h ago`;
+	if (hr < 24) return `${hr}h${suffix}`;
 	const day = Math.floor(hr / 24);
-	return `${day}d ago`;
+	return `${day}d${suffix}`;
 };
 
 const environmentProjectKey = (
@@ -483,6 +498,39 @@ export function ProjectsSidebar() {
 		);
 	}, [cloudChats, logicalGroups, origins, chatsByProject]);
 	const organize = useSidebarOrganize(projectKeys);
+	const threadListSidebar = useThreadListSidebarEnabled();
+	const hiddenArchivedChatIds = useChatsStore(
+		(state) => state.hiddenArchivedChatIds,
+	);
+	// Same sources the tree shows: live chats, other computers, and cloud.
+	const threadListEntries = useMemo(
+		() =>
+			threadListSidebar
+				? buildThreadList({
+						chatsByProject,
+						folders,
+						remoteChats: desktopCatalogEnabled
+							? logicalGroups.flatMap((group) =>
+									remoteChatRows(group).map((row) => ({
+										...row,
+										repositoryName: group.displayName,
+									})),
+								)
+							: [],
+						cloudChats,
+						hiddenChatIds: hiddenArchivedChatIds,
+					})
+				: [],
+		[
+			threadListSidebar,
+			chatsByProject,
+			folders,
+			desktopCatalogEnabled,
+			logicalGroups,
+			cloudChats,
+			hiddenArchivedChatIds,
+		],
+	);
 	const catalogViewState = environmentCatalogViewState({
 		initialized: catalogInitialized,
 		initializing: catalogInitializing,
@@ -499,11 +547,7 @@ export function ProjectsSidebar() {
 			tabIndex={-1}
 			className="flex h-full min-h-0 w-full flex-col text-sidebar-foreground outline-none"
 		>
-			{organizationWorkspacesAvailable() && (
-				<div className="px-2 py-1">
-					<WorkspaceSwitcher />
-				</div>
-			)}
+			<WorkspaceSwitcher />
 			{desktopCatalogEnabled || isHostedProduct() ? null : (
 				<Suspense fallback={<div className="h-[60px]" />}>
 					<ComputerSwitcher />
@@ -519,13 +563,19 @@ export function ProjectsSidebar() {
 				</div>
 			) : null}
 			<div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-muted-foreground">
-				<span>{uiMessage("projects:projects_sidebar_projects")}</span>
+				<span>
+					{threadListSidebar
+						? uiMessage("projects:projects_sidebar_threads")
+						: uiMessage("projects:projects_sidebar_projects")}
+				</span>
 				<div className="flex items-center">
-					<NewProjectGroupButton
-						onCreate={() =>
-							organize.setGroupDialog({ kind: "create", projectKeys: [] })
-						}
-					/>
+					{threadListSidebar ? null : (
+						<NewProjectGroupButton
+							onCreate={() =>
+								organize.setGroupDialog({ kind: "create", projectKeys: [] })
+							}
+						/>
+					)}
 					<ProjectAddMenu />
 				</div>
 			</div>
@@ -538,10 +588,18 @@ export function ProjectsSidebar() {
 				data-sidebar-scroll
 				className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-1.5"
 			>
-				{ungroupedCloudChats.map((summary) => (
-					<CloudChatRow key={summary.workspaceId} summary={summary} />
-				))}
-				{desktopCatalogEnabled ? (
+				{threadListSidebar
+					? null
+					: ungroupedCloudChats.map((summary) => (
+							<CloudChatRow key={summary.workspaceId} summary={summary} />
+						))}
+				{threadListSidebar ? (
+					<ThreadListSection
+						entries={threadListEntries}
+						origins={origins}
+						loading={loading}
+					/>
+				) : desktopCatalogEnabled ? (
 					<>
 						{catalogViewState === "loading" ? (
 							<li
@@ -818,6 +876,100 @@ export function ProjectsSidebar() {
 				</Suspense>
 			) : null}
 		</aside>
+	);
+}
+
+// Rows past this stay unmounted until asked for; each row subscribes to its
+// sessions' timelines, so a long history shouldn't all render up front.
+const THREAD_LIST_INITIAL_ROWS = 100;
+
+/** Experimental thread list sidebar body: every thread, newest first. */
+function ThreadListSection({
+	entries,
+	origins,
+	loading,
+}: {
+	entries: ReadonlyArray<ThreadListEntry>;
+	origins: Readonly<Record<string, GitOriginInfo | null>>;
+	loading: boolean;
+}) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+	const [showAll, setShowAll] = useState(false);
+	// Cloud rows open into their matching sidebar project, as in the tree.
+	const projectIdByRepository = useMemo(
+		() =>
+			new Map(
+				Object.entries(origins).map(([folderId, origin]) => [
+					repositoryIdentityForOrigin(origin),
+					FolderId.make(folderId),
+				]),
+			),
+		[origins],
+	);
+
+	if (entries.length === 0) {
+		if (loading) return null;
+		return (
+			<li>
+				<CompactEmptyState
+					title={uiMessage("projects:projects_sidebar_no_threads_yet")}
+					description={uiMessage(
+						"projects:projects_sidebar_start_a_chat_to_see_it_here",
+					)}
+				/>
+			</li>
+		);
+	}
+	const visible = showAll
+		? entries
+		: entries.slice(0, THREAD_LIST_INITIAL_ROWS);
+	return (
+		<>
+			{visible.map((entry) =>
+				entry.kind === "local" ? (
+					<ChatRow
+						key={entry.id}
+						chat={entry.chat}
+						projectRoot={entry.projectRoot}
+						projectName={
+							origins[entry.chat.projectId]?.repo ?? entry.projectName
+						}
+						projectAvatarUrl={avatarUrlFor(
+							origins[entry.chat.projectId] ?? null,
+						)}
+						variant="threadList"
+					/>
+				) : entry.kind === "remote" ? (
+					<CatalogChatRow
+						key={entry.id}
+						chatRef={entry.remote.ref}
+						connected={entry.remote.connected}
+						repositoryName={entry.remote.repositoryName}
+					/>
+				) : (
+					<CloudChatRow
+						key={entry.id}
+						summary={entry.summary}
+						projectId={projectIdByRepository.get(
+							entry.summary.repositoryIdentity,
+						)}
+					/>
+				),
+			)}
+			{visible.length < entries.length ? (
+				<li>
+					<button
+						type="button"
+						onClick={() => setShowAll(true)}
+						className="flex h-7 w-full items-center rounded-md px-2.5 text-[12px] text-muted-foreground transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
+					>
+						{uiMessage("projects:projects_sidebar_show_all_threads", {
+							count: String(entries.length),
+						})}
+					</button>
+				</li>
+			) : null}
+		</>
 	);
 }
 
@@ -1333,9 +1485,78 @@ function SidebarAgentCount() {
 }
 
 /**
- * Compact account affordance. Account details and sign-out live in General
- * settings, keeping the sidebar footer free of a second navigation menu.
+ * The account's plan: a quiet Cloud label that opens billing, or an Upgrade
+ * button that starts Cloud checkout. Profile and sign-out live in the
+ * workspace switcher and General settings.
  */
+function SidebarPlan() {
+	const { message: uiMessage } = useUiMessages(["projects"]);
+	const { user } = useAuth();
+	const setView = useUiStore((s) => s.setView);
+	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
+	const [entitled, setEntitled] = useState<boolean | null>(null);
+	const [opening, setOpening] = useState(false);
+	useEffect(() => {
+		if (!user?.id) return;
+		let live = true;
+		setEntitled(null);
+		void loadCloudEntitlements()
+			.then((result) => {
+				if (live) setEntitled(hasCloudEntitlement(result));
+			})
+			.catch(() => {
+				// Show Upgrade rather than nothing when the plan can't be read.
+				if (live) setEntitled(false);
+			});
+		return () => {
+			live = false;
+		};
+	}, [user?.id]);
+	if (entitled === null) return <span className="h-7" />;
+	if (!entitled)
+		return (
+			<DitherActionButton
+				className="px-2.5"
+				loading={opening}
+				onClick={() => {
+					setOpening(true);
+					void startCloudCheckout()
+						.catch(() => undefined)
+						.finally(() => setOpening(false));
+				}}
+			>
+				{uiMessage("projects:projects_sidebar_upgrade")}
+			</DitherActionButton>
+		);
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<button
+						type="button"
+						onClick={() => {
+							setSettingsSection(
+								cloudWorkspaceBetaAvailable()
+									? { kind: "machines" }
+									: { kind: "general" },
+							);
+							setView("settings");
+						}}
+						className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					>
+						<DitherCloudIcon className="size-3.5" />
+						{uiMessage("projects:projects_sidebar_plan_cloud")}
+					</button>
+				}
+			/>
+			<TooltipPopup side="top">
+				{uiMessage("projects:projects_sidebar_plan_cloud_tooltip")}
+			</TooltipPopup>
+		</Tooltip>
+	);
+}
+
+/** Sign-in affordance while signed out; the plan once signed in. */
 function SidebarAccount() {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
@@ -1351,7 +1572,7 @@ function SidebarAccount() {
 	const setView = useUiStore((s) => s.setView);
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
 
-	const initial = (name || user?.email || "?").charAt(0).toUpperCase();
+	const _initial = (name || user?.email || "?").charAt(0).toUpperCase();
 
 	const label = isUnavailable
 		? "Account unavailable"
@@ -1372,6 +1593,7 @@ function SidebarAccount() {
 		setView("settings");
 	};
 
+	if (isSignedIn) return <SidebarPlan />;
 	return (
 		<Tooltip>
 			<TooltipTrigger
@@ -1386,16 +1608,7 @@ function SidebarAccount() {
 							isHostedProduct() ? "gap-1.5 px-2 text-[12px]" : "w-7",
 						)}
 					>
-						{isSignedIn ? (
-							<Avatar className="size-5 text-[10px]">
-								{user?.profilePictureUrl ? (
-									<AvatarImage src={user.profilePictureUrl} alt={name} />
-								) : null}
-								<AvatarFallback className="text-[10px]">
-									{initial}
-								</AvatarFallback>
-							</Avatar>
-						) : isLoading ? (
+						{isLoading ? (
 							<HugeiconsIcon icon={UserCircleIcon} className="size-4" />
 						) : (
 							<HugeiconsIcon icon={Login03Icon} className="size-4" />
@@ -2685,10 +2898,29 @@ export function TooltipShortcut({
 	);
 }
 
-function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
+function ChatRow({
+	chat,
+	projectRoot,
+	projectName,
+	projectAvatarUrl = null,
+	variant = "tree",
+}: {
+	chat: Chat;
+	projectRoot: string;
+	/** Shown on `threadList` rows, which have no project header above them. */
+	projectName?: string;
+	/** Repository owner's GitHub avatar; `threadList` rows lead with it. */
+	projectAvatarUrl?: string | null;
+	/**
+	 * `tree` is the indented row under a project header. `threadList` is the
+	 * self-describing row used by the experimental flat list. Behavior
+	 * (select, unread, archive, menu, hover card) is shared; only layout differs.
+	 */
+	variant?: "tree" | "threadList";
+}) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+	const threadList = variant === "threadList";
 
-	const { sessionsByProject } = useActiveEnvironmentEntities();
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
 
@@ -2740,93 +2972,14 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 	const prInfo = gitView.data?.pr ?? null;
 	const diffStat = gitView.data?.diffStat ?? null;
 
-	// Ids of this chat's non-archived sessions — so the sidebar busy
-	// indicator reflects ANY tab being active, not just the currently
-	// selected one.
-	const chatSessions = useMemo(
-		() =>
-			(sessionsByProject[chat.projectId] ?? []).filter(
-				(row) => row.chatId === chat.id && row.archivedAt === null,
-			),
-		[sessionsByProject, chat.projectId, chat.id, uiMessage],
-	);
-	const sessionIds = useMemo(
-		() => chatSessions.map((session) => session.id),
-		[chatSessions, uiMessage],
-	);
-	const timelineRefs = useMemo(
-		() =>
-			sessionIds.map((sessionId) => ({
-				environmentId: EnvironmentId.make(activeEnvironmentId),
-				sessionId,
-			})),
-		[activeEnvironmentId, sessionIds, uiMessage],
-	);
-	const timelines = useRendererSessionTimelines(timelineRefs, "cache-only");
-	const questionAttachmentsByKey =
-		useEnvironmentQuestionAttachments(EnvironmentId.make(activeEnvironmentId))
-			.data?.attachmentsByKey ?? {};
-	const runningAttention = useMemo(
-		() =>
-			mergeChatAttentionStates(
-				timelines.map((timeline) =>
-					isSessionRuntimeBusy(timeline.runtime) ? "running" : "idle",
-				),
-			),
-		[timelines, uiMessage],
-	);
-	const messageAttention = useMemo(
-		() =>
-			mergeChatAttentionStates(
-				timelines.map((timeline) =>
-					deriveChatAttentionState(
-						timeline.messages,
-						false,
-						filterActionableQuestionInteractions(
-							timeline.ref.sessionId,
-							timeline.presentation.interactions.map(
-								(item) => item.interaction,
-							),
-							questionAttachmentsByKey,
-						),
-					),
-				),
-			),
-		[timelines, questionAttachmentsByKey, uiMessage],
-	);
-	const sessionIdSet = useMemo(
-		() => new Set(sessionIds),
-		[sessionIds, uiMessage],
-	);
-	// Supervised-mode permission prompts live only in the permissions store —
-	// they never arrive as messages, so they'd otherwise leave the row dark.
-	const permissionRequests =
-		useEnvironmentPermissions().data?.requestsById ?? {};
-	const permissionAttention = derivePermissionAttention(
-		Object.values(permissionRequests),
-		sessionIdSet,
-	);
-	const attentionState = mergeChatAttentionStates([
-		creationPending ? "running" : "idle",
-		runningAttention,
-		messageAttention,
-		permissionAttention,
-	]);
+	// Merged across ANY non-archived tab in this chat, not just the selected one.
+	const { chatSessions, sessionIds, attentionState, permissionAttention } =
+		useChatAttention(chat, activeEnvironmentId, creationPending);
 	const hoverSession =
 		chatSessions.find((session) => session.id === selectedSessionId) ??
 		chatSessions[0] ??
 		null;
-	const hoverStatus = creationPending
-		? "Starting agent"
-		: attentionState === "running"
-			? "Agent active"
-			: attentionState === "question"
-				? "Waiting for an answer"
-				: attentionState === "permission"
-					? "Waiting for permission"
-					: attentionState === "planReady"
-						? "Plan ready"
-						: "Inactive";
+	const hoverStatus = chatAttentionLabel(attentionState, creationPending);
 
 	// Highlight this row when its own chat is selected, OR when the active
 	// session (any tab inside this chat) lives in it. Covers the transient
@@ -2903,6 +3056,23 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 			}
 		});
 	};
+	const archiveButton = (
+		<ChatArchiveButton
+			icon={primaryActionIcon}
+			label={primaryActionLabel}
+			chatTitle={chat.title}
+			archiving={isArchiving}
+			busy={isArchiving || isRestoring}
+			onClick={isArchived ? restoreChat : archiveChat}
+		/>
+	);
+	const remoteIndicator = onRemoteEnvironment ? (
+		<RemoteComputerIndicator
+			label={environmentLabel}
+			className="mr-1"
+			tooltip={false}
+		/>
+	) : null;
 
 	return (
 		<>
@@ -2927,7 +3097,9 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 						render={
 							<div
 								className={cn(
-									"group relative flex min-h-7 cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-2 pl-1 text-[12px] transition-colors",
+									threadList
+										? "group relative flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-2 text-[12.5px] transition-colors"
+										: "group relative flex min-h-7 cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-2 pl-1 text-[12px] transition-colors",
 									isSelected &&
 										"bg-sidebar-accent text-sidebar-accent-foreground",
 									!isSelected &&
@@ -2960,70 +3132,56 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 								>
 									<span className="sr-only">{chat.title}</span>
 								</button>
-								<span className="pointer-events-none ml-3 inline-grid size-5 shrink-0 place-items-center">
-									{attentionState !== "idle" ? (
-										<ChatAttentionIcon
-											state={attentionState}
-											selected={isSelected}
+								{threadList ? (
+									<ThreadListRowBody
+										title={chat.title}
+										attentionState={attentionState}
+										creationPending={creationPending}
+										statusLabel={hoverStatus}
+										prInfo={prInfo}
+										stats={stats}
+										projectName={projectName}
+										projectAvatarUrl={projectAvatarUrl}
+										time={formatRelative(chatRecency(chat), true)}
+										remoteIndicator={remoteIndicator}
+										action={archiveButton}
+									/>
+								) : (
+									<>
+										<span className="pointer-events-none ml-3 inline-grid size-5 shrink-0 place-items-center">
+											{attentionState !== "idle" ? (
+												<ChatAttentionIcon
+													state={attentionState}
+													selected={isSelected}
+												/>
+											) : (
+												<BranchIcon state={branchState} selected={isSelected} />
+											)}
+										</span>
+										<TypewriterText
+											text={chat.title}
+											className="pointer-events-none min-w-0 flex-1 truncate"
 										/>
-									) : (
-										<BranchIcon state={branchState} selected={isSelected} />
-									)}
-								</span>
-								<TypewriterText
-									text={chat.title}
-									className="pointer-events-none min-w-0 flex-1 truncate"
-								/>
-								<div className="pointer-events-none relative flex h-4 w-16 shrink-0 items-center justify-end">
-									{onRemoteEnvironment ? (
-										<RemoteComputerIndicator
-											label={environmentLabel}
-											className="mr-1"
-											tooltip={false}
-										/>
-									) : null}
-									<span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
-										{showDiff && stats !== null ? (
-											<>
-												<span className="text-success">
-													+{formatCompactNumber(stats.additions)}
-												</span>{" "}
-												<span className="text-danger-text">
-													−{formatCompactNumber(stats.deletions)}
-												</span>
-											</>
-										) : (
-											formatRelative(chatRecency(chat))
-										)}
-									</span>
-									<button
-										type="button"
-										disabled={isArchiving || isRestoring}
-										onClick={(e) => {
-											e.stopPropagation();
-											if (isArchived) {
-												restoreChat();
-											} else {
-												archiveChat();
-											}
-										}}
-										className={cn(
-											"pointer-events-auto relative z-10 items-center rounded-md p-0.5 text-muted-foreground transition-opacity duration-150 ease-out hover:text-sidebar-accent-foreground motion-reduce:transition-none",
-											isArchiving ? "flex" : "hidden group-hover:flex",
-										)}
-										aria-label={`${primaryActionLabel} ${chat.title}`}
-										title={primaryActionLabel}
-									>
-										{isArchiving || isRestoring ? (
-											<Spinner className="size-3.5" />
-										) : (
-											<HugeiconsIcon
-												icon={primaryActionIcon}
-												className="size-3.5"
-											/>
-										)}
-									</button>
-								</div>
+										<div className="pointer-events-none relative flex h-4 w-16 shrink-0 items-center justify-end">
+											{remoteIndicator}
+											<span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
+												{showDiff && stats !== null ? (
+													<>
+														<span className="text-success">
+															+{formatCompactNumber(stats.additions)}
+														</span>{" "}
+														<span className="text-danger-text">
+															−{formatCompactNumber(stats.deletions)}
+														</span>
+													</>
+												) : (
+													formatRelative(chatRecency(chat))
+												)}
+											</span>
+											{archiveButton}
+										</div>
+									</>
+								)}
 							</div>
 						}
 					/>
@@ -3104,6 +3262,158 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 	);
 }
 
+/**
+ * Body for `threadList` rows, anchored by the repository's GitHub logo.
+ *   logo  — repo owner avatar; a small corner badge appears only while the
+ *           agent works or needs you (status words live in the hover card)
+ *   line 1 — title · time
+ *   line 2 — project name, GitHub PR icon, number, and state · diff
+ */
+function ThreadListRowBody({
+	title,
+	attentionState,
+	creationPending,
+	statusLabel,
+	prInfo,
+	stats,
+	projectName,
+	projectAvatarUrl,
+	time,
+	remoteIndicator,
+	action,
+}: {
+	title: string;
+	attentionState: ChatAttentionState;
+	creationPending: boolean;
+	statusLabel: string;
+	prInfo: GitPrInfo | null;
+	stats: GitDiffStat | null;
+	projectName: string | undefined;
+	projectAvatarUrl: string | null;
+	time: string;
+	remoteIndicator: ReactNode;
+	action: ReactNode;
+}) {
+	const working = creationPending || attentionState === "running";
+	const prState = prStateLabelFor(prInfo);
+
+	return (
+		<>
+			<span className="pointer-events-none relative mt-px size-5 shrink-0">
+				<Avatar className="size-5 rounded-[5px] ring-1 ring-white/5">
+					{projectAvatarUrl !== null && (
+						<AvatarImage src={projectAvatarUrl} alt="" />
+					)}
+					<AvatarFallback className="rounded-[5px] bg-sidebar-accent text-muted-foreground">
+						<HugeiconsIcon
+							icon={GithubIcon}
+							className="size-3"
+							aria-hidden="true"
+						/>
+					</AvatarFallback>
+				</Avatar>
+				{working || attentionState !== "idle" ? (
+					<span className="absolute -right-1 -bottom-1 grid size-3.5 place-items-center rounded-full bg-sidebar ring-1 ring-sidebar">
+						{working ? (
+							// A solid ring stays legible at badge size, where the
+							// dotted Spinner glyph washes out.
+							<span
+								aria-hidden="true"
+								className="size-2.5 animate-spin rounded-full border-[1.5px] border-foreground/25 border-t-foreground motion-reduce:animate-none"
+							/>
+						) : (
+							<ChatAttentionIcon
+								state={attentionState}
+								className="size-3.5 [&_svg]:size-2.5"
+							/>
+						)}
+						<span className="sr-only">{statusLabel}</span>
+					</span>
+				) : null}
+			</span>
+			<div className="pointer-events-none flex min-w-0 flex-1 flex-col gap-[3px]">
+				<div className="flex min-w-0 items-center gap-2">
+					<TypewriterText
+						text={title}
+						className="min-w-0 flex-1 truncate leading-4"
+					/>
+					<div className="relative flex h-4 shrink-0 items-center">
+						{remoteIndicator}
+						<span className="text-[11px] font-normal tabular-nums text-muted-foreground/60 group-hover:hidden">
+							{time}
+						</span>
+						{action}
+					</div>
+				</div>
+				<div className="flex h-3.5 min-w-0 items-center gap-1 text-[11px] font-normal text-muted-foreground/60">
+					{projectName !== undefined ? (
+						<span className="min-w-0 truncate">{projectName}</span>
+					) : null}
+					{prInfo !== null && prState !== null ? (
+						<span className="ml-1 inline-flex min-w-0 shrink-[2] items-center gap-1">
+							<PrStateIcon pr={prInfo} className="size-3" />
+							{prInfo.number === null ? null : (
+								<span className="shrink-0 tabular-nums">#{prInfo.number}</span>
+							)}
+							<span className="min-w-0 truncate">{prState}</span>
+						</span>
+					) : null}
+					{stats !== null ? (
+						<span className="ml-auto shrink-0 pl-2 tabular-nums">
+							<span className="text-success/70">
+								+{formatCompactNumber(stats.additions)}
+							</span>{" "}
+							<span className="text-danger-text/70">
+								−{formatCompactNumber(stats.deletions)}
+							</span>
+						</span>
+					) : null}
+				</div>
+			</div>
+		</>
+	);
+}
+
+/** Hover-revealed archive/unarchive action that sits on top of a chat row. */
+function ChatArchiveButton({
+	icon,
+	label,
+	chatTitle,
+	archiving,
+	busy,
+	onClick,
+}: {
+	icon: IconSvgElement;
+	label: string;
+	chatTitle: string;
+	archiving: boolean;
+	busy: boolean;
+	onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			disabled={busy}
+			onClick={(e) => {
+				e.stopPropagation();
+				onClick();
+			}}
+			className={cn(
+				"pointer-events-auto relative z-10 items-center rounded-md p-0.5 text-muted-foreground transition-opacity duration-150 ease-out hover:text-sidebar-accent-foreground motion-reduce:transition-none",
+				archiving ? "flex" : "hidden group-focus-within:flex group-hover:flex",
+			)}
+			aria-label={`${label} ${chatTitle}`}
+			title={label}
+		>
+			{busy ? (
+				<Spinner className="size-3.5" />
+			) : (
+				<HugeiconsIcon icon={icon} className="size-3.5" />
+			)}
+		</button>
+	);
+}
+
 function ChatAttentionIcon({
 	state,
 	selected = false,
@@ -3120,9 +3430,9 @@ function ChatAttentionIcon({
 	const color = selected
 		? "text-sidebar-accent-foreground"
 		: state === "question" || state === "permission"
-			? "text-amber-300"
+			? "text-amber-600 dark:text-amber-300"
 			: state === "planReady"
-				? "text-emerald-300"
+				? "text-emerald-600 dark:text-emerald-300"
 				: "text-foreground";
 	const label =
 		state === "question"

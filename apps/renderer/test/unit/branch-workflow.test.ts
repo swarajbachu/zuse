@@ -57,7 +57,7 @@ describe("branch workflow", () => {
 });
 
 describe("environment PR rows", () => {
-	it("shows checks and conflicts as separate simultaneous rows", () => {
+	it("ranks conflicts ahead of failing checks for the row action", () => {
 		const rows = deriveEnvironmentPrRows({
 			...openPr,
 			checks: "failure",
@@ -72,7 +72,7 @@ describe("environment PR rows", () => {
 				label: "2 checks failing",
 				canFix: true,
 			},
-			conflicts: true,
+			action: "resolve",
 		});
 	});
 
@@ -106,5 +106,33 @@ describe("environment PR rows", () => {
 		[openPr, { kind: "success", label: "Checks passed", canFix: false }],
 	])("derives the checks row from PR check counts", (pr, checks) => {
 		expect(deriveEnvironmentPrRows(pr).checks).toEqual(checks);
+	});
+
+	it.each([
+		["a draft", { ...openPr, isDraft: true }, "ready"],
+		[
+			"a draft with conflicts",
+			{ ...openPr, isDraft: true, mergeable: "conflicting" as const },
+			"resolve",
+		],
+		[
+			"failing checks",
+			{ ...openPr, checks: "failure" as const, checksFailing: 1 },
+			"fix",
+		],
+		[
+			"running checks",
+			{ ...openPr, checks: "pending" as const, checksRunning: 1 },
+			null,
+		],
+		[
+			"an unknown merge state",
+			{ ...openPr, mergeable: "unknown" as const },
+			null,
+		],
+		["a clean branch with passing checks", openPr, "merge"],
+		["a merged PR", { ...openPr, state: "merged" }, null],
+	])("offers one row action for %s", (_name, pr, action) => {
+		expect(deriveEnvironmentPrRows(pr).action).toBe(action);
 	});
 });

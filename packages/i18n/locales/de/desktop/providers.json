@@ -102,7 +102,6 @@
 	"add_computer_dialog_username_optional_sentence": "Benutzername <part0>Optional</part0>",
 	"add_computer_dialog_port_optional_sentence": "Port <part0>Optional</part0>",
 	"add_computer_dialog_label_optional_sentence": "Beschriftung <part0>Optional</part0>",
-	"add_computer_dialog_remove_sentence": "{{value}} entfernen?",
 	"add_computer_dialog_zuse_will_forget_this_computer_on_this_device_projects_and_d_sentence": "Zuse wird diesen Computer auf diesem Gerät vergessen. Projekte und Daten auf {{value}} werden nicht gelöscht.",
 	"opencode_provider_manager_configured_sentence": "{{value}} konfiguriert",
 	"opencode_provider_manager_no_providers_match_sentence": "Kein Anbieter passt zu „{{query}}“.",
@@ -140,5 +139,17 @@
 	"update_to_latest": "{{name}} auf die neueste Version aktualisieren",
 	"sign_in_failed": "Anmeldung fehlgeschlagen.",
 	"sign_in_incomplete": "Die Anmeldung wurde vorzeitig beendet.",
-	"update_incomplete": "Das Update wurde vorzeitig beendet."
+	"update_incomplete": "Das Update wurde vorzeitig beendet.",
+	"remove_computer_account_description": "Entfernen Sie {{value}} aus Ihrem Konto, um einen Computerplatz freizugeben. Der Fernzugriff über Zuse wird beendet. Projekte und Daten auf dem Computer bleiben erhalten.",
+	"accounts_title": "Konten",
+	"accounts_add": "Konto hinzufügen",
+	"accounts_name": "Kontoname",
+	"accounts_hint": "Konten bleiben auf diesem Computer. Wählen Sie ein Konto vor der ersten Nachricht eines neuen Chats; bestehende Chats behalten ihr Konto.",
+	"accounts_default": "Standard-CLI-Anmeldung / API-Schlüssel",
+	"accounts_use": "Für neue Chats verwenden",
+	"accounts_selected": "Ausgewählt",
+	"accounts_waiting": "Schließen Sie die Anmeldung im Browser ab.",
+	"accounts_open_browser": "Browser öffnen",
+	"accounts_signed_in": "Angemeldet",
+	"accounts_remove_description": "Entfernt dieses Konto aus den Einstellungen. Chats mit diesem Konto können nicht fortgesetzt werden. Anmeldedateien und Chatverläufe bleiben erhalten."
 }

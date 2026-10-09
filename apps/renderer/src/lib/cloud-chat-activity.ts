@@ -31,12 +31,7 @@ export type CloudChatActivityInput = {
 	readonly timeline?: ResourceView<SessionTimelineProjection>;
 };
 
-/** Whether the durable cloud lifecycle still owns the initial chat setup UI. */
-export const cloudWorkspaceIsStarting = (summary: CloudChatSummary): boolean =>
-	summary.startupPhase === "allocating" ||
-	summary.startupPhase === "booting" ||
-	summary.startupPhase === "authenticating-runtime" ||
-	summary.startupPhase === "syncing-repository";
+export { cloudWorkspaceIsStarting } from "@zuse/client-runtime/cloud-startup-presentation";
 
 /** A runtime claim bridges the gap before its live turn arrives. Unclaimed
  * mailbox sends remain in the queue; stale cached turns never imply work. */
@@ -78,21 +73,30 @@ export const deriveCloudChatActivity = ({
 	const computeReady =
 		summary.state === "ready" && summary.runtimeState === "online";
 
+	// A live connected turn can arrive before the cloud lifecycle summary.
+	// It establishes current work immediately; retained turns remain usable only
+	// while the summary confirms compute is ready.
 	// A turn observed from this live runtime remains interruptible while its
 	// transport reconnects or history synchronizes. Disk/checkpoint state cannot
 	// establish liveness, and the durable compute lifecycle still wins above.
 	if (
-		computeReady &&
+		(computeReady || timeline?.connection === "connected") &&
 		timeline?.origin === "runtime" &&
 		timeline.data?.currentTurn != null
 	) {
 		const observed = runtimeStateFromTimeline(timeline.data);
-		if (observed === "running" || observed === "stopping") {
+		if (
+			observed === "starting" ||
+			observed === "running" ||
+			observed === "stopping"
+		) {
 			return timeline.pendingCommands.some(
 				(command) => command.kind === "messages.interrupt",
 			)
 				? "stopping"
-				: observed;
+				: observed === "starting"
+					? "starting-agent"
+					: observed;
 		}
 	}
 

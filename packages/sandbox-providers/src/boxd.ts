@@ -11,6 +11,7 @@ import {
 	type MachineCreateParams,
 	type MachineForkParams,
 	type MachineResizeParams,
+	type MachineUsageReport,
 	NotFoundError,
 	PermissionDeniedError,
 	type Proxy as ProxyRoute,
@@ -50,10 +51,12 @@ export interface BoxdSandboxConfig {
 	readonly org?: string;
 	/** Snapshot every workspace-less create boots from. */
 	readonly templateSnapshot: string;
+	readonly runtimeUser?: string;
 	readonly templateVersion: string;
 	readonly machineSize?: BoxdMachineSize;
 	/** gRPC-web endpoint; defaults to production. */
 	readonly baseUrl?: string;
+	readonly billingUsageEnabled?: boolean;
 	readonly readyDeadlineMs?: number;
 	readonly snapshotDeadlineMs?: number;
 	readonly pollIntervalMs?: number;
@@ -62,6 +65,10 @@ export interface BoxdSandboxConfig {
 /** The slice of `@boxd-sh/sdk/web` this adapter uses; tests inject an in-memory fake. */
 export interface BoxdSandboxClient {
 	readonly machines: {
+		usage?(
+			id: string,
+			params: { since: number; until: number; org?: string },
+		): Promise<MachineUsageReport>;
 		create(params: MachineCreateParams): Promise<Machine>;
 		fork(id: string, params: MachineForkParams): Promise<Machine>;
 		setEgressAllow(id: string, entries: string[]): Promise<string[]>;
@@ -123,10 +130,10 @@ const MIN_IDLE_SECONDS = 1;
 const MAX_IDLE_SECONDS = 2_592_000;
 const COMMAND_TIMEOUT_MS = 60_000;
 const MACHINE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
-// Boxd currently limits the entire proxy hostname to 63 characters. Reserve
-// room for the longest port label and our active org domain:
-// p65535.<machine>.boxd.zuse.sh (6 + 1 + 43 + 1 + 12 = 63).
-const MACHINE_NAME_MAX_LENGTH = 43;
+// Boxd limits the entire proxy hostname to 63 characters. Names created
+// before short names used up to 43 (p65535.<machine>.boxd.zuse.sh = 63), and
+// the first generation up to 63; both stay recoverable.
+const PREVIOUS_MACHINE_NAME_MAX_LENGTH = 43;
 const LEGACY_MACHINE_NAME_MAX_LENGTH = 63;
 const PARK_SETTLE_ATTEMPTS = 5;
 const GRPC_INVALID_ARGUMENT = 3;
@@ -169,8 +176,44 @@ const machineNameWithinLimit = (label: string, maxLength: number): string => {
 	return named.slice(0, maxLength).replace(/-+$/u, "");
 };
 
+const FNV64_OFFSET = 0xcbf2_9ce4_8422_2325n;
+const FNV64_PRIME = 0x100_0000_01b3n;
+const UINT64 = (1n << 64n) - 1n;
+
+/** 64-bit FNV-1a as 13 base36 characters: short, stable and DNS-safe. */
+const fnv1a64Base36 = (value: string): string => {
+	let hash = FNV64_OFFSET;
+	for (const byte of new TextEncoder().encode(value)) {
+		hash ^= BigInt(byte);
+		hash = (hash * FNV64_PRIME) & UINT64;
+	}
+	return hash.toString(36).padStart(13, "0");
+};
+
+const machineKind = (label: string): string =>
+	label.startsWith("zuse-cloud-workspace-")
+		? "w"
+		: label.startsWith("zuse-cloud-build-")
+			? "b"
+			: label.startsWith("zuse-auth-")
+				? "a"
+				: label.startsWith("zuse-machine")
+					? "m"
+					: "z";
+
+/**
+ * Machine names appear in every preview URL, so they are a one-letter kind
+ * plus a 64-bit digest of the full label (e.g. `w3k9x0m2q7a1bz`). Distinct
+ * labels, including ones that differ only in case, get distinct names.
+ */
 export const boxdMachineName = (label: string): string =>
-	machineNameWithinLimit(label, MACHINE_NAME_MAX_LENGTH);
+	`${machineKind(label)}${fnv1a64Base36(label)}`;
+
+/** Earlier naming generations, newest first, for recovering existing machines. */
+const previousBoxdMachineNames = (label: string): ReadonlyArray<string> => [
+	machineNameWithinLimit(label, PREVIOUS_MACHINE_NAME_MAX_LENGTH),
+	machineNameWithinLimit(label, LEGACY_MACHINE_NAME_MAX_LENGTH),
+];
 
 const errorForCause = (cause: unknown): SandboxProviderError => {
 	if (cause instanceof NotFoundError) return providerError("not-found");
@@ -229,7 +272,7 @@ const validateCreateEnv = (env: Readonly<Record<string, string>>) =>
 const clampIdleSeconds = (timeoutSeconds: number): number =>
 	clampSeconds(timeoutSeconds, MIN_IDLE_SECONDS, MAX_IDLE_SECONDS);
 
-const clients = new Map<string, BoxdSandboxClient>();
+const clients = new Map<string, Boxd>();
 
 /**
  * The API constructs its provider registry per request, and every SDK client
@@ -246,12 +289,21 @@ export const boxdBaseUrl = (value: string | undefined): string =>
 
 export const boxdSandboxClientFor = (
 	config: Pick<BoxdSandboxConfig, "apiKey" | "baseUrl">,
-): BoxdSandboxClient => {
+): Boxd => {
 	const baseURL = boxdBaseUrl(config.baseUrl);
 	const key = `${baseURL}\u0000${Redacted.value(config.apiKey)}`;
 	const existing = clients.get(key);
 	if (existing !== undefined) return existing;
-	const created = new Boxd({ apiKey: Redacted.value(config.apiKey), baseURL });
+	const created = new Boxd({
+		apiKey: Redacted.value(config.apiKey),
+		baseURL,
+		timeout: 30_000,
+	});
+	// BYOK accounts must not grow an isolate-wide secret/client cache without bound.
+	if (clients.size >= 64) {
+		const oldest = clients.keys().next().value;
+		if (oldest !== undefined) clients.delete(oldest);
+	}
 	clients.set(key, created);
 	return created;
 };
@@ -408,7 +460,7 @@ export const makeBoxdSandboxProvider = (
 				providerSandboxId,
 				[
 					"timeout 90 systemctl is-system-running --wait >/dev/null 2>&1 || true",
-					`sudo -n install -d -m 0700 -o ${RUNTIME_USER} -g ${RUNTIME_USER} ${SECRETS_DIRECTORY}`,
+					`sudo -n install -d -m 0700 -o ${shellQuote(config.runtimeUser ?? RUNTIME_USER)} -g "$(id -gn ${shellQuote(config.runtimeUser ?? RUNTIME_USER)})" ${SECRETS_DIRECTORY}`,
 				].join(" && "),
 				120_000,
 			);
@@ -428,10 +480,10 @@ export const makeBoxdSandboxProvider = (
 		yield* runCommand(
 			providerSandboxId,
 			[
-				`sudo -n -u ${RUNTIME_USER} -H bash -c ${shellQuote(
+				`sudo -n -u ${shellQuote(config.runtimeUser ?? RUNTIME_USER)} -H bash -c ${shellQuote(
 					"cd / && timeout 30 zuse --version >/dev/null 2>&1",
 				)}`,
-				`sudo -n systemd-run --quiet --collect --wait --uid=${RUNTIME_USER} -- /bin/true >/dev/null 2>&1`,
+				`sudo -n systemd-run --quiet --collect --wait --uid=${shellQuote(config.runtimeUser ?? RUNTIME_USER)} -- /bin/true >/dev/null 2>&1`,
 				"true",
 			].join("; "),
 		).pipe(Effect.ignore);
@@ -465,6 +517,8 @@ export const makeBoxdSandboxProvider = (
 	const allocate = Effect.fn("BoxdSandboxProvider.allocate")(function* (input: {
 		readonly providerLabel: string;
 		readonly snapshot: string;
+		readonly snapshotVersion?: number;
+		readonly snapshotSource?: "custom-snapshot";
 		readonly sizeId?: string;
 		readonly timeoutSeconds: number;
 		readonly env: Readonly<Record<string, string>>;
@@ -478,8 +532,9 @@ export const makeBoxdSandboxProvider = (
 		if (!MACHINE_NAME_PATTERN.test(name))
 			return yield* providerError("rejected");
 		const idleSeconds = clampIdleSeconds(input.timeoutSeconds);
-		// Every machine is isolated: no peers, no metadata endpoint, no in-VM
-		// boxd CLI or integrations. Auto-suspend stays off so the runtime's
+		// Managed images are isolated. User-owned snapshots retain Boxd
+		// account integrations, including agent credential injection.
+		// Auto-suspend stays off so the runtime's
 		// outbound gateway connection never freezes under it; the caller's
 		// timeout becomes the hibernate (pause) or destroy (terminate) timer.
 		// ALREADY_EXISTS is the one create failure worth a second look: the
@@ -493,7 +548,7 @@ export const makeBoxdSandboxProvider = (
 						name,
 						...(org === undefined ? {} : { org }),
 						fromSnapshot: input.snapshot,
-						isolated: true,
+						isolated: input.snapshotSource !== "custom-snapshot",
 						config: {
 							autoSuspendTimeout: 0,
 							...(input.onTimeout === "terminate"
@@ -546,6 +601,14 @@ export const makeBoxdSandboxProvider = (
 				),
 			),
 		);
+		if (
+			input.snapshotVersion !== undefined &&
+			(usable.source?.id !== input.snapshot ||
+				usable.source.version !== input.snapshotVersion)
+		) {
+			yield* kill(created.id);
+			return yield* providerError("rejected");
+		}
 		yield* applySize(usable, size);
 		yield* prepareRuntime(created.id);
 		yield* primeRuntime(created.id);
@@ -654,9 +717,7 @@ export const makeBoxdSandboxProvider = (
 			const directory = path.slice(0, path.lastIndexOf("/")) || "/";
 			const install = yield* runCommand(
 				providerSandboxId,
-				`(sudo -n -u ${shellQuote(owner)} mkdir -p ${shellQuote(directory)} 2>/dev/null || sudo -n install -d -m 0755 ${shellQuote(directory)}) && sudo -n install -m 600 -o ${shellQuote(owner)} -g ${shellQuote(
-					owner,
-				)} ${shellQuote(stagingPath)} ${shellQuote(path)} && sudo -n rm -f ${shellQuote(stagingPath)}`,
+				`(sudo -n -u ${shellQuote(owner)} mkdir -p ${shellQuote(directory)} 2>/dev/null || sudo -n install -d -m 0755 ${shellQuote(directory)}) && sudo -n install -m 600 -o ${shellQuote(owner)} -g "$(id -gn ${shellQuote(owner)})" ${shellQuote(stagingPath)} ${shellQuote(path)} && sudo -n rm -f ${shellQuote(stagingPath)}`,
 			);
 			if (install.exitCode !== 0) return yield* providerError("transient");
 		},
@@ -676,14 +737,15 @@ export const makeBoxdSandboxProvider = (
 		function* (providerLabel: string) {
 			const name = boxdMachineName(providerLabel);
 			let found = yield* settledByName(name);
-			// Keep pre-workaround machines discoverable without renaming them or
-			// allocating replacements for their existing runtime data.
-			const legacyName = machineNameWithinLimit(
-				providerLabel,
-				LEGACY_MACHINE_NAME_MAX_LENGTH,
-			);
-			if (found === null && legacyName !== name)
-				found = yield* settledByName(legacyName);
+			// Keep machines named by earlier schemes discoverable without
+			// renaming them or allocating replacements for their runtime data.
+			const tried = new Set([name]);
+			for (const previous of previousBoxdMachineNames(providerLabel)) {
+				if (found !== null) break;
+				if (tried.has(previous)) continue;
+				tried.add(previous);
+				found = yield* settledByName(previous);
+			}
 			return found === null ? null : yield* settledSandbox(found);
 		},
 	);
@@ -987,10 +1049,53 @@ export const makeBoxdSandboxProvider = (
 		});
 
 	return {
+		withCredentials: (credentials) =>
+			makeBoxdSandboxProvider({
+				...config,
+				apiKey: credentials.apiKey,
+				templateSnapshot: credentials.templateId ?? config.templateSnapshot,
+				org: credentials.organization,
+				runtimeUser: credentials.runtimeUser,
+			}),
 		providerId: BOXD_PROVIDER_ID,
 		displayName: "boxd",
 		templateVersion: config.templateVersion,
 		preservesProcessesOnResume: true,
+		getUsage: config.billingUsageEnabled
+			? (id, window) =>
+					call("usage", async () => {
+						if (client.machines.usage === undefined)
+							throw new Error("boxd usage API unavailable");
+						// Bucket starts are integral seconds. Ceiling both bounds preserves
+						// their membership in the requested half-open interval; flooring
+						// a later period boundary would assign its preceding bucket to the wrong period.
+						const usage = await client.machines.usage(id, {
+							since: Math.ceil(window.startedAtMs / 1000),
+							until: Math.ceil(window.endedAtMs / 1000),
+							org: config.org,
+						});
+						if (
+							usage.machineId !== id ||
+							!usage.complete ||
+							usage.currency !== "usd" ||
+							usage.period.start.getTime() !==
+								Math.ceil(window.startedAtMs / 1000) * 1000 ||
+							usage.period.end.getTime() !==
+								Math.ceil(window.endedAtMs / 1000) * 1000 ||
+							!Number.isSafeInteger(usage.costMicro) ||
+							usage.costMicro < 0
+						)
+							throw new Error("boxd usage is incomplete, invalid or not USD");
+						return {
+							...window,
+							providerCostMicros: usage.costMicro,
+							evidence: usage,
+							billableSeconds: usage.seconds.running,
+							running: false,
+							costMicrosPerSecond: 0,
+						};
+					})
+			: undefined,
 		resources: BOXD_MACHINE_RESOURCES[machineSize],
 		sizes: [
 			machineSize,
@@ -1017,10 +1122,25 @@ export const makeBoxdSandboxProvider = (
 			}),
 		// Account images are snapshots; a restore boots into the captured
 		// state in milliseconds with its memory intact.
+		resolveSnapshotSource: (snapshotId) =>
+			call("snapshots.get", () =>
+				client.snapshots.get(
+					snapshotId,
+					org === undefined ? undefined : { org },
+				),
+			).pipe(
+				Effect.flatMap((info) =>
+					info.status === "ready" && info.version !== null
+						? Effect.succeed({ snapshotId: info.id, version: info.version })
+						: providerError("rejected"),
+				),
+			),
 		fork: (input) =>
 			allocate({
 				providerLabel: input.providerLabel,
 				snapshot: input.snapshotId,
+				snapshotVersion: input.snapshotVersion,
+				snapshotSource: input.snapshotSource,
 				sizeId: input.sizeId,
 				timeoutSeconds: input.timeoutSeconds,
 				env: input.env,

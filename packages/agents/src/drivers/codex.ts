@@ -59,6 +59,8 @@ import {
 } from "./compact.ts";
 import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
 import { applyPlanModePrefix } from "./planMode.ts";
+import { pluginCliEnv } from "./plugin-tools.ts";
+import { isolatedProviderAccountEnv } from "./provider-account-env.ts";
 
 const SUPPORTED_CODEX_IMAGE_MIME = new Set([
 	"image/png",
@@ -1528,13 +1530,27 @@ export const startCodexSession = (
 			}
 		};
 
+		const childEnv = input.providerAccountHome
+			? isolatedProviderAccountEnv("codex", input.providerAccountHome, {
+					...process.env,
+					...input.executionEnv,
+				})
+			: { ...process.env, ...input.executionEnv };
 		let app = yield* Effect.tryPromise({
 			try: () =>
 				CodexAppServerClient.start({
 					codexPath,
 					apiKey,
+					...(input.providerAccountHome ? { externalAuthProvider: null } : {}),
 					externalAuthConsumerId: sessionId,
-					env: { ...process.env, ZUSE_MCP_TOKEN: mcpGatewaySession.token },
+					env: {
+						...childEnv,
+						ZUSE_MCP_TOKEN: mcpGatewaySession.token,
+						...pluginCliEnv(
+							mcpGatewaySession.endpoint,
+							mcpGatewaySession.token,
+						),
+					},
 					mcp: {
 						transport: "http",
 						url: mcpGatewaySession.codexServerConfig.url,
@@ -1628,8 +1644,11 @@ export const startCodexSession = (
 					app = await CodexAppServerClient.start({
 						codexPath,
 						apiKey,
+						...(input.providerAccountHome
+							? { externalAuthProvider: null }
+							: {}),
 						externalAuthConsumerId: sessionId,
-						env: process.env,
+						env: childEnv,
 						mcp: {
 							transport: "stdio",
 							command: fallback.command,

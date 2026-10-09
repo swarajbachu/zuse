@@ -27,7 +27,6 @@ import {
 } from "@zuse/contracts";
 import { fractionToPercent } from "@zuse/utils/usage-values";
 import { type Cause, Effect, Queue, Stream } from "effect";
-
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type {
 	ProviderDriverEvent,
@@ -49,10 +48,12 @@ import {
 	startCompactSnapshot,
 } from "./compact.ts";
 import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
+import { pluginCliEnv } from "./plugin-tools.ts";
+import { isolatedProviderAccountEnv } from "./provider-account-env.ts";
 
 /**
  * User MCP servers → SDK external-server config entries. Tools surface as
- * `mcp__<name>__<tool>` and fall through `policyFor` to the permission
+ * `mcp__<name>__<tool>` and fall through `claudeToolPermissionPolicy` to the permission
  * broker like any unlisted tool. With toolSearch on, the SDK defers their
  * tool schemas behind search (the default); with it off we pin
  * `alwaysLoad` so behavior matches the builtins.
@@ -1308,7 +1309,7 @@ export const translateClaudeSdkMessages = (
  * Tools the agent can run without a prompt. These are pure reads or
  * internal-state tools (`TodoWrite`) with no observable blast radius. The
  * `Read` exception for sensitive paths is enforced separately in
- * `policyFor` — even read-only tools force a prompt when the target looks
+ * `claudeToolPermissionPolicy` — even read-only tools force a prompt when the target looks
  * like a secret.
  *
  * `ASK_USER_QUESTION_FQN` is here because asking the user a question IS
@@ -1407,7 +1408,7 @@ const isAskUserQuestion = (toolName: string): boolean =>
 	toolName === SDK_BUILTIN_ASK_USER_QUESTION ||
 	toolName.endsWith(`__${ASK_USER_QUESTION_TOOL}`);
 
-const policyFor = (
+export const claudeToolPermissionPolicy = (
 	toolName: string,
 	toolInput: Record<string, unknown>,
 	runtimeMode: RuntimeMode,
@@ -1845,10 +1846,24 @@ export const startClaudeSession = (
 			typeof credential === "string"
 				? ({ kind: "api-key", secret: credential } as const)
 				: credential;
-		const env = applyClaudeCredentialEnv(
-			applyClaudeWorktreeEnv(scrubInheritedClaudeMarkers(process.env), cwd),
+		const credentialEnv = applyClaudeCredentialEnv(
+			applyClaudeWorktreeEnv(
+				scrubInheritedClaudeMarkers({
+					...process.env,
+					...input.executionEnv,
+					...pluginCliEnv(mcpGatewaySession.endpoint, mcpGatewaySession.token),
+				}),
+				cwd,
+			),
 			managedCredential,
 		);
+		const env = input.providerAccountHome
+			? isolatedProviderAccountEnv(
+					"claude",
+					input.providerAccountHome,
+					credentialEnv,
+				)
+			: credentialEnv;
 		// Sub-agent map → SDK Options.agents. When at least one preset is
 		// present and the master toggle is on, also add `Agent` to
 		// allowedTools so the model can actually call it. Sessions without
@@ -1948,7 +1963,11 @@ export const startClaudeSession = (
 			// `PermissionService`. The renderer's toast eventually fulfills the
 			// promise this awaits.
 			canUseTool: async (toolName, toolInput) => {
-				const policy = policyFor(toolName, toolInput, getRuntimeMode());
+				const policy = claudeToolPermissionPolicy(
+					toolName,
+					toolInput,
+					getRuntimeMode(),
+				);
 				// One-line debug so if the auto-allow ever misses (e.g. SDK
 				// changes the MCP-tool naming convention) we can see the
 				// exact toolName arriving and patch `isAskUserQuestion`.
