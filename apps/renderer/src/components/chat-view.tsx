@@ -1,4 +1,5 @@
 import type { SyncPhase } from "@zuse/client-runtime/resource-state";
+import { runningBackgroundAgents } from "@zuse/client-runtime/session-presentation";
 import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
 import { useEnvironmentQuestionAttachments } from "../lib/environment-question-attachments-client-bus.ts";
 import {
@@ -14,6 +15,7 @@ import {
 	usePreviewServers,
 } from "../lib/use-preview-servers.ts";
 import { ChatLoadingFallback } from "./chat-loading-fallback.tsx";
+import { BackgroundAgentWorkingRows } from "./chat-working-row";
 import { ToolActivityTree } from "./tool-activity-tree.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -380,11 +382,18 @@ export function ChatView({
 			uiMessage,
 		],
 	);
+	const backgroundAgents = useMemo(
+		() => runningBackgroundAgents(timeline.view),
+		[timeline.view],
+	);
 	const timelineFooter = useMemo(
 		() => (
 			<>
 				<div className="px-[var(--chat-row-gutter,0.75rem)]">
 					<WorktreeSetupCard providerOutputStarted={providerOutputStarted} />
+					{backgroundAgents.length > 0 && (
+						<BackgroundAgentWorkingRows agents={backgroundAgents} />
+					)}
 					{pendingCreation?.phase === "failed" ? (
 						<ChatCreationFailureActions creation={pendingCreation} />
 					) : null}
@@ -392,7 +401,7 @@ export function ChatView({
 				<div className="h-2" />
 			</>
 		),
-		[pendingCreation, providerOutputStarted, uiMessage],
+		[pendingCreation, providerOutputStarted, backgroundAgents, uiMessage],
 	);
 	const turns = useMemo(
 		() => deriveChatTurnNavigationEntries(rows),

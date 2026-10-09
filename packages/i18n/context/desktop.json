@@ -2204,7 +2204,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-view.tsx",
-				"line": 908
+				"line": 915
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -2214,7 +2214,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-view.tsx",
-				"line": 1025
+				"line": 1032
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -4261,6 +4261,10 @@
 	"chat:subagent_row_agent_running": {
 		"source": "Agent running",
 		"locations": [
+			{
+				"path": "apps/renderer/src/components/chat-working-row.tsx",
+				"line": 143
+			},
 			{
 				"path": "apps/renderer/src/components/subagent-row.tsx",
 				"line": 139
@@ -6318,11 +6322,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-view.tsx",
-				"line": 867
+				"line": 874
 			},
 			{
 				"path": "apps/renderer/src/components/chat-view.tsx",
-				"line": 904
+				"line": 911
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6830,7 +6834,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-view.tsx",
-				"line": 932
+				"line": 939
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6840,7 +6844,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-view.tsx",
-				"line": 939
+				"line": 946
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -7035,6 +7039,16 @@
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
 				"line": 1710
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:chat_working_row_waiting_for_task": {
+		"source": "Waiting for task {task}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/chat-working-row.tsx",
+				"line": 142
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

@@ -11,7 +11,9 @@ import {
 import { describe, expect, it } from "vitest";
 import type { ResourceView } from "../../src/resource-state.ts";
 import {
+	countRunningBackgroundAgents,
 	deriveSessionPresentation,
+	runningBackgroundAgents,
 	type SessionPresentation,
 } from "../../src/session-presentation.ts";
 
@@ -316,5 +318,95 @@ describe("session presentation authority", () => {
 			{ id: first.id, submission: "failed" },
 			{ id: second.id, submission: "submitting" },
 		]);
+	});
+});
+
+describe("background agent activity between parent turns", () => {
+	const agent = (id: string) =>
+		Message.make({
+			id: MessageId.make(id),
+			sessionId: AgentSessionId.make("presentation-session"),
+			role: "assistant",
+			createdAt: new Date(0),
+			content: {
+				_tag: "tool_use",
+				itemId: AgentItemId.make(id),
+				tool: "Agent",
+				input: {},
+				subagent: { childSessionId: id, presentation: "detached" },
+			},
+		});
+	const finished = (id: string) =>
+		Message.make({
+			id: MessageId.make(`${id}-done`),
+			sessionId: AgentSessionId.make("presentation-session"),
+			role: "assistant",
+			createdAt: new Date(1),
+			content: {
+				_tag: "subagent_summary",
+				itemId: AgentItemId.make(id),
+				agentName: "reviewer",
+				model: "inherit",
+				turns: 1,
+				durationMs: 1000,
+				summary: "Done",
+				isError: false,
+			},
+		});
+	it("keeps unfinished reviewers visible after the parent's reply, then settles each completion", () => {
+		const messages = [agent("one"), agent("two"), assistantMessage];
+		expect(
+			runningBackgroundAgents(view(projection("idle", false, messages))),
+		).toEqual([
+			{ id: "one", description: "", startedAtMs: 0 },
+			{ id: "two", description: "", startedAtMs: 0 },
+		]);
+		expect(
+			countRunningBackgroundAgents(view(projection("idle", false, messages))),
+		).toBe(2);
+		expect(
+			countRunningBackgroundAgents(
+				view(projection("idle", false, [...messages, finished("one")])),
+			),
+		).toBe(1);
+		expect(
+			countRunningBackgroundAgents(
+				view(
+					projection("idle", false, [
+						...messages,
+						finished("one"),
+						finished("two"),
+					]),
+				),
+			),
+		).toBe(0);
+	});
+	it("does not treat cached or disconnected history as live activity", () => {
+		const data = projection("idle", false, [agent("one")]);
+		expect(
+			countRunningBackgroundAgents(view(data, { origin: "checkpoint" })),
+		).toBe(0);
+		expect(
+			countRunningBackgroundAgents(view(data, { connection: "offline" })),
+		).toBe(0);
+	});
+	it("does not count an acknowledgement as a background agent's completion", () => {
+		const acknowledgement = Message.make({
+			id: MessageId.make("ack"),
+			sessionId: AgentSessionId.make("presentation-session"),
+			role: "assistant",
+			createdAt: new Date(1),
+			content: {
+				_tag: "tool_result",
+				itemId: AgentItemId.make("one"),
+				output: "Launched",
+				isError: false,
+			},
+		});
+		expect(
+			countRunningBackgroundAgents(
+				view(projection("idle", false, [agent("one"), acknowledgement])),
+			),
+		).toBe(1);
 	});
 });

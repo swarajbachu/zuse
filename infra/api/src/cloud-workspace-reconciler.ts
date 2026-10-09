@@ -1681,6 +1681,10 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 				...runtimeFence,
 				runtimeSessionRecoveryPending: true,
 				runtimeInstallPending: config.runtimeManifestUrl !== undefined,
+				runtimeLaunchRecoveryAttempts:
+					workspace.statusCode === "resume-runtime-restarting"
+						? (workspace.requestConfig.runtimeLaunchRecoveryAttempts ?? 0)
+						: 0,
 				startupTimings: { ...timings, allocatedAt: preparedAtMs },
 			},
 			nextActionAtMs:
@@ -2408,6 +2412,37 @@ exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`,
 			workspace.providerSandboxId !== undefined
 		) {
 			if (workspaceStartupTimedOut(workspace, nowMs)) {
+				// Authorizing a new generation and launching its process are separate
+				// operations. A failed request or interrupted worker can leave the
+				// authorized generation unlaunched. Retry on the same disk, with a
+				// fresh fence, rather than permanently stranding the saved session.
+				const attempts = workspace.requestConfig.runtimeLaunchRecoveryAttempts;
+				const recoveryAttempts =
+					typeof attempts === "number" &&
+					Number.isInteger(attempts) &&
+					attempts >= 0
+						? attempts
+						: 0;
+				if (
+					workspace.state === "provisioning" &&
+					workspace.desiredState === "ready" &&
+					workspace.statusCode === "resume-runtime-restarting" &&
+					recoveryAttempts < 2
+				) {
+					return yield* restartWorkspaceRuntime(
+						{
+							...workspace,
+							requestConfig: {
+								...workspace.requestConfig,
+								runtimeLaunchRecoveryAttempts: recoveryAttempts + 1,
+							},
+						},
+						workspace.providerSandboxId,
+						provider,
+						nowMs,
+						saveWorkspace,
+					);
+				}
 				// Do not issue provider commands after the deadline: an archiving
 				// sandbox rejects them and would otherwise hide this terminal state.
 				console.warn("[cloud-workspace] runtime connection timeout", {

@@ -827,6 +827,8 @@ describe("cloud workspace reconciler", () => {
 					statusCode: "resume-runtime-restarting",
 					requestConfig: {
 						runtimeInstallPending: true,
+						// Deadline remains terminal once bounded replacement retries are exhausted.
+						runtimeLaunchRecoveryAttempts: 2,
 						startupTimings: {
 							allocatedAt: now - age,
 							...(state === "setup" ? { enrolledAt: now - age } : {}),
@@ -1437,6 +1439,48 @@ describe("cloud workspace reconciler", () => {
 		});
 	});
 
+	test.each([
+		0, 1, 2,
+	])("recovers an interrupted replacement launch in place, bounded at two retries (%s)", async (attempts) => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-interrupted-replacement",
+					state: "provisioning",
+					desiredState: "ready",
+					statusCode: "resume-runtime-restarting",
+					requestConfig: {
+						runtimeGeneration: 23,
+						sessionHeadVersion: 708,
+						runtimeLaunchRecoveryAttempts: attempts,
+						startupTimings: { allocatedAt: Date.now() - 20 * 60_000 },
+					},
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					workspace: yield* store.getWorkspace(workspace.workspaceId),
+					starts: yield* Ref.get(control.startProcessCalls),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result.workspace?.providerSandboxId).toBe(
+			"source-workspace-interrupted-replacement",
+		);
+		expect(result.workspace?.requestConfig.sessionHeadVersion).toBe(708);
+		expect(result.starts).toHaveLength(attempts < 2 ? 1 : 0);
+		expect(result.workspace?.state).toBe(
+			attempts < 2 ? "provisioning" : "failed",
+		);
+		if (attempts < 2) {
+			expect(result.workspace?.requestConfig.runtimeGeneration).toBe(24);
+			expect(
+				result.workspace?.requestConfig.runtimeLaunchRecoveryAttempts,
+			).toBe(attempts + 1);
+		}
+	});
+
 	test("restart of a running workspace relaunches the runtime in place", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
@@ -1447,7 +1491,7 @@ describe("cloud workspace reconciler", () => {
 					state: "resuming",
 					desiredState: "ready",
 					statusCode: "restart-queued",
-					requestConfig: {},
+					requestConfig: { runtimeLaunchRecoveryAttempts: 2 },
 				});
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				return {
@@ -1458,6 +1502,9 @@ describe("cloud workspace reconciler", () => {
 			}).pipe(Effect.provide(testLayer)),
 		);
 
+		expect(result.workspace?.requestConfig.runtimeLaunchRecoveryAttempts).toBe(
+			0,
+		);
 		// The sandbox is already running, so restart must not call provider
 		// resume — it relaunches the runtime with a fresh in-memory boot token.
 		expect(result.resumeInputs).toHaveLength(0);

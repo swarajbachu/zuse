@@ -686,5 +686,6 @@
 	"provider_sign_in_tray_sign_in_to_continue": "Connectez-vous pour poursuivre cette conversation.",
 	"chat_landing_choose_a_project_in_the_sidebar": "Choisissez un projet dans la barre latérale pour démarrer une nouvelle conversation.",
 	"chat_landing_add_a_project_to_start": "Ajoutez un projet pour démarrer votre première conversation.",
-	"chat_landing_add_project": "Ajouter un projet"
+	"chat_landing_add_project": "Ajouter un projet",
+	"chat_working_row_waiting_for_task": "En attente de la tâche {task}"
 }

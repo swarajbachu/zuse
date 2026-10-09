@@ -1183,6 +1183,7 @@ const CloudMailboxCommandRejectionCategory = Schema.Literals([
 	"runtime-receipt-missing",
 	"runtime-receipt-store-unavailable",
 	"session-not-found",
+	"session-turn-active",
 	"workspace-directory-unavailable",
 	"result-encryption-failed",
 	"runtime-apply-failed",
@@ -1560,6 +1561,18 @@ const messageFailureCategory = (error: {
 const rejectionCategoryFromCause = (
 	cause: Cause.Cause<CloudMailboxApplyError>,
 ): CloudMailboxCommandRejectionCategory => {
+	// SubmitTurn rejects before committing when a previous turn remains active.
+	// The domain adapter promotes this typed rejection to a defect via orDie.
+	// Unlike an arbitrary apply failure, this is a known non-delivery outcome.
+	const defect = Cause.findDefect(cause);
+	if (
+		defect._tag === "Success" &&
+		typeof defect.success === "object" &&
+		defect.success !== null &&
+		"_tag" in defect.success &&
+		defect.success._tag === "TurnAlreadyRunning"
+	)
+		return "session-turn-active";
 	const error = Cause.findErrorOption(cause);
 	if (
 		Option.isSome(error) &&

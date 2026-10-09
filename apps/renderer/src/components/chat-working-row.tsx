@@ -127,3 +127,34 @@ export function ChatWorkingRow({
 		</div>
 	);
 }
+
+/** One quiet waiting row per background reviewer, even between parent turns. */
+export function BackgroundAgentWorkingRows({
+	agents,
+}: {
+	readonly agents: ReadonlyArray<{
+		readonly id: string;
+		readonly description: string;
+		readonly startedAtMs: number;
+	}>;
+}) {
+	const { message } = useUiMessages(["chat"]);
+	const now = useRelativeTimeTick(1_000);
+	return agents.map((agent) => (
+		<div
+			key={agent.id}
+			role="status"
+			className="flex h-7 min-w-0 items-center gap-2 px-4 text-xs text-muted-foreground"
+		>
+			<AgentActivityOrb state="working" />
+			<span className="truncate" title={agent.description}>
+				{message("chat:chat_working_row_waiting_for_task", {
+					task: agent.description || message("chat:subagent_row_agent_running"),
+				})}
+			</span>
+			<span className="shrink-0 font-mono tabular-nums">
+				{formatElapsed(Math.max(0, now - agent.startedAtMs))}
+			</span>
+		</div>
+	));
+}
