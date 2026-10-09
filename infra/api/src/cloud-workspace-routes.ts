@@ -2188,6 +2188,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				typeof workspace.requestConfig.runtimeSigningPublicJwk === "string"
 					? workspace.requestConfig.runtimeSigningPublicJwk
 					: null;
+			let verifiedSigningKeyThumbprint: string | undefined;
 			if (registeredSigningKey !== null) {
 				const signingPublicJwk = yield* parseJwk(registeredSigningKey);
 				const registeredThumbprint =
@@ -2213,6 +2214,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 					gatewayEpoch: cloudWorkspaceGatewayEpoch(workspace),
 					nowMs,
 				});
+				verifiedSigningKeyThumbprint = registeredThumbprint;
 			}
 			// A deterministic value lets a retry recover the exact credential after
 			// response loss without storing plaintext at Api.
@@ -2229,6 +2231,9 @@ const routeCloudWorkspaceRequestWithAccess = (
 				generation: cloudWorkspaceRuntimeGeneration(workspace),
 				gatewayEpoch: cloudWorkspaceGatewayEpoch(workspace),
 				nowMs,
+				...(verifiedSigningKeyThumbprint === undefined
+					? {}
+					: { verifiedSigningKeyThumbprint }),
 			});
 			if (receipt === null)
 				return yield* Effect.fail(unauthorized("workspace_runtime_rejected"));

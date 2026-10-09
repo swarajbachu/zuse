@@ -345,6 +345,71 @@ export interface RuntimeBootstrapAcknowledgementInput {
 	readonly nowMs: number;
 }
 
+export interface RuntimeCredentialRenewalInput {
+	readonly workspaceId: string;
+	readonly currentCredentialHash: string;
+	readonly requestId: string;
+	readonly nextCredentialHash: string;
+	readonly expiresAtMs: number;
+	readonly generation: number;
+	readonly gatewayEpoch: number;
+	readonly nowMs: number;
+	/** Supplied only after verifying a fresh proof with the registered signing key. */
+	readonly verifiedSigningKeyThumbprint?: string;
+}
+
+/** The memory and SQL stores apply the same identity fence, including receipt replay. */
+const runtimeCredentialRenewalDecision = (
+	workspace:
+		| Pick<
+				CloudWorkspaceRecord,
+				"state" | "desiredState" | "runtimeCredentialHash" | "requestConfig"
+		  >
+		| undefined,
+	input: RuntimeCredentialRenewalInput,
+	prior: RuntimeCredentialRenewalReceipt | undefined,
+): "reject" | "replay" | "renew" => {
+	if (
+		workspace === undefined ||
+		workspace.state === "deleted" ||
+		workspace.state === "deleting" ||
+		workspace.state === "archived" ||
+		workspace.state === "archiving" ||
+		workspace.desiredState === "deleted" ||
+		workspace.desiredState === "archived" ||
+		cloudWorkspaceRuntimeGeneration(workspace) !== input.generation ||
+		cloudWorkspaceGatewayEpoch(workspace) !== input.gatewayEpoch
+	)
+		return "reject";
+	const signingKey = workspace.requestConfig.runtimeSigningKeyThumbprint;
+	const proofVerified =
+		typeof signingKey === "string" &&
+		signingKey.length > 0 &&
+		input.verifiedSigningKeyThumbprint === signingKey;
+	if (input.verifiedSigningKeyThumbprint !== undefined && !proofVerified)
+		return "reject";
+	if (prior?.requestId === input.requestId) {
+		if (
+			prior.previousCredentialHash !== input.currentCredentialHash ||
+			prior.credentialHash !== workspace.runtimeCredentialHash ||
+			prior.generation !== input.generation ||
+			prior.gatewayEpoch !== input.gatewayEpoch
+		)
+			return "reject";
+		return prior.expiresAtMs > input.nowMs
+			? "replay"
+			: proofVerified
+				? "renew"
+				: "reject";
+	}
+	if (workspace.runtimeCredentialHash !== input.currentCredentialHash)
+		return "reject";
+	return Number(workspace.requestConfig.runtimeCredentialExpiresAtMs) >
+		input.nowMs || proofVerified
+		? "renew"
+		: "reject";
+};
+
 const renewalReceiptFromConfig = (
 	workspaceId: string,
 	receipt: Record<string, unknown>,
@@ -753,16 +818,9 @@ export interface CloudWorkspaceStoreApi {
 	readonly acknowledgeRuntimeBoot: (
 		input: RuntimeBootstrapAcknowledgementInput,
 	) => Effect.Effect<boolean>;
-	readonly renewRuntimeCredential: (input: {
-		readonly workspaceId: string;
-		readonly currentCredentialHash: string;
-		readonly requestId: string;
-		readonly nextCredentialHash: string;
-		readonly expiresAtMs: number;
-		readonly generation: number;
-		readonly gatewayEpoch: number;
-		readonly nowMs: number;
-	}) => Effect.Effect<RuntimeCredentialRenewalReceipt | null>;
+	readonly renewRuntimeCredential: (
+		input: RuntimeCredentialRenewalInput,
+	) => Effect.Effect<RuntimeCredentialRenewalReceipt | null>;
 	readonly listDueWorkspaces: (
 		nowMs: number,
 		limit: number,
@@ -2540,25 +2598,16 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 				Ref.modify(state, (current) => {
 					const receiptKey = `${input.workspaceId}:${input.requestId}`;
 					const existing = current.runtimeRenewals.get(receiptKey);
-					if (existing !== undefined)
-						return [
-							existing.expiresAtMs > input.nowMs &&
-							existing.previousCredentialHash === input.currentCredentialHash
-								? existing
-								: null,
-							current,
-						] as const;
 					const workspace = current.workspaces.get(input.workspaceId);
-					if (
-						workspace === undefined ||
-						workspace.runtimeCredentialHash !== input.currentCredentialHash ||
-						typeof workspace.requestConfig.runtimeCredentialExpiresAtMs !==
-							"number" ||
-						workspace.requestConfig.runtimeCredentialExpiresAtMs <=
-							input.nowMs ||
-						workspace.state === "deleted"
-					)
+					const decision = runtimeCredentialRenewalDecision(
+						workspace,
+						input,
+						existing,
+					);
+					if (decision === "reject" || workspace === undefined)
 						return [null, current] as const;
+					if (decision === "replay")
+						return [existing ?? null, current] as const;
 					const receipt: RuntimeCredentialRenewalReceipt = {
 						workspaceId: input.workspaceId,
 						requestId: input.requestId,
@@ -5145,31 +5194,39 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 					Effect.gen(function* () {
 						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`runtime-renew:${input.workspaceId}`}, 0))`;
 						const rows =
-							yield* sql`SELECT request_config, runtime_credential_hash, state FROM api_cloud_workspaces WHERE workspace_id=${input.workspaceId} FOR UPDATE`;
+							yield* sql`SELECT request_config, runtime_credential_hash, state, desired_state FROM api_cloud_workspaces WHERE workspace_id=${input.workspaceId} FOR UPDATE`;
 						const row = rows[0] as
 							| {
-									readonly request_config?: Record<string, unknown>;
-									readonly runtime_credential_hash?: string | null;
-									readonly state?: string;
+									readonly request_config: Record<string, unknown>;
+									readonly runtime_credential_hash: string | null;
+									readonly state: CloudWorkspaceState;
+									readonly desired_state: CloudWorkspaceDesiredState;
 							  }
 							| undefined;
-						const config = row?.request_config;
-						const prior = config?.runtimeCredentialRenewal as
+						const priorConfig = row?.request_config.runtimeCredentialRenewal as
 							| Record<string, unknown>
 							| undefined;
-						if (
-							prior?.requestId === input.requestId &&
-							Number(prior.expiresAtMs) > input.nowMs &&
-							prior.previousCredentialHash === input.currentCredentialHash
-						)
-							return renewalReceiptFromConfig(input.workspaceId, prior);
-						if (
-							row === undefined ||
-							row.runtime_credential_hash !== input.currentCredentialHash ||
-							row.state === "deleted" ||
-							Number(config?.runtimeCredentialExpiresAtMs) <= input.nowMs
-						)
-							return null;
+						const prior =
+							priorConfig === undefined
+								? undefined
+								: renewalReceiptFromConfig(input.workspaceId, priorConfig);
+						const workspace =
+							row === undefined
+								? undefined
+								: {
+										requestConfig: row.request_config,
+										runtimeCredentialHash:
+											row.runtime_credential_hash ?? undefined,
+										state: row.state,
+										desiredState: row.desired_state,
+									};
+						const decision = runtimeCredentialRenewalDecision(
+							workspace,
+							input,
+							prior,
+						);
+						if (decision === "reject") return null;
+						if (decision === "replay") return prior ?? null;
 						const updated =
 							yield* sql`UPDATE api_cloud_workspaces SET runtime_credential_hash=${input.nextCredentialHash}, request_config=jsonb_set(jsonb_set(request_config, '{runtimeCredentialExpiresAtMs}', to_jsonb(${input.expiresAtMs}::bigint), true), '{runtimeCredentialRenewal}', jsonb_build_object('requestId', ${input.requestId}::text, 'credentialHash', ${input.nextCredentialHash}::text, 'previousCredentialHash', ${input.currentCredentialHash}::text, 'expiresAtMs', ${input.expiresAtMs}::bigint, 'generation', ${input.generation}::bigint, 'gatewayEpoch', ${input.gatewayEpoch}::bigint), true) WHERE workspace_id=${input.workspaceId} RETURNING request_config`;
 						const updatedConfig = updated[0]?.request_config as

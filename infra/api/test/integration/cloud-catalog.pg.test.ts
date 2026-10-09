@@ -10,7 +10,7 @@ import {
 
 const url = process.env.ZUSE_TEST_POSTGRES_URL;
 test.skipIf(!url).each(["a", "organization:org_a"])(
-	"catalog changes commit atomically, resume and isolate owner %s",
+	"catalog and runtime credentials commit atomically and isolate owner %s",
 	async (ownerId) => {
 		const schema = `catalog_${crypto.randomUUID().replaceAll("-", "")}`;
 		const admin = new Pool({ connectionString: url });
@@ -241,6 +241,90 @@ test.skipIf(!url).each(["a", "organization:org_a"])(
 				(await runtime.runPromise(store.getWorkspace("w")))?.requestConfig
 					.sharingPolicy,
 			).toEqual({ ...policy, ...sharingUpdate.sharing, revision: 1 });
+			// Exercise renewal against real row locks, rather than only the memory store.
+			await pool.query(
+				"UPDATE api_cloud_workspaces SET runtime_credential_hash='old', request_config=request_config || $1::jsonb WHERE workspace_id='w'",
+				[
+					JSON.stringify({
+						runtimeGeneration: 4,
+						gatewayEpoch: 8,
+						runtimeSigningKeyThumbprint: "key",
+						runtimeCredentialExpiresAtMs: 100,
+					}),
+				],
+			);
+			const renewal = {
+				workspaceId: "w",
+				currentCredentialHash: "old",
+				requestId: "renew-1",
+				nextCredentialHash: "next",
+				expiresAtMs: 1_000,
+				generation: 4,
+				gatewayEpoch: 8,
+				nowMs: 200,
+				verifiedSigningKeyThumbprint: "key",
+			};
+			const renew = (overrides: Partial<typeof renewal> = {}) =>
+				runtime.runPromise(
+					store.renewRuntimeCredential({ ...renewal, ...overrides }),
+				);
+			expect(
+				await runtime.runPromise(
+					store.renewRuntimeCredential({
+						...renewal,
+						verifiedSigningKeyThumbprint: undefined,
+					}),
+				),
+			).toBeNull();
+			expect(
+				await renew({ verifiedSigningKeyThumbprint: "revoked-key" }),
+			).toBeNull();
+			const receipts = await Promise.all([renew(), renew()]);
+			expect(receipts[0]).toMatchObject({
+				credentialHash: "next",
+				generation: 4,
+			});
+			expect(receipts[1]).toEqual(receipts[0]);
+			// A lost response followed by two days asleep must still renew safely.
+			const wakeAt = 2 * 24 * 60 * 60_000;
+			expect(
+				await renew({ nowMs: wakeAt, expiresAtMs: wakeAt + 1_000 }),
+			).toMatchObject({ credentialHash: "next", expiresAtMs: wakeAt + 1_000 });
+			const competing = await Promise.all(
+				["a", "b"].map((requestId) =>
+					renew({
+						currentCredentialHash: "next",
+						requestId,
+						nextCredentialHash: requestId,
+						nowMs: wakeAt + 1,
+						expiresAtMs: wakeAt + 2_000,
+					}),
+				),
+			);
+			expect(competing.filter((receipt) => receipt !== null)).toHaveLength(1);
+			expect(await renew()).toBeNull();
+			const winner = competing.find((receipt) => receipt !== null);
+			if (!winner) throw new Error("Missing winning renewal");
+			await pool.query(
+				"UPDATE api_cloud_workspaces SET request_config=jsonb_set(request_config, '{runtimeSigningKeyThumbprint}', $1::jsonb) WHERE workspace_id='w'",
+				[JSON.stringify("replacement-key")],
+			);
+			expect(
+				await renew({
+					currentCredentialHash: winner.previousCredentialHash,
+					requestId: winner.requestId,
+				}),
+			).toBeNull();
+			await pool.query(
+				"UPDATE api_cloud_workspaces SET request_config=jsonb_set(request_config, '{runtimeGeneration}', '5'::jsonb) WHERE workspace_id='w'",
+			);
+			expect(
+				await renew({
+					currentCredentialHash: winner.previousCredentialHash,
+					requestId: winner.requestId,
+					verifiedSigningKeyThumbprint: "replacement-key",
+				}),
+			).toBeNull();
 			await pool.query(
 				"DELETE FROM api_cloud_workspaces WHERE workspace_id='w'",
 			);

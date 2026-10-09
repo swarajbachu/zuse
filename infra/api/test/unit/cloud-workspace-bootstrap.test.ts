@@ -11,7 +11,7 @@ import {
 } from "@zuse/sandbox-providers";
 import { SandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
-import { exportJWK, exportPKCS8, generateKeyPair } from "jose";
+import { exportJWK, exportPKCS8, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, test, vi } from "vitest";
 import {
 	AccountIdentity,
@@ -40,6 +40,7 @@ import {
 } from "../../src/config.ts";
 import {
 	parseJwk,
+	runtimeSigningKeyThumbprint,
 	sha256Hex,
 	signWorkspaceClientTicket,
 } from "../../src/crypto.ts";
@@ -132,6 +133,130 @@ const makeRuntime = async (organizationWorkspacesEnabled = false) => {
 };
 
 describe("cloud workspace runtime bootstrap", () => {
+	test("signed renewal survives two days asleep and rejects wrong identity, stale proof and revoked receipt replay", async () => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			const keys = await generateKeyPair("EdDSA", { extractable: true });
+			const publicJwk = await exportJWK(keys.publicKey);
+			const signingThumbprint = await runtime.runPromise(
+				runtimeSigningKeyThumbprint(publicJwk),
+			);
+			const now = Date.now();
+			const workspace = {
+				workspaceId: "workspace-sleep-renew",
+				accountId: "account-1",
+				projectId: "project-1",
+				buildId: "build-1",
+				provider: "fake",
+				providerSandboxId: "same-sandbox",
+				runtimeCredentialHash: await runtime.runPromise(
+					sha256Hex("expired-bearer"),
+				),
+				runtimeState: "connecting" as const,
+				chatId: "same-chat",
+				initialSessionId: "same-session",
+				branch: "task/sleep",
+				baseRef: "main",
+				state: "resuming" as const,
+				desiredState: "ready" as const,
+				statusCode: "resume-runtime-waking",
+				idempotencyKey: "sleep-renew",
+				requestConfig: {
+					runtimeGeneration: 4,
+					gatewayEpoch: 8,
+					runtimeCredentialExpiresAtMs: now - 2 * 24 * 60 * 60_000,
+					runtimeSigningPublicJwk: JSON.stringify(publicJwk),
+					runtimeSigningKeyThumbprint: signingThumbprint,
+				},
+				nextActionAtMs: now + 12_000,
+				revision: 1,
+				createdAtMs: now,
+				updatedAtMs: now,
+				lastActivityAtMs: now,
+			};
+			await runtime.runPromise(
+				store.createWorkspace(workspace, {
+					workspaceId: workspace.workspaceId,
+					accountId: workspace.accountId,
+					chatId: workspace.chatId,
+					sessionId: workspace.initialSessionId,
+					turnId: "turn",
+					commandId: "command",
+					ciphertext: "sealed",
+					expiresAtMs: now + 60_000,
+					createdAtMs: now,
+				}),
+			);
+			const proof = (privateKey = keys.privateKey, expired = false) =>
+				new SignJWT({
+					workspaceId: workspace.workspaceId,
+					requestId: "renew-after-sleep",
+					generation: 4,
+					gatewayEpoch: 8,
+				})
+					.setProtectedHeader({
+						alg: "EdDSA",
+						typ: "workspace-runtime-renewal+jwt",
+					})
+					.setAudience(ISSUER)
+					.setIssuedAt(Math.floor(now / 1000) - (expired ? 300 : 0))
+					.setExpirationTime(Math.floor(now / 1000) + (expired ? -60 : 120))
+					.sign(privateKey);
+			const renew = async (signedProof: string) =>
+				runtime.runPromise(
+					handleRequest(
+						new Request(
+							`${ISSUER}${ApiPaths.cloudWorkspaceRuntimeCredentialsRenew(workspace.workspaceId)}`,
+							{
+								method: "POST",
+								headers: {
+									authorization: "Bearer expired-bearer",
+									"content-type": "application/json",
+								},
+								body: JSON.stringify({
+									requestId: "renew-after-sleep",
+									proof: signedProof,
+								}),
+							},
+						),
+					),
+				);
+			expect(
+				(await renew(await proof((await generateKeyPair("EdDSA")).privateKey)))
+					.status,
+			).toBe(401);
+			expect((await renew(await proof(keys.privateKey, true))).status).toBe(
+				401,
+			);
+			const valid = await proof();
+			const first = await renew(valid);
+			expect(first.status).toBe(200);
+			const receipt = await first.json();
+			expect(receipt).toMatchObject({ generation: 4, gatewayEpoch: 8 });
+			expect(receipt.expiresAt).toBeGreaterThan(now);
+			expect(await (await renew(valid)).json()).toEqual(receipt);
+			expect(
+				await runtime.runPromise(store.getWorkspace(workspace.workspaceId)),
+			).toMatchObject({
+				providerSandboxId: "same-sandbox",
+				chatId: "same-chat",
+				initialSessionId: "same-session",
+			});
+			await runtime.runPromise(
+				store.saveWorkspace({
+					...workspace,
+					desiredState: "deleted",
+					revision: 2,
+					updatedAtMs: now + 1,
+				}),
+			);
+			expect((await renew(valid)).status).toBe(401);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
 	test("workspace settings require admin writes, exclude device preferences and reject stale revisions", async () => {
 		const runtime = await makeRuntime(true);
 		let role = "admin";
