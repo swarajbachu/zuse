@@ -1324,26 +1324,20 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 	"BashOutput",
 	"TodoWrite",
 	ASK_USER_QUESTION_FQN,
-	// Agent browser — navigate / screenshot / snapshot / wait are read-only and
-	// fully visible to the user (the page loads in the on-screen webview,
-	// screenshots flash a shutter). Auto-allow like Grep/Glob.
-	// `browser_click` and `browser_type` are deliberately absent: they mutate
-	// page state, so they fall through to the regular permission prompt.
-	`mcp__${ZUSE_MCP_NAME}__browser_navigate`,
+	// Agent browser — passive observation only: screenshot / snapshot / read /
+	// wait and the console/network capture readers auto-allow like Grep/Glob.
+	// Navigation (`browser_navigate`, `browser_history`) is a network side
+	// effect — an agent could hit internal services or exfiltrate data in the
+	// URL — and `browser_scroll` / `browser_hover` mutate page state, so those
+	// fall through to the regular permission prompt, as do `browser_click`,
+	// `browser_type`, `browser_select`, `browser_press`, `browser_fill_form`,
+	// and `browser_dialog`.
 	`mcp__${ZUSE_MCP_NAME}__browser_screenshot`,
 	`mcp__${ZUSE_MCP_NAME}__browser_snapshot`,
 	`mcp__${ZUSE_MCP_NAME}__browser_wait`,
-	// Read-only / non-mutating browsing: scroll, hover, read text, console,
-	// network (pure read of captured request metadata), and history
-	// (back/forward/reload — like navigate, which also auto-allows).
-	// `browser_select`, `browser_press`, `browser_fill_form`, and
-	// `browser_dialog` change page state, so they prompt.
-	`mcp__${ZUSE_MCP_NAME}__browser_scroll`,
-	`mcp__${ZUSE_MCP_NAME}__browser_hover`,
 	`mcp__${ZUSE_MCP_NAME}__browser_read`,
 	`mcp__${ZUSE_MCP_NAME}__browser_console`,
 	`mcp__${ZUSE_MCP_NAME}__browser_network`,
-	`mcp__${ZUSE_MCP_NAME}__browser_history`,
 	`mcp__${ZUSE_MCP_NAME}__browser_status`,
 	`mcp__${ZUSE_MCP_NAME}__browser_resize`,
 	`mcp__${ZUSE_MCP_NAME}__browser_wait_for`,
@@ -1402,10 +1396,11 @@ const editPathOf = (toolInput: Record<string, unknown>): string =>
 const SDK_BUILTIN_ASK_USER_QUESTION = "AskUserQuestion";
 
 const isAskUserQuestion = (toolName: string): boolean =>
+	// Exact names only — a suffix match would let any MCP server claim the
+	// auto-allow with a `…__ask_user_question` tool of its own.
 	toolName === ASK_USER_QUESTION_FQN ||
 	toolName === ASK_USER_QUESTION_TOOL ||
-	toolName === SDK_BUILTIN_ASK_USER_QUESTION ||
-	toolName.endsWith(`__${ASK_USER_QUESTION_TOOL}`);
+	toolName === SDK_BUILTIN_ASK_USER_QUESTION;
 
 export const claudeToolPermissionPolicy = (
 	toolName: string,
@@ -1431,8 +1426,8 @@ export const claudeToolPermissionPolicy = (
 	//     Always prompt, even in full-access mode — a login attempt should
 	//     never fire silently. Treated like a sensitive path.
 	if (
-		toolName.endsWith("__browser_login") ||
-		toolName.endsWith("__browser_evaluate")
+		toolName === `mcp__${ZUSE_MCP_NAME}__browser_login` ||
+		toolName === `mcp__${ZUSE_MCP_NAME}__browser_evaluate`
 	) {
 		return { kind: "prompt", forcePrompt: true };
 	}
@@ -1464,9 +1459,9 @@ export const claudeToolPermissionPolicy = (
 
 /**
  * Map a Claude SDK tool invocation onto a wire `PermissionKind`. Tools we
- * don't classify drop into `Other`; the server treats those as auto-allow
- * for now (logged) so the agent loop isn't stalled by every internal `Read`
- * or `Glob`. Adding a classification is a one-line change here.
+ * don't classify drop into `Other`, which routes through the permission
+ * service and prompts the user — adding a classification is a one-line
+ * change here.
  */
 const kindForTool = (
 	toolName: string,
@@ -1865,19 +1860,17 @@ export const startClaudeSession = (
 		const subagentsEffective =
 			(input.enableSubagents ?? Object.keys(agentsMap).length > 0) &&
 			Object.keys(agentsMap).length > 0;
-		// `allowedTools` is a strict allow-list when set: anything not listed
-		// gets disallowed. So when sub-agents are on we must also list our
-		// in-process AskUserQuestion tool by its fully-qualified name, plus a
-		// server-level `mcp__<name>` entry per user MCP server (allowing the
-		// whole server keeps the list stable as its tool set changes).
+		// `allowedTools` auto-approves the listed tools without calling
+		// `canUseTool`, so it must name only exact tools that are safe to run
+		// unprompted: `Agent` (spawning the sub-agent itself) and our
+		// AskUserQuestion surface. Everything else — including the rest of the
+		// zuse MCP tools and every user-configured MCP server tool — still
+		// routes through the permission broker, so a server-level
+		// `mcp__<name>` wildcard here would silently bypass it.
 		const subagentOptions = subagentsEffective
 			? ({
 					agents: agentsMap,
-					allowedTools: [
-						"Agent",
-						`mcp__${ZUSE_MCP_NAME}`,
-						...userMcpServers.map((server) => `mcp__${server.name}`),
-					],
+					allowedTools: ["Agent", ASK_USER_QUESTION_FQN],
 				} as Pick<Options, "agents" | "allowedTools">)
 			: {};
 		// The SDK ships a built-in `AskUserQuestion` tool that opens its

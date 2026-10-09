@@ -64,6 +64,51 @@ describe("browser MCP plan permissions", () => {
 		expect(requestCount).toBe(0);
 	});
 
+	it("prompts for navigation and page-state tools outside plan mode", async () => {
+		for (const tool of [
+			"browser_navigate",
+			"browser_history",
+			"browser_scroll",
+			"browser_hover",
+		]) {
+			let requestCount = 0;
+			await ensureBrowserPermission(
+				tool,
+				{ url: "https://example.com" },
+				{
+					send: async () => ({ id: "browser-test", ok: true }),
+					getPermissionMode: () => "default",
+					getRuntimeMode: () => "approval-required",
+					requestPermission: async () => {
+						requestCount += 1;
+						return { _tag: "AllowOnce" };
+					},
+				},
+			);
+			expect(requestCount).toBe(1);
+		}
+	});
+
+	it("denies navigation in plan mode without requesting permission", async () => {
+		let requestCount = 0;
+		await expect(
+			ensureBrowserPermission(
+				"browser_navigate",
+				{ url: "https://example.com" },
+				{
+					send: async () => ({ id: "browser-test", ok: true }),
+					getPermissionMode: () => "plan",
+					getRuntimeMode: () => "full-access",
+					requestPermission: async () => {
+						requestCount += 1;
+						return { _tag: "AllowOnce" };
+					},
+				},
+			),
+		).rejects.toThrow(/blocked/i);
+		expect(requestCount).toBe(0);
+	});
+
 	it("always prompts before page evaluation", async () => {
 		let forced = false;
 		await ensureBrowserPermission(

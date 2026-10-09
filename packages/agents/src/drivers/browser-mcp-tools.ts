@@ -382,16 +382,17 @@ export const browserMcpPromptHint = (): string => {
 	].join("\n");
 };
 
+// Passive observation only. Navigation (`browser_navigate`,
+// `browser_history`) is a network side effect — it can reach internal
+// services or carry data out in the URL — and `browser_scroll` /
+// `browser_hover` mutate page state, so none of them belong here; they
+// fall through to the regular permission policy.
 const READ_ONLY_BROWSER_TOOLS = new Set([
 	"browser_status",
-	"browser_navigate",
 	"browser_screenshot",
 	"browser_snapshot",
 	"browser_wait",
-	"browser_scroll",
-	"browser_hover",
 	"browser_read",
-	"browser_history",
 	"browser_console",
 	"browser_network",
 	"browser_wait_for",

@@ -234,6 +234,21 @@ const nativePermissionPolicy = (
 					permissionMode,
 				);
 			}
+			if (permission.category === "read") {
+				const base = getToolPolicy("read", runtimeMode, permissionMode);
+				// A read *sounding* name is a guess, not a guarantee — a tool
+				// called `list_users` can still mutate. Plan mode keeps the
+				// read-only fast path and full-access stays automatic; in every
+				// other mode the user decides.
+				if (
+					base.kind === "auto-allow" &&
+					permissionMode !== "plan" &&
+					runtimeMode !== "full-access"
+				) {
+					return { kind: "prompt", forcePrompt: false };
+				}
+				return base;
+			}
 			return getToolPolicy(permission.category, runtimeMode, permissionMode);
 	}
 };
