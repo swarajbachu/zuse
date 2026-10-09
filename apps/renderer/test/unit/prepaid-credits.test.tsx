@@ -24,6 +24,10 @@ it("shows remaining invoice credit, all purchase amounts, and rollover policy", 
 	expect(markup).toContain("$75.00 available");
 	for (const value of ["$10.00", "$25.00", "$50.00", "$100.00"])
 		expect(markup).toContain(value);
+	expect(markup.match(/type="radio"/g)).toHaveLength(4);
+	expect(markup.match(/<input[^>]*checked=""[^>]*>/)?.[0]).toContain(
+		'value="2500"',
+	);
 	expect(markup).toContain("including subscriptions");
 	expect(markup).toContain("Unused credit rolls forward");
 	expect(markup).toContain("spending cap stay the same");
@@ -35,7 +39,7 @@ it("does not show a fabricated zero balance when loading failed and disables buy
 	const markup = render(null);
 	expect(markup).toContain("Balance unavailable");
 	expect(markup).not.toContain("$0.00 available");
-	expect(markup.match(/<select[^>]*>/)?.[0]).toContain("disabled");
+	expect(markup.match(/<fieldset[^>]*>/)?.[0]).toContain("disabled");
 });
 it("shows a refund debit and disables unsupported checkout", () => {
 	const markup = render(
@@ -48,7 +52,7 @@ it("shows a refund debit and disables unsupported checkout", () => {
 	);
 	expect(markup).toContain("$25.00 owed on future invoices");
 	expect(markup).toContain("not enabled for this workspace yet");
-	expect(markup.match(/<select[^>]*>/)?.[0]).toContain("disabled");
+	expect(markup.match(/<fieldset[^>]*>/)?.[0]).toContain("disabled");
 });
 it("all controls stay compact and purchases disable while opening checkout", () => {
 	const markup = render(
@@ -60,7 +64,8 @@ it("all controls stay compact and purchases disable while opening checkout", () 
 		}),
 		true,
 	);
-	for (const control of markup.match(/<(?:button|select)[^>]*>/g) ?? [])
+	for (const control of markup.match(/<(?:button|span class="flex)[^>]*>/g) ??
+		[])
 		expect(control).toContain("h-7");
-	expect(markup.match(/<select[^>]*>/)?.[0]).toContain("disabled");
+	expect(markup.match(/<fieldset[^>]*>/)?.[0]).toContain("disabled");
 });
