@@ -69,5 +69,6 @@
 	"code_block_empty": "(vide)",
 	"tool_row_empty": "(vide)",
 	"tool_row_spawn_agent_many": "Générer des agents {{n}}",
-	"tool_row_edit_plural0_sentence_many": "{{editCount}} modifications"
+	"tool_row_edit_plural0_sentence_many": "{{editCount}} modifications",
+	"tool_row_message_sent_to_thread": "Message envoyé au fil"
 }

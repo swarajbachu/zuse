@@ -67,5 +67,6 @@
 	"tool_row_edit_plural0_sentence_other": "{{editCount}} Bearbeitungen",
 	"code_block_copy": "Kopieren Sie {{name}}",
 	"code_block_empty": "(leer)",
-	"tool_row_empty": "(leer)"
+	"tool_row_empty": "(leer)",
+	"tool_row_message_sent_to_thread": "Nachricht an Thread gesendet"
 }

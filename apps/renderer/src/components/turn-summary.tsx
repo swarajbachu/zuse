@@ -17,9 +17,11 @@ import {
 	findFinalAssistantMessage,
 	isToolTreeBranch,
 } from "../lib/chat-timeline-rows.ts";
+import { groupDelegations } from "../lib/delegation-display.ts";
 import { groupMessages } from "../lib/group-messages.ts";
 
 import { AssistantMessageActions } from "./assistant-message-actions.tsx";
+import { DelegationGroup } from "./delegation-group.tsx";
 import { FileBadge } from "./file-badge.tsx";
 import {
 	diffStats,
@@ -29,7 +31,6 @@ import {
 } from "./inline-diff.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
 import { MessageRow } from "./message-row.tsx";
-import { SubagentRow } from "./subagent-row.tsx";
 import { iconForTool } from "./tool-row.tsx";
 
 const formatElapsed = (ms: number): string => {
@@ -146,12 +147,12 @@ function TurnSummaryImpl({
 		[body, finalAssistant, uiMessage],
 	);
 
-	// Group sub-agent runs so each `Agent` tool_use renders as a SubagentRow
-	// with its nested children inside, instead of dumping every nested Bash
-	// / text row at the top level alongside the parent's own work — which
-	// makes parallel sub-agents look like duplicates.
+	// Group delegated agents so each renders as one row with its nested
+	// children inside, instead of dumping every nested Bash / text row at the
+	// top level alongside the parent's own work — which makes parallel
+	// sub-agents look like duplicates.
 	const detailGroups = useMemo(
-		() => groupMessages(detailRows),
+		() => groupDelegations(groupMessages(detailRows)),
 		[detailRows, uiMessage],
 	);
 
@@ -271,24 +272,18 @@ function TurnSummaryImpl({
 								/>
 							</div>
 						) : (
-							<SubagentRow
+							<DelegationGroup
+								key={group.id}
+								members={group.members}
+								providerId={null}
+								parentLive={false}
 								chatRef={
 									environmentId === undefined || chatId === undefined
 										? null
-										: {
-												environmentId,
-												chatId,
-											}
+										: { environmentId, chatId }
 								}
-								key={group.parent.id}
-								agentToolUseId={group.parentItemId}
-								agentName={group.agentName}
-								prompt={group.prompt}
-								modelRequested={group.modelRequested}
-								childSessionId={group.childSessionId}
-								presentation={group.presentation}
-								children={group.children}
-								summary={group.summary}
+								environmentId={environmentId}
+								readOnly={environmentId === undefined}
 							/>
 						),
 					)}

@@ -39,6 +39,7 @@ import {
 	downloadAttachment,
 	useAttachmentUrl,
 } from "~/lib/attachments";
+import { spawnDelegationMember } from "~/lib/delegation-display";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { formatError } from "~/lib/format-error";
 import {
@@ -62,6 +63,7 @@ import {
 } from "./assistant-message-actions.tsx";
 import { useChatLookups } from "./chat-lookups.tsx";
 import { CopyButton } from "./copy-button.tsx";
+import { DelegationGroup } from "./delegation-group.tsx";
 import { AnnotationFileChip, FileChip } from "./file-chip.tsx";
 import { useProviderErrorCopy } from "./provider-error-copy.ts";
 import { ProviderIcon } from "./provider-icons.tsx";
@@ -371,26 +373,34 @@ function ToolUseMessageRow({
 		const visual = readHtmlRenderResult(normalized.result.output);
 		if (visual) return <HtmlVisual visual={visual} sessionRef={sessionRef} />;
 	}
+	const spawn = spawnDelegationMember(
+		content.itemId,
+		content,
+		createdAt,
+		result,
+	);
+	if (spawn !== null) {
+		return (
+			<DelegationGroup
+				members={[spawn]}
+				providerId={null}
+				parentLive={false}
+				chatRef={null}
+				environmentId={sessionRef?.environmentId}
+			/>
+		);
+	}
 	const orch = orchestrationToolName(normalized.tool);
-	if (
-		orch === "create_thread" ||
-		orch === "create_chat" ||
-		orch === "create_session" ||
-		orch === "send_to_thread"
-	) {
+	if (orch === "send_to_thread") {
 		const parsed =
 			normalized.result !== undefined
 				? parseOrchestrationResult(normalized.result.output)
 				: null;
-		const renderCard =
+		if (
 			normalized.result === undefined ||
-			(!normalized.result.isError &&
-				parsed !== null &&
-				typeof parsed.chatId === "string");
-		if (renderCard) {
-			return (
-				<OrchestrationThreadRow variant={orch} result={normalized.result} />
-			);
+			(!normalized.result.isError && typeof parsed?.chatId === "string")
+		) {
+			return <OrchestrationThreadRow result={normalized.result} />;
 		}
 	}
 	return (
