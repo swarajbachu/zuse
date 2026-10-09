@@ -8,6 +8,40 @@ import {
 } from "../../../src/drivers/opencode2.ts";
 
 describe("OpenCode 2 model inventory", () => {
+	it("loads models from available v2 providers without legacy activation", () => {
+		const inventory = collectOpencode2Inventory(
+			[{ id: "copilot", connections: [{ type: "credential", id: "cred_1" }] }],
+			[
+				{ id: "github-copilot", name: "GitHub Copilot" },
+				{ id: "local", name: "Local" },
+			],
+			[
+				{
+					id: "gpt-6",
+					providerID: "github-copilot",
+					status: "active",
+					capabilities: { tools: true },
+				},
+				{
+					id: "preview",
+					providerID: "local",
+					status: "beta",
+					capabilities: { tools: true },
+				},
+			],
+			[],
+			new Set(),
+		);
+		expect(inventory.providers.every((provider) => provider.connected)).toBe(
+			true,
+		);
+		expect(
+			inventory.providers.flatMap((provider) =>
+				provider.models.map((model) => model.id),
+			),
+		).toEqual(["github-copilot/gpt-6", "local/preview"]);
+	});
+
 	it("keeps active tool-capable models and drops the rest", () => {
 		expect(
 			isUsableOpencode2Model({
