@@ -684,5 +684,6 @@
 	"provider_sign_in_tray_sign_in_to_continue": "Sign in to continue this chat.",
 	"chat_landing_choose_a_project_in_the_sidebar": "Choose a project in the sidebar to start a new chat.",
 	"chat_landing_add_a_project_to_start": "Add a project to start your first chat.",
-	"chat_landing_add_project": "Add project"
+	"chat_landing_add_project": "Add project",
+	"chat_working_row_waiting_for_task": "Waiting for task {{task}}"
 }

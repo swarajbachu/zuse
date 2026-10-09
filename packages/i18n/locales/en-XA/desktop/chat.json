@@ -684,5 +684,6 @@
 	"provider_sign_in_tray_sign_in_to_continue": "⟦Sïïgn ïïn tôô côôntïïnüüëë thïïs chààt.⟧",
 	"chat_landing_choose_a_project_in_the_sidebar": "⟦Chôôôôsëë àà prôôjëëct ïïn thëë sïïdëëbààr tôô stààrt àà nëëw chààt.⟧",
 	"chat_landing_add_a_project_to_start": "⟦ÀÀdd àà prôôjëëct tôô stààrt yôôüür fïïrst chààt.⟧",
-	"chat_landing_add_project": "⟦ÀÀdd prôôjëëct⟧"
+	"chat_landing_add_project": "⟦ÀÀdd prôôjëëct⟧",
+	"chat_working_row_waiting_for_task": "⟦Wààïïtïïng fôôr tààsk {{task}}⟧"
 }

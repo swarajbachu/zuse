@@ -684,5 +684,6 @@
 	"provider_sign_in_tray_sign_in_to_continue": "登录以继续此聊天。",
 	"chat_landing_choose_a_project_in_the_sidebar": "在侧边栏中选择一个项目以开始新聊天。",
 	"chat_landing_add_a_project_to_start": "添加一个项目以开始你的第一次聊天。",
-	"chat_landing_add_project": "添加项目"
+	"chat_landing_add_project": "添加项目",
+	"chat_working_row_waiting_for_task": "正在等待任务 {{task}}"
 }
