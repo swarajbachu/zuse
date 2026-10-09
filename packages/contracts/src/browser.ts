@@ -228,6 +228,13 @@ export class BrowserCommandRequest extends Schema.Class<BrowserCommandRequest>(
 	id: Schema.String,
 	sessionId: AgentSessionId,
 	command: BrowserCommand,
+	/**
+	 * Server-minted nonce identifying the subscriber this command was
+	 * addressed to. The renderer echoes it in `BrowserCommandResult` so the
+	 * bridge can verify the reply came from the subscriber that received the
+	 * command, not a forged client.
+	 */
+	channel: Schema.optional(Schema.String),
 }) {}
 
 /**
@@ -260,6 +267,8 @@ export class BrowserCommandResult extends Schema.Class<BrowserCommandResult>(
 	text: Schema.optional(Schema.String),
 	/** Command-tagged structured response. New commands use this field. */
 	payload: Schema.optional(Schema.Unknown),
+	/** Echo of the channel stamped on the corresponding request. */
+	channel: Schema.optional(Schema.String),
 }) {}
 
 export class BrowserCommandNotFoundError extends Schema.TaggedErrorClass<BrowserCommandNotFoundError>()(

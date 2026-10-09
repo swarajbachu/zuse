@@ -947,7 +947,11 @@ export function BrowserPane({
 						"Access to this imported authenticated domain was not approved. Open this chat's Browser panel and retry.",
 				});
 				try {
-					await respondToBrowserCommand(chatRef.environmentId, result);
+					await respondToBrowserCommand(
+						chatRef.environmentId,
+						result,
+						req.channel,
+					);
 				} catch {}
 				return;
 			}
@@ -1064,7 +1068,11 @@ export function BrowserPane({
 			action.finishedAt = new Date().toISOString();
 			if (!result.ok) action.error = result.error;
 			try {
-				await respondToBrowserCommand(chatRef.environmentId, result);
+				await respondToBrowserCommand(
+					chatRef.environmentId,
+					result,
+					req.channel,
+				);
 			} catch {
 				// A failed respond just means this command times out server-side;
 				// the agent gets a clean "browser didn't respond" tool result.

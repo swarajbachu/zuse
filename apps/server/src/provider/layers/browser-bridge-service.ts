@@ -51,9 +51,15 @@ export const BrowserBridgeServiceLive = Layer.effect(
 				{
 					readonly request: BrowserCommandRequest;
 					readonly deferred: Deferred.Deferred<BrowserCommandResult>;
+					readonly channel: string | undefined;
 				}
 			>
 		>(new Map());
+		// Only one subscriber may own commands at a time: the newest
+		// `commands()` subscription mints a channel and becomes the owner, and
+		// results must echo that channel. A forged `browser.respond` from a
+		// client that never received the command cannot inject a result.
+		const activeChannel = yield* Ref.make<string | null>(null);
 		const diagnostics =
 			yield* Ref.make<BrowserBridgeDiagnostics>(emptyDiagnostics);
 		const lastRendererDisconnectAt = yield* Ref.make<number | null>(null);
@@ -104,9 +110,14 @@ export const BrowserBridgeServiceLive = Layer.effect(
 				}
 				const req = BrowserCommandRequest.make({ id, sessionId, command });
 				const deferred = yield* Deferred.make<BrowserCommandResult>();
+				const ownerChannel = yield* Ref.get(activeChannel);
 				yield* Ref.update(pending, (m) => {
 					const next = new Map(m);
-					next.set(id, { request: req, deferred });
+					next.set(id, {
+						request: req,
+						deferred,
+						channel: ownerChannel ?? undefined,
+					});
 					return next;
 				});
 				yield* updateDiagnostics((current) => ({
@@ -176,7 +187,7 @@ export const BrowserBridgeServiceLive = Layer.effect(
 			Effect.gen(function* () {
 				const map = yield* Ref.get(pending);
 				const entry = map.get(result.id);
-				if (entry === undefined) {
+				if (entry === undefined || entry.channel !== result.channel) {
 					yield* updateDiagnostics((current) => ({
 						...current,
 						missingResponseCount: current.missingResponseCount + 1,
@@ -191,6 +202,7 @@ export const BrowserBridgeServiceLive = Layer.effect(
 		const commands: BrowserBridgeServiceShape["commands"] = () =>
 			Stream.unwrap(
 				Effect.gen(function* () {
+					const channel = `bch_${crypto.randomUUID()}`;
 					const dequeue = yield* PubSub.subscribe(pubsub);
 					const wasDisconnected =
 						(yield* Ref.get(diagnostics)).connectedRendererCount === 0;
@@ -199,6 +211,17 @@ export const BrowserBridgeServiceLive = Layer.effect(
 						connectedRendererCount: current.connectedRendererCount + 1,
 					}));
 					yield* Ref.set(lastRendererDisconnectAt, null);
+					// Latest subscriber wins — a previous renderer's stream stops
+					// receiving commands here, and outstanding pending requests are
+					// re-pinned so only the new owner can answer them.
+					yield* Ref.set(activeChannel, channel);
+					yield* Ref.update(pending, (m) => {
+						const next = new Map(m);
+						for (const [id, entry] of next) {
+							next.set(id, { ...entry, channel });
+						}
+						return next;
+					});
 					if (wasDisconnected) {
 						const awaiting = yield* Ref.get(pending);
 						for (const { request } of awaiting.values()) {
@@ -206,8 +229,29 @@ export const BrowserBridgeServiceLive = Layer.effect(
 						}
 					}
 					return Stream.fromSubscription(dequeue).pipe(
+						// Ownership is per-subscriber: a superseded subscriber must not
+						// see commands (they would execute in its webview).
+						Stream.filterEffect((request) =>
+							Effect.map(
+								Ref.get(activeChannel),
+								(current) => current === channel,
+							),
+						),
+						Stream.map((request) =>
+							BrowserCommandRequest.make({
+								id: request.id,
+								sessionId: request.sessionId,
+								command: request.command,
+								channel,
+							}),
+						),
 						Stream.ensuring(
-							Ref.set(lastRendererDisconnectAt, Date.now()).pipe(
+							Effect.flatMap(Ref.get(activeChannel), (current) =>
+								current === channel
+									? Ref.set(activeChannel, null)
+									: Effect.void,
+							).pipe(
+								Effect.andThen(Ref.set(lastRendererDisconnectAt, Date.now())),
 								Effect.andThen(
 									updateDiagnostics((current) => ({
 										...current,
