@@ -183,6 +183,35 @@ describe("getBashPolicy", () => {
 		}
 	});
 
+	it("rejects expansions, absolute paths, and traversal that escape the workspace", () => {
+		for (const command of [
+			"cat ../../secret.txt",
+			"cat ~/id_rsa",
+			"cat $HOME/.ssh/id_rsa",
+			"cat /etc/passwd",
+			"ls -la /tmp",
+			"rg . /var",
+			"cat *.txt",
+			"rg -z foo logs.gz",
+			"rg --search-zip foo logs.gz",
+		]) {
+			expect(isReadOnlyShellCommand(command)).toBe(false);
+			expect(getBashPolicy(command, "full-access", "plan")).toEqual({
+				kind: "auto-deny",
+			});
+		}
+	});
+
+	it("confines path arguments to the session cwd when provided", () => {
+		const cwd = "/repo";
+		expect(isReadOnlyShellCommand("cat notes.md", cwd)).toBe(true);
+		expect(isReadOnlyShellCommand("rg TODO src", cwd)).toBe(true);
+		expect(isReadOnlyShellCommand("rg -g '*.md' TODO", cwd)).toBe(true);
+		expect(isReadOnlyShellCommand("cat ../outside.txt", cwd)).toBe(false);
+		expect(isReadOnlyShellCommand("cat /etc/passwd", cwd)).toBe(false);
+		expect(isReadOnlyShellCommand("rg . ../..", cwd)).toBe(false);
+	});
+
 	it("allows common read-only codebase inspection", () => {
 		for (const command of [
 			"rg TODO src",
