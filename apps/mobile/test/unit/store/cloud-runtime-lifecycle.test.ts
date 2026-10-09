@@ -85,6 +85,7 @@ describe("account-wide mobile membership refresh", () => {
 		runtime.values.set("account", { id: "account-a" });
 		runtime.values.set("catalog", {
 			accountId: "account-a",
+			chats: [],
 			scope: { kind: "personal" },
 		});
 		runtime.values.set("connections", []);

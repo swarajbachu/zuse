@@ -101,8 +101,7 @@ import {
 } from "~/rpc/actions";
 import { cloudRuntimeReady } from "~/rpc/cloud-runtime";
 import { getConnectionClient } from "~/rpc/connection";
-import { cloudCatalogAtom } from "~/store/cloud-catalog";
-import { cloudSummary } from "~/store/cloud-catalog";
+import { cloudCatalogAtom, cloudSummary } from "~/store/cloud-catalog";
 import {
 	connectionSnapshotAtom,
 	retryConnection,
