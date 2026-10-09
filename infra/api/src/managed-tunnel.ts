@@ -219,6 +219,17 @@ export const ManagedTunnelProviderLive: Layer.Layer<
 			enabled: true,
 			provision: ({ accountId, environmentId, origin }) =>
 				Effect.gen(function* () {
+					// The provisioned hostname is public; refuse to point cloudflared
+					// at anything but the connector's loopback listener. Callers
+					// validate too, but this check must hold for every future caller.
+					if (
+						origin.localHttpHost !== "127.0.0.1" ||
+						!Number.isInteger(origin.localHttpPort) ||
+						origin.localHttpPort < 1 ||
+						origin.localHttpPort > 65_535
+					) {
+						return yield* Effect.fail(badRequest("invalid_tunnel_origin"));
+					}
 					const { tunnelName, hostname } = yield* deriveNames(
 						config,
 						accountId,

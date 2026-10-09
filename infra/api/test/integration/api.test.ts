@@ -2581,6 +2581,104 @@ describe("@zuse/api managed tunnel", () => {
 		}
 	});
 
+	test("link rejects a non-loopback managed tunnel origin", async () => {
+		const cf = stubCloudflare();
+		try {
+			api = makeApi(await makeLayer(FAKE_TUNNEL));
+			const bearer = "test-token:user_a";
+			const challengeRes = await api.fetch(
+				new Request(`${API_ISSUER}/v1/client/environment-link-challenges`, {
+					method: "POST",
+					headers: { authorization: `Bearer ${bearer}` },
+				}),
+			);
+			const challenge = (await challengeRes.json()) as {
+				challengeId: string;
+				challenge: string;
+			};
+			const envKey = (await eddsa()) as KeyPair;
+			const proof = await signLinkProof(envKey, {
+				challenge: challenge.challenge,
+				environmentId: "env_bad",
+			});
+			const res = await api.fetch(
+				new Request(`${API_ISSUER}/v1/client/environment-links`, {
+					method: "POST",
+					headers: {
+						authorization: `Bearer ${bearer}`,
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({
+						challengeId: challenge.challengeId,
+						proof,
+						environmentId: "env_bad",
+						environmentPublicKey: JSON.stringify(
+							await exportJWK(envKey.publicKey),
+						),
+						providerKind: "desktop",
+						endpoint: {
+							httpBaseUrl: "http://127.0.0.1:8787",
+							wsBaseUrl: "ws://127.0.0.1:8787/rpc",
+						},
+						managedTunnel: true,
+						origin: {
+							localHttpHost: "169.254.169.254",
+							localHttpPort: 80,
+						},
+					}),
+				}),
+			);
+			expect(res.status).toBe(400);
+			expect((await res.json()).error).toBe("invalid_tunnel_origin");
+			expect(cf.calls).toHaveLength(0);
+
+			// A rejected link must not register the environment or consume the
+			// challenge — the caller can fix the origin and retry as-is.
+			const listRes = await api.fetch(
+				new Request(`${API_ISSUER}/v1/environments`, {
+					headers: { authorization: `Bearer ${bearer}` },
+				}),
+			);
+			const { environments } = (await listRes.json()) as {
+				environments: ReadonlyArray<{ environmentId: string }>;
+			};
+			expect(environments.map((env) => env.environmentId)).not.toContain(
+				"env_bad",
+			);
+
+			const retry = await api.fetch(
+				new Request(`${API_ISSUER}/v1/client/environment-links`, {
+					method: "POST",
+					headers: {
+						authorization: `Bearer ${bearer}`,
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({
+						challengeId: challenge.challengeId,
+						proof,
+						environmentId: "env_bad",
+						environmentPublicKey: JSON.stringify(
+							await exportJWK(envKey.publicKey),
+						),
+						providerKind: "desktop",
+						endpoint: {
+							httpBaseUrl: "http://127.0.0.1:8787",
+							wsBaseUrl: "ws://127.0.0.1:8787/rpc",
+						},
+						managedTunnel: true,
+						origin: {
+							localHttpHost: "127.0.0.1",
+							localHttpPort: 8787,
+						},
+					}),
+				}),
+			);
+			expect(retry.status).toBe(200);
+		} finally {
+			cf.restore();
+		}
+	});
+
 	test("link succeeds without a tunnel when provisioning is disabled", async () => {
 		api = makeApi(await makeLayer()); // no managedTunnel config
 		const res = await linkWithTunnel("user_a", "env_t");
