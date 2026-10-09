@@ -124,6 +124,7 @@ describe("relay migration reconciliation", () => {
 			{ idx: 40, tag: "0039_cloud_snapshot_import" },
 			{ idx: 41, tag: "0040_stripe_billing" },
 			{ idx: 42, tag: "0041_stripe_legacy_outbox_default" },
+			{ idx: 43, tag: "0042_billing_recovery" },
 		]);
 	});
 

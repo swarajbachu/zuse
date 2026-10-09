@@ -1030,6 +1030,16 @@ export const apiCloudBillingOutbox = pgTable(
 	],
 );
 
+export const apiCloudBillingMeterReconciliationAttempts = pgTable(
+	"api_cloud_billing_meter_reconciliation_attempts",
+	{
+		periodId: text("period_id").notNull(),
+		provider: text("provider").notNull(),
+		attemptedAt: bigint("attempted_at", { mode: "number" }).notNull(),
+	},
+	(table) => [primaryKey({ columns: [table.periodId, table.provider] })],
+);
+
 export const apiCloudBillingMeterReconciliations = pgTable(
 	"api_cloud_billing_meter_reconciliations",
 	{
@@ -1535,6 +1545,8 @@ export const apiCloudProviderConnections = pgTable(
 );
 
 export const apiStripeCustomers = pgTable("api_stripe_customers", {
+	generation: integer("generation").notNull().default(0),
+	reservationCreatedAt: bigint("reservation_created_at", { mode: "number" }),
 	accountId: text("account_id").primaryKey(),
 	customerId: text("customer_id").unique(),
 	createdAt: bigint("created_at", { mode: "number" }).notNull(),

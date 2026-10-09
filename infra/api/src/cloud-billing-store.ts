@@ -207,6 +207,13 @@ export interface CloudBillingStoreApi extends CloudUsageStoreApi {
 			readonly periodEndMs?: number;
 		}>
 	>;
+	/** Records scheduling progress even when a meter is missing or a request fails. */
+	readonly recordMeterReconciliationAttempt: (input: {
+		readonly periodId: string;
+		readonly provider: string;
+		readonly nowMs: number;
+	}) => Effect.Effect<void>;
+	/** Stores an authoritative remote observation, independently of attempt scheduling. */
 	readonly recordMeterReconciliation: (input: {
 		readonly periodId: string;
 		readonly provider: string;
@@ -745,12 +752,14 @@ export const CloudBillingStorePg = Layer.effect(
 				}>`SELECT p.period_id, p.account_id, o.provider, p.period_start, p.period_end, SUM(o.amount_cents) AS expected_units
 				FROM api_cloud_billing_periods p
 				JOIN api_cloud_billing_outbox o ON o.period_id = p.period_id AND o.acknowledged_at IS NOT NULL
+				LEFT JOIN api_cloud_billing_meter_reconciliation_attempts a ON a.period_id=p.period_id AND a.provider=o.provider
 				LEFT JOIN LATERAL (SELECT created_at, observed_units FROM api_cloud_billing_meter_reconciliations WHERE period_id=p.period_id AND provider=o.provider ORDER BY created_at DESC LIMIT 1) r ON TRUE
-				WHERE o.acknowledged_at <= ${nowMs - 5 * 60_000}
+				WHERE COALESCE(a.attempted_at, 0) <= ${nowMs - 5 * 60_000}
+				AND o.acknowledged_at <= ${nowMs - 5 * 60_000}
 				AND NOT EXISTS (SELECT 1 FROM api_cloud_billing_outbox pending WHERE pending.period_id=p.period_id AND pending.provider=o.provider AND (pending.acknowledged_at IS NULL OR pending.acknowledged_at > ${nowMs - 5 * 60_000}))
 				GROUP BY p.period_id, p.account_id, o.provider, p.period_start, p.period_end
 				HAVING COALESCE(MAX(r.created_at), 0) < MAX(o.acknowledged_at) OR (MAX(r.observed_units) IS DISTINCT FROM SUM(o.amount_cents) AND COALESCE(MAX(r.created_at), 0) <= ${nowMs - 5 * 60_000})
-				ORDER BY MAX(o.acknowledged_at) ASC LIMIT ${limit}`.pipe(
+				ORDER BY COALESCE(MAX(a.attempted_at), MAX(r.created_at), 0) ASC, MAX(o.acknowledged_at) ASC, p.period_id ASC, o.provider ASC LIMIT ${limit}`.pipe(
 					Effect.map((rows) =>
 						rows.map((row) => ({
 							periodId: row.period_id,
@@ -761,6 +770,11 @@ export const CloudBillingStorePg = Layer.effect(
 							periodEndMs: Number(row.period_end),
 						})),
 					),
+					Effect.orDie,
+				),
+			recordMeterReconciliationAttempt: (input) =>
+				sql`INSERT INTO api_cloud_billing_meter_reconciliation_attempts (period_id, provider, attempted_at) VALUES (${input.periodId}, ${input.provider}, ${input.nowMs}) ON CONFLICT (period_id, provider) DO UPDATE SET attempted_at=GREATEST(api_cloud_billing_meter_reconciliation_attempts.attempted_at, EXCLUDED.attempted_at)`.pipe(
+					Effect.asVoid,
 					Effect.orDie,
 				),
 			recordMeterReconciliation: (input) =>

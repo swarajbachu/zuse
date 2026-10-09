@@ -338,6 +338,7 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 		acknowledgeOutbox: () => Effect.void,
 		retryOutbox: () => Effect.void,
 		pendingMeterReconciliations: () => Effect.succeed([]),
+		recordMeterReconciliationAttempt: () => Effect.void,
 		recordMeterReconciliation: () => Effect.void,
 		purgeExpiredRawEvents: () => Effect.succeed(0),
 	});

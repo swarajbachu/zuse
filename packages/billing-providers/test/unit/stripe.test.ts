@@ -43,12 +43,25 @@ const setup = () => {
 	let sub: StripeSubscription | null = subscription();
 	let linked: string | null = "cus_1";
 	let reservedAt = now;
+	let generation = 0;
 	let claim: "send" | "sent" | "busy" | "expired" = "send";
 	const store: StripeBillingStore = {
 		getCustomer: async () => linked,
 		reserveCustomer: async () => ({
 			customerId: linked ?? undefined,
 			createdAtMs: reservedAt,
+			generation,
+		}),
+		renewCustomerReservation: vi.fn(async (_account, expectedGeneration) => {
+			if (linked === null && expectedGeneration === generation) {
+				reservedAt = now;
+				generation++;
+			}
+			return {
+				customerId: linked ?? undefined,
+				createdAtMs: reservedAt,
+				generation,
+			};
 		}),
 		linkCustomer: async (_account, id) => {
 			linked = id;
@@ -59,6 +72,7 @@ const setup = () => {
 		}),
 	};
 	const client: StripeBillingClient = {
+		findCustomersByAccount: vi.fn(async () => []),
 		createCustomer: vi.fn(async () => "cus_1"),
 		customerAccountId: async () => "account",
 		createCheckout: vi.fn(async () => "https://checkout.stripe.test"),
@@ -166,10 +180,14 @@ describe("Stripe billing provider", () => {
 		);
 		expect(await fake.store.getCustomer("account")).toBe("cus_1");
 	});
-	test("does not recreate a customer after an ambiguous operation expires", async () => {
+	test("does not recreate a customer when expired recovery finds multiple matches", async () => {
 		const fake = setup();
 		fake.setLinked(null);
 		fake.setReservedAt(now - 24 * 60 * 60_000);
+		vi.spyOn(fake.client, "findCustomersByAccount").mockResolvedValue([
+			"cus_1",
+			"cus_2",
+		]);
 		await expect(
 			Effect.runPromise(
 				fake.provider.checkout({
@@ -179,6 +197,73 @@ describe("Stripe billing provider", () => {
 				}),
 			),
 		).rejects.toMatchObject({ code: "reconciliation-required" });
+		expect(fake.client.createCustomer).not.toHaveBeenCalled();
+	});
+
+	test.each([
+		{ matches: [] },
+		{ matches: ["cus_recovered"] },
+	])("recovers expired customer reservation with matches %j", async ({
+		matches,
+	}) => {
+		const fake = setup();
+		fake.setLinked(null);
+		fake.setReservedAt(now - 24 * 60 * 60_000);
+		vi.spyOn(fake.client, "findCustomersByAccount").mockResolvedValue(matches);
+		const checkout = () =>
+			Effect.runPromise(
+				fake.provider.checkout({
+					accountId: "account",
+					offerId: "cloud-workspace-standard-v1",
+					successUrl: "https://api.test",
+				}),
+			);
+		await Promise.all(Array.from({ length: 8 }, checkout));
+		if (matches.length) {
+			expect(fake.client.createCustomer).not.toHaveBeenCalled();
+			expect(fake.store.renewCustomerReservation).not.toHaveBeenCalled();
+			expect(await fake.store.getCustomer("account")).toBe("cus_recovered");
+		} else {
+			expect(fake.client.createCustomer).toHaveBeenCalled();
+			for (const call of vi.mocked(fake.client.createCustomer).mock.calls)
+				expect(call).toEqual(["account", "zuse-customer:account:generation:1"]);
+		}
+	});
+	test("recovery lookup failure cannot renew or create a customer", async () => {
+		const fake = setup();
+		fake.setLinked(null);
+		fake.setReservedAt(now - 24 * 60 * 60_000);
+		vi.spyOn(fake.client, "findCustomersByAccount").mockRejectedValue(
+			new Error("unavailable"),
+		);
+		await expect(
+			Effect.runPromise(
+				fake.provider.checkout({
+					accountId: "account",
+					offerId: "cloud-workspace-standard-v1",
+					successUrl: "https://api.test",
+				}),
+			),
+		).rejects.toMatchObject({ code: "provider-unavailable" });
+		expect(fake.store.renewCustomerReservation).not.toHaveBeenCalled();
+		expect(fake.client.createCustomer).not.toHaveBeenCalled();
+	});
+	test("a binding established during renewal avoids another remote creation", async () => {
+		const fake = setup();
+		fake.setLinked(null);
+		fake.setReservedAt(now - 24 * 60 * 60_000);
+		vi.spyOn(fake.store, "renewCustomerReservation").mockResolvedValue({
+			customerId: "cus_1",
+			createdAtMs: now,
+			generation: 1,
+		});
+		await Effect.runPromise(
+			fake.provider.checkout({
+				accountId: "account",
+				offerId: "cloud-workspace-standard-v1",
+				successUrl: "https://api.test",
+			}),
+		);
 		expect(fake.client.createCustomer).not.toHaveBeenCalled();
 	});
 	test("checkout lookup does not disclose another account's purchase", async () => {
@@ -398,4 +483,79 @@ describe("Stripe billing provider", () => {
 			1791000060,
 		);
 	});
+});
+
+test.each([
+	1, 2,
+])("SDK customer recovery paginates exact metadata matches (%i)", async (count) => {
+	const fake = setup();
+	fake.setLinked(null);
+	fake.setReservedAt(now - 24 * 60 * 60_000);
+	const requests: URL[] = [];
+	const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+		const url = new URL(
+			typeof input === "string"
+				? input
+				: input instanceof URL
+					? input.href
+					: input.url,
+		);
+		requests.push(url);
+		if (url.pathname === "/v1/customers") {
+			const next = url.searchParams.get("starting_after");
+			const data = next
+				? Array.from({ length: count }, (_, index) => ({
+						id: `cus_match_${index}`,
+						object: "customer",
+						metadata: { account_id: "account" },
+					}))
+				: [
+						{
+							id: "cus_noise",
+							object: "customer",
+							metadata: { account_id: "account-other" },
+						},
+					];
+			return Response.json({
+				object: "list",
+				data,
+				has_more: !next,
+				url: "/v1/customers",
+			});
+		}
+		if (url.pathname === "/v1/checkout/sessions")
+			return Response.json({
+				id: "cs_test",
+				url: "https://checkout.stripe.test",
+			});
+		throw new Error(`unexpected request: ${url.pathname}`);
+	});
+	vi.stubGlobal("fetch", fetchMock);
+	try {
+		const provider = makeStripeBillingProvider(config, {
+			store: fake.store,
+			now: () => now,
+		});
+		const checkout = Effect.runPromise(
+			provider.checkout({
+				accountId: "account",
+				offerId: "cloud-workspace-standard-v1",
+				successUrl: "https://api.test",
+			}),
+		);
+		if (count === 2)
+			await expect(checkout).rejects.toMatchObject({
+				code: "reconciliation-required",
+			});
+		else {
+			await expect(checkout).resolves.toBe("https://checkout.stripe.test");
+			expect(await fake.store.getCustomer("account")).toBe("cus_match_0");
+		}
+		const lists = requests.filter((url) => url.pathname === "/v1/customers");
+		expect(lists).toHaveLength(2);
+		expect(lists[1]?.searchParams.get("starting_after")).toBe("cus_noise");
+		expect(fake.store.renewCustomerReservation).not.toHaveBeenCalled();
+	} finally {
+		vi.unstubAllGlobals();
+	}
 });

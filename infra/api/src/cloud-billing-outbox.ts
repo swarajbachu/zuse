@@ -65,6 +65,7 @@ export const flushCloudBillingOutbox = Effect.fn("flushCloudBillingOutbox")(
 	},
 );
 
+/** Checks settled periods fairly; every attempt advances scheduling even without an observation. */
 export const reconcileCloudMeters = Effect.fn("reconcileCloudMeters")(
 	function* (nowMs: number, limit = 25) {
 		const store = yield* CloudBillingStore;
@@ -75,6 +76,11 @@ export const reconcileCloudMeters = Effect.fn("reconcileCloudMeters")(
 		let reconciled = 0;
 		for (const item of pending) {
 			const providerId = item.provider ?? "polar";
+			yield* store.recordMeterReconciliationAttempt({
+				periodId: item.periodId,
+				provider: providerId,
+				nowMs,
+			});
 			const meterId =
 				providerId === "stripe"
 					? config.cloudBillingStripeMeterId

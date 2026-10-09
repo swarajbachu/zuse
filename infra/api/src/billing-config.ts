@@ -94,6 +94,9 @@ const unavailableStore: StripeBillingStore = {
 	reserveCustomer: async () => {
 		throw new Error("stripe_store_unavailable");
 	},
+	renewCustomerReservation: async () => {
+		throw new Error("stripe_store_unavailable");
+	},
 	linkCustomer: async () => {
 		throw new Error("stripe_store_unavailable");
 	},

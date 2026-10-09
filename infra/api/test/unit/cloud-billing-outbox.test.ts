@@ -1,4 +1,5 @@
 import {
+	BillingProviderError,
 	BillingProviderManual,
 	BillingProviders,
 } from "@zuse/billing-providers";
@@ -7,6 +8,7 @@ import { Effect, Layer, Redacted } from "effect";
 import { describe, expect, test } from "vitest";
 import {
 	maintainCloudBilling,
+	reconcileCloudMeters,
 	reconcilePolarCloudMeter,
 } from "../../src/cloud-billing-outbox.ts";
 import { CloudBillingStore } from "../../src/cloud-billing-store.ts";
@@ -227,4 +229,79 @@ test("routes historical and Stripe charges by their persisted ownership", async 
 	]);
 	expect(acknowledgments).toEqual(["old", "new"]);
 	expect(retries).toEqual(["unavailable"]);
+});
+
+test.each([
+	"missing-meter",
+	"missing-adapter",
+	"unavailable-provider",
+	"failed-request",
+])("persists scheduling attempts without false observations for %s", async (scenario) => {
+	const attempts: Array<unknown> = [];
+	const observations: Array<unknown> = [];
+	const providerId =
+		scenario === "missing-meter"
+			? "stripe"
+			: scenario === "unavailable-provider"
+				? "unknown"
+				: "polar";
+	const store = CloudBillingStore.of({
+		...memoryStore,
+		pendingMeterReconciliations: () =>
+			Effect.succeed([
+				{
+					periodId: "period",
+					accountId: "account",
+					provider: providerId,
+					expectedUnits: 10,
+				},
+			]),
+		recordMeterReconciliationAttempt: (input) =>
+			Effect.sync(() => {
+				attempts.push(input);
+			}),
+		recordMeterReconciliation: (input) =>
+			Effect.sync(() => {
+				observations.push(input);
+			}),
+	});
+	const provider = {
+		...BillingProviderManual,
+		providerId: scenario === "missing-meter" ? "stripe" : "polar",
+		...(scenario === "missing-adapter"
+			? {}
+			: {
+					reconcileMeter: () =>
+						Effect.gen(function* () {
+							expect(attempts).toHaveLength(1);
+							return yield* new BillingProviderError({
+								code: "provider-unavailable",
+							});
+						}),
+				}),
+	};
+	const layer = Layer.mergeAll(
+		Config.layer({
+			apiIssuer: "https://api.test",
+			workosJwksUrl: "https://unused.test/jwks",
+			workosIssuer: "https://unused.test",
+			mintPrivateKey: Redacted.make("{}"),
+			mintPublicKey: "{}",
+			cloudBillingPolarMeterId: "meter",
+		}),
+		Layer.succeed(CloudBillingStore, store),
+		BillingProviders.layer({
+			adapters: [provider],
+			defaultProviderId: provider.providerId,
+		}).pipe(Layer.orDie),
+	);
+	expect(
+		await Effect.runPromise(
+			reconcileCloudMeters(1_000_000).pipe(Effect.provide(layer)),
+		),
+	).toBe(0);
+	expect(attempts).toEqual([
+		{ periodId: "period", provider: providerId, nowMs: 1_000_000 },
+	]);
+	expect(observations).toEqual([]);
 });

@@ -2,13 +2,29 @@ import type { StripeBillingStore } from "@zuse/billing-providers/stripe";
 import { Effect } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 
-/** No credentials or card data are stored here. Failed remote operations retain
- * their original timestamp so retrying cannot outlive Stripe's dedupe window. */
+/** Persists customer reservation generations and usage receipts without card data.
+ * Customer retries renew only after remote absence is established; meter receipts never reset. */
 export const makeStripeBillingStorePg = (
 	sql: SqlClient.SqlClient,
 ): StripeBillingStore => {
 	const run = <A>(effect: Effect.Effect<A, unknown>) =>
 		Effect.runPromise(effect);
+	/** Reads the winning reservation after insert or compare-and-swap renewal. */
+	const readReservation = (accountId: string) =>
+		Effect.gen(function* () {
+			const rows = yield* sql<{
+				customer_id: string | null;
+				created_at: number;
+				generation: number;
+			}>`SELECT customer_id, COALESCE(reservation_created_at, created_at) AS created_at, generation FROM api_stripe_customers WHERE account_id=${accountId}`;
+			const row = rows[0];
+			if (!row) throw new Error("stripe_customer_reservation_missing");
+			return {
+				customerId: row.customer_id ?? undefined,
+				createdAtMs: Number(row.created_at),
+				generation: Number(row.generation),
+			};
+		});
 	return {
 		getCustomer: (accountId) =>
 			run(
@@ -22,17 +38,15 @@ export const makeStripeBillingStorePg = (
 			run(
 				Effect.gen(function* () {
 					yield* sql`INSERT INTO api_stripe_customers (account_id, created_at) VALUES (${accountId}, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint) ON CONFLICT DO NOTHING`;
-					const rows = yield* sql<{
-						customer_id: string | null;
-						created_at: number;
-					}>`SELECT customer_id, created_at FROM api_stripe_customers WHERE account_id=${accountId}`;
-					const row = rows[0];
-					if (!row) throw new Error("stripe_customer_reservation_missing");
-					return {
-						customerId: row.customer_id ?? undefined,
-						createdAtMs: Number(row.created_at),
-					};
+					return yield* readReservation(accountId);
 				}),
+			),
+		renewCustomerReservation: (accountId, generation) =>
+			run(
+				Effect.gen(function* () {
+					yield* sql`UPDATE api_stripe_customers SET generation=generation+1, reservation_created_at=(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint WHERE account_id=${accountId} AND customer_id IS NULL AND generation=${generation}`;
+					return yield* readReservation(accountId);
+				}).pipe(sql.withTransaction),
 			),
 		linkCustomer: (accountId, customerId) =>
 			run(

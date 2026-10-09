@@ -11,12 +11,23 @@ export interface StripeBillingConfig {
 	readonly portalConfigurationId?: string;
 }
 
+/** Stable identity for one remote creation attempt; generation zero preserves legacy keys. */
+export interface StripeCustomerReservation {
+	readonly customerId?: string;
+	readonly createdAtMs: number;
+	readonly generation: number;
+}
+
 /** Persisted by the application, including unfinished remote operations. */
 export interface StripeBillingStore {
-	readonly reserveCustomer: (accountId: string) => Promise<{
-		readonly customerId?: string;
-		readonly createdAtMs: number;
-	}>;
+	readonly reserveCustomer: (
+		accountId: string,
+	) => Promise<StripeCustomerReservation>;
+	/** Renews only the expected unlinked generation; concurrent callers receive the winner. */
+	readonly renewCustomerReservation: (
+		accountId: string,
+		generation: number,
+	) => Promise<StripeCustomerReservation>;
 	readonly linkCustomer: (
 		accountId: string,
 		customerId: string,
@@ -51,6 +62,10 @@ export interface StripeCheckout {
 }
 export interface StripeBillingClient {
 	readonly createCustomer: (accountId: string, key: string) => Promise<string>;
+	/** Lists exact metadata matches, stopping after two to detect ambiguous bindings. */
+	readonly findCustomersByAccount: (
+		accountId: string,
+	) => Promise<ReadonlyArray<string>>;
 	readonly customerAccountId: (
 		customerId: string,
 	) => Promise<string | undefined>;
@@ -95,12 +110,14 @@ export interface StripeBillingDependencies {
 const notFound = (error: unknown) =>
 	error instanceof Stripe.errors.StripeInvalidRequestError &&
 	error.statusCode === 404;
+/** Uses fetch for Worker compatibility and bounds retry time for billing requests. */
 const makeSdk = (config: StripeBillingConfig) =>
 	new Stripe(Redacted.value(config.secretKey), {
 		httpClient: Stripe.createFetchHttpClient(),
 		maxNetworkRetries: 1,
 		timeout: 10_000,
 	});
+/** Translates Stripe SDK objects into the billing adapter contract. */
 const makeClient = (
 	sdk: Stripe,
 	config: StripeBillingConfig,
@@ -112,6 +129,15 @@ const makeClient = (
 				{ idempotencyKey: key },
 			)
 		).id,
+	findCustomersByAccount: async (accountId) => {
+		const matches: string[] = [];
+		// Search is eventually consistent and cannot establish absence before a retry.
+		for await (const customer of sdk.customers.list({ limit: 100 })) {
+			if (customer.metadata.account_id === accountId) matches.push(customer.id);
+			if (matches.length === 2) break;
+		}
+		return matches;
+	},
 	customerAccountId: async (id) => {
 		const customer = await sdk.customers.retrieve(id);
 		return customer.deleted ? undefined : customer.metadata.account_id;
@@ -254,6 +280,7 @@ const status = (value: string) =>
 				? "pending"
 				: "ended";
 
+/** Stripe checkout, subscription and usage operations with durable application receipts. */
 export const makeStripeBillingProvider = (
 	config: StripeBillingConfig,
 	deps: StripeBillingDependencies,
@@ -285,28 +312,52 @@ export const makeStripeBillingProvider = (
 	const now = deps.now ?? Date.now;
 	const call = <A>(run: () => Promise<A>) =>
 		Effect.tryPromise({ try: run, catch: failure });
+	/** Rejects a persisted binding whose remote ownership no longer matches. */
+	const verifiedCustomer = (accountId: string, customerId: string) =>
+		Effect.gen(function* () {
+			if (
+				(yield* call(() => client.customerAccountId(customerId))) !== accountId
+			)
+				return yield* failure();
+			return customerId;
+		});
 	const customer = (accountId: string, create: boolean) =>
 		Effect.gen(function* () {
 			const existing = yield* call(() => deps.store.getCustomer(accountId));
-			if (existing !== null) {
-				if (
-					(yield* call(() => client.customerAccountId(existing))) !== accountId
-				)
-					return yield* failure();
-				return existing;
-			}
+			if (existing !== null)
+				return yield* verifiedCustomer(accountId, existing);
 			if (!create) return yield* failure();
-			const reservation = yield* call(() =>
+			let reservation = yield* call(() =>
 				deps.store.reserveCustomer(accountId),
 			);
-			if (reservation.customerId !== undefined) return reservation.customerId;
-			// A crash between remote creation and binding must never create a new
-			// customer after Stripe has forgotten its idempotency key.
+			if (
+				reservation.customerId === undefined &&
+				now() - reservation.createdAtMs >= 23 * 60 * 60_000
+			) {
+				const matches = yield* call(() =>
+					client.findCustomersByAccount(accountId),
+				);
+				if (matches.length > 1) return yield* needsReconciliation();
+				const recovered = matches[0];
+				if (recovered !== undefined) {
+					yield* call(() => deps.store.linkCustomer(accountId, recovered));
+					return recovered;
+				}
+				const generation = reservation.generation;
+				reservation = yield* call(() =>
+					deps.store.renewCustomerReservation(accountId, generation),
+				);
+			}
+			if (reservation.customerId !== undefined)
+				return yield* verifiedCustomer(accountId, reservation.customerId);
+			// A losing renewal must use the winner's key, never replay an expired generation.
 			if (now() - reservation.createdAtMs >= 23 * 60 * 60_000)
 				return yield* needsReconciliation();
-			const id = yield* call(() =>
-				client.createCustomer(accountId, `zuse-customer:${accountId}`),
-			);
+			const key =
+				reservation.generation === 0
+					? `zuse-customer:${accountId}`
+					: `zuse-customer:${accountId}:generation:${reservation.generation}`;
+			const id = yield* call(() => client.createCustomer(accountId, key));
 			yield* call(() => deps.store.linkCustomer(accountId, id));
 			return id;
 		});

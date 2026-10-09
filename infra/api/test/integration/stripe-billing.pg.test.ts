@@ -93,6 +93,35 @@ it.skipIf(!connectionString)(
 			expect(new Set(reservations.map((item) => item.createdAtMs)).size).toBe(
 				1,
 			);
+
+			const renewal = await stripe.reserveCustomer("retry-account");
+			expect(renewal.generation).toBe(0);
+			await db.query(
+				"UPDATE api_stripe_customers SET created_at=created_at-86400000 WHERE account_id='retry-account'",
+			);
+			const legacyReservation = await stripe.reserveCustomer("retry-account");
+			const renewed = await Promise.all(
+				Array.from({ length: 8 }, () =>
+					stripe.renewCustomerReservation("retry-account", renewal.generation),
+				),
+			);
+			expect(new Set(renewed.map((item) => item.generation))).toEqual(
+				new Set([1]),
+			);
+			expect(new Set(renewed.map((item) => item.createdAtMs)).size).toBe(1);
+			const oldWorkerRow = await db.query(
+				"SELECT created_at FROM api_stripe_customers WHERE account_id='retry-account'",
+			);
+			expect(Number(oldWorkerRow.rows[0].created_at)).toBe(
+				legacyReservation.createdAtMs,
+			);
+			expect(renewed[0]?.createdAtMs).toBeGreaterThan(
+				legacyReservation.createdAtMs,
+			);
+			await stripe.linkCustomer("retry-account", "cus_retry");
+			expect(await stripe.renewCustomerReservation("retry-account", 1)).toEqual(
+				{ ...renewed[0], customerId: "cus_retry" },
+			);
 			await Promise.all(
 				Array.from({ length: 8 }, () =>
 					stripe.linkCustomer("account", "cus_account"),
@@ -298,6 +327,73 @@ it.skipIf(!connectionString)(
 					)
 				).some((item) => item.periodId === period.periodId),
 			).toBe(false);
+			// More than one batch of old failures must not starve a newer period.
+			const attemptNow = now + 2_000_000;
+			for (let index = 0; index < 27; index++) {
+				const periodId = `fair-${index.toString().padStart(2, "0")}`;
+				await runtime.runPromise(
+					store.ensurePeriod({
+						periodId,
+						accountId: periodId,
+						billingProvider: "stripe",
+						providerSubscriptionId: `sub_${periodId}`,
+						status: "ended",
+						periodStartMs: now - 100000,
+						periodEndMs: now,
+						nowMs: now,
+					}),
+				);
+				await db.query(
+					"INSERT INTO api_cloud_billing_outbox (outbox_id,period_id,account_id,provider,amount_cents,idempotency_key,attempt_count,next_attempt_at,created_at,occurred_at,acknowledged_at) VALUES ($1,$1,$1,'stripe',10,$1,0,0,$2,$2,$3)",
+					[periodId, now - 1000, now + index],
+				);
+			}
+			const firstBatch = await runtime.runPromise(
+				store.pendingMeterReconciliations(attemptNow, 25),
+			);
+			expect(firstBatch).toHaveLength(25);
+			expect(firstBatch.some((item) => item.periodId === "fair-26")).toBe(
+				false,
+			);
+			for (const item of firstBatch)
+				await runtime.runPromise(
+					store.recordMeterReconciliationAttempt({
+						periodId: item.periodId,
+						provider: "stripe",
+						nowMs: attemptNow,
+					}),
+				);
+			for (const item of firstBatch.filter((_, index) => index % 2 === 0))
+				await runtime.runPromise(
+					store.recordMeterReconciliation({
+						periodId: item.periodId,
+						provider: "stripe",
+						expectedUnits: 10,
+						observedUnits: 0,
+						nowMs: attemptNow,
+					}),
+				);
+			const nextBatch = await runtime.runPromise(
+				store.pendingMeterReconciliations(attemptNow + 1, 25),
+			);
+			expect(nextBatch.map((item) => item.periodId)).toContain("fair-26");
+			expect(
+				nextBatch.some((item) =>
+					firstBatch.some((first) => first.periodId === item.periodId),
+				),
+			).toBe(false);
+			// After cooldown, never-attempted periods still come before old failing ones.
+			expect(
+				(
+					await runtime.runPromise(
+						store.pendingMeterReconciliations(attemptNow + 300001, 2),
+					)
+				).map((item) => item.periodId),
+			).toContain("fair-26");
+			const observation = await db.query(
+				"SELECT MAX(created_at) AS created_at FROM api_cloud_billing_meter_reconciliations WHERE period_id='fair-01'",
+			);
+			expect(observation.rows[0].created_at).toBeNull();
 		} finally {
 			await runtime.dispose();
 			await db.query(`DROP SCHEMA ${schema} CASCADE`);
