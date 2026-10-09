@@ -324,6 +324,7 @@ export default {
 						job.value,
 						job.revision,
 						job.memberRevision,
+						job.homeSelection,
 					);
 				else if (job.kind === "policy") {
 					if (
@@ -352,6 +353,7 @@ export default {
 						job.userId,
 						job.mode,
 						job.memberRevision,
+						job.homeSelection,
 					);
 				else if (job.kind === "project")
 					await selectProject(
@@ -361,6 +363,7 @@ export default {
 						job.userId,
 						job.revision,
 						job.memberRevision,
+						job.homeSelection,
 					);
 				else if (job.kind === "conversation")
 					await runConversation(env, installation, job);
