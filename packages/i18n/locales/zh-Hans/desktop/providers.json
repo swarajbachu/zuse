@@ -141,5 +141,15 @@
 	"sign_in_failed": "登录失败。",
 	"sign_in_incomplete": "登录尚未完成便已结束。",
 	"update_incomplete": "更新尚未完成便已结束。",
-	"remove_computer_account_description": "从您的账户中移除 {{value}}，以释放一个计算机名额。通过 Zuse 的远程访问将停止。计算机上的项目和数据将保留。"
+	"remove_computer_account_description": "从您的账户中移除 {{value}}，以释放一个计算机名额。通过 Zuse 的远程访问将停止。计算机上的项目和数据将保留。",
+	"accounts_title": "账号",
+	"accounts_add": "添加账号",
+	"accounts_name": "账号名称",
+	"accounts_hint": "账号保留在此计算机上。发送新聊天的第一条消息前，请选择账号；已有聊天继续使用原账号。",
+	"accounts_default": "默认 CLI 登录 / API 密钥",
+	"accounts_use": "用于新聊天",
+	"accounts_selected": "已选择",
+	"accounts_waiting": "请在浏览器中完成登录。",
+	"accounts_open_browser": "打开浏览器",
+	"accounts_signed_in": "已登录"
 }

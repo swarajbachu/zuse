@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { childProcessEnv } from "@zuse/utils/process-env";
 import { decodeJsonRpcLine } from "./protocol.js";
 import { AcpRpcClient, type AcpRpcMessage } from "./rpc-client.js";
 
@@ -6,6 +7,7 @@ export interface AcpLaunch {
 	readonly command: string;
 	readonly args: readonly string[];
 	readonly env?: Readonly<Record<string, string>>;
+	readonly unsetEnv?: readonly string[];
 }
 
 /** Bounds a stderr line when an agent never writes a newline. */
@@ -24,7 +26,7 @@ export const launchAcpProcess = (
 ) => {
 	const child = spawn(launch.command, [...launch.args], {
 		cwd,
-		env: { ...process.env, ...launch.env },
+		env: childProcessEnv(process.env, launch.env, launch.unsetEnv),
 		stdio: "pipe",
 		shell: false,
 		detached: process.platform !== "win32",

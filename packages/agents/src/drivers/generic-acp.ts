@@ -83,10 +83,12 @@ export const startGenericAcpSession = Effect.fn("ACP.start")(function* (
 	});
 	const executionEnv = {
 		...input.executionEnv,
+		...launch.env,
 		...pluginCliEnv(gateway.endpoint, gateway.token),
 	};
 	const context = makeAcpPermissionContext({
 		executionEnv,
+		unsetExecutionEnv: launch.unsetEnv,
 		cwd,
 		sessionId,
 		projectId: input.folderId,
@@ -107,8 +109,8 @@ export const startGenericAcpSession = Effect.fn("ACP.start")(function* (
 		{
 			...launch,
 			env: {
-				...launch.env,
 				...executionEnv,
+				...launch.env,
 			},
 		},
 		cwd,

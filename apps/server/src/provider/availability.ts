@@ -6,6 +6,7 @@ import type { Account } from "@zuse/agents/codex-generated/v2/Account";
 import type { GetAccountResponse } from "@zuse/agents/codex-generated/v2/GetAccountResponse";
 import { withCodexControlClient } from "@zuse/agents/drivers/codex-control-client";
 import { readKiroAuthContext } from "@zuse/agents/drivers/kiro-auth";
+import { isolatedProviderAccountEnv } from "@zuse/agents/drivers/provider-account-env";
 import type { CliProviderId } from "@zuse/contracts";
 import {
 	AgentAvailability,
@@ -717,11 +718,16 @@ const codexAccountLabel = (account: Account): string | undefined => {
  * UI can show "Needs attention" without crashing the whole availability
  * RPC.
  */
-const probeCodexAccount = (codexPath: string): Effect.Effect<AccountInfo> =>
+const probeCodexAccount = (
+	codexPath: string,
+	accountHome?: string,
+): Effect.Effect<AccountInfo> =>
 	Effect.promise(async () => {
 		try {
-			const response = await withCodexControlClient(codexPath, (client) =>
-				client.request<GetAccountResponse>("account/read", {}),
+			const response = await withCodexControlClient(
+				codexPath,
+				(client) => client.request<GetAccountResponse>("account/read", {}),
+				accountHome,
 			);
 			if (response.account === null) {
 				return {
@@ -1057,9 +1063,45 @@ const computeHealthStatus = (input: {
 	return "warning";
 };
 
+const probeNamedClaudeAccount = (
+	cliPath: string,
+	home: string,
+): Effect.Effect<AccountInfo, never, CommandExecutor.ChildProcessSpawner> =>
+	Effect.gen(function* () {
+		const result = yield* runCapture(
+			Command.make(cliPath, ["auth", "status", "--json"], {
+				env: isolatedProviderAccountEnv("claude", home, process.env),
+				extendEnv: false,
+			}),
+		).pipe(
+			Effect.timeoutOption(PROBE_TIMEOUT),
+			Effect.catch(() => Effect.succeedNone),
+		);
+		if (result._tag === "None")
+			return { authStatus: "unknown" } satisfies AccountInfo;
+		try {
+			const parsed = JSON.parse(result.value.stdout) as {
+				loggedIn?: boolean;
+				email?: string;
+				subscriptionType?: string;
+			};
+			if (parsed.loggedIn !== true)
+				return { authStatus: "unauthenticated" } satisfies AccountInfo;
+			return {
+				authStatus: "authenticated",
+				authType: "oauth",
+				authEmail: parsed.email,
+				authLabel: "Claude subscription",
+			} satisfies AccountInfo;
+		} catch {
+			return { authStatus: "unknown" } satisfies AccountInfo;
+		}
+	});
+
 const probeOne = (
 	probe: ProviderProbe,
 	overrides: Readonly<Record<string, string>> = {},
+	accountHomes: Readonly<Record<string, string>> = {},
 ): Effect.Effect<
 	AgentAvailability,
 	never,
@@ -1149,7 +1191,12 @@ const probeOne = (
 		const updateCommand =
 			buildUpdateCommand(probe.providerId, [cliPath, realPath]) ?? undefined;
 
-		const account = yield* probeAccount(probe.providerId, cliPath);
+		const accountHome = accountHomes[probe.providerId];
+		const account = yield* accountHome && probe.providerId === "claude"
+			? probeNamedClaudeAccount(cliPath, accountHome)
+			: accountHome && probe.providerId === "codex"
+				? probeCodexAccount(cliPath, accountHome)
+				: probeAccount(probe.providerId, cliPath);
 		const cliLoggedIn = account.authStatus === "authenticated";
 
 		const status = computeHealthStatus({
@@ -1207,8 +1254,9 @@ export const probeAllProviders: Effect.Effect<
 
 export const probeProvidersWithPaths = (
 	overrides: Readonly<Record<string, string>>,
+	accountHomes: Readonly<Record<string, string>> = {},
 ) =>
 	Effect.all(
-		PROBES.map((probe) => probeOne(probe, overrides)),
+		PROBES.map((probe) => probeOne(probe, overrides, accountHomes)),
 		{ concurrency: "unbounded" },
 	);

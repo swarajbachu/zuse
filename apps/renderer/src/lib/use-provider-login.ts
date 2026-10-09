@@ -1,5 +1,5 @@
 import "@zuse/i18n/english/providers";
-import type { ProviderId } from "@zuse/contracts";
+import type { ProviderId, SessionId } from "@zuse/contracts";
 import { message } from "@zuse/i18n";
 import { useEffect, useRef } from "react";
 
@@ -15,12 +15,16 @@ export { openExternal } from "./platform-capabilities.ts";
 
 export type ProviderLoginState =
 	| { readonly kind: "idle" }
-	| { readonly kind: "waiting"; readonly url: string | null }
+	| {
+			readonly kind: "waiting";
+			readonly url: string | null;
+			readonly output?: string;
+	  }
 	| { readonly kind: "success" }
 	| { readonly kind: "failed"; readonly reason: string };
 
 const PROVIDERS_WITH_INLINE_LOGIN: ReadonlySet<ProviderId> =
-	new Set<ProviderId>(["claude", "grok"]);
+	new Set<ProviderId>(["claude", "codex", "grok"]);
 
 export const supportsProviderLogin = (providerId: ProviderId): boolean =>
 	PROVIDERS_WITH_INLINE_LOGIN.has(providerId);
@@ -32,8 +36,16 @@ const loginStore = createAtomStore<{
 	signedInAtByKey: Record<string, number>;
 }>(() => ({ stateByKey: {}, signedInAtByKey: {} }));
 const owners = new Map<string, StreamOperationOwner>();
-const keyFor = (environmentId: string, providerId: ProviderId) =>
-	JSON.stringify([environmentId, providerId]);
+const keyFor = (
+	environmentId: string,
+	providerId: ProviderId,
+	accountId?: string,
+) =>
+	JSON.stringify(
+		accountId
+			? [environmentId, providerId, accountId]
+			: [environmentId, providerId],
+	);
 const setState = (key: string, state: ProviderLoginState) =>
 	loginStore.setState((current) => {
 		const stateByKey = { ...current.stateByKey };
@@ -55,23 +67,37 @@ const cancelProviderLogin = (key: string) => {
 const startProviderLogin = async (
 	environmentId: string,
 	providerId: ProviderId,
+	accountId?: string,
+	sessionId?: SessionId,
 ) => {
-	const key = keyFor(environmentId, providerId);
+	const key = keyFor(
+		environmentId,
+		providerId,
+		accountId ?? (sessionId ? `session:${sessionId}` : undefined),
+	);
 	if (loginStore.getState().stateByKey[key]?.kind === "waiting") return;
 	cancelProviderLogin(key);
 	const owner = new StreamOperationOwner();
 	owners.set(key, owner);
 	setState(key, { kind: "waiting", url: null });
 	let completed = false;
+	let output = "";
+	let url: string | null = null;
 	await owner.run(
 		async () =>
 			(await runtimeOperationClient(environmentId))["provider.startLogin"]({
 				providerId,
+				...(accountId ? { accountId } : {}),
+				...(sessionId ? { sessionId } : {}),
 			}),
 		async (event) => {
 			if (event._tag === "url") {
 				if (providerId !== "grok") void openExternal(event.url);
-				setState(key, { kind: "waiting", url: event.url });
+				url = event.url;
+				setState(key, { kind: "waiting", url, output });
+			} else if (event._tag === "log" && providerId === "codex") {
+				output = `${output}\n${event.text}`.slice(-2000).trim();
+				setState(key, { kind: "waiting", url, output });
 			} else if (event._tag === "done") {
 				completed = true;
 				if (!event.ok) {
@@ -125,7 +151,12 @@ const startProviderLogin = async (
  */
 export function useProviderLogin(
 	providerId: ProviderId,
-	opts?: { readonly onSuccess?: () => void; readonly environmentId?: string },
+	opts?: {
+		readonly onSuccess?: () => void;
+		readonly environmentId?: string;
+		readonly accountId?: string;
+		readonly sessionId?: SessionId;
+	},
 ): {
 	readonly state: ProviderLoginState;
 	/** Epoch ms of the last successful in-app sign-in; 0 when none this run. */
@@ -135,7 +166,12 @@ export function useProviderLogin(
 } {
 	const active = useEnvironmentCatalogStore((s) => s.activeEnvironmentId);
 	const environmentId = opts?.environmentId ?? active;
-	const key = keyFor(environmentId, providerId);
+	const key = keyFor(
+		environmentId,
+		providerId,
+		opts?.accountId ??
+			(opts?.sessionId ? `session:${opts.sessionId}` : undefined),
+	);
 	const state = loginStore((current) => current.stateByKey[key] ?? IDLE_LOGIN);
 	const signedInAt = loginStore((current) => current.signedInAtByKey[key] ?? 0);
 	const onSuccessRef = useRef(opts?.onSuccess);
@@ -150,7 +186,13 @@ export function useProviderLogin(
 	return {
 		state,
 		signedInAt,
-		start: () => startProviderLogin(environmentId, providerId),
+		start: () =>
+			startProviderLogin(
+				environmentId,
+				providerId,
+				opts?.accountId,
+				opts?.sessionId,
+			),
 		cancel: () => cancelProviderLogin(key),
 	};
 }

@@ -141,5 +141,15 @@
 	"sign_in_failed": "サインインに失敗しました。",
 	"sign_in_incomplete": "サインインが完了前に終了しました。",
 	"update_incomplete": "更新が完了前に終了しました。",
-	"remove_computer_account_description": "アカウントから {{value}} を削除して、コンピューターの登録枠を空けます。Zuse 経由のリモートアクセスは停止します。コンピューター上のプロジェクトとデータは保持されます。"
+	"remove_computer_account_description": "アカウントから {{value}} を削除して、コンピューターの登録枠を空けます。Zuse 経由のリモートアクセスは停止します。コンピューター上のプロジェクトとデータは保持されます。",
+	"accounts_title": "アカウント",
+	"accounts_add": "アカウントを追加",
+	"accounts_name": "アカウント名",
+	"accounts_hint": "アカウントはこのコンピューターに保存されます。新しいチャットの最初のメッセージを送信する前にアカウントを選択してください。既存のチャットは元のアカウントを使い続けます。",
+	"accounts_default": "デフォルトの CLI ログイン / API キー",
+	"accounts_use": "新しいチャットに使用",
+	"accounts_selected": "選択中",
+	"accounts_waiting": "ブラウザーでログインを完了してください。",
+	"accounts_open_browser": "ブラウザーを開く",
+	"accounts_signed_in": "ログイン済み"
 }

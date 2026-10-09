@@ -141,5 +141,15 @@
 	"sign_in_failed": "Anmeldung fehlgeschlagen.",
 	"sign_in_incomplete": "Die Anmeldung wurde vorzeitig beendet.",
 	"update_incomplete": "Das Update wurde vorzeitig beendet.",
-	"remove_computer_account_description": "Entfernen Sie {{value}} aus Ihrem Konto, um einen Computerplatz freizugeben. Der Fernzugriff über Zuse wird beendet. Projekte und Daten auf dem Computer bleiben erhalten."
+	"remove_computer_account_description": "Entfernen Sie {{value}} aus Ihrem Konto, um einen Computerplatz freizugeben. Der Fernzugriff über Zuse wird beendet. Projekte und Daten auf dem Computer bleiben erhalten.",
+	"accounts_title": "Konten",
+	"accounts_add": "Konto hinzufügen",
+	"accounts_name": "Kontoname",
+	"accounts_hint": "Konten bleiben auf diesem Computer. Wählen Sie ein Konto vor der ersten Nachricht eines neuen Chats; bestehende Chats behalten ihr Konto.",
+	"accounts_default": "Standard-CLI-Anmeldung / API-Schlüssel",
+	"accounts_use": "Für neue Chats verwenden",
+	"accounts_selected": "Ausgewählt",
+	"accounts_waiting": "Schließen Sie die Anmeldung im Browser ab.",
+	"accounts_open_browser": "Browser öffnen",
+	"accounts_signed_in": "Angemeldet"
 }

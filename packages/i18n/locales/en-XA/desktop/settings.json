@@ -1262,5 +1262,7 @@
 	"snapshot_use_zuse_accounts": "⟦ÜÜsëë Züüsëë ààgëënt ààccôôüünts⟧",
 	"snapshot_managed_auth_help": "⟦Côônnëëct Clààüüdëë Côôdëë ôôr Côôdëëx bëëlôôw, thëën sààvëë. Nëëw wôôrkspààcëës üüsëë yôôüür Züüsëë ààgëënt ààccôôüünts. Nôô snààpshôôt rëëbüüïïld ïïs nëëëëdëëd. ËËxïïstïïng wôôrkspààcëës këëëëp thëëïïr cüürrëënt ààüüthëëntïïcààtïïôôn.⟧",
 	"snapshot_login_detected": "⟦Lôôgïïn dëëtëëctëëd⟧",
-	"snapshot_inspected_user": "⟦ÏÏnspëëctëëd Lïïnüüx üüsëër: {{user}}.⟧"
+	"snapshot_inspected_user": "⟦ÏÏnspëëctëëd Lïïnüüx üüsëër: {{user}}.⟧",
+	"acp_agents_add_account": "⟦ÀÀdd ààccôôüünt⟧",
+	"acp_agents_busy_adding_account": "⟦ÀÀddïïng ààccôôüünt…⟧"
 }

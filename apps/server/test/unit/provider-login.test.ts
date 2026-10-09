@@ -7,6 +7,12 @@ import {
 } from "../../src/provider/services/login-service.ts";
 
 describe("provider login output", () => {
+	it("uses native Codex device login for isolated accounts", () => {
+		expect(getProviderLoginCommand("codex")).toEqual({
+			command: "codex",
+			args: ["login", "--device-auth"],
+		});
+	});
 	it("uses Grok's short-code browser approval flow", () => {
 		expect(getProviderLoginCommand("grok")).toEqual({
 			command: "grok",

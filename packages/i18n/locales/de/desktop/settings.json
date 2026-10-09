@@ -1262,5 +1262,7 @@
 	"snapshot_use_zuse_accounts": "Zuse-Agentenkonten verwenden",
 	"snapshot_managed_auth_help": "Verbinde unten Claude Code oder Codex und speichere. Neue Arbeitsbereiche verwenden deine Zuse-Agentenkonten. Das Snapshot muss nicht neu erstellt werden. Bestehende Arbeitsbereiche behalten ihre Authentifizierung.",
 	"snapshot_login_detected": "Anmeldung erkannt",
-	"snapshot_inspected_user": "Geprüfter Linux-Benutzer: {{user}}."
+	"snapshot_inspected_user": "Geprüfter Linux-Benutzer: {{user}}.",
+	"acp_agents_add_account": "Konto hinzufügen",
+	"acp_agents_busy_adding_account": "Konto wird hinzugefügt…"
 }

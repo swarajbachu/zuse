@@ -141,5 +141,15 @@
 	"sign_in_failed": "Sign-in failed.",
 	"sign_in_incomplete": "Sign-in ended before completion.",
 	"update_incomplete": "Update ended before completion.",
-	"remove_computer_account_description": "Remove {{value}} from your account and free its computer slot. Remote access through Zuse will stop. Projects and data on the computer are kept."
+	"remove_computer_account_description": "Remove {{value}} from your account and free its computer slot. Remote access through Zuse will stop. Projects and data on the computer are kept.",
+	"accounts_title": "Accounts",
+	"accounts_add": "Add account",
+	"accounts_name": "Account name",
+	"accounts_hint": "Accounts stay on this computer. Choose an account before sending a new chat’s first message; existing chats keep their account.",
+	"accounts_default": "Default CLI login / API key",
+	"accounts_use": "Use for new chats",
+	"accounts_selected": "Selected",
+	"accounts_waiting": "Complete sign-in in your browser.",
+	"accounts_open_browser": "Open browser",
+	"accounts_signed_in": "Signed in"
 }

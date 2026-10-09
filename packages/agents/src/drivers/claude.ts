@@ -49,6 +49,7 @@ import {
 } from "./compact.ts";
 import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
 import { pluginCliEnv } from "./plugin-tools.ts";
+import { isolatedProviderAccountEnv } from "./provider-account-env.ts";
 
 /**
  * User MCP servers → SDK external-server config entries. Tools surface as
@@ -1845,7 +1846,7 @@ export const startClaudeSession = (
 			typeof credential === "string"
 				? ({ kind: "api-key", secret: credential } as const)
 				: credential;
-		const env = applyClaudeCredentialEnv(
+		const credentialEnv = applyClaudeCredentialEnv(
 			applyClaudeWorktreeEnv(
 				scrubInheritedClaudeMarkers({
 					...process.env,
@@ -1856,6 +1857,13 @@ export const startClaudeSession = (
 			),
 			managedCredential,
 		);
+		const env = input.providerAccountHome
+			? isolatedProviderAccountEnv(
+					"claude",
+					input.providerAccountHome,
+					credentialEnv,
+				)
+			: credentialEnv;
 		// Sub-agent map → SDK Options.agents. When at least one preset is
 		// present and the master toggle is on, also add `Agent` to
 		// allowedTools so the model can actually call it. Sessions without

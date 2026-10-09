@@ -48,6 +48,7 @@ export * from "./plugins.ts";
 export * from "./pokemon.ts";
 export * from "./power.ts";
 export * from "./previews.ts";
+export * from "./provider-accounts.ts";
 export * from "./provider-capabilities.ts";
 export * from "./pty.ts";
 export * from "./repository-settings.ts";

@@ -7,6 +7,7 @@ import {
 	applyClaudeCredentialEnv,
 	type ClaudeManagedCredential,
 } from "./claude.ts";
+import { isolatedProviderAccountEnv } from "./provider-account-env.ts";
 
 export interface ClaudeControlOptions {
 	readonly claudeExecutablePath: string | null;
@@ -14,6 +15,7 @@ export interface ClaudeControlOptions {
 	readonly cwd: string;
 	readonly timeoutMs: number;
 	readonly signal?: AbortSignal;
+	readonly accountHome?: string;
 }
 
 /** A read-only control query: never submits a prompt or persists a session. */
@@ -58,7 +60,13 @@ export const withClaudeControlClient = async <A>(
 				options: {
 					cwd: args.cwd,
 					abortController: abort,
-					env: applyClaudeCredentialEnv(process.env, args.credential),
+					env: args.accountHome
+						? isolatedProviderAccountEnv(
+								"claude",
+								args.accountHome,
+								process.env,
+							)
+						: applyClaudeCredentialEnv(process.env, args.credential),
 					maxTurns: 1,
 					persistSession: false,
 					tools: [],

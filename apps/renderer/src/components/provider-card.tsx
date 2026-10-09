@@ -1,5 +1,6 @@
 import { providerDisplayName } from "~/lib/provider-labels";
 import { CopyButton } from "./copy-button.tsx";
+import { ProviderAccountsControls } from "./provider-accounts.tsx";
 import "@zuse/i18n/english/providers";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { AgentAvailability, ProviderId } from "@zuse/contracts";
@@ -295,14 +296,25 @@ export function ProviderSettingsRow({
 						providerId={providerId}
 						availability={availability}
 					/>
-					{enabled && <ProviderConfiguration providerId={providerId} />}
+					{enabled && (
+						<ProviderConfiguration
+							providerId={providerId}
+							environmentId={environmentId}
+						/>
+					)}
 				</div>
 			)}
 		</div>
 	);
 }
 
-function ProviderConfiguration({ providerId }: { providerId: ProviderId }) {
+function ProviderConfiguration({
+	providerId,
+	environmentId,
+}: {
+	providerId: ProviderId;
+	environmentId: string;
+}) {
 	const { message: uiMessage } = useUiMessages(["common", "providers"]);
 
 	if (providerId === "opencode" || providerId === "opencode2") {
@@ -324,6 +336,13 @@ function ProviderConfiguration({ providerId }: { providerId: ProviderId }) {
 						/>
 					</p>
 				</div>
+			)}
+			{(providerId === "claude" || providerId === "codex") && (
+				<ProviderAccountsControls
+					key={`${environmentId}:${providerId}`}
+					providerId={providerId}
+					environmentId={environmentId}
+				/>
 			)}
 			<ModelVisibilitySettings providerId={providerId} />
 			{providerId === "cursor" && (
@@ -588,56 +607,63 @@ function ProviderSignInRow({
 
 	if (state.kind === "waiting") {
 		return (
-			<div className="flex h-7 items-center gap-2 rounded-md bg-muted/40 pr-0.5 pl-2.5 text-[11px]">
-				<div className="flex min-w-0 flex-1 items-center gap-2 text-muted-foreground">
-					<HugeiconsIcon
-						icon={Loading02Icon}
-						className="size-3.5 animate-spin motion-reduce:animate-none"
-						aria-hidden
-					/>
-					<ShimmerText as="span" className="truncate">
-						{state.url === null
-							? uiMessage("providers:provider_card_starting_sign_in", {
-									label: String(label),
-								})
-							: uiMessage(
-									"providers:provider_card_waiting_for_browser_sign_in",
-								)}
-					</ShimmerText>
-				</div>
-				<div className="flex shrink-0 items-center gap-1">
-					{state.url !== null && (
+			<div className="flex flex-col gap-1.5">
+				<div className="flex h-7 items-center gap-2 rounded-md bg-muted/40 pr-0.5 pl-2.5 text-[11px]">
+					<div className="flex min-w-0 flex-1 items-center gap-2 text-muted-foreground">
+						<HugeiconsIcon
+							icon={Loading02Icon}
+							className="size-3.5 animate-spin motion-reduce:animate-none"
+							aria-hidden
+						/>
+						<ShimmerText as="span" className="truncate">
+							{state.url === null
+								? uiMessage("providers:provider_card_starting_sign_in", {
+										label: String(label),
+									})
+								: uiMessage(
+										"providers:provider_card_waiting_for_browser_sign_in",
+									)}
+						</ShimmerText>
+					</div>
+					<div className="flex shrink-0 items-center gap-1">
+						{state.url !== null && (
+							<Button
+								type="button"
+								size="xs"
+								variant="ghost"
+								onClick={(e) => {
+									e.stopPropagation();
+									if (state.url !== null) openExternal(state.url);
+								}}
+								className="h-7 px-2 text-[11px]"
+							>
+								<HugeiconsIcon
+									icon={LinkSquare01Icon}
+									className="mr-1 size-3"
+									aria-hidden
+								/>
+								{uiMessage("providers:provider_card_open_browser_again")}
+							</Button>
+						)}
 						<Button
 							type="button"
 							size="xs"
 							variant="ghost"
 							onClick={(e) => {
 								e.stopPropagation();
-								if (state.url !== null) openExternal(state.url);
+								cancel();
 							}}
-							className="h-6 px-2 text-[11px]"
+							className="h-7 px-2 text-[11px]"
 						>
-							<HugeiconsIcon
-								icon={LinkSquare01Icon}
-								className="mr-1 size-3"
-								aria-hidden
-							/>
-							{uiMessage("providers:provider_card_open_browser_again")}
+							{uiMessage("common:cancel")}
 						</Button>
-					)}
-					<Button
-						type="button"
-						size="xs"
-						variant="ghost"
-						onClick={(e) => {
-							e.stopPropagation();
-							cancel();
-						}}
-						className="h-6 px-2 text-[11px]"
-					>
-						{uiMessage("common:cancel")}
-					</Button>
+					</div>
 				</div>
+				{state.output && (
+					<p className="whitespace-pre-wrap break-words text-[11px] text-muted-foreground">
+						{state.output}
+					</p>
+				)}
 			</div>
 		);
 	}
@@ -648,6 +674,7 @@ function ProviderSignInRow({
 				<div className="rounded-md bg-alert-error-bg px-2.5 py-1.5 text-[11px] text-destructive">
 					{state.reason}
 				</div>
+
 				<div className="flex items-center gap-2">
 					<Button
 						type="button"

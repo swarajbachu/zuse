@@ -197,13 +197,15 @@ export class CodexAppServerClient {
 		readonly onStderr?: (text: string) => void;
 		readonly onNotification: NotificationHandler;
 		readonly onServerRequest: ServerRequestHandler;
-		readonly externalAuthProvider?: CodexExternalAuthProvider;
+		readonly externalAuthProvider?: CodexExternalAuthProvider | null;
 		/** Session identity used only to resume a proven auth-blocked consumer. */
 		readonly externalAuthConsumerId?: string;
 		readonly onUnexpectedTermination?: UnexpectedTerminationHandler;
 	}): Promise<CodexAppServerClient> {
 		const externalAuthProvider =
-			options.externalAuthProvider ?? defaultExternalAuthProvider;
+			options.externalAuthProvider === undefined
+				? defaultExternalAuthProvider
+				: options.externalAuthProvider;
 		const apiKey = externalAuthProvider === null ? options.apiKey : null;
 		const hasApiKey =
 			apiKey !== null && apiKey !== undefined && apiKey.length > 0;

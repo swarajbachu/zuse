@@ -1266,5 +1266,7 @@
 	"snapshot_use_zuse_accounts": "Utiliser les comptes d’agent Zuse",
 	"snapshot_managed_auth_help": "Connectez Claude Code ou Codex ci-dessous, puis enregistrez. Les nouveaux espaces utilisent vos comptes Zuse. Aucune reconstruction de l’instantané n’est nécessaire. Les espaces existants conservent leur authentification.",
 	"snapshot_login_detected": "Connexion détectée",
-	"snapshot_inspected_user": "Utilisateur Linux inspecté : {{user}}."
+	"snapshot_inspected_user": "Utilisateur Linux inspecté : {{user}}.",
+	"acp_agents_add_account": "Ajouter un compte",
+	"acp_agents_busy_adding_account": "Ajout du compte…"
 }

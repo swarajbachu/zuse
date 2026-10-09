@@ -16,7 +16,8 @@
 		"test:integration": "vitest run test/integration --passWithNoTests"
 	},
 	"dependencies": {
-		"effect": "catalog:"
+		"effect": "catalog:",
+		"@zuse/utils": "*"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",

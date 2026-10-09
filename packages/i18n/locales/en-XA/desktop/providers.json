@@ -141,5 +141,15 @@
 	"sign_in_failed": "⟦Sïïgn-ïïn fààïïlëëd.⟧",
 	"sign_in_incomplete": "⟦Sïïgn-ïïn ëëndëëd bëëfôôrëë côômplëëtïïôôn.⟧",
 	"update_incomplete": "⟦ÜÜpdààtëë ëëndëëd bëëfôôrëë côômplëëtïïôôn.⟧",
-	"remove_computer_account_description": "⟦Rëëmôôvëë {{value}} frôôm yôôüür ààccôôüünt àànd frëëëë ïïts côômpüütëër slôôt. Rëëmôôtëë ààccëëss thrôôüügh Züüsëë wïïll stôôp. Prôôjëëcts àànd dààtàà ôôn thëë côômpüütëër ààrëë këëpt.⟧"
+	"remove_computer_account_description": "⟦Rëëmôôvëë {{value}} frôôm yôôüür ààccôôüünt àànd frëëëë ïïts côômpüütëër slôôt. Rëëmôôtëë ààccëëss thrôôüügh Züüsëë wïïll stôôp. Prôôjëëcts àànd dààtàà ôôn thëë côômpüütëër ààrëë këëpt.⟧",
+	"accounts_title": "⟦ÀÀccôôüünts⟧",
+	"accounts_add": "⟦ÀÀdd ààccôôüünt⟧",
+	"accounts_name": "⟦ÀÀccôôüünt nààmëë⟧",
+	"accounts_hint": "⟦ÀÀccôôüünts stàày ôôn thïïs côômpüütëër. Chôôôôsëë ààn ààccôôüünt bëëfôôrëë sëëndïïng àà nëëw chààt’s fïïrst mëëssààgëë; ëëxïïstïïng chààts këëëëp thëëïïr ààccôôüünt.⟧",
+	"accounts_default": "⟦Dëëfààüült CLÏÏ lôôgïïn / ÀÀPÏÏ këëy⟧",
+	"accounts_use": "⟦ÜÜsëë fôôr nëëw chààts⟧",
+	"accounts_selected": "⟦Sëëlëëctëëd⟧",
+	"accounts_waiting": "⟦Côômplëëtëë sïïgn-ïïn ïïn yôôüür brôôwsëër.⟧",
+	"accounts_open_browser": "⟦ÔÔpëën brôôwsëër⟧",
+	"accounts_signed_in": "⟦Sïïgnëëd ïïn⟧"
 }

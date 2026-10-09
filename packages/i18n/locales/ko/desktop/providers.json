@@ -141,5 +141,15 @@
 	"sign_in_failed": "로그인에 실패했습니다.",
 	"sign_in_incomplete": "로그인이 완료되기 전에 종료되었습니다.",
 	"update_incomplete": "업데이트가 완료되기 전에 종료되었습니다.",
-	"remove_computer_account_description": "계정에서 {{value}}을(를) 제거하여 컴퓨터 등록 한 자리를 확보합니다. Zuse를 통한 원격 액세스가 중단됩니다. 컴퓨터의 프로젝트와 데이터는 유지됩니다."
+	"remove_computer_account_description": "계정에서 {{value}}을(를) 제거하여 컴퓨터 등록 한 자리를 확보합니다. Zuse를 통한 원격 액세스가 중단됩니다. 컴퓨터의 프로젝트와 데이터는 유지됩니다.",
+	"accounts_title": "계정",
+	"accounts_add": "계정 추가",
+	"accounts_name": "계정 이름",
+	"accounts_hint": "계정은 이 컴퓨터에 저장됩니다. 새 채팅의 첫 메시지를 보내기 전에 계정을 선택하세요. 기존 채팅은 원래 계정을 계속 사용합니다.",
+	"accounts_default": "기본 CLI 로그인 / API 키",
+	"accounts_use": "새 채팅에 사용",
+	"accounts_selected": "선택됨",
+	"accounts_waiting": "브라우저에서 로그인을 완료하세요.",
+	"accounts_open_browser": "브라우저 열기",
+	"accounts_signed_in": "로그인됨"
 }

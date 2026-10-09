@@ -289,6 +289,12 @@ import { PluginsRequestRpc } from "./plugins.ts";
 import { PokemonEnsureSpriteCachedRpc, PokemonPokedexRpc } from "./pokemon.ts";
 import { PreviewsListServersRpc } from "./previews.ts";
 import {
+	ProviderAccountsListRpc,
+	ProviderAccountsPreferredRpc,
+	ProviderAccountsRemoveRpc,
+	ProviderAccountsSaveRpc,
+} from "./provider-accounts.ts";
+import {
 	PtyCloseOwnedRpc,
 	PtyCloseRpc,
 	PtyListRpc,
@@ -637,6 +643,10 @@ export const MemoizeRpcs = RpcGroup.make(
 	FsRemoveRpc,
 	FsReadExternalFileRpc,
 	FsWriteExternalFileRpc,
+	ProviderAccountsListRpc,
+	ProviderAccountsSaveRpc,
+	ProviderAccountsPreferredRpc,
+	ProviderAccountsRemoveRpc,
 	ProviderAvailabilityRpc,
 	ProviderRemoveCredentialRpc,
 	ProviderSetCredentialRpc,

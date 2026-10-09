@@ -31,7 +31,8 @@
 		"./canonical-json": "./src/canonical-json.ts",
 		"./feature-access": "./src/feature-access.ts",
 		"./html-document": "./src/html-document.ts",
-		"./public-network-proxy": "./src/public-network-proxy.ts"
+		"./public-network-proxy": "./src/public-network-proxy.ts",
+		"./process-env": "./src/process-env.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",

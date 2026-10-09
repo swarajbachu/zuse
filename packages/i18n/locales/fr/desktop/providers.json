@@ -141,5 +141,15 @@
 	"sign_in_failed": "Échec de la connexion.",
 	"sign_in_incomplete": "La connexion s’est interrompue.",
 	"update_incomplete": "La mise à jour s’est interrompue.",
-	"remove_computer_account_description": "Supprimez {{value}} de votre compte pour libérer une place pour un ordinateur. L’accès à distance via Zuse sera interrompu. Les projets et les données sur l’ordinateur sont conservés."
+	"remove_computer_account_description": "Supprimez {{value}} de votre compte pour libérer une place pour un ordinateur. L’accès à distance via Zuse sera interrompu. Les projets et les données sur l’ordinateur sont conservés.",
+	"accounts_title": "Comptes",
+	"accounts_add": "Ajouter un compte",
+	"accounts_name": "Nom du compte",
+	"accounts_hint": "Les comptes restent sur cet ordinateur. Choisissez un compte avant d’envoyer le premier message d’une nouvelle discussion ; les discussions existantes conservent leur compte.",
+	"accounts_default": "Connexion CLI par défaut / clé API",
+	"accounts_use": "Utiliser pour les nouvelles discussions",
+	"accounts_selected": "Sélectionné",
+	"accounts_waiting": "Terminez la connexion dans votre navigateur.",
+	"accounts_open_browser": "Ouvrir le navigateur",
+	"accounts_signed_in": "Connecté"
 }

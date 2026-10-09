@@ -407,6 +407,7 @@
       "name": "@zuse/acp",
       "version": "0.0.0",
       "dependencies": {
+        "@zuse/utils": "*",
         "effect": "catalog:",
       },
       "devDependencies": {

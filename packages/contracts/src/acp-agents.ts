@@ -40,6 +40,8 @@ export const AcpDefinition = Schema.Struct({
 	version: Schema.optional(Schema.String),
 	icon: Schema.optional(Schema.String),
 	probe: Schema.optional(AcpProbe),
+	/** Named account home owned by this ACP instance; credentials stay on the host. */
+	accountProvider: Schema.optional(Schema.Literals(["claude", "codex"])),
 });
 export type AcpDefinition = typeof AcpDefinition.Type;
 export const AcpDefinitionInput = Schema.Struct({
@@ -111,7 +113,10 @@ export const AcpAuthenticateRpc = Rpc.make("provider.acp.authenticate", {
 });
 
 export const AcpDuplicateRpc = Rpc.make("provider.acp.duplicate", {
-	payload: { id: AcpProviderId },
+	payload: {
+		id: AcpProviderId,
+		accountProvider: Schema.optional(Schema.Literals(["claude", "codex"])),
+	},
 	success: AcpDefinition,
 	error: AcpOperationError,
 });
