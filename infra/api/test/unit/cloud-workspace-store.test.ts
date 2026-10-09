@@ -2400,7 +2400,10 @@ describe("cloud workspace store", () => {
 		await runtime.dispose();
 	});
 
-	test("runtime credential renewal is atomic and response-loss safe", async () => {
+	test.each([
+		false,
+		true,
+	])("runtime credential renewal is atomic and response-loss safe (signed: %s)", async (signed) => {
 		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
 		const store = await runtime.runPromise(CloudWorkspaceStore);
 		await runtime.runPromise(store.connectProject(project));
@@ -2422,7 +2425,12 @@ describe("cloud workspace store", () => {
 			desiredState: "ready" as const,
 			statusCode: "agent-running",
 			idempotencyKey: "workspace-renew-key",
-			requestConfig: { runtimeCredentialExpiresAtMs: 2_000 },
+			requestConfig: {
+				runtimeCredentialExpiresAtMs: 2_000,
+				runtimeGeneration: 2,
+				gatewayEpoch: 2,
+				...(signed ? { runtimeSigningKeyThumbprint: "signing-key" } : {}),
+			},
 			nextActionAtMs: 2_000,
 			revision: 1,
 			createdAtMs: 100,
@@ -2443,11 +2451,14 @@ describe("cloud workspace store", () => {
 					generation: 2,
 					gatewayEpoch: 2,
 					nowMs: 500,
+					...(signed ? { verifiedSigningKeyThumbprint: "signing-key" } : {}),
 					...overrides,
 				}),
 			);
-		expect(await renew({ nowMs: 2_500 })).toBeNull();
-		const first = await renew();
+		expect(
+			await renew({ nowMs: 2_500, verifiedSigningKeyThumbprint: undefined }),
+		).toBeNull();
+		const first = await renew({ nowMs: signed ? 2_500 : 500 });
 		expect(first).toMatchObject({
 			requestId: "renew-1",
 			credentialHash: "credential-new",
@@ -2465,6 +2476,30 @@ describe("cloud workspace store", () => {
 		expect(
 			await runtime.runPromise(store.getWorkspace(workspace.workspaceId)),
 		).toMatchObject({ runtimeCredentialHash: "credential-new" });
+		if (signed) {
+			const recovered = await renew({
+				nowMs: 2 * 24 * 60 * 60_000,
+				expiresAtMs: 2 * 24 * 60 * 60_000 + 10_000,
+			});
+			expect(recovered).toMatchObject({
+				credentialHash: "credential-new",
+				generation: 2,
+			});
+		}
+		await runtime.runPromise(
+			store.saveWorkspace({
+				...workspace,
+				revision: 2,
+				updatedAtMs: 101,
+				runtimeCredentialHash: "credential-new",
+				requestConfig: {
+					...workspace.requestConfig,
+					runtimeGeneration: 3,
+					gatewayEpoch: 3,
+				},
+			}),
+		);
+		expect(await renew()).toBeNull();
 		await runtime.dispose();
 	});
 

@@ -44,8 +44,10 @@ import {
 	makeCloudRuntimeCheckpointPublisher,
 	makeCloudRuntimeSummaryPublisher,
 	recoverCloudMailboxReadiness,
+	renewRuntimeCredential,
 	resolveCloudRuntimeActiveSession,
 	retainedCloudRuntimeStorageFailure,
+	retryableCloudGatewayFailure,
 	retryCloudWorkspaceBootstrap,
 	runCloudMailboxConsumerCycle,
 	runCloudMailboxPolling,
@@ -664,6 +666,67 @@ describe("cloud workspace bootstrap", () => {
 		expect(runtimeCredentialRenewalDelayMs(99_000, 100_000)).toBe(0);
 	});
 
+	it("reauthenticates an expired preserved runtime after sleep without changing its generation", async () => {
+		const runtimeData = await mkdtemp(join(tmpdir(), "zuse-runtime-renew-"));
+		vi.stubEnv("ZUSE_USER_DATA", runtimeData);
+		const keys = await generateKeyPair("EdDSA", { extractable: true });
+		const state = {
+			credential: "expired-credential",
+			expiresAt: Date.now() - 2 * 24 * 60 * 60_000,
+			generation: 4,
+			gatewayEpoch: 7,
+		};
+		const expiresAt = Date.now() + 15 * 60_000;
+		const fetcher = vi.fn().mockResolvedValue(
+			Response.json({
+				workspaceId: "workspace-1",
+				requestId: "renewal-after-sleep",
+				runtimeCredential: "fresh-credential",
+				expiresAt,
+				generation: 4,
+				gatewayEpoch: 7,
+			}),
+		);
+		vi.stubGlobal("fetch", fetcher);
+		try {
+			await Effect.runPromise(
+				renewRuntimeCredential({
+					config: {
+						workspaceId: "workspace-1",
+						apiUrl: "https://api.test",
+						bootToken: Redacted.make("consumed-boot-token"),
+						localPort: 47837,
+						workspaceRoot: "/repos/example",
+					},
+					signingPrivateKey: keys.privateKey,
+					state,
+					requestId: "renewal-after-sleep",
+				}),
+			);
+			expect(fetcher).toHaveBeenCalledTimes(1);
+			const request = fetcher.mock.calls[0]?.[1];
+			const body = JSON.parse(request.body);
+			const proof = await jwtVerify(body.proof, keys.publicKey, {
+				audience: "https://api.test",
+			});
+			expect(proof.payload).toMatchObject({
+				generation: 4,
+				gatewayEpoch: 7,
+				requestId: "renewal-after-sleep",
+			});
+			expect(state).toMatchObject({
+				credential: "fresh-credential",
+				expiresAt,
+				generation: 4,
+				gatewayEpoch: 7,
+			});
+		} finally {
+			vi.unstubAllGlobals();
+			vi.unstubAllEnvs();
+			await rm(runtimeData, { recursive: true, force: true });
+		}
+	});
+
 	it("binds renewal proof to the runtime generation and gateway epoch", async () => {
 		const keys = await generateKeyPair("EdDSA", { extractable: true });
 		const proof = await Effect.runPromise(
@@ -688,6 +751,95 @@ describe("cloud workspace bootstrap", () => {
 			generation: 4,
 			gatewayEpoch: 7,
 		});
+	});
+
+	it("keeps renewing through an authority outage longer than the access lifetime", async () => {
+		const runtimeData = await mkdtemp(
+			join(tmpdir(), "zuse-runtime-renew-outage-"),
+		);
+		vi.stubEnv("ZUSE_USER_DATA", runtimeData);
+		const keys = await generateKeyPair("EdDSA", { extractable: true });
+		const config = {
+			workspaceId: "workspace-1",
+			apiUrl: "https://api.test",
+			bootToken: Redacted.make("boot"),
+			localPort: 47837,
+			workspaceRoot: "/repos/example",
+		};
+		const state = {
+			credential: "old",
+			expiresAt: 1000,
+			generation: 4,
+			gatewayEpoch: 7,
+		};
+		try {
+			await Effect.runPromise(
+				Effect.gen(function* () {
+					let nowMs = 0;
+					const liveClock = yield* Clock.Clock;
+					const fetcher = vi
+						.fn()
+						.mockImplementationOnce(async () => {
+							nowMs = 2 * 24 * 60 * 60_000;
+							return Response.json({}, { status: 503 });
+						})
+						.mockResolvedValue(
+							Response.json({
+								workspaceId: "workspace-1",
+								requestId: "same-request",
+								runtimeCredential: "fresh",
+								expiresAt: 2 * 24 * 60 * 60_000 + 10_000,
+								generation: 4,
+								gatewayEpoch: 7,
+							}),
+						);
+					vi.stubGlobal("fetch", fetcher);
+					yield* renewRuntimeCredential({
+						config,
+						signingPrivateKey: keys.privateKey,
+						state,
+						requestId: "same-request",
+					}).pipe(
+						Effect.provideService(Clock.Clock, {
+							currentTimeNanosUnsafe: () => liveClock.currentTimeNanosUnsafe(),
+							currentTimeNanos: liveClock.currentTimeNanos,
+							sleep: (duration) => liveClock.sleep(duration),
+							currentTimeMillisUnsafe: () => nowMs,
+							currentTimeMillis: Effect.sync(() => nowMs),
+						}),
+					);
+					expect(state).toMatchObject({
+						credential: "fresh",
+						generation: 4,
+						renewalPending: false,
+					});
+					expect(fetcher).toHaveBeenCalledTimes(2);
+					for (const call of fetcher.mock.calls)
+						expect(JSON.parse(call[1].body).requestId).toBe("same-request");
+				}),
+			);
+		} finally {
+			vi.unstubAllGlobals();
+			vi.unstubAllEnvs();
+			await rm(runtimeData, { recursive: true, force: true });
+		}
+	});
+
+	it("retries an expired gateway authorization without retrying a replaced generation", () => {
+		expect(
+			retryableCloudGatewayFailure(
+				new CloudWorkspaceRuntimeError({
+					reason: "workspace_gateway_authorization_expired",
+				}),
+			),
+		).toBe(true);
+		expect(
+			retryableCloudGatewayFailure(
+				new CloudWorkspaceRuntimeError({
+					reason: "workspace_gateway_generation_changed",
+				}),
+			),
+		).toBe(false);
 	});
 
 	it("retries a transient enrollment failure instead of leaving the runtime detached", async () => {
@@ -1969,6 +2121,32 @@ it.each([
 			yield* TestClock.adjust("10 seconds");
 			expect(attempts).toBe(1);
 			expect(stopped).toBe(1);
+			yield* Fiber.interrupt(fiber);
+		}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+	);
+});
+
+it.each([
+	"workspace_runtime_rejected",
+	"workspace_runtime_fenced",
+])("mailbox distinguishes reauthentication from confirmed fencing (%s)", async (reason) => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			let stopped = 0;
+			const fiber = yield* Effect.forkScoped(
+				runCloudMailboxPolling({
+					credential: () => "expired",
+					reauthenticating: () => true,
+					onRuntimeRejected: Effect.sync(() => {
+						stopped++;
+					}),
+					poll: Effect.fail(
+						new CloudWorkspaceRuntimeError({ reason, httpStatus: 401 }),
+					),
+				}),
+			);
+			yield* TestClock.adjust("2 minutes");
+			expect(stopped).toBe(reason === "workspace_runtime_fenced" ? 1 : 0);
 			yield* Fiber.interrupt(fiber);
 		}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
 	);

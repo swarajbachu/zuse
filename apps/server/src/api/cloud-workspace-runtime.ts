@@ -579,6 +579,7 @@ interface RuntimeCredentialState {
 	expiresAt: number;
 	generation: number;
 	gatewayEpoch: number;
+	renewalPending?: boolean;
 }
 
 type RuntimeSummaryReason =
@@ -922,18 +923,17 @@ export const runtimeCredentialRenewalDelayMs = (
 	nowMs: number,
 ): number => Math.max(0, Math.floor((expiresAt - nowMs) / 2));
 
-const renewRuntimeCredential = (input: {
-	readonly config: CloudWorkspaceRuntimeConfig;
-	readonly signingPrivateKey: CryptoKey;
-	readonly state: RuntimeCredentialState;
-	readonly requestId: string;
-}): Effect.Effect<void, CloudWorkspaceRuntimeError> =>
-	Effect.gen(function* () {
+export const renewRuntimeCredential = Effect.fn("renewRuntimeCredential")(
+	function* (input: {
+		readonly config: CloudWorkspaceRuntimeConfig;
+		readonly signingPrivateKey: CryptoKey;
+		readonly state: RuntimeCredentialState;
+		readonly requestId: string;
+	}) {
 		const current = { ...input.state };
-		while (true) {
+		input.state.renewalPending = true;
+		yield* Effect.gen(function* () {
 			const nowMs = yield* Clock.currentTimeMillis;
-			if (nowMs >= current.expiresAt)
-				return yield* Effect.fail(fail("workspace_runtime_credential_expired"));
 			const proof = yield* signRuntimeRenewalProof({
 				privateKey: input.signingPrivateKey,
 				apiIssuer: input.config.apiUrl,
@@ -945,47 +945,54 @@ const renewRuntimeCredential = (input: {
 			});
 			const result = yield* requestJson({
 				schema: RuntimeCredentialRenewalResponse,
-				url: `${input.config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeCredentialsRenew(
-					input.config.workspaceId,
-				)}`,
+				url: `${input.config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeCredentialsRenew(input.config.workspaceId)}`,
 				token: current.credential,
 				method: "POST",
 				body: { requestId: input.requestId, proof },
-			}).pipe(Effect.result);
-			if (result._tag === "Success") {
-				if (
-					result.success.workspaceId !== input.config.workspaceId ||
-					result.success.generation !== current.generation ||
-					result.success.gatewayEpoch !== current.gatewayEpoch
-				)
-					return yield* Effect.fail(
-						fail("workspace_runtime_renewal_fence_changed"),
-					);
-				yield* writeGithubBrokerState(
-					input.config,
-					result.success.runtimeCredential,
+			});
+			if (
+				result.workspaceId !== input.config.workspaceId ||
+				result.generation !== current.generation ||
+				result.gatewayEpoch !== current.gatewayEpoch
+			)
+				return yield* Effect.fail(
+					fail("workspace_runtime_renewal_fence_changed"),
 				);
-				input.state.credential = result.success.runtimeCredential;
-				input.state.gatewayCredential = undefined;
-				input.state.expiresAt = result.success.expiresAt;
-				return;
-			}
-			const afterFailureMs = yield* Clock.currentTimeMillis;
-			const remaining = current.expiresAt - afterFailureMs;
-			if (remaining <= 0)
-				return yield* Effect.fail(fail("workspace_runtime_credential_expired"));
-			const retryDelay = Math.min(
-				remaining,
-				1_000 + Math.floor(Math.random() * 1_000),
-			);
-			yield* Effect.sleep(Duration.millis(retryDelay));
-		}
-	});
+			const receivedAtMs = yield* Clock.currentTimeMillis;
+			if (
+				result.requestId !== input.requestId ||
+				result.expiresAt <= receivedAtMs
+			)
+				return yield* Effect.fail(fail("api_invalid_response"));
+			yield* writeGithubBrokerState(input.config, result.runtimeCredential);
+			input.state.credential = result.runtimeCredential;
+			input.state.gatewayCredential = undefined;
+			input.state.expiresAt = result.expiresAt;
+		}).pipe(
+			// Expiry and transport outages retain execution. Only a confirmed identity
+			// change or authoritative denial retires this owner.
+			Effect.retry({
+				schedule: cloudRuntimeRetrySchedule,
+				while: (error) =>
+					error.reason !== "workspace_runtime_renewal_fence_changed" &&
+					(error.httpStatus === undefined ||
+						error.httpStatus >= 500 ||
+						error.httpStatus === 408 ||
+						error.httpStatus === 429),
+			}),
+			Effect.ensuring(
+				Effect.sync(() => {
+					input.state.renewalPending = false;
+				}),
+			),
+		);
+	},
+);
 
 /**
  * Renew at half-life and keep a single request id across response-loss retries.
- * If the lease actually expires, terminate this fenced runtime so the cloud
- * reconciler can issue a fresh generation instead of leaving a zombie gateway.
+ * Sleep and access expiry retain the same runtime identity. Only an authoritative
+ * denial or changed identity fence retires execution; network outages retry.
  */
 const superviseRuntimeCredential = (input: {
 	readonly config: CloudWorkspaceRuntimeConfig;
@@ -1978,6 +1985,7 @@ export const runCloudMailboxPolling = (input: {
 	readonly poll: Effect.Effect<unknown, CloudWorkspaceRuntimeError>;
 	readonly credential: () => string;
 	readonly onRuntimeRejected: Effect.Effect<void>;
+	readonly reauthenticating?: () => boolean;
 }): Effect.Effect<never> =>
 	Effect.suspend(() => {
 		let rejectedCredential: string | undefined;
@@ -1998,9 +2006,13 @@ export const runCloudMailboxPolling = (input: {
 					let retire = false;
 					if (authorizationRejected) {
 						// An in-flight request can carry the token replaced by renewal. Retry
-						// with the live token; allow renewal response-loss recovery for one minute.
-						// Sustained rejection of the same credential then retires the runtime.
-						if (input.credential() !== credential) {
+						// with the live token and let signed reauthentication finish across expiry.
+						// Outside renewal, sustained rejection retires the runtime.
+						if (
+							error.reason !== "workspace_runtime_fenced" &&
+							(input.reauthenticating?.() === true ||
+								input.credential() !== credential)
+						) {
 							rejectedCredential = undefined;
 							rejectedAtMs = undefined;
 						} else {
@@ -2106,6 +2118,9 @@ const runCloudMailboxConsumer = (input: {
 	return runCloudMailboxPolling({
 		poll,
 		credential: () => input.runtimeCredential.credential,
+		reauthenticating: () =>
+			input.runtimeCredential.renewalPending === true ||
+			input.runtimeCredential.expiresAt <= Date.now(),
 		onRuntimeRejected: Effect.sync(() => process.kill(process.pid, "SIGTERM")),
 	});
 };
@@ -2307,11 +2322,12 @@ export const cloudGatewayCloseReason = (code: number): string => {
 	return "workspace_gateway_disconnected";
 };
 
-const retryableCloudGatewayFailure = (
+export const retryableCloudGatewayFailure = (
 	error: CloudWorkspaceRuntimeError,
 ): boolean =>
 	error.reason === "workspace_gateway_unreachable" ||
-	error.reason === "workspace_gateway_disconnected";
+	error.reason === "workspace_gateway_disconnected" ||
+	error.reason === "workspace_gateway_authorization_expired";
 
 const websocketClosed = (
 	url: string,
