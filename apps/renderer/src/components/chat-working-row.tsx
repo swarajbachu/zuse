@@ -14,6 +14,7 @@ import { useMemo } from "react";
 import { deriveAgentActivityState } from "../lib/agent-activity-state.ts";
 import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import { waitingCloudMessagePresentation } from "../lib/composer-delivery.ts";
+import { formatElapsed } from "../lib/delegation-display.ts";
 import { useProviderDisplayName } from "../lib/provider-labels.ts";
 import {
 	providerStartupLabel,
@@ -22,14 +23,6 @@ import {
 import { useRelativeTimeTick } from "../lib/use-relative-time.ts";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
-
-const formatElapsed = (ms: number): string => {
-	const totalSec = Math.floor(ms / 1000);
-	if (totalSec < 60) return `${totalSec}s`;
-	const min = Math.floor(totalSec / 60);
-	const sec = totalSec - min * 60;
-	return `${min}m ${sec}s`;
-};
 
 export const providerStartupIsActive = ({
 	runtimeState,

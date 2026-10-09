@@ -386,6 +386,7 @@
         "@zuse/utils": "*",
         "effect": "catalog:",
         "jose": "^6.2.3",
+        "stripe": "23.0.0",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^4.20260601.1",
@@ -464,6 +465,7 @@
         "@polar-sh/sdk": "^0.49.0",
         "@zuse/provider-registry": "*",
         "effect": "catalog:",
+        "stripe": "23.0.0",
       },
       "devDependencies": {
         "@repo/typescript-config": "*",
@@ -4529,6 +4531,8 @@
     "strip-final-newline": ["strip-final-newline@4.0.0", "http://registry.npmjs.org/strip-final-newline/-/strip-final-newline-4.0.0.tgz", {}, "sha512-aulFJcD6YK8V1G7iRB5tigAP4TsHBZZrOV8pjV++zdUwmeV8uzbY7yn6h9MswN62adStNZFuCIx4haBnRuMDaw=="],
 
     "strip-json-comments": ["strip-json-comments@3.1.1", "http://registry.npmjs.org/strip-json-comments/-/strip-json-comments-3.1.1.tgz", {}, "sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig=="],
+
+    "stripe": ["stripe@23.0.0", "", { "peerDependencies": { "@types/node": ">=20" }, "optionalPeers": ["@types/node"] }, "sha512-MDE2A5ZVVluYURORaZEVghSmnLJc3w6aHAlZSxDQMsOjOb3V0O6ro/CiaeFlJS4N7uIVmsg98ocRsPmUK6YfyA=="],
 
     "structured-headers": ["structured-headers@0.4.1", "", {}, "sha512-0MP/Cxx5SzeeZ10p/bZI0S6MpgD+yxAhi1BOQ34jgnMXsCq3j1t6tQnZu+KdlL7dvJTLT3g9xN8tl10TqgFMcg=="],
 

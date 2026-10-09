@@ -174,6 +174,21 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 						period.accountId === input.accountId &&
 						period.periodStartMs === input.periodStartMs,
 				);
+				if (
+					existing &&
+					((existing.billingProvider ?? "polar") !==
+						(input.billingProvider ?? "polar") ||
+						(existing.providerSubscriptionId !== undefined &&
+							existing.providerSubscriptionId !== input.providerSubscriptionId))
+				)
+					throw new Error("billing_period_owner_conflict");
+				const previous = [...periods.values()]
+					.filter(
+						(period) =>
+							period.accountId === input.accountId &&
+							period.periodStartMs < input.periodStartMs,
+					)
+					.sort((a, b) => b.periodStartMs - a.periodStartMs)[0];
 				const period: CloudBillingPeriodRecord = {
 					...(existing ?? {
 						periodId: input.periodId,
@@ -185,9 +200,12 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 						markupBasisPoints: DEFAULT_CLOUD_BILLING_POLICY.markupBasisPoints,
 						priceCatalogVersion: "test",
 						overageCapMicros:
-							input.overageCapMicros ?? CLOUD_DEFAULT_OVERAGE_CAP_MICROS,
+							input.overageCapMicros ??
+							previous?.overageCapMicros ??
+							CLOUD_DEFAULT_OVERAGE_CAP_MICROS,
 					}),
 					providerSubscriptionId: input.providerSubscriptionId,
+					billingProvider: input.billingProvider ?? "polar",
 					status: input.status,
 					periodEndMs: input.periodEndMs,
 				};
@@ -320,6 +338,7 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 		acknowledgeOutbox: () => Effect.void,
 		retryOutbox: () => Effect.void,
 		pendingMeterReconciliations: () => Effect.succeed([]),
+		recordMeterReconciliationAttempt: () => Effect.void,
 		recordMeterReconciliation: () => Effect.void,
 		purgeExpiredRawEvents: () => Effect.succeed(0),
 	});

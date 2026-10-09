@@ -22,6 +22,7 @@ export interface RuntimeUsageEvent {
 }
 
 export interface CloudUsageExport {
+	readonly billingProvider?: string;
 	readonly eventId: string;
 	readonly accountId: string;
 	readonly eventName:
@@ -148,7 +149,7 @@ const enqueueUsageExportPg = (
 	event: CloudUsageExport,
 	nowMs: number,
 ) =>
-	sql`INSERT INTO api_cloud_usage_outbox (event_id, payload, created_at, next_attempt_at) VALUES (${event.eventId}, ${JSON.stringify(event)}::jsonb, ${nowMs}, ${nowMs}) ON CONFLICT DO NOTHING`.pipe(
+	sql`INSERT INTO api_cloud_usage_outbox (event_id, payload, created_at, next_attempt_at) VALUES (${event.eventId}, ${JSON.stringify(event)}::jsonb || jsonb_build_object('billingProvider', COALESCE(${event.billingProvider ?? null}::text, (SELECT billing_provider FROM api_cloud_billing_periods WHERE account_id=${event.accountId} AND period_start <= ${event.occurredAtMs} AND period_end > ${event.occurredAtMs} AND billing_provider <> 'manual' ORDER BY period_start DESC LIMIT 1), 'polar')), ${nowMs}, ${nowMs}) ON CONFLICT DO NOTHING`.pipe(
 		Effect.asVoid,
 		Effect.orDie,
 	);

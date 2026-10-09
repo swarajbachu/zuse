@@ -108,7 +108,7 @@ export const calculateCloudBillingLedgerDeltas = (input: {
 	};
 };
 
-/** Polar is updated from the cumulative total, with rounding only at this edge. */
+/** The invoice meter is updated from the cumulative total, with rounding only at this edge. */
 export const customerOverageCents = (overageChargeMicros: number): number =>
 	Math.round(Math.max(0, Math.trunc(overageChargeMicros)) / 10_000);
 

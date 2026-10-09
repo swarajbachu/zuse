@@ -685,5 +685,20 @@
 	"chat_landing_choose_a_project_in_the_sidebar": "在側邊欄中選擇一個專案以開始新聊天。",
 	"chat_landing_add_a_project_to_start": "新增一個專案以開始你的第一次聊天。",
 	"chat_landing_add_project": "新增專案",
-	"chat_working_row_waiting_for_task": "正在等待任務 {{task}}"
+	"chat_working_row_waiting_for_task": "正在等待任務 {{task}}",
+	"changes_review_viewed": "已檢視",
+	"delegation_group_count": "{{count}} 個子代理",
+	"delegation_group_count_one": "{{count}} 個子代理",
+	"delegation_group_count_other": "{{count}} 個子代理",
+	"delegation_group_working": "{{count}} 個執行中",
+	"delegation_group_done": "{{count}} 個已完成",
+	"delegation_group_failed": "{{count}} 個失敗",
+	"delegation_group_stopped": "{{count}} 個已停止",
+	"delegation_status_running": "執行中",
+	"delegation_status_done": "已完成",
+	"delegation_status_failed": "失敗",
+	"delegation_status_stopped": "已停止",
+	"delegation_row_starting": "正在啟動…",
+	"delegation_row_open": "開啟 {{title}}",
+	"delegation_group_running": "{{total}} 個中 {{working}} 個執行中"
 }

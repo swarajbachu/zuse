@@ -1,5 +1,9 @@
 # Cloud billing operations
 
+For Stripe setup and coexistence with existing Polar subscriptions, read
+[Stripe billing and migration](stripe-billing.md). The Polar setup below applies
+to legacy subscriptions. Billing ownership is persisted per period and export.
+
 Cloud billing is deliberately fail-safe. Without `CLOUD_BILLING_CUTOVER_AT`,
 provider evidence is retained but no execution is charged. Enforcement and Polar
 export default to disabled independently.

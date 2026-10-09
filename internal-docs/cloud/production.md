@@ -1,3 +1,6 @@
+> For the Stripe migration, follow [Stripe billing and migration](stripe-billing.md).
+> Keep the Polar configuration below for legacy subscriptions during coexistence.
+
 # Public cloud beta production runbook
 
 Production remains fail-closed for billable operations until every immutable

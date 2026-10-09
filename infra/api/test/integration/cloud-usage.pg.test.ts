@@ -35,6 +35,9 @@ it.skipIf(!connectionString)(
 		try {
 			await db.query(`SET search_path=${schema}`);
 			await db.query(
+				"CREATE TABLE api_cloud_billing_periods (account_id text, billing_provider text, period_start bigint, period_end bigint)",
+			);
+			await db.query(
 				await readFile(
 					new URL(
 						"../../drizzle/migrations/0027_cloud_usage.sql",

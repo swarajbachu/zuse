@@ -666,7 +666,8 @@ html[data-sidebar-dragging] * {
 	}
 
 	.fz-diff {
-		--fz-diff-header-bg: var(--background);
+		/* Opaque because headers stick over scrolled code. */
+		--fz-diff-header-bg: color-mix(in srgb, var(--muted) 45%, var(--background));
 
 		/* Surfaces — drop the diff onto the same neutral the pane uses so it
        reads as part of the app, not a bolted-on widget. Pierre computes
@@ -681,7 +682,11 @@ html[data-sidebar-dragging] * {
 		--diffs-bg-buffer-override: var(--background);
 		--diffs-bg-context-override: var(--background);
 		--diffs-bg-context-gutter-override: var(--bg-subtle);
-		--diffs-bg-separator-override: var(--border);
+		--diffs-bg-separator-override: color-mix(
+			in srgb,
+			var(--foreground) 4%,
+			var(--background)
+		);
 
 		/* Add leans hard on the app's lime --primary — true yellow-chartreuse,
        not teal. Delete stays warm rose so a glance still tells add from

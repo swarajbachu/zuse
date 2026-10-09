@@ -548,3 +548,94 @@ it("keeps inline visuals outside collapsed activity with stable identities after
 		expect(rows.some((row) => row.kind === "turn-summary")).toBe(false);
 	}
 });
+
+it("draws orchestration spawns and subagents as one delegation group, outside tool trees", () => {
+	const spawn = (id: string) => [
+		message(id, {
+			_tag: "tool_use",
+			itemId: id,
+			tool: "mcp__zuse-orchestration__create_thread",
+			input: { task: id },
+		} as Message["content"]),
+		message(`${id}-result`, {
+			_tag: "tool_result",
+			itemId: id,
+			output: JSON.stringify({ chatId: `chat-${id}`, sessionId: `s-${id}` }),
+			isError: false,
+		} as Message["content"]),
+	];
+	const messages = [
+		message("u", { _tag: "user", text: "Split this up" }),
+		message("read", {
+			_tag: "tool_use",
+			itemId: "read",
+			tool: "Read",
+			input: {},
+		} as Message["content"]),
+		...spawn("one"),
+		...spawn("two"),
+		message("agent", {
+			_tag: "tool_use",
+			itemId: "agent",
+			tool: "Agent",
+			input: { description: "Audit", prompt: "Inspect" },
+		} as Message["content"]),
+		message("a", { _tag: "assistant", text: "Delegated." }),
+	];
+	const live = deriveChatTimelineRows({
+		messages,
+		inFlight: true,
+		awaitingPlanApproval: false,
+	});
+	expect(live.map((row) => row.kind)).toEqual([
+		"message",
+		"tool-activity",
+		"delegation",
+		"message",
+		"working",
+	]);
+	const fleet = live[2];
+	expect(
+		fleet?.kind === "delegation" && fleet.members.map((member) => member.id),
+	).toEqual(["one", "two", "agent"]);
+
+	// Settled turns keep delegations visible and out of the summary counts.
+	const settled = deriveChatTimelineRows({
+		messages,
+		inFlight: false,
+		awaitingPlanApproval: false,
+	});
+	expect(settled.map((row) => row.kind)).toEqual([
+		"message",
+		"delegation",
+		"turn-summary",
+	]);
+	expect(settled[1]?.id).toBe(fleet?.id);
+	const summary = settled[2];
+	expect(
+		summary?.kind === "turn-summary" &&
+			summary.body.map((message) => message.id),
+	).toEqual(["read", "a"]);
+});
+
+it("does not summarize a turn whose only tools were delegations", () => {
+	const rows = deriveChatTimelineRows({
+		messages: [
+			message("u", { _tag: "user", text: "Go" }),
+			message("agent", {
+				_tag: "tool_use",
+				itemId: "agent",
+				tool: "Agent",
+				input: { description: "Audit", prompt: "Inspect" },
+			} as Message["content"]),
+			message("a", { _tag: "assistant", text: "Started." }),
+		],
+		inFlight: false,
+		awaitingPlanApproval: false,
+	});
+	expect(rows.map((row) => row.kind)).toEqual([
+		"message",
+		"delegation",
+		"message",
+	]);
+});

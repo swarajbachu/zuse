@@ -48,7 +48,8 @@ Local, SSH, pairing, and user-managed remote environments keep their existing pa
 | [Public API](public-api.md) | API keys, integration endpoints, message delivery, and signed webhooks |
 | [boxd in Zuse](boxd.md) | Set up a boxd workspace, run agents, fork conversations, and share previews |
 | [boxd integration operations](boxd-operations.md) | Deployment, lifecycle, fork isolation, preview cleanup, and provider verification |
-| [Adding sandbox providers](adding-sandbox-providers.md) | Required usage reporting, settlement, Polar delivery, and rollout checks |
+| [Stripe billing and migration](stripe-billing.md) | Stripe setup, tax, metering, retry guarantees and coordinated Polar transfer |
+| [Adding sandbox providers](adding-sandbox-providers.md) | Required usage reporting, settlement, billing delivery, and rollout checks |
 | [Operations](operations.md) | Releases, environments, migrations, monitoring, incidents, and smoke tests |
 | [Incident debugging](incident-debugging.md) | Hands-on investigation of stuck chats: SSH, provider commands, logs, processes, data, and verified repair |
 | [API domain cutover](api-domain-cutover.md) | DNS ownership, issuer rollout, and rollback |

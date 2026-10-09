@@ -41,3 +41,26 @@ export const summarizeChecks = (checks: readonly GitPrCheckRun[]) => {
 		checksPassing: checks.length - checksRunning - checksFailing,
 	};
 };
+
+export type CheckCounts = Readonly<Record<CheckKind, number>> & {
+	readonly total: number;
+};
+
+export const countChecks = (checks: readonly GitPrCheckRun[]): CheckCounts => {
+	const counts = { failure: 0, pending: 0, success: 0, neutral: 0 };
+	for (const check of checks) counts[checkKind(check)]++;
+	return { ...counts, total: checks.length };
+};
+
+const CHECK_KIND_RANK: Record<CheckKind, number> = {
+	failure: 0,
+	pending: 1,
+	success: 2,
+	neutral: 3,
+};
+
+/** Attention order — failing first, then running — stable within each kind. */
+export const sortChecks = (checks: readonly GitPrCheckRun[]): GitPrCheckRun[] =>
+	[...checks].sort(
+		(a, b) => CHECK_KIND_RANK[checkKind(a)] - CHECK_KIND_RANK[checkKind(b)],
+	);

@@ -46,6 +46,7 @@ export const ensureCloudBillingPeriod = Effect.fn("ensureCloudBillingPeriod")(
 	}) {
 		const store = yield* CloudBillingStore;
 		return yield* store.ensurePeriod({
+			billingProvider: input.provider,
 			periodId: `cloud:${input.accountId}:${input.periodStartMs}`,
 			accountId: input.accountId,
 			providerSubscriptionId: input.providerSubscriptionId,

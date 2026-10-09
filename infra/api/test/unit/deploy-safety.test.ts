@@ -82,6 +82,7 @@ describe("api deployment safety", () => {
 		"ready",
 		"legacy-secret",
 		"slack-secret",
+		"stripe-secret",
 	])("checks enabled production prerequisites before deployment: %s", async (scenario) => {
 		const directory = await mkdtemp(join(tmpdir(), "zuse-deploy-test-"));
 		try {
@@ -103,9 +104,11 @@ describe("api deployment safety", () => {
 				"CLOUD_CREDENTIAL_VAULT_KEY",
 				"POLAR_ACCESS_TOKEN",
 				"POLAR_WEBHOOK_SECRET",
+				"STRIPE_WEBHOOK_SECRET",
 				"GITHUB_APP_PRIVATE_KEY",
 				"SLACK_CLIENT_SECRET",
 			];
+			if (scenario !== "stripe-secret") secrets.push("STRIPE_SECRET_KEY");
 			if (scenario !== "slack-secret") secrets.push("SLACK_SIGNING_SECRET");
 			if (scenario !== "secret")
 				secrets.push(
@@ -147,7 +150,9 @@ else process.exit(2);
 							? "BOAT_TEMPLATE_VERSION"
 							: scenario === "slack-secret"
 								? "SLACK_SIGNING_SECRET"
-								: "BOAT_API_KEY",
+								: scenario === "stripe-secret"
+									? "STRIPE_SECRET_KEY"
+									: "BOAT_API_KEY",
 				);
 			}
 		} finally {
@@ -214,6 +219,8 @@ else process.exit(2);
 				"CLOUD_CREDENTIAL_VAULT_KEY",
 				"POLAR_ACCESS_TOKEN",
 				"POLAR_WEBHOOK_SECRET",
+				"STRIPE_WEBHOOK_SECRET",
+				"STRIPE_SECRET_KEY",
 				"GITHUB_APP_PRIVATE_KEY",
 				"BOAT_API_KEY",
 			];

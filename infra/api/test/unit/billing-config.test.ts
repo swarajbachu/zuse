@@ -103,3 +103,102 @@ describe("api billing configuration", () => {
 		expect(runtime.polarConfigured).toBe(true);
 	});
 });
+
+const stripeEnvironment = {
+	STRIPE_SECRET_KEY: "sk_test_example",
+	STRIPE_WEBHOOK_SECRET: "whsec_example",
+	STRIPE_PRICE_CLOUD_WORKSPACE_STANDARD_V1: "price_cloud",
+	STRIPE_CLOUD_OVERAGE_PRICE_ID: "price_overage",
+	STRIPE_CLOUD_OVERAGE_METER_ID: "meter_overage",
+	MACHINE_LIVE_CHECKOUT_ENABLED: "true",
+};
+test("Stripe becomes checkout default while preserving Polar adapters", async () => {
+	const runtime = resolveBillingRuntime({
+		...configuredEnvironment,
+		...stripeEnvironment,
+	});
+	const providers = await Effect.runPromise(
+		BillingProviders.pipe(Effect.provide(runtime.layer)),
+	);
+	expect(providers.providerIds).toEqual(["manual", "polar", "stripe"]);
+	expect(providers.defaultProviderId).toBe("stripe");
+	expect(runtime.liveCheckoutEnabled).toBe(true);
+});
+test("explicit checkout rollback keeps Stripe registered for existing subscriptions", async () => {
+	const runtime = resolveBillingRuntime({
+		...configuredEnvironment,
+		...stripeEnvironment,
+		BILLING_DEFAULT_PROVIDER: "polar",
+	});
+	const providers = await Effect.runPromise(
+		BillingProviders.pipe(Effect.provide(runtime.layer)),
+	);
+	expect(providers.defaultProviderId).toBe("polar");
+	expect(providers.providerIds).toContain("stripe");
+});
+test("fails closed for an unavailable explicitly selected provider", () => {
+	expect(() =>
+		resolveBillingRuntime({
+			...configuredEnvironment,
+			BILLING_DEFAULT_PROVIDER: "stripe",
+		}),
+	).toThrow("configured_default_billing_provider_unavailable");
+});
+test("does not sell Stripe cloud subscriptions without overage configuration", () => {
+	expect(
+		resolveBillingRuntime({
+			...stripeEnvironment,
+			STRIPE_CLOUD_OVERAGE_PRICE_ID: undefined,
+		}).liveCheckoutEnabled,
+	).toBe(false);
+	expect(
+		resolveBillingRuntime({
+			...stripeEnvironment,
+			STRIPE_CLOUD_OVERAGE_METER_ID: undefined,
+		}).liveCheckoutEnabled,
+	).toBe(false);
+});
+
+test("offer readiness and sandbox placement follow the selected Stripe provider", () => {
+	const runtime = resolveBillingRuntime({
+		...configuredEnvironment,
+		...stripeEnvironment,
+		POLAR_ENVIRONMENT: "production",
+	});
+	expect(runtime.sandboxMode).toBe(true);
+	expect(runtime.cloudCheckoutConfigured).toBe(true);
+	expect(runtime.persistentCheckoutConfigured).toBe(false);
+	expect(
+		resolveBillingRuntime({
+			...stripeEnvironment,
+			STRIPE_PRICE_PERSISTENT_STANDARD_V1: "price_machine",
+		}).persistentCheckoutConfigured,
+	).toBe(true);
+	expect(() =>
+		resolveBillingRuntime({
+			...stripeEnvironment,
+			STRIPE_ENVIRONMENT: "production",
+		}),
+	).toThrow("stripe_environment_key_mismatch");
+});
+
+test.each([
+	["rk_live_example", "production", false],
+	["rk_test_example", "sandbox", true],
+] as const)("accepts scoped Stripe keys %s with matching mode", (key, environment, sandboxMode) => {
+	const runtime = resolveBillingRuntime({
+		...stripeEnvironment,
+		STRIPE_SECRET_KEY: key,
+		STRIPE_ENVIRONMENT: environment,
+	});
+	expect(runtime.stripeConfigured).toBe(true);
+	expect(runtime.sandboxMode).toBe(sandboxMode);
+	expect(() =>
+		resolveBillingRuntime({
+			...stripeEnvironment,
+			STRIPE_SECRET_KEY: key,
+			STRIPE_ENVIRONMENT:
+				environment === "production" ? "sandbox" : "production",
+		}),
+	).toThrow("stripe_environment_key_mismatch");
+});

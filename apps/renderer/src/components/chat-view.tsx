@@ -76,7 +76,10 @@ import {
 	sessionCommandErrorKey,
 	useSessionCommandErrors,
 } from "../lib/session-actions.ts";
-import type { SessionRuntimeState } from "../lib/session-runtime-state.ts";
+import {
+	isSessionRuntimeBusy,
+	type SessionRuntimeState,
+} from "../lib/session-runtime-state.ts";
 import { timelineReadingPositionStore } from "../lib/session-timeline-cache.ts";
 import {
 	rendererResourceCacheNamespace,
@@ -106,6 +109,7 @@ import { useRegisterPane } from "../store/pane-focus.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { ChatLookupsProvider, deriveChatLookups } from "./chat-lookups.tsx";
 import { ChatTurnNavigator } from "./chat-turn-navigator.tsx";
+import { DelegationGroup } from "./delegation-group.tsx";
 import { FileChipProvider } from "./file-chip.tsx";
 import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
 import { MessageRow } from "./message-row.tsx";
@@ -114,7 +118,6 @@ import {
 	ChatCreationFailureActions,
 	ChatCreationPromptBubble,
 } from "./pending-chat-creation.tsx";
-import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
 import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 
@@ -1095,21 +1098,15 @@ function TimelineRow({
 				/>
 			);
 			break;
-		case "subagent":
+		case "delegation":
 			content = (
-				<div>
-					<SubagentRow
-						chatRef={chatId === null ? null : { environmentId, chatId }}
-						agentToolUseId={row.parentItemId}
-						agentName={row.agentName}
-						prompt={row.prompt}
-						modelRequested={row.modelRequested}
-						childSessionId={row.childSessionId}
-						presentation={row.presentation}
-						children={row.children}
-						summary={row.summary}
-					/>
-				</div>
+				<DelegationGroup
+					members={row.members}
+					providerId={providerId}
+					parentLive={isSessionRuntimeBusy(runtimeState)}
+					chatRef={chatId === null ? null : { environmentId, chatId }}
+					environmentId={environmentId}
+				/>
 			);
 			break;
 		case "turn-summary":
