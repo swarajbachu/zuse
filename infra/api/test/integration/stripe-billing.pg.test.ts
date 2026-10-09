@@ -4,6 +4,8 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { Client, Pool } from "pg";
 import { expect, it } from "vitest";
+// @ts-expect-error migration scripts run directly as Node ESM
+import { ensureBillingIndex } from "../../scripts/ensure-billing-index.mjs";
 import {
 	CloudBillingStore,
 	CloudBillingStorePg,
@@ -49,6 +51,10 @@ it.skipIf(!connectionString)(
 						"INSERT INTO api_cloud_billing_outbox (outbox_id,period_id,account_id,provider,amount_cents,idempotency_key,attempt_count,next_attempt_at,created_at) VALUES ('legacy','legacy','legacy','polar',10,'legacy',0,0,200000)",
 					);
 				}
+				if (name === "0044_stripe_customer_recovery_leases.sql")
+					await db.query(
+						"INSERT INTO api_stripe_customers (account_id,created_at,recovery_attempted_at) VALUES ('legacy-claim',0,1000000)",
+					);
 				await db.query(
 					(await readFile(new URL(name, directory), "utf8")).replaceAll(
 						'"public".',
@@ -56,6 +62,27 @@ it.skipIf(!connectionString)(
 					),
 				);
 			}
+			const legacyLease = await db.query(
+				"SELECT recovery_lease_until FROM api_stripe_customers WHERE account_id='legacy-claim'",
+			);
+			expect(Number(legacyLease.rows[0].recovery_lease_until)).toBe(1300000);
+			await db.query(
+				"UPDATE api_stripe_customers SET customer_id='cus_legacy_claim' WHERE account_id='legacy-claim'",
+			);
+
+			// The production post-migration helper also works on an autocommit connection.
+			const indexClient = {
+				query: (statement: string) =>
+					db.query(statement.replaceAll("public.", `${schema}.`)),
+			};
+			await ensureBillingIndex(indexClient);
+			await ensureBillingIndex(indexClient);
+			const recoveryIndex = await db.query(
+				"SELECT indisvalid FROM pg_index WHERE indexrelid=to_regclass($1)",
+				[`${schema}.api_stripe_customer_recovery_pending_idx`],
+			);
+			expect(recoveryIndex.rows[0]).toEqual({ indisvalid: true });
+
 			expect(
 				(
 					await db.query(
@@ -111,10 +138,13 @@ it.skipIf(!connectionString)(
 				matches: ["cus_match"],
 				nextCursor: "cus_cursor",
 			});
-			expect(await stripe.claimCustomerRecoveries(scanNow + 1, 5)).toEqual([]);
+			expect(await stripe.claimCustomerRecoveries(scanNow + 1, 5)).toHaveLength(
+				1,
+			);
+			expect(await stripe.claimCustomerRecoveries(scanNow + 2, 5)).toEqual([]);
 			const resumedStore = makeStripeBillingStorePg(sql);
 			const resumed = await resumedStore.claimCustomerRecoveries(
-				scanNow + 300001,
+				scanNow + 300002,
 				5,
 			);
 			expect(resumed[0]).toMatchObject({
@@ -127,6 +157,9 @@ it.skipIf(!connectionString)(
 				matches: [],
 				nextCursor: "stale",
 			});
+			expect(await stripe.claimCustomerRecoveries(scanNow + 300003, 5)).toEqual(
+				[],
+			);
 			expect(
 				(await stripe.reserveCustomer("scan-account")).recoveryCursor,
 			).toBe("cus_cursor");
@@ -143,6 +176,32 @@ it.skipIf(!connectionString)(
 			expect(
 				(await stripe.renewCustomerReservation("scan-account", 0)).generation,
 			).toBe(0);
+
+			await stripe.reserveCustomer("fast-scan");
+			await db.query(
+				"UPDATE api_stripe_customers SET created_at=0 WHERE account_id='fast-scan'",
+			);
+			for (let page = 0; page < 10; page++) {
+				const jobs = await stripe.claimCustomerRecoveries(
+					scanNow + 400000 + page,
+					1,
+				);
+				expect(jobs.map((job) => job.accountId)).toEqual(["fast-scan"]);
+				const job = jobs[0];
+				if (!job) throw new Error("missing recovery job");
+				await stripe.finishCustomerRecovery(
+					job.accountId,
+					job.generation,
+					job.recoveryCursor,
+					{
+						matches: [],
+						...(page < 9 ? { nextCursor: `cus_page_${page}` } : {}),
+					},
+				);
+			}
+			expect((await stripe.reserveCustomer("fast-scan")).recoveryComplete).toBe(
+				true,
+			);
 
 			const renewal = await stripe.reserveCustomer("retry-account");
 			expect(renewal.generation).toBe(0);

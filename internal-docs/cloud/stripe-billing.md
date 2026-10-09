@@ -150,7 +150,10 @@ allowance or reset a timestamp to charge them automatically.
 For unfinished customer creation older than 23 hours, scheduled billing
 maintenance scans Stripe's customer list for exact `account_id` metadata matches.
 Each run leases at most five accounts for five minutes and reads one page of
-100 customers per account. Cursors and matches persist across failures and
+100 customers per account. Successful pages release their lease so the next
+maintenance run can claim the saved cursor immediately; failed or interrupted
+requests retain the five-minute retry lease. The last attempt time stays intact
+for fair scheduling. Cursors and matches persist across failures and
 Worker restarts. Checkout makes no lookup requests and returns
 `reconciliation-required` until the scan is complete. A sole match is then bound;
 an empty completed scan atomically renews the reservation with a fresh generation
@@ -162,8 +165,12 @@ during deployment rather than replaying an old key. A failed lookup cannot
 trigger creation.
 The list API is used because Stripe search cannot guarantee immediate consistency.
 
-Apply migrations `0042_billing_recovery` and `0043_stripe_customer_recovery_jobs`
-before deploying these recovery paths.
+Apply migrations `0042_billing_recovery`, `0043_stripe_customer_recovery_jobs`
+and `0044_stripe_customer_recovery_leases` before deploying these recovery paths.
+Use `migrate-database.mjs` so the pending-recovery index is built concurrently
+on its autocommit connection after transactional migrations; interrupted invalid
+index builds are dropped concurrently and retried. Existing valid indexes remain
+in place.
 These add reservation generations, recovery cursors and an attempt scheduling
 table without changing
 existing customer bindings, meter observations, balances or invoice usage.

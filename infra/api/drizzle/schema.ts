@@ -1554,6 +1554,9 @@ export const apiStripeCustomers = pgTable(
 			.default([]),
 		recoveryComplete: boolean("recovery_complete").notNull().default(false),
 		recoveryAttemptedAt: bigint("recovery_attempted_at", { mode: "number" }),
+		recoveryLeaseUntil: bigint("recovery_lease_until", { mode: "number" })
+			.notNull()
+			.default(0),
 		generation: integer("generation").notNull().default(0),
 		reservationCreatedAt: bigint("reservation_created_at", { mode: "number" }),
 		accountId: text("account_id").primaryKey(),
