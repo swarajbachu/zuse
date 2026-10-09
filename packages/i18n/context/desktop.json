@@ -7057,7 +7057,7 @@
 		"source": "No authenticated agent",
 		"locations": [
 			{
-				"path": "apps/renderer/src/lib/commands.ts",
+				"path": "apps/renderer/src/lib/command-handlers.ts",
 				"line": 118
 			}
 		],
@@ -7067,7 +7067,7 @@
 		"source": "Connect an agent in Cloud Authentication before opening a new tab.",
 		"locations": [
 			{
-				"path": "apps/renderer/src/lib/commands.ts",
+				"path": "apps/renderer/src/lib/command-handlers.ts",
 				"line": 120
 			}
 		],
