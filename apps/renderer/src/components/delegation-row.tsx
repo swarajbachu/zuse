@@ -3,7 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type { EnvironmentId, Message } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ClipboardIcon } from "@zuse/icons/solid-rounded";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Minus, X } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -18,7 +18,9 @@ import { cn } from "~/lib/utils";
 import { CopyButton } from "./copy-button.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
 import { MessageRow } from "./message-row.tsx";
-import { DelegationAvatar } from "./subagent-identity.tsx";
+import { ProviderIcon } from "./provider-icons.tsx";
+import { SubagentAvatar } from "./subagent-identity.tsx";
+import { ShimmerText } from "./ui/shimmer-text.tsx";
 
 const STATUS_LABEL_KEY = {
 	working: "chat:delegation_status_running",
@@ -58,9 +60,40 @@ export interface DelegationInlineBody {
 	readonly environmentId: EnvironmentId | undefined;
 }
 
+/** Lime pulse while working; settled agents show their outcome. */
+function StatusGlyph({ status }: { readonly status: DelegationStatus }) {
+	if (status === "done") {
+		return (
+			<Check aria-hidden="true" className="size-3 shrink-0 text-emerald-500" />
+		);
+	}
+	if (status === "failed") {
+		return (
+			<X aria-hidden="true" className="size-3 shrink-0 text-destructive" />
+		);
+	}
+	if (status === "stopped") {
+		return (
+			<Minus
+				aria-hidden="true"
+				className="size-3 shrink-0 text-muted-foreground"
+			/>
+		);
+	}
+	return (
+		<span
+			aria-hidden="true"
+			className="relative flex size-3 shrink-0 items-center justify-center"
+		>
+			<span className="absolute size-2 rounded-full bg-lime-400/50 motion-safe:animate-ping" />
+			<span className="size-1.5 rounded-full bg-lime-400" />
+		</span>
+	);
+}
+
 /**
- * One delegated agent: provider avatar with status dot, title, latest line,
- * elapsed time, and a chevron when it opens elsewhere.
+ * One delegated agent on a single line: status, provider, title, latest
+ * output, elapsed time, and a chevron on hover when it opens elsewhere.
  */
 export function DelegationRow({
 	view,
@@ -79,51 +112,51 @@ export function DelegationRow({
 	const label = statusLabel(view.status);
 	const interactive = onOpen !== null || inline !== null;
 	const Chevron = inline !== null && expanded ? ChevronDown : ChevronRight;
+	const detail = view.detail ?? label;
 	const content = (
 		<>
-			<DelegationAvatar
-				providerId={view.providerId}
-				name={view.title}
-				status={view.status}
-			/>
-			<span className="min-w-0 flex-1">
-				<span className="flex items-baseline gap-2">
-					<span className="min-w-0 truncate text-xs font-medium text-foreground">
-						{title}
-					</span>
-					{view.detail !== null && view.status !== "done" ? (
-						<span
-							className={cn(
-								"shrink-0 text-[10px]",
-								failed ? "text-destructive" : "text-muted-foreground",
-							)}
-						>
-							{label}
-						</span>
-					) : null}
-				</span>
-				<span
-					className={cn(
-						"block truncate text-[11px] leading-relaxed",
-						failed ? "text-destructive" : "text-muted-foreground",
-					)}
-				>
-					{view.detail ?? label}
-				</span>
+			<StatusGlyph status={view.status} />
+			{view.providerId !== null ? (
+				<ProviderIcon
+					providerId={view.providerId}
+					className="size-3.5 text-muted-foreground"
+				/>
+			) : (
+				<SubagentAvatar name={view.title} size="sm" />
+			)}
+			<span className="max-w-[45%] shrink-0 truncate font-medium text-foreground/90">
+				{title}
 			</span>
-			<span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+			<span
+				className={cn(
+					"min-w-0 flex-1 truncate",
+					failed ? "text-destructive" : "text-muted-foreground",
+				)}
+			>
+				{view.status === "working" ? (
+					<ShimmerText>{detail}</ShimmerText>
+				) : (
+					detail
+				)}
+			</span>
+			<span className="shrink-0 text-muted-foreground tabular-nums">
 				<DelegationElapsed timing={view} />
 			</span>
 			{interactive ? (
 				<Chevron
 					aria-hidden="true"
-					className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover/delegation:text-foreground"
+					className={cn(
+						"size-3.5 shrink-0 text-muted-foreground transition-opacity",
+						inline !== null && expanded
+							? "opacity-100"
+							: "opacity-0 group-hover/delegation:opacity-100 group-focus-visible/delegation:opacity-100",
+					)}
 				/>
 			) : null}
 		</>
 	);
 	const className =
-		"group/delegation flex w-full min-w-0 items-center gap-2.5 rounded-md px-2 py-1.5 text-left";
+		"group/delegation flex h-7 w-full min-w-0 items-center gap-2 rounded px-2 text-left text-xs";
 	return (
 		<div>
 			{interactive ? (

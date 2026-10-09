@@ -698,5 +698,6 @@
 	"delegation_status_failed": "失敗",
 	"delegation_status_stopped": "停止",
 	"delegation_row_starting": "開始中…",
-	"delegation_row_open": "{{title}} を開く"
+	"delegation_row_open": "{{title}} を開く",
+	"delegation_group_running": "{{total}} 件中 {{working}} 件実行中"
 }

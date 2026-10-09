@@ -698,5 +698,6 @@
 	"delegation_status_failed": "실패",
 	"delegation_status_stopped": "중지됨",
 	"delegation_row_starting": "시작 중…",
-	"delegation_row_open": "{{title}} 열기"
+	"delegation_row_open": "{{title}} 열기",
+	"delegation_group_running": "{{total}}개 중 {{working}}개 실행 중"
 }

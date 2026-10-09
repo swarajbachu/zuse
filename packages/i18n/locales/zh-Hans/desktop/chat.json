@@ -698,5 +698,6 @@
 	"delegation_status_failed": "失败",
 	"delegation_status_stopped": "已停止",
 	"delegation_row_starting": "正在启动…",
-	"delegation_row_open": "打开 {{title}}"
+	"delegation_row_open": "打开 {{title}}",
+	"delegation_group_running": "{{total}} 个中 {{working}} 个运行中"
 }

@@ -35,6 +35,7 @@ import {
 	DelegationRow,
 } from "./delegation-row.tsx";
 import { DelegationAvatar } from "./subagent-identity.tsx";
+import { ShimmerText } from "./ui/shimmer-text.tsx";
 
 const MAX_STACK = 3;
 
@@ -169,34 +170,37 @@ export const DelegationGroup = memo(function DelegationGroup({
 	));
 
 	const views = entries.map((entry) => entry.view);
-	const working = views.some((view) => view.status === "working");
+	const working = views.filter((view) => view.status === "working").length;
 	const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
-	if (members.length === 1) return <div className="px-2 py-0.5">{rows}</div>;
+	if (members.length === 1) return <div className="px-2">{rows}</div>;
 
-	const expanded = userExpanded ?? working;
+	const expanded = userExpanded ?? true;
 	const failed = views.some((view) => view.status === "failed");
 	const label = message("chat:delegation_group_count", {
 		count: members.length,
 	});
-	const summary = summarizeDelegationStatuses(views.map((view) => view.status))
-		.map(({ status, count }) => message(STATUS_COUNT_KEY[status], { count }))
-		.join(" · ");
+	const summary =
+		working > 0
+			? message("chat:delegation_group_running", {
+					working,
+					total: members.length,
+				})
+			: summarizeDelegationStatuses(views.map((view) => view.status))
+					.map(({ status, count }) =>
+						message(STATUS_COUNT_KEY[status], { count }),
+					)
+					.join(" · ");
 	return (
-		<div className="px-2 py-0.5">
+		<div className="py-1">
 			<button
 				type="button"
 				aria-label={label}
 				aria-description={summary}
 				aria-expanded={expanded}
 				onClick={() => setUserExpanded(!expanded)}
-				className={cn(
-					"flex w-full min-w-0 items-center gap-3 rounded-md px-2 py-2 text-left transition-opacity hover:opacity-100",
-					expanded || working
-						? "text-foreground"
-						: "text-muted-foreground opacity-60",
-				)}
+				className="flex h-7 w-full min-w-0 items-center gap-2 ps-3 pe-4 text-left text-xs text-muted-foreground hover:text-foreground"
 			>
-				<span className="flex shrink-0 items-center -space-x-1.5">
+				<span className="flex shrink-0 items-center -space-x-1">
 					{views.slice(0, MAX_STACK).map((view) => (
 						<DelegationAvatar
 							key={view.id}
@@ -205,40 +209,44 @@ export const DelegationGroup = memo(function DelegationGroup({
 						/>
 					))}
 					{views.length > MAX_STACK ? (
-						<span className="inline-flex size-6 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground ring-2 ring-background">
+						<span className="inline-flex size-5 items-center justify-center rounded-md bg-muted text-[10px] font-medium ring-2 ring-background">
 							+{views.length - MAX_STACK}
 						</span>
 					) : null}
 				</span>
-				<span className="min-w-0 flex-1">
-					<span className="block text-xs font-semibold">{label}</span>
-					<span
-						className={cn(
-							"block truncate text-[11px]",
-							working
-								? "text-blue-500 dark:text-blue-400"
-								: failed
-									? "text-destructive"
-									: "text-muted-foreground",
-						)}
-					>
-						{summary}
-					</span>
+				<span className="min-w-0 flex-1 truncate">
+					{working > 0 ? (
+						<ShimmerText tone="lime">{summary}</ShimmerText>
+					) : (
+						<span className={failed ? "text-destructive" : undefined}>
+							{summary}
+						</span>
+					)}
 				</span>
-				<span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+				<span className="shrink-0 tabular-nums">
 					<DelegationElapsed timing={delegationGroupTiming(views)} />
 				</span>
 				<ChevronDown
 					aria-hidden="true"
 					className={cn(
-						"size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none",
-						expanded && "rotate-180",
+						"size-3.5 shrink-0 transition-transform duration-150 motion-reduce:transition-none",
+						!expanded && "-rotate-90",
 					)}
 				/>
 			</button>
-			{expanded ? (
-				<div className="mt-1 mb-1 rounded-lg bg-muted/25 p-1">{rows}</div>
-			) : null}
+			<div hidden={!expanded}>
+				{entries.map(({ view }, index) => (
+					<div
+						key={view.id}
+						className={cn(
+							"tool-activity-branch",
+							index === entries.length - 1 && "tool-activity-last",
+						)}
+					>
+						<div className="ms-2">{rows[index]}</div>
+					</div>
+				))}
+			</div>
 		</div>
 	);
 });

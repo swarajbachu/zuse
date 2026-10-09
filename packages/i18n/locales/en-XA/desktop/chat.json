@@ -698,5 +698,6 @@
 	"delegation_status_failed": "⟦Fààïïlëëd⟧",
 	"delegation_status_stopped": "⟦Stôôppëëd⟧",
 	"delegation_row_starting": "⟦Stààrtïïng…⟧",
-	"delegation_row_open": "⟦ÔÔpëën {{title}}⟧"
+	"delegation_row_open": "⟦ÔÔpëën {{title}}⟧",
+	"delegation_group_running": "⟦{{working}} ôôf {{total}} rüünnïïng⟧"
 }

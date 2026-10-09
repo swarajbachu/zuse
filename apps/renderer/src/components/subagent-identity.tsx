@@ -8,7 +8,6 @@ import {
 	Flower2Icon,
 	GeometricShapes02Icon,
 } from "@zuse/icons/solid-rounded";
-import type { DelegationStatus } from "~/lib/delegation-display";
 import { ProviderIcon } from "./provider-icons.tsx";
 
 const ICONS = [
@@ -60,42 +59,27 @@ export function SubagentAvatar({
 	);
 }
 
-const STATUS_DOT: Record<DelegationStatus, string> = {
-	working: "bg-blue-500",
-	done: "bg-emerald-500",
-	failed: "bg-destructive",
-	stopped: "bg-muted-foreground/60",
-};
-
 /**
- * Round provider tile for delegated work, with a status dot. The ring lets a
- * group header overlap several; omit `status` there, where a covered dot is
- * only noise.
+ * Small provider tile for delegated work. The ring lets a group header
+ * overlap several; agents without a provider fall back to their glyph.
  */
 export function DelegationAvatar({
 	providerId,
 	name,
-	status,
 }: {
 	readonly providerId: ProviderId | null;
 	readonly name: string;
-	readonly status?: DelegationStatus;
 }) {
 	return (
 		<span
 			aria-hidden="true"
-			className="relative inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-muted ring-2 ring-background"
+			className="inline-flex size-5 shrink-0 items-center justify-center rounded-md bg-muted ring-2 ring-background"
 		>
 			{providerId !== null ? (
-				<ProviderIcon providerId={providerId} className="size-3.5" />
+				<ProviderIcon providerId={providerId} className="size-3" />
 			) : (
 				<SubagentAvatar name={name} size="sm" />
 			)}
-			{status !== undefined ? (
-				<span
-					className={`absolute -right-px -bottom-px size-2 rounded-full ring-2 ring-background ${STATUS_DOT[status]}`}
-				/>
-			) : null}
 		</span>
 	);
 }

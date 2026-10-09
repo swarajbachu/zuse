@@ -698,5 +698,6 @@
 	"delegation_status_failed": "Failed",
 	"delegation_status_stopped": "Stopped",
 	"delegation_row_starting": "Starting…",
-	"delegation_row_open": "Open {{title}}"
+	"delegation_row_open": "Open {{title}}",
+	"delegation_group_running": "{{working}} of {{total}} running"
 }
