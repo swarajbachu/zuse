@@ -397,6 +397,14 @@ const Destroy = MemoizeRpcs.toLayerHandler("machines.destroy", (input) =>
 const Checkout = MemoizeRpcs.toLayerHandler("machines.checkout", (input) =>
 	withControl((service) => service.checkout(input)),
 );
+const PrepaidBalance = MemoizeRpcs.toLayerHandler(
+	"machines.prepaidBalance",
+	() => withControl((service) => service.prepaidBalance()),
+);
+const PrepaidCheckout = MemoizeRpcs.toLayerHandler(
+	"machines.prepaidCheckout",
+	(input) => withControl((service) => service.prepaidCheckout(input)),
+);
 const BillingPortal = MemoizeRpcs.toLayerHandler("machines.billingPortal", () =>
 	withControl((service) => service.billingPortal()),
 );
@@ -557,6 +565,8 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	Destroy,
 	Checkout,
 	BillingPortal,
+	PrepaidBalance,
+	PrepaidCheckout,
 	Entitlements,
 	Environments,
 	RemoveEnvironment,

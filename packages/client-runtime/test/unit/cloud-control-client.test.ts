@@ -287,3 +287,23 @@ test("saved image deletion targets an exact snapshot identity for safe retries",
 		}),
 	);
 });
+
+test("prepaid balance reads and checkout use the shared account HTTP transport", async () => {
+	const calls = vi.fn();
+	const request: CloudControlRequest = (...args) => {
+		calls(...args);
+		return Effect.die("captured");
+	};
+	const client = makeCloudControlClient(request);
+	await Effect.runPromiseExit(client["machines.prepaidBalance"]());
+	expect(calls.mock.calls[0]?.[0]).toBe(ApiPaths.billingPrepaid);
+	await Effect.runPromiseExit(
+		client["machines.prepaidCheckout"]({ amountCents: 5000 }),
+	);
+	expect(calls).toHaveBeenLastCalledWith(
+		ApiPaths.billingPrepaidCheckout,
+		expect.anything(),
+		"POST",
+		{ amountCents: 5000 },
+	);
+});

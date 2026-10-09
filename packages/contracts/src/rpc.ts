@@ -234,6 +234,8 @@ import {
 	MachinesGetRpc,
 	MachinesListRpc,
 	MachinesOffersRpc,
+	MachinesPrepaidBalanceRpc,
+	MachinesPrepaidCheckoutRpc,
 	MachinesRecoverRpc,
 } from "./machines.ts";
 import {
@@ -550,6 +552,8 @@ export const MemoizeRpcs = RpcGroup.make(
 	MachinesDestroyRpc,
 	MachinesCheckoutRpc,
 	MachinesBillingPortalRpc,
+	MachinesPrepaidBalanceRpc,
+	MachinesPrepaidCheckoutRpc,
 	MachinesEntitlementsRpc,
 	MachineSshKeysAddRpc,
 	MachineSshKeysListRpc,

@@ -35,6 +35,7 @@
 	"dependencies": {
 		"@polar-sh/sdk": "^0.49.0",
 		"@zuse/provider-registry": "*",
+		"@zuse/contracts": "workspace:*",
 		"effect": "catalog:",
 		"stripe": "23.0.0"
 	},

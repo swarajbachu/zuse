@@ -1,12 +1,19 @@
 import { Effect, Redacted } from "effect";
 import Stripe from "stripe";
 import { type BillingProviderAdapter, BillingProviderError } from "./index.ts";
+import {
+	makeStripeCreditClient,
+	makeStripeCredits,
+	type StripeCreditClient,
+} from "./stripe-credits.ts";
+import { deliverStripeOperation } from "./stripe-delivery.ts";
 
 export interface StripeBillingConfig {
 	readonly secretKey: Redacted.Redacted<string>;
 	readonly webhookSecret: Redacted.Redacted<string>;
 	readonly offerPrices: Readonly<Record<string, string>>;
 	readonly cloudOveragePriceId?: string;
+	readonly prepaidCreditPriceId?: string;
 	readonly portalReturnUrl: string;
 	readonly portalConfigurationId?: string;
 }
@@ -122,6 +129,7 @@ export interface StripeBillingClient {
 export interface StripeBillingDependencies {
 	readonly store: StripeBillingStore;
 	readonly client?: StripeBillingClient;
+	readonly creditClient?: StripeCreditClient;
 	readonly verifyWebhook?: (
 		body: string,
 		signature: string,
@@ -390,7 +398,16 @@ export const makeStripeBillingProvider = (
 			yield* call(() => deps.store.linkCustomer(accountId, id));
 			return id;
 		});
+	const credits = makeStripeCredits({
+		priceId: config.prepaidCreditPriceId,
+		client: deps.creditClient ?? makeStripeCreditClient(sdk),
+		store: deps.store,
+		customer,
+	});
 	return {
+		prepaidBalance: credits.balance,
+		prepaidCheckout: (input) =>
+			credits.checkout(input.accountId, input.amountCents, input.successUrl),
 		providerId: "stripe",
 		recoverCustomers: () =>
 			Effect.gen(function* () {
@@ -479,6 +496,8 @@ export const makeStripeBillingProvider = (
 						verify(body, signature, Redacted.value(config.webhookSecret)),
 					catch: invalid,
 				});
+				if (yield* credits.process(event))
+					return { eventId: event.id, prepaid: true as const };
 				switch (event.type) {
 					case "customer.subscription.created":
 					case "customer.subscription.updated":
@@ -598,42 +617,35 @@ export const makeStripeBillingProvider = (
 						value: String(input.units),
 					},
 				};
-				const claim = yield* call(() =>
-					deps.store.claimDelivery(identifier, JSON.stringify(params)),
+				yield* deliverStripeOperation(
+					deps.store,
+					identifier,
+					params,
+					() => client.reportMeter(params, identifier),
+					Effect.gen(function* () {
+						if (input.eventName === "zuse_cloud_overage_cent") {
+							const subscriptionId = input.metadata?.provider_subscription_id;
+							const periodStartMs = Number(input.metadata?.period_start_ms);
+							const periodEndMs = Number(input.metadata?.period_end_ms);
+							if (
+								!subscriptionId ||
+								!Number.isSafeInteger(periodStartMs) ||
+								!Number.isSafeInteger(periodEndMs) ||
+								periodEndMs <= periodStartMs ||
+								!(yield* call(() =>
+									client.canReportOverage(
+										customerId,
+										subscriptionId,
+										periodStartMs,
+										periodEndMs,
+									),
+								))
+							) {
+								return yield* needsReconciliation();
+							}
+						}
+					}),
 				);
-				if (claim === "sent") return;
-				if (claim === "expired") return yield* needsReconciliation();
-				if (claim === "busy") return yield* failure();
-				if (input.eventName === "zuse_cloud_overage_cent") {
-					const subscriptionId = input.metadata?.provider_subscription_id;
-					const periodStartMs = Number(input.metadata?.period_start_ms);
-					const periodEndMs = Number(input.metadata?.period_end_ms);
-					if (
-						!subscriptionId ||
-						!Number.isSafeInteger(periodStartMs) ||
-						!Number.isSafeInteger(periodEndMs) ||
-						periodEndMs <= periodStartMs ||
-						!(yield* call(() =>
-							client.canReportOverage(
-								customerId,
-								subscriptionId,
-								periodStartMs,
-								periodEndMs,
-							),
-						))
-					) {
-						yield* call(() => deps.store.finishDelivery(identifier, false));
-						return yield* needsReconciliation();
-					}
-				}
-
-				const result = yield* call(() =>
-					client.reportMeter(params, identifier),
-				).pipe(Effect.result);
-				yield* call(() =>
-					deps.store.finishDelivery(identifier, result._tag === "Success"),
-				);
-				if (result._tag === "Failure") return yield* result.failure;
 			}),
 		reconcileMeter: (input) =>
 			Effect.gen(function* () {

@@ -24,6 +24,7 @@ export interface BillingEnvironment {
 	readonly STRIPE_CLOUD_OVERAGE_PRICE_ID?: string;
 	readonly STRIPE_CLOUD_OVERAGE_METER_ID?: string;
 	readonly STRIPE_PORTAL_CONFIGURATION_ID?: string;
+	readonly STRIPE_PREPAID_CREDIT_PRICE_ID?: string;
 	readonly API_ISSUER?: string;
 	readonly MACHINE_LIVE_CHECKOUT_ENABLED?: string;
 	readonly MACHINE_SALES_APPROVED?: string;
@@ -158,6 +159,7 @@ export const resolveBillingRuntime = (
 						: undefined,
 					portalReturnUrl: env.API_ISSUER ?? "https://api.zuse.sh",
 					portalConfigurationId: env.STRIPE_PORTAL_CONFIGURATION_ID,
+					prepaidCreditPriceId: env.STRIPE_PREPAID_CREDIT_PRICE_ID,
 				},
 				{ store: stripeStore },
 			),

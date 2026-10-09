@@ -55,6 +55,7 @@ it("identifies Personal billing and keeps subscription state pending until verif
 	expect(markup).toContain("Cloud · Personal");
 	expect(markup).not.toContain("Subscribe");
 	expect(markup).toContain("Manage or cancel your Zuse subscription");
+	expect(markup).toContain("Buy credits");
 });
 
 it("routes finance-only members to billing even when a content settings page was selected", () => {
@@ -65,6 +66,7 @@ it("routes finance-only members to billing even when a content settings page was
 	);
 	expect(markup).toContain("Cloud · Acme");
 	expect(markup).toContain("Manage or cancel your Zuse subscription");
+	expect(markup).toContain("Buy credits");
 	expect(markup).not.toContain("Connect GitHub");
 });
 
@@ -83,9 +85,11 @@ it.each([
 		expect(markup).not.toContain("Subscribe");
 		// Billing remains accessible before activation and after cancellation.
 		expect(markup).toContain("Manage or cancel your Zuse subscription");
+		expect(markup).toContain("Buy credits");
 	} else {
 		expect(markup).not.toContain("Subscribe");
 		expect(markup).not.toContain("Manage or cancel your Zuse subscription");
+		expect(markup).not.toContain("Buy credits");
 		expect(markup).toContain("Only workspace admins and billing members");
 	}
 });

@@ -6,6 +6,7 @@ import {
 import {
 	ApiPaths,
 	BillingCheckoutRequest,
+	BillingPrepaidCheckoutRequest,
 	CLOUD_WORKSPACE_OFFER_ID,
 	type MachineBootPhase,
 	MachineBootStatusRequest,
@@ -737,8 +738,15 @@ export const routeMachineRequest = (
 			);
 			const event = yield* billing
 				.verifyEvent(request)
-				.pipe(Effect.mapError(() => unauthorized("invalid_billing_event")));
+				.pipe(
+					Effect.mapError((error) =>
+						error.code === "invalid-event"
+							? unauthorized("invalid_billing_event")
+							: serviceUnavailable("billing_provider_unavailable"),
+					),
+				);
 			if (event === null) return json({ ok: true, ignored: true });
+			if ("prepaid" in event) return json({ ok: true, prepaid: true });
 			const subscription = yield* billing
 				.reconcileSubscription(event.subscriptionId)
 				.pipe(
@@ -1076,6 +1084,73 @@ export const routeMachineRequest = (
 					)?.machineId,
 				})),
 			});
+		}
+
+		if (method === "GET" && path === ApiPaths.billingPrepaidComplete) {
+			return new Response(
+				'<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Zuse credits</title><body style="font-family:system-ui;max-width:480px;margin:80px auto;padding:24px"><h1>Thanks for your purchase</h1><p>Your balance will update once payment is confirmed. Return to Zuse and refresh Billing to see your credits.</p><p>Credits apply automatically to future Zuse invoices, including subscriptions.</p></body></html>',
+				{
+					headers: {
+						"content-type": "text/html; charset=utf-8",
+						"cache-control": "no-store",
+						"content-security-policy":
+							"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
+					},
+				},
+			);
+		}
+		if (
+			(method === "GET" && path === ApiPaths.billingPrepaid) ||
+			(method === "POST" && path === ApiPaths.billingPrepaidCheckout)
+		) {
+			const workspace = yield* requireWorkspaceAccess(request, "billing");
+			const providers = yield* BillingProviders;
+			const billing = yield* providers.getDefault.pipe(
+				Effect.mapError(() =>
+					serviceUnavailable("billing_provider_unavailable"),
+				),
+			);
+			if (method === "GET") {
+				const balance = billing.prepaidBalance
+					? yield* billing
+							.prepaidBalance(workspace.ownerId)
+							.pipe(
+								Effect.mapError(() =>
+									serviceUnavailable("billing_provider_unavailable"),
+								),
+							)
+					: {
+							available: false,
+							creditCents: 0,
+							debitCents: 0,
+							currency: "usd",
+						};
+				const config = yield* MachineControlConfiguration;
+				const response = json({
+					...balance,
+					available: balance.available && config.liveCheckoutEnabled,
+				});
+				response.headers.set("cache-control", "no-store");
+				return response;
+			}
+			const config = yield* MachineControlConfiguration;
+			if (!config.liveCheckoutEnabled || !billing.prepaidCheckout)
+				return yield* serviceUnavailable("billing_approval_pending");
+			const body = yield* decodeBody(BillingPrepaidCheckoutRequest, request);
+			const api = yield* ApiConfiguration;
+			const checkoutUrl = yield* billing
+				.prepaidCheckout({
+					accountId: workspace.ownerId,
+					amountCents: body.amountCents,
+					successUrl: new URL(ApiPaths.billingPrepaidComplete, api.apiIssuer)
+						.href,
+				})
+				.pipe(
+					Effect.mapError(() =>
+						serviceUnavailable("billing_provider_unavailable"),
+					),
+				);
+			return json({ checkoutUrl });
 		}
 
 		if (method === "POST" && path === ApiPaths.billingCheckout) {

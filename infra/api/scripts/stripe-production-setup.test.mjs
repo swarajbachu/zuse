@@ -58,7 +58,7 @@ function fixture() {
 				...x,
 				active: true,
 				billing_scheme: "per_unit",
-				recurring: { ...x.recurring, interval_count: 1 },
+				recurring: x.recurring ? { ...x.recurring, interval_count: 1 } : null,
 			})),
 			list: async (params) => ({
 				data: resources.prices.filter((x) =>
@@ -84,6 +84,11 @@ function fixture() {
 				secret: "whsec_private",
 			})),
 			retrieve: async (id) => resources.endpoints.find((x) => x.id === id),
+			update: async (id, params) =>
+				Object.assign(
+					resources.endpoints.find((x) => x.id === id),
+					params,
+				),
 		},
 	};
 	return {
@@ -106,16 +111,16 @@ test("creates the live catalogue and pinned webhook without subscriptions; compl
 	assert.equal(resources.meters.length, 3);
 	assert.deepEqual(
 		resources.prices.map((p) => p.unit_amount),
-		[4000, 1],
+		[4000, 1, 100],
 	);
 	assert.equal(resources.prices[1].recurring.meter, state.meterId);
 	assert.equal(resources.endpoints[0].url, webhookUrl);
 	assert.equal(resources.endpoints[0].api_version, Stripe.API_VERSION);
 	assert.deepEqual(resources.endpoints[0].enabled_events, webhookEvents);
 	assert(snapshots.some((s) => s.attempts.product && !s.productId));
-	assert.equal(new Set(keys).size, 8);
+	assert.equal(new Set(keys).size, 10);
 	await provision(stripe, state, save, "txcd_verified", 48 * 3600000);
-	assert.equal(keys.length, 8);
+	assert.equal(keys.length, 10);
 	assert(!("BILLING_DEFAULT_PROVIDER" in productionVars(state)));
 });
 
@@ -224,5 +229,40 @@ test("catalogue can be prepared with tax configuration explicitly pending", asyn
 	assert.equal(
 		resources.portals[0].features.subscription_cancel.mode,
 		"at_period_end",
+	);
+});
+
+test("upgrades an existing webhook in place and preserves its secret and unrelated events", async () => {
+	const { stripe, resources } = fixture();
+	const state = {};
+	await provision(stripe, state, async () => {}, "", 1000);
+	const secret = state.webhookSecret;
+	const webhookId = state.webhookId;
+	resources.endpoints[0].enabled_events = ["invoice.paid", "customer.created"];
+	await provision(stripe, state, async () => {}, "", 2000);
+	assert.equal(resources.endpoints.length, 1);
+	assert.equal(state.webhookId, webhookId);
+	assert.equal(state.webhookSecret, secret);
+	assert(resources.endpoints[0].enabled_events.includes("customer.created"));
+	assert(
+		webhookEvents.every((event) =>
+			resources.endpoints[0].enabled_events.includes(event),
+		),
+	);
+	assert(state.attempts.webhookPrepaidV1);
+});
+
+test("rejects an incompatible prepaid SKU without publishing its price", async () => {
+	const { stripe, resources } = fixture();
+	const state = {};
+	await provision(stripe, state, async () => {}, "", 1000);
+	assert.equal(
+		productionVars(state).STRIPE_PREPAID_CREDIT_PRICE_ID,
+		state.prepaidPriceId,
+	);
+	resources.prices[2].unit_amount = 200;
+	await assert.rejects(
+		provision(stripe, state, async () => {}, "", 2000),
+		/Incompatible prepaid price/,
 	);
 });

@@ -83,6 +83,9 @@ export const ApiPaths = {
 	billingCheckoutComplete: "/v1/billing/checkout/complete",
 	billingEntitlements: "/v1/billing/entitlements",
 	billingPortal: "/v1/billing/portal",
+	billingPrepaid: "/v1/billing/prepaid",
+	billingPrepaidCheckout: "/v1/billing/prepaid/checkout",
+	billingPrepaidComplete: "/v1/billing/prepaid/complete",
 	billingWebhook: "/v1/billing/webhook",
 	billingProviderWebhook: (providerId: string) =>
 		`/v1/billing/webhook/${encodeURIComponent(providerId)}`,

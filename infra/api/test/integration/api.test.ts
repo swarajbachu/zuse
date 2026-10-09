@@ -407,6 +407,7 @@ describe("@zuse/api", () => {
 	test("uses independent workspace owners for checkout and portal without transferring Personal subscriptions", async () => {
 		const checkoutOwners: string[] = [];
 		const checkoutReturns: string[] = [];
+		const prepaidOwners: string[] = [];
 		const portalOwners: string[] = [];
 		let role = "admin";
 		let membershipStatus = "active";
@@ -442,6 +443,10 @@ describe("@zuse/api", () => {
 			customerPortal: (owner) => {
 				portalOwners.push(owner);
 				return Effect.succeed("https://billing.test/portal");
+			},
+			prepaidCheckout: (input) => {
+				prepaidOwners.push(input.accountId);
+				return Effect.succeed("https://billing.test/credits");
 			},
 			getCheckout: () => Effect.succeed(null),
 			verifyEvent: () => Effect.die("unused"),
@@ -496,6 +501,13 @@ describe("@zuse/api", () => {
 					).status,
 				).toBe(200);
 				expect((await call(ApiPaths.billingPortal, scope)).status).toBe(200);
+				expect(
+					(
+						await call(ApiPaths.billingPrepaidCheckout, scope, {
+							amountCents: 2500,
+						})
+					).status,
+				).toBe(200);
 				const receipt = await billingApi.fetch(
 					new Request(checkoutReturns.at(-1) ?? ""),
 				);
@@ -511,7 +523,15 @@ describe("@zuse/api", () => {
 				"organization:org_b",
 			]);
 			expect(portalOwners).toEqual(checkoutOwners);
+			expect(prepaidOwners).toEqual(checkoutOwners);
 			role = "member";
+			expect(
+				(
+					await call(ApiPaths.billingPrepaidCheckout, "organization:org_a", {
+						amountCents: 2500,
+					})
+				).status,
+			).toBe(403);
 			expect(
 				(
 					await call(ApiPaths.billingCheckout, "organization:org_a", {
@@ -934,6 +954,118 @@ describe("@zuse/api", () => {
 		expect(await response.json()).toEqual({
 			error: "billing_approval_pending",
 		});
+	});
+
+	test("prepaid endpoints authenticate, validate amounts and use the default provider without requiring a subscription", async () => {
+		const purchases = vi.fn((_input: unknown) =>
+			Effect.succeed("https://billing.test/credits"),
+		);
+		const subscription = vi.fn(() =>
+			Effect.die("must not reconcile subscription for credits"),
+		);
+		const billing: BillingProviderAdapter = {
+			providerId: "stripe",
+			checkout: () => Effect.die("unused"),
+			getCheckout: () => Effect.succeed(null),
+			cancel: () => Effect.void,
+			customerPortal: () => Effect.die("unused"),
+			verifyEvent: () =>
+				Effect.succeed({ eventId: "evt_credit", prepaid: true as const }),
+			reconcileSubscription: subscription,
+			prepaidBalance: (account) =>
+				Effect.succeed({
+					available: true,
+					creditCents: account === "user_a" ? 7500 : 0,
+					debitCents: 0,
+					currency: "usd" as const,
+				}),
+			prepaidCheckout: purchases,
+		};
+		const billingApi = makeApi(
+			await makeLayer(
+				undefined,
+				BillingProviders.layer({
+					adapters: [billing],
+					defaultProviderId: "stripe",
+				}).pipe(Layer.orDie),
+				true,
+			),
+		);
+		const headers = {
+			authorization: "Bearer test-token:user_a",
+			"content-type": "application/json",
+		};
+		try {
+			expect(
+				(
+					await billingApi.fetch(
+						new Request(`${API_ISSUER}${ApiPaths.billingPrepaid}`),
+					)
+				).status,
+			).toBe(401);
+			const balance = await billingApi.fetch(
+				new Request(`${API_ISSUER}${ApiPaths.billingPrepaid}`, { headers }),
+			);
+			expect(await balance.json()).toMatchObject({
+				available: true,
+				creditCents: 7500,
+			});
+			const buy = (amountCents: number) =>
+				billingApi.fetch(
+					new Request(`${API_ISSUER}${ApiPaths.billingPrepaidCheckout}`, {
+						method: "POST",
+						headers,
+						body: JSON.stringify({ amountCents, accountId: "user_b" }),
+					}),
+				);
+			expect((await buy(2501)).status).toBe(400);
+			expect(purchases).not.toHaveBeenCalled();
+			expect((await buy(2500)).status).toBe(200);
+			expect(purchases).toHaveBeenCalledWith({
+				accountId: "user_a",
+				amountCents: 2500,
+				successUrl: `${API_ISSUER}${ApiPaths.billingPrepaidComplete}`,
+			});
+			const webhook = await billingApi.fetch(
+				new Request(
+					`${API_ISSUER}${ApiPaths.billingProviderWebhook("stripe")}`,
+					{ method: "POST" },
+				),
+			);
+			expect(await webhook.json()).toEqual({ ok: true, prepaid: true });
+			expect(subscription).not.toHaveBeenCalled();
+			const completion = await billingApi.fetch(
+				new Request(`${API_ISSUER}${ApiPaths.billingPrepaidComplete}`),
+			);
+			expect(completion.status).toBe(200);
+			expect(await completion.text()).toContain("once payment is confirmed");
+		} finally {
+			await billingApi.dispose();
+		}
+	});
+
+	test("manual billing never sells unusable prepaid credit", async () => {
+		const headers = {
+			authorization: "Bearer test-token:user_a",
+			"content-type": "application/json",
+		};
+		const balance = await api.fetch(
+			new Request(`${API_ISSUER}${ApiPaths.billingPrepaid}`, { headers }),
+		);
+		expect(await balance.json()).toEqual({
+			available: false,
+			creditCents: 0,
+			debitCents: 0,
+			currency: "usd",
+		});
+		const checkout = await api.fetch(
+			new Request(`${API_ISSUER}${ApiPaths.billingPrepaidCheckout}`, {
+				method: "POST",
+				headers,
+				body: JSON.stringify({ amountCents: 2500 }),
+			}),
+		);
+		expect(checkout.status).toBe(503);
 	});
 
 	test("creates checkout with the api-owned HTTPS completion page", async () => {

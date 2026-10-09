@@ -32,6 +32,8 @@ export const RpcAuthorizationLive = Layer.effect(
 					![
 						"machines.checkout",
 						"machines.billingPortal",
+						"machines.prepaidBalance",
+						"machines.prepaidCheckout",
 						"machines.entitlements",
 					].includes(rpc._tag)
 				)

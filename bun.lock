@@ -463,6 +463,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@polar-sh/sdk": "^0.49.0",
+        "@zuse/contracts": "workspace:*",
         "@zuse/provider-registry": "*",
         "effect": "catalog:",
         "stripe": "23.0.0",

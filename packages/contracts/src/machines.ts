@@ -219,6 +219,22 @@ export class BillingCheckout extends Schema.Class<BillingCheckout>(
 	checkoutUrl: Schema.String,
 }) {}
 
+export class BillingPrepaidBalance extends Schema.Class<BillingPrepaidBalance>(
+	"BillingPrepaidBalance",
+)({
+	available: Schema.Boolean,
+	creditCents: Schema.Number,
+	debitCents: Schema.Number,
+	currency: Schema.Literal("usd"),
+}) {}
+export const PREPAID_CREDIT_AMOUNTS = [1000, 2500, 5000, 10000] as const;
+
+export class BillingPrepaidCheckoutRequest extends Schema.Class<BillingPrepaidCheckoutRequest>(
+	"BillingPrepaidCheckoutRequest",
+)({
+	amountCents: Schema.Literals(PREPAID_CREDIT_AMOUNTS),
+}) {}
+
 export class BillingPortal extends Schema.Class<BillingPortal>("BillingPortal")(
 	{
 		portalUrl: Schema.String,
@@ -307,6 +323,17 @@ export const MachinesDestroyRpc = Rpc.make("machines.destroy", {
 
 export const MachinesCheckoutRpc = Rpc.make("machines.checkout", {
 	payload: BillingCheckoutRequest,
+	success: BillingCheckout,
+	error: MachineOpError,
+});
+
+export const MachinesPrepaidBalanceRpc = Rpc.make("machines.prepaidBalance", {
+	payload: Schema.Void,
+	success: BillingPrepaidBalance,
+	error: MachineOpError,
+});
+export const MachinesPrepaidCheckoutRpc = Rpc.make("machines.prepaidCheckout", {
+	payload: BillingPrepaidCheckoutRequest,
 	success: BillingCheckout,
 	error: MachineOpError,
 });

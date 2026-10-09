@@ -114,6 +114,8 @@ const Rpcs = RpcGroup.make(
 	Rpc.make("host.secret", { success: Schema.String }),
 	Rpc.make("machines.checkout", { success: Schema.String }),
 	Rpc.make("machines.billingPortal", { success: Schema.String }),
+	Rpc.make("machines.prepaidBalance", { success: Schema.String }),
+	Rpc.make("machines.prepaidCheckout", { success: Schema.String }),
 	Rpc.make("machines.entitlements", { success: Schema.String }),
 ).middleware(RpcAuthorization);
 const chatCatalogStream = () =>
@@ -136,6 +138,8 @@ const fileScopeResult = () =>
 const handlers = Rpcs.toLayer({
 	"machines.checkout": () => RequestWorkspace,
 	"machines.billingPortal": () => RequestWorkspace,
+	"machines.prepaidBalance": () => RequestWorkspace,
+	"machines.prepaidCheckout": () => RequestWorkspace,
 	"machines.entitlements": () => RequestWorkspace,
 	"connect.handshake": ({ protocolVersion }) =>
 		Effect.succeed(WireWelcome.make({ protocolVersion })),
@@ -294,6 +298,10 @@ it("enforces shared-workspace reads, denies other RPCs, and expires an active st
 		for (const operation of [
 			(client: Effect.Success<typeof makeClient>) =>
 				client("host.secret", undefined),
+			(client: Effect.Success<typeof makeClient>) =>
+				client("machines.prepaidBalance", undefined),
+			(client: Effect.Success<typeof makeClient>) =>
+				client("machines.prepaidCheckout", undefined),
 			(client: Effect.Success<typeof makeClient>) =>
 				client("session.get", { sessionId: SessionId.make("private-session") }),
 			(client: Effect.Success<typeof makeClient>) =>

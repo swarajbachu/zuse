@@ -3,6 +3,8 @@ import {
 	BillingCheckout,
 	type BillingCheckoutRequest,
 	BillingPortal,
+	BillingPrepaidBalance,
+	type BillingPrepaidCheckoutRequest,
 	ChatSharingDefaults,
 	ChatSharingState,
 	type ChatSharingUpdate,
@@ -154,6 +156,10 @@ export const makeCloudControlClient = (request: CloudControlRequest) => ({
 		request(ApiPaths.billingEntitlements, EntitlementList),
 	"machines.checkout": (input: BillingCheckoutRequest) =>
 		request(ApiPaths.billingCheckout, BillingCheckout, "POST", input),
+	"machines.prepaidBalance": () =>
+		request(ApiPaths.billingPrepaid, BillingPrepaidBalance),
+	"machines.prepaidCheckout": (input: BillingPrepaidCheckoutRequest) =>
+		request(ApiPaths.billingPrepaidCheckout, BillingCheckout, "POST", input),
 	"machines.billingPortal": () =>
 		request(ApiPaths.billingPortal, BillingPortal, "POST", {}),
 	"deviceBridge.cloud": (input: {

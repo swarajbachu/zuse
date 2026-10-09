@@ -21,6 +21,8 @@ import {
 	BillingCheckout,
 	type BillingCheckoutRequest,
 	BillingPortal,
+	BillingPrepaidBalance,
+	type BillingPrepaidCheckoutRequest,
 	ChatSharingDefaults,
 	ChatSharingState,
 	type ChatSharingUpdate,
@@ -339,6 +341,13 @@ export interface MachineControlServiceShape {
 	) => Effect.Effect<MachineRecord, MachineControlError>;
 	readonly checkout: (
 		input: BillingCheckoutRequest,
+	) => Effect.Effect<BillingCheckout, MachineControlError>;
+	readonly prepaidBalance: () => Effect.Effect<
+		BillingPrepaidBalance,
+		MachineControlError
+	>;
+	readonly prepaidCheckout: (
+		input: BillingPrepaidCheckoutRequest,
 	) => Effect.Effect<BillingCheckout, MachineControlError>;
 	readonly billingPortal: () => Effect.Effect<
 		BillingPortal,
@@ -835,6 +844,15 @@ export const MachineControlServiceLive: Layer.Layer<
 				),
 			checkout: (input) =>
 				request(ApiPaths.billingCheckout, BillingCheckout, "POST", input),
+			prepaidBalance: () =>
+				request(ApiPaths.billingPrepaid, BillingPrepaidBalance, "GET"),
+			prepaidCheckout: (input) =>
+				request(
+					ApiPaths.billingPrepaidCheckout,
+					BillingCheckout,
+					"POST",
+					input,
+				),
 			billingPortal: () =>
 				request(ApiPaths.billingPortal, BillingPortal, "POST", {}),
 			entitlements: () =>

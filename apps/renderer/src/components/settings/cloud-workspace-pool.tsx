@@ -23,8 +23,10 @@ import {
 	CloudHostingSettings,
 } from "./cloud-hosting-settings.tsx";
 import { CloudSnapshotAuthSetup } from "./cloud-snapshot-auth-setup.tsx";
+import { PrepaidCredits } from "./prepaid-credits.tsx";
 import "@zuse/i18n/english/settings";
 import {
+	type BillingPrepaidBalance,
 	type CloudAccountImage,
 	type CloudBillingSummary,
 	type CloudBillingUsageItem,
@@ -237,6 +239,7 @@ function ScopedCloudWorkspacePool({
 	const [workspaces, setWorkspaces] = useState<ReadonlyArray<CloudWorkspace>>(
 		[],
 	);
+	const [prepaid, setPrepaid] = useState<BillingPrepaidBalance | null>(null);
 	const [billing, setBilling] = useState<CloudBillingSummary | null>(null);
 	const [billingUsage, setBillingUsage] = useState<
 		ReadonlyArray<CloudBillingUsageItem>
@@ -326,6 +329,17 @@ function ScopedCloudWorkspacePool({
 								loadCloudProviderImages(providers, refresh),
 							),
 						]);
+			if (
+				canManageBilling &&
+				(section === "billing" || (section === "all" && view === "usage"))
+			) {
+				void runCloudControl((client) => client["machines.prepaidBalance"]())
+					.catch(() => null)
+					.then((balance) => {
+						if (requestSequence === loadSequence.current) setPrepaid(balance);
+					});
+			}
+
 			let loadedSubscribed = false;
 			try {
 				try {
@@ -446,7 +460,7 @@ function ScopedCloudWorkspacePool({
 				if (requestSequence === loadSequence.current) setSetupLoading(false);
 			}
 		},
-		[isSignedIn, section, canManageBilling],
+		[isSignedIn, section, canManageBilling, view],
 	);
 
 	useEffect(() => {
@@ -1258,6 +1272,23 @@ function ScopedCloudWorkspacePool({
 			{/* Reachable without an active subscription for invoices and reactivation. */}
 			{canManageBilling && usageVisible ? (
 				<CloudSettingsGroup title={uiMessage("settings:workspace_billing")}>
+					<PrepaidCredits
+						balance={prepaid}
+						busy={busy === "prepaid-checkout"}
+						onRefresh={() => void load(true)}
+						onBuy={(amountCents) =>
+							void run("prepaid-checkout", () =>
+								openExternal(
+									async () =>
+										(
+											await runCloudControl((client) =>
+												client["machines.prepaidCheckout"]({ amountCents }),
+											)
+										).checkoutUrl,
+								),
+							)
+						}
+					/>
 					<CloudSettingsRow
 						title={uiMessage("settings:cloud_hosting_manage_subscription")}
 						description={uiMessage("settings:cloud_hosting_portal_description")}

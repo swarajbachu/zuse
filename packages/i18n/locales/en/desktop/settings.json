@@ -1270,5 +1270,14 @@
 	"settings_page_experimental_description": "Early features we're still shaping. They may change or be removed.",
 	"settings_page_thread_list_sidebar": "Thread list sidebar",
 	"settings_page_thread_list_sidebar_description": "Replaces the project tree with one list of every thread across your projects, newest first, showing each repository, live agent status, pull request state, and diff. You can still add projects from the sidebar header.",
-	"settings_page_experimental_sidebar": "Sidebar"
+	"settings_page_experimental_sidebar": "Sidebar",
+	"prepaid_title": "Zuse credits",
+	"prepaid_description": "Applies automatically to future Zuse invoices, including subscriptions. Unused credit rolls forward. Your usage allowance and spending cap stay the same.",
+	"prepaid_loading": "Balance unavailable",
+	"prepaid_balance": "{{amount}} available",
+	"prepaid_debit": "{{amount}} owed on future invoices",
+	"prepaid_buy": "Buy credits",
+	"prepaid_amount": "Credit amount",
+	"prepaid_disabled": "Credit purchases are not enabled for this workspace yet.",
+	"prepaid_refresh": "Refresh balance"
 }

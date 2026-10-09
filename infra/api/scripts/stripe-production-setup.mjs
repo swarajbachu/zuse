@@ -15,6 +15,12 @@ export const webhookEvents = [
 	"customer.subscription.resumed",
 	"invoice.paid",
 	"invoice.payment_failed",
+	"checkout.session.completed",
+	"checkout.session.async_payment_succeeded",
+	"charge.refunded",
+	"refund.updated",
+	"charge.dispute.funds_withdrawn",
+	"charge.dispute.funds_reinstated",
 ];
 export const webhookUrl = "https://api.zuse.sh/v1/billing/webhook/stripe";
 export function assertStripeProductionBillingGates(vars) {
@@ -39,6 +45,9 @@ export function productionVars(state) {
 		STRIPE_PRICE_CLOUD_WORKSPACE_STANDARD_V1: state.basePriceId,
 		STRIPE_CLOUD_OVERAGE_PRICE_ID: state.overagePriceId,
 		STRIPE_CLOUD_OVERAGE_METER_ID: state.meterId,
+		...(state.prepaidPriceId
+			? { STRIPE_PREPAID_CREDIT_PRICE_ID: state.prepaidPriceId }
+			: {}),
 		...(state.portalConfigurationId
 			? { STRIPE_PORTAL_CONFIGURATION_ID: state.portalConfigurationId }
 			: {}),
@@ -211,6 +220,68 @@ export async function provision(
 		state[field] = price.id;
 		await save();
 	}
+	const prepaidPrices = await stripe.prices.list({
+		lookup_keys: ["zuse_prepaid_usd_v1"],
+		limit: 2,
+	});
+	assert(prepaidPrices.data.length <= 1, "Ambiguous prepaid price lookup key");
+	const existingPrepaid = prepaidPrices.data[0];
+	if (!state.prepaidProductId) {
+		if (existingPrepaid) {
+			assert(
+				typeof existingPrepaid.product === "string",
+				"Invalid prepaid product",
+			);
+			state.prepaidProductId = existingPrepaid.product;
+		} else {
+			state.prepaidProductId = (
+				await create(
+					"prepaidProduct",
+					{
+						name: "Zuse prepaid credits",
+						metadata: { zuse_billing: "prepaid-v1" },
+					},
+					stripe.products.create.bind(stripe.products),
+				)
+			).id;
+		}
+		await save();
+	}
+	const prepaidProduct = await stripe.products.retrieve(state.prepaidProductId);
+	assert(
+		prepaidProduct.livemode &&
+			prepaidProduct.active &&
+			prepaidProduct.metadata?.zuse_billing === "prepaid-v1",
+		"Incompatible prepaid product",
+	);
+	const prepaidPrice = state.prepaidPriceId
+		? await stripe.prices.retrieve(state.prepaidPriceId)
+		: (existingPrepaid ??
+			(await create(
+				"prepaidPrice",
+				{
+					product: state.prepaidProductId,
+					currency: "usd",
+					unit_amount: 100,
+					lookup_key: "zuse_prepaid_usd_v1",
+					metadata: { zuse_billing: "prepaid-v1" },
+				},
+				stripe.prices.create.bind(stripe.prices),
+			)));
+	assert(
+		prepaidPrice.livemode &&
+			prepaidPrice.active &&
+			prepaidPrice.product === state.prepaidProductId &&
+			prepaidPrice.currency === "usd" &&
+			prepaidPrice.unit_amount === 100 &&
+			!prepaidPrice.recurring &&
+			!prepaidPrice.transform_quantity &&
+			prepaidPrice.billing_scheme === "per_unit",
+		"Incompatible prepaid price",
+	);
+	state.prepaidPriceId = prepaidPrice.id;
+	await save();
+
 	if (!state.portalConfigurationId) {
 		const portal = await create(
 			"portal",
@@ -281,7 +352,28 @@ export async function provision(
 		state.webhookSecret = endpoint.secret;
 		await save();
 	}
-	const endpoint = await stripe.webhookEndpoints.retrieve(state.webhookId);
+	let endpoint = await stripe.webhookEndpoints.retrieve(state.webhookId);
+	assert(
+		endpoint.livemode &&
+			endpoint.status === "enabled" &&
+			endpoint.url === webhookUrl &&
+			endpoint.api_version === Stripe.API_VERSION,
+		"Incompatible live webhook",
+	);
+	if (
+		!webhookEvents.every((event) => endpoint.enabled_events.includes(event))
+	) {
+		endpoint = await create(
+			"webhookPrepaidV1",
+			{
+				enabled_events: [
+					...new Set([...endpoint.enabled_events, ...webhookEvents]),
+				].sort(),
+			},
+			(params, options) =>
+				stripe.webhookEndpoints.update(state.webhookId, params, options),
+		);
+	}
 	assert(
 		endpoint.livemode &&
 			endpoint.status === "enabled" &&

@@ -444,6 +444,62 @@ describe("Stripe billing provider", () => {
 			1_791_000_000,
 		);
 	});
+	test("prepaid funding verifies the raw signature before retrieving canonical payment values", async () => {
+		const f = setup();
+		const creditClient = {
+			validatePrice: async () => {},
+			balance: async () => 0,
+			checkout: async () => "https://checkout.stripe.com/test",
+			purchase: vi.fn(async () => ({
+				id: "cs_paid",
+				accountId: "account",
+				customerId: "cus_1",
+				amountCents: 2500,
+				paid: true,
+				currency: "usd",
+				priceId: "price_credit",
+				quantity: 25,
+				chargeId: "ch_1",
+				disputed: false,
+				refunds: [],
+			})),
+			adjustment: vi.fn(async () => {}),
+		};
+		const provider = makeStripeBillingProvider(
+			{ ...config, prepaidCreditPriceId: "price_credit" },
+			{ store: f.store, client: f.client, creditClient, now: () => now },
+		);
+		const sdk = new Stripe("sk_test_example");
+		const body = JSON.stringify({
+			id: "evt_credit",
+			type: "checkout.session.completed",
+			data: { object: { id: "cs_paid", amount_total: 1000000 } },
+		});
+		const signature = sdk.webhooks.generateTestHeaderString({
+			payload: body,
+			secret: "whsec_example",
+		});
+		const request = (payload: string) =>
+			new Request("https://api.test", {
+				method: "POST",
+				headers: { "stripe-signature": signature },
+				body: payload,
+			});
+		await expect(
+			Effect.runPromise(provider.verifyEvent(request(`${body} `))),
+		).rejects.toMatchObject({ code: "invalid-event" });
+		expect(creditClient.purchase).not.toHaveBeenCalled();
+		expect(
+			await Effect.runPromise(provider.verifyEvent(request(body))),
+		).toEqual({ eventId: "evt_credit", prepaid: true });
+		expect(creditClient.adjustment).toHaveBeenCalledWith(
+			"cus_1",
+			-2500,
+			"prepaid:purchase:cs_paid",
+			"cs_paid",
+		);
+	});
+
 	test("validates raw-body webhook signatures and ignores unrelated valid events", async () => {
 		const { provider } = setup();
 		const sdk = new Stripe("sk_test_example");

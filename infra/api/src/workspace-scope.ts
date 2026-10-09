@@ -80,6 +80,8 @@ export const workspaceAccessForPath = (
 		[
 			ApiPaths.billingCheckout,
 			ApiPaths.billingPortal,
+			ApiPaths.billingPrepaid,
+			ApiPaths.billingPrepaidCheckout,
 			ApiPaths.billingEntitlements,
 			ApiPaths.cloudBillingSummary,
 			ApiPaths.cloudBillingUsage,

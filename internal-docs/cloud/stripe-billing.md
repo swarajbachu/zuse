@@ -237,13 +237,67 @@ compute and model attribution in the usage ledger. New AI usage prices, shared
 versus separate balances, top-up amounts, expiry and rollover rules are product
 choices and are not launched by this migration.
 
-Stripe Checkout can collect prepaid top-ups. Grant local spend only after verified
-payment settlement; duplicate webhooks must not grant twice. Stripe Billing credit
-grants apply to metered invoice lines at finalization, not live resource admission.
-Choose one layer to deduct each allowance/credit: the current migration exports
-net billable overage, so issuing the same allowance as a Stripe credit would deduct
-it twice. Future credit-grant integration must reconcile this distinction before
-being enabled.
+### Prepaid Zuse invoice balance
+
+Customers can buy $10, $25, $50, or $100 of USD credit in Billing, before or after
+subscribing. The balance pays **all future Zuse Stripe invoices**, including the
+subscription, cloud overage and invoice tax. Stripe applies it at finalization;
+unused credit rolls forward without a Zuse expiry. The remaining invoice amount
+is charged normally. Credits do not pay already-finalized invoices or invoices
+issued by a different billing provider.
+
+This uses Stripe customer **invoice balance transactions**, rather than Billing
+credit grants or a local consumption wallet. Negative adjustments fund credit;
+positive adjustments reverse it. Zuse continues to export net cloud overage and
+enforce the existing allowance/cap. Do not also debit prepaid credit in the usage
+ledger: that would charge consumption twice. No AI usage billing is enabled.
+
+Checkout uses a one-time $1 USD price with whole-unit quantities, card payments,
+and no invoice creation or promotions. Payment redirects never grant funds.
+Signed webhooks retrieve the canonical Checkout Session, captured payment and
+successful refunds, verify customer/account ownership, price and paid face value,
+then issue immutable balance transactions. Refunds reverse each successful refund
+once, including partial refunds. Refunded credit already consumed becomes a debit
+on a future invoice. Dispute withdrawals reverse the disputed principal and funds
+reinstatement restores it; fees remain a business cost.
+
+Funding, refunds, disputes and meter exports share the durable delivery helper and
+existing `api_stripe_meter_deliveries` receipts (the table name is historical).
+Concurrent deliveries lease one operation, and retries use the same Stripe key.
+Unacknowledged writes older than 23 hours fail closed with
+`reconciliation-required`. Inspect the customer's Stripe balance transaction
+history for `metadata.zuse_operation` and `metadata.checkout_id`, compare the
+persisted delivery payload, and reconcile its receipt before replay; never delete
+a receipt or use a fresh key to retry an ambiguous adjustment. Charges with both
+successful refunds and a dispute require manual financial reconciliation, rather
+than blindly debiting both. No new database migration is required.
+
+Activation:
+
+1. Deploy the API implementation before enabling purchases.
+2. Re-run the existing `stripe-production-setup.mjs prepare` workflow with its
+   private journal. It creates/verifies `zuse_prepaid_usd_v1`, exports
+   `STRIPE_PREPAID_CREDIT_PRICE_ID`, and upgrades the existing webhook in place
+   while retaining its signing secret and unrelated events. The restricted key
+   needs prices/products, Checkout Sessions, customers/balance transactions,
+   charges/refunds and webhook permissions as appropriate to runtime/setup.
+3. Confirm the endpoint receives `checkout.session.completed`,
+   `checkout.session.async_payment_succeeded`, `charge.refunded`, `refund.updated`,
+   `charge.dispute.funds_withdrawn` and `charge.dispute.funds_reinstated`.
+4. Configure `STRIPE_PREPAID_CREDIT_PRICE_ID`, complete the existing Stripe
+   migration/settlement checks, and deploy with Stripe as the default billing
+   provider and live checkout enabled. Neither this feature nor the setup script
+   switches those gates automatically. Balance reads require workspace billing
+   access; members cannot buy or inspect another workspace's credits.
+5. In Stripe sandbox, complete hosted checkout, finalize a subscription/overage
+   invoice, confirm credit application and rollover, then refund and replay its
+   events. Record that evidence before enabling live purchases. Tax remains an
+   invoice concern; confirm the treatment of prepaid funding for the business
+   before launch, rather than attaching service tax to the face-value top-up.
+
+Keep the prepaid price configured while processing existing purchases/refunds,
+even when new sales are paused. Pausing live checkout disables purchases while
+balance visibility and webhook reconciliation remain available.
 
 ## Verification
 
@@ -292,9 +346,10 @@ renewal timing; it does not transfer payment methods or run Polar cancellation.
 
 This is core billing integration verification with an isolated local HTTP server,
 not a deployed Cloudflare Worker or authenticated desktop UI test. Hosted browser
-payment and any desktop/staging checks must be recorded separately. Prepaid
-top-ups, rollover and shared AI/machine balances remain unimplemented and are not
-claimed as tested by this runner.
+payment and any desktop/staging checks must be recorded separately. The runner
+does not test prepaid hosted checkout or credit application to Stripe invoices.
+Prepaid behavior has separate local provider/SDK, API permission and renderer
+tests; shared AI/machine consumption wallets remain unimplemented.
 
 Run billing-provider and API unit tests, affected type checks, Biome, migration
 planner tests and PostgreSQL integration tests. Local PostgreSQL tests exercise

@@ -42,7 +42,22 @@ export interface CheckoutSummary {
 	readonly createdAtMs: number;
 }
 
+export interface PrepaidBalance {
+	readonly available: boolean;
+	readonly creditCents: number;
+	readonly debitCents: number;
+	readonly currency: "usd";
+}
+
 export interface BillingProviderAdapter {
+	readonly prepaidBalance?: (
+		accountId: string,
+	) => Effect.Effect<PrepaidBalance, BillingProviderError>;
+	readonly prepaidCheckout?: (input: {
+		readonly accountId: string;
+		readonly amountCents: number;
+		readonly successUrl: string;
+	}) => Effect.Effect<string, BillingProviderError>;
 	/** Advances a bounded batch of durable customer recovery jobs. */
 	readonly recoverCustomers?: () => Effect.Effect<number, BillingProviderError>;
 	readonly providerId: string;
@@ -65,7 +80,9 @@ export interface BillingProviderAdapter {
 	readonly verifyEvent: (
 		request: Request,
 	) => Effect.Effect<
-		{ readonly eventId: string; readonly subscriptionId: string } | null,
+		| { readonly eventId: string; readonly subscriptionId: string }
+		| { readonly eventId: string; readonly prepaid: true }
+		| null,
 		BillingProviderError
 	>;
 	readonly reconcileSubscription: (
