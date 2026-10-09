@@ -1264,5 +1264,11 @@
 	"snapshot_login_detected": "ログイン情報を検出",
 	"snapshot_inspected_user": "検査した Linux ユーザー: {{user}}。",
 	"acp_agents_add_account": "アカウントを追加",
-	"acp_agents_busy_adding_account": "アカウントを追加中…"
+	"acp_agents_busy_adding_account": "アカウントを追加中…",
+	"settings_navigation_experimental": "実験的機能",
+	"settings_page_experimental": "実験的機能",
+	"settings_page_experimental_description": "開発中の早期機能です。変更または削除される場合があります。",
+	"settings_page_thread_list_sidebar": "スレッド一覧サイドバー",
+	"settings_page_thread_list_sidebar_description": "プロジェクトツリーを、すべてのプロジェクトのスレッドを新しい順に並べた 1 つのリストに置き換え、リポジトリ、エージェントのライブ状態、プルリクエストの状態、差分を表示します。プロジェクトは引き続きサイドバーのヘッダーから追加できます。",
+	"settings_page_experimental_sidebar": "サイドバー"
 }

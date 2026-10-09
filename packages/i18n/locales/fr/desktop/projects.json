@@ -322,5 +322,9 @@
 	"github_observation_loading": "Chargement de l’état GitHub…",
 	"github_observation_cached": "État GitHub en cache",
 	"github_observation_incomplete_checks": "Vérifications incomplètes",
-	"github_observation_refreshing": "Actualisation de GitHub…"
+	"github_observation_refreshing": "Actualisation de GitHub…",
+	"projects_sidebar_threads": "Fils",
+	"projects_sidebar_no_threads_yet": "Aucun fil pour le moment",
+	"projects_sidebar_start_a_chat_to_see_it_here": "Démarrez une discussion dans un projet pour la voir ici.",
+	"projects_sidebar_show_all_threads": "Afficher les {{count}} fils"
 }

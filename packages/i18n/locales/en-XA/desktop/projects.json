@@ -316,5 +316,9 @@
 	"github_observation_loading": "⟦Lôôààdïïng GïïtHüüb stààtüüs…⟧",
 	"github_observation_cached": "⟦Cààchëëd GïïtHüüb stààtüüs⟧",
 	"github_observation_incomplete_checks": "⟦Chëëcks ààrëë ïïncôômplëëtëë⟧",
-	"github_observation_refreshing": "⟦Rëëfrëëshïïng GïïtHüüb…⟧"
+	"github_observation_refreshing": "⟦Rëëfrëëshïïng GïïtHüüb…⟧",
+	"projects_sidebar_threads": "⟦Thrëëààds⟧",
+	"projects_sidebar_no_threads_yet": "⟦Nôô thrëëààds yëët⟧",
+	"projects_sidebar_start_a_chat_to_see_it_here": "⟦Stààrt àà chààt ïïn ààny prôôjëëct tôô sëëëë ïït hëërëë.⟧",
+	"projects_sidebar_show_all_threads": "⟦Shôôw ààll {{count}} thrëëààds⟧"
 }

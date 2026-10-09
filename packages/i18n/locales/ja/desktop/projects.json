@@ -316,5 +316,9 @@
 	"github_observation_loading": "GitHub の状態を読み込み中…",
 	"github_observation_cached": "キャッシュ済みの GitHub の状態",
 	"github_observation_incomplete_checks": "チェックが不完全です",
-	"github_observation_refreshing": "GitHub を更新中…"
+	"github_observation_refreshing": "GitHub を更新中…",
+	"projects_sidebar_threads": "スレッド",
+	"projects_sidebar_no_threads_yet": "スレッドはまだありません",
+	"projects_sidebar_start_a_chat_to_see_it_here": "いずれかのプロジェクトでチャットを開始すると、ここに表示されます。",
+	"projects_sidebar_show_all_threads": "{{count}} 件のスレッドをすべて表示"
 }

@@ -316,5 +316,9 @@
 	"github_observation_loading": "正在載入 GitHub 狀態…",
 	"github_observation_cached": "快取的 GitHub 狀態",
 	"github_observation_incomplete_checks": "檢查不完整",
-	"github_observation_refreshing": "正在重新整理 GitHub…"
+	"github_observation_refreshing": "正在重新整理 GitHub…",
+	"projects_sidebar_threads": "執行緒",
+	"projects_sidebar_no_threads_yet": "尚無執行緒",
+	"projects_sidebar_start_a_chat_to_see_it_here": "在任一專案中開始聊天即可在此查看。",
+	"projects_sidebar_show_all_threads": "顯示全部 {{count}} 個執行緒"
 }

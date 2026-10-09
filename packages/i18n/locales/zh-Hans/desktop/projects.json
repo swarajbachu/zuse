@@ -316,5 +316,9 @@
 	"github_observation_loading": "正在加载 GitHub 状态…",
 	"github_observation_cached": "缓存的 GitHub 状态",
 	"github_observation_incomplete_checks": "检查不完整",
-	"github_observation_refreshing": "正在刷新 GitHub…"
+	"github_observation_refreshing": "正在刷新 GitHub…",
+	"projects_sidebar_threads": "线程",
+	"projects_sidebar_no_threads_yet": "暂无线程",
+	"projects_sidebar_start_a_chat_to_see_it_here": "在任意项目中开始聊天即可在此查看。",
+	"projects_sidebar_show_all_threads": "显示全部 {{count}} 个线程"
 }

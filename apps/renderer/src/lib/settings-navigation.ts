@@ -8,6 +8,7 @@ import {
 	CloudIcon,
 	DocumentAttachmentIcon,
 	KeyboardIcon,
+	LabsIcon,
 	PackageIcon,
 	PlugSocketIcon,
 	PuzzleIcon,
@@ -99,6 +100,14 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 		},
 		Icon: KeyboardIcon,
 		section: { kind: "shortcuts" },
+	},
+	{
+		id: "experimental",
+		get label() {
+			return uiMessage("settings:settings_navigation_experimental");
+		},
+		Icon: LabsIcon,
+		section: { kind: "experimental" },
 	},
 	{
 		id: "diagnostics",

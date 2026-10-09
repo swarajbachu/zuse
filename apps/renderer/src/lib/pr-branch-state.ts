@@ -41,3 +41,17 @@ export const diffStatsFor = (
 		: prInfo !== null && (prInfo.additions > 0 || prInfo.deletions > 0)
 			? { additions: prInfo.additions, deletions: prInfo.deletions }
 			: null;
+
+/**
+ * One-word PR lifecycle label shown next to the PR icon ("Open", "Draft",
+ * "Merged", "Conflicts", "Closed"). Check status is carried by the icon's
+ * color, not the word. Null when the branch has no PR.
+ */
+export const prStateLabelFor = (prInfo: GitPrInfo | null): string | null => {
+	if (prInfo === null || prInfo.state === "none") return null;
+	if (prInfo.state === "merged") return "Merged";
+	if (prInfo.state === "closed") return "Closed";
+	if (prInfo.mergeable === "conflicting") return "Conflicts";
+	if (prInfo.isDraft) return "Draft";
+	return "Open";
+};

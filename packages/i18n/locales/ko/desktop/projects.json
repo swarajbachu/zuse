@@ -316,5 +316,9 @@
 	"github_observation_loading": "GitHub 상태 불러오는 중…",
 	"github_observation_cached": "캐시된 GitHub 상태",
 	"github_observation_incomplete_checks": "검사가 불완전함",
-	"github_observation_refreshing": "GitHub 새로 고침 중…"
+	"github_observation_refreshing": "GitHub 새로 고침 중…",
+	"projects_sidebar_threads": "스레드",
+	"projects_sidebar_no_threads_yet": "아직 스레드가 없습니다",
+	"projects_sidebar_start_a_chat_to_see_it_here": "프로젝트에서 채팅을 시작하면 여기에 표시됩니다.",
+	"projects_sidebar_show_all_threads": "스레드 {{count}}개 모두 보기"
 }

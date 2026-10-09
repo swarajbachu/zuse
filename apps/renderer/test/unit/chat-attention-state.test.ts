@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	chatAttentionLabel,
 	deriveChatAttentionState,
 	mergeChatAttentionStates,
 } from "../../src/lib/chat-attention-state.ts";
@@ -101,5 +102,19 @@ describe("mergeChatAttentionStates", () => {
 		expect(mergeChatAttentionStates(["idle", "running", "planReady"])).toBe(
 			"planReady",
 		);
+	});
+});
+
+describe("chatAttentionLabel", () => {
+	it("names each live state for sidebar pills and hover cards", () => {
+		expect(chatAttentionLabel("running")).toBe("Working");
+		expect(chatAttentionLabel("question")).toBe("Awaiting input");
+		expect(chatAttentionLabel("permission")).toBe("Needs approval");
+		expect(chatAttentionLabel("planReady")).toBe("Plan ready");
+		expect(chatAttentionLabel("idle")).toBe("Inactive");
+	});
+
+	it("reports a pending chat creation as starting", () => {
+		expect(chatAttentionLabel("running", true)).toBe("Starting agent");
 	});
 });

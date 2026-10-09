@@ -316,5 +316,9 @@
 	"github_observation_loading": "GitHub-Status wird geladen…",
 	"github_observation_cached": "Gespeicherter GitHub-Status",
 	"github_observation_incomplete_checks": "Prüfungen sind unvollständig",
-	"github_observation_refreshing": "GitHub wird aktualisiert…"
+	"github_observation_refreshing": "GitHub wird aktualisiert…",
+	"projects_sidebar_threads": "Threads",
+	"projects_sidebar_no_threads_yet": "Noch keine Threads",
+	"projects_sidebar_start_a_chat_to_see_it_here": "Starten Sie einen Chat in einem Projekt, um ihn hier zu sehen.",
+	"projects_sidebar_show_all_threads": "Alle {{count}} Threads anzeigen"
 }
