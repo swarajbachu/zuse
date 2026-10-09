@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeServices } from "@effect/platform-node";
@@ -9,6 +9,7 @@ import { Effect, Fiber, Layer, ManagedRuntime, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { AppPaths } from "../../src/app-paths.ts";
+import { PermissionAuditLogLive } from "../../src/provider/layers/permission-audit.ts";
 import { PermissionServiceLive } from "../../src/provider/layers/permission-service.ts";
 import type { PermissionServiceShape } from "../../src/provider/services/permission-service.ts";
 import { PermissionService } from "../../src/provider/services/permission-service.ts";
@@ -28,11 +29,13 @@ const makeRuntime = (filename: string, userData: string) => {
 		Layer.provide(sql),
 		Layer.provide(NodeServices.layer),
 	);
+	const paths = Layer.succeed(AppPaths, { userData });
 	return ManagedRuntime.make(
 		PermissionServiceLive.pipe(
 			Layer.provideMerge(domain),
 			Layer.provideMerge(sql),
-			Layer.provide(Layer.succeed(AppPaths, { userData })),
+			Layer.provideMerge(paths),
+			Layer.provideMerge(PermissionAuditLogLive.pipe(Layer.provide(paths))),
 		),
 	);
 };
@@ -451,6 +454,158 @@ describe("PermissionService restart recovery", () => {
 			expect(settlements?.count).toBe(1);
 		} finally {
 			await secondRestart.dispose();
+		}
+	});
+});
+
+describe("PermissionService grant audit trail", () => {
+	const permissionRequests = (
+		stream: ReturnType<PermissionServiceShape["requests"]>,
+	) =>
+		stream.pipe(
+			Stream.flatMap((change) =>
+				change._tag === "snapshot"
+					? Stream.fromIterable(change.requests)
+					: change._tag === "change"
+						? Stream.succeed(change.request)
+						: Stream.empty,
+			),
+		);
+
+	const auditLines = (userData: string): Record<string, unknown>[] =>
+		readFileSync(join(userData, "audit", "permission-grants.jsonl"), "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line) as Record<string, unknown>);
+
+	test("every decided prompt appends exactly one JSONL grant line", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-permission-audit-"));
+		directories.push(directory);
+		const filename = join(directory, "test.sqlite");
+		const schemaRuntime = ManagedRuntime.make(sqliteLayer({ filename }));
+		await schemaRuntime.runPromise(createSchema);
+		await schemaRuntime.dispose();
+		const runtime = makeRuntime(filename, directory);
+		try {
+			await runtime.runPromise(createSession);
+			await runtime.runPromise(
+				Effect.flatMap(
+					SqlClient.SqlClient,
+					(sql) =>
+						sql`UPDATE sessions SET worktree_id = 'wt-1' WHERE id = 'session-1'`,
+				),
+			);
+
+			const callback = runtime.runFork(
+				Effect.flatMap(PermissionService, (service) =>
+					service.request(
+						SessionId.make("session-1"),
+						{ _tag: "Bash", command: "rm -rf build" },
+						{ projectId: FolderId.make("project-1") },
+					),
+				),
+			);
+			const [published] = await runtime.runPromise(
+				Effect.flatMap(PermissionService, (service) =>
+					permissionRequests(service.requests()).pipe(
+						Stream.filter((request) => request.recoveryState === undefined),
+						Stream.take(1),
+						Stream.runCollect,
+					),
+				),
+			);
+			await runtime.runPromise(
+				Effect.flatMap(PermissionService, (service) =>
+					service.decide(published?.id ?? "missing", {
+						_tag: "AlwaysAllow",
+						scope: "folder",
+					}),
+				),
+			);
+			expect(
+				await Effect.runPromise(
+					Fiber.join(callback).pipe(Effect.timeout(1_000)),
+				),
+			).toEqual({ _tag: "AlwaysAllow", scope: "folder" });
+
+			const grants = auditLines(directory);
+			expect(grants).toHaveLength(1);
+			expect(grants[0]).toMatchObject({
+				requestId: published?.id,
+				sessionId: "session-1",
+				chatId: "chat-1",
+				projectId: "project-1",
+				worktreeId: "wt-1",
+				providerId: "claude",
+				kind: "Bash",
+				tool: null,
+				decision: "AlwaysAllow",
+				scope: "folder",
+				target: "rm -rf build",
+				forcePrompt: false,
+			});
+			expect(typeof grants[0]?.at).toBe("string");
+			expect(typeof grants[0]?.requestedAt).toBe("string");
+
+			// Applying the saved grant to a repeat request is not a new decision —
+			// the audit trail still holds exactly the one grant line.
+			expect(
+				await runtime.runPromise(
+					Effect.flatMap(PermissionService, (service) =>
+						service.request(
+							SessionId.make("session-1"),
+							{ _tag: "Bash", command: "rm -rf build" },
+							{ projectId: FolderId.make("project-1") },
+						),
+					),
+				),
+			).toEqual({ _tag: "AllowOnce" });
+			expect(auditLines(directory)).toHaveLength(1);
+
+			// A denial is audited too, with the unclassified tool as the source.
+			const denied = runtime.runFork(
+				Effect.flatMap(PermissionService, (service) =>
+					service.request(
+						SessionId.make("session-1"),
+						{
+							_tag: "Other",
+							tool: "orchestration_spawn",
+							summary: "spawn a subagent",
+						},
+						{ projectId: FolderId.make("project-1") },
+					),
+				),
+			);
+			const [denyPrompt] = await runtime.runPromise(
+				Effect.flatMap(PermissionService, (service) =>
+					permissionRequests(service.requests()).pipe(
+						Stream.filter((request) => request.id !== published?.id),
+						Stream.take(1),
+						Stream.runCollect,
+					),
+				),
+			);
+			await runtime.runPromise(
+				Effect.flatMap(PermissionService, (service) =>
+					service.decide(denyPrompt?.id ?? "missing", { _tag: "Deny" }),
+				),
+			);
+			expect(
+				await Effect.runPromise(Fiber.join(denied).pipe(Effect.timeout(1_000))),
+			).toEqual({ _tag: "Deny" });
+			const all = auditLines(directory);
+			expect(all).toHaveLength(2);
+			expect(all[1]).toMatchObject({
+				requestId: denyPrompt?.id,
+				sessionId: "session-1",
+				kind: "Other",
+				tool: "orchestration_spawn",
+				decision: "Deny",
+				scope: "session",
+				target: "orchestration_spawn:spawn a subagent",
+			});
+		} finally {
+			await runtime.dispose();
 		}
 	});
 });

@@ -79,6 +79,7 @@ import { SqliteLive } from "./persistence/sqlite.ts";
 import { PokemonServiceLive } from "./pokemon/layers/pokemon-service.ts";
 import { AcpAgentServiceLive } from "./provider/acp/service.ts";
 import { BrowserBridgeServiceLive } from "./provider/layers/browser-bridge-service.ts";
+import { PermissionAuditLogLive } from "./provider/layers/permission-audit.ts";
 import { PermissionServiceLive } from "./provider/layers/permission-service.ts";
 import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
 import type { CredentialsService } from "./provider/services/credentials-service.ts";
@@ -431,6 +432,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 		Layer.provide(AppPathsLayer),
 		Layer.provide(SessionDomainLayer),
+		// Every decided prompt is also appended to the grant audit trail
+		// under userData — see PermissionAuditLogLive.
+		Layer.provide(PermissionAuditLogLive.pipe(Layer.provide(AppPathsLayer))),
 	);
 
 	// BrowserBridge brokers between the in-process browser MCP tools (driver
