@@ -474,3 +474,94 @@ it("keeps an unbound workspace link selected while hosted projects load", async 
 	);
 	expect(useWorkspaceStore.getState().selectedFolderId).toBeNull();
 });
+
+it("reuses an authenticated live workspace connection without a control-plane lookup", async () => {
+	observeRendererAccount("live-tab-owner");
+	stageCloudChat(summary, FolderId.make("project"));
+	vi.spyOn(getRendererClientBus(), "connection").mockReturnValue({
+		environmentId: EnvironmentId.make(summary.workspaceId),
+		phase: "connected",
+		generation: 1,
+		error: null,
+	});
+	try {
+		await expect(
+			ensureCloudWorkspaceAttached(summary),
+		).resolves.toBeUndefined();
+		expect(mocks.get).not.toHaveBeenCalled();
+		expect(mocks.connect).not.toHaveBeenCalled();
+		expect(mocks.resume).not.toHaveBeenCalled();
+	} finally {
+		vi.restoreAllMocks();
+	}
+});
+
+it("does not reuse a live workspace from a signed-out account", async () => {
+	observeRendererAccount("previous-tab-owner");
+	stageCloudChat(summary, FolderId.make("project"));
+	vi.spyOn(getRendererClientBus(), "connection").mockReturnValue({
+		environmentId: EnvironmentId.make(summary.workspaceId),
+		phase: "connected",
+		generation: 1,
+		error: null,
+	});
+	observeRendererAccount("different-tab-owner");
+	mocks.get.mockReturnValue(Effect.fail(new Error("check new owner")));
+	try {
+		await expect(ensureCloudWorkspaceAttached(summary)).rejects.toThrow(
+			"check new owner",
+		);
+		expect(mocks.get).toHaveBeenCalledOnce();
+	} finally {
+		vi.restoreAllMocks();
+	}
+});
+
+it.each([
+	"dormant",
+	"reconnecting",
+	"blocked-auth",
+	"revoked",
+	"update-required",
+] as const)("keeps the normal attachment path for a %s connection", async (phase) => {
+	observeRendererAccount("unattached-tab-owner");
+	stageCloudChat(summary, FolderId.make("project"));
+	vi.spyOn(getRendererClientBus(), "connection").mockReturnValue({
+		environmentId: EnvironmentId.make(summary.workspaceId),
+		phase,
+		generation: 1,
+		error: null,
+	});
+	mocks.get.mockReturnValue(Effect.fail(new Error("normal attachment")));
+	try {
+		await expect(ensureCloudWorkspaceAttached(summary)).rejects.toThrow(
+			"normal attachment",
+		);
+		expect(mocks.get).toHaveBeenCalledOnce();
+	} finally {
+		vi.restoreAllMocks();
+	}
+});
+
+it("does not reuse a connected transport when the catalog says compute is paused", async () => {
+	observeRendererAccount("paused-tab-owner");
+	stageCloudChat(
+		{ ...summary, state: "paused", desiredState: "paused" },
+		FolderId.make("project"),
+	);
+	vi.spyOn(getRendererClientBus(), "connection").mockReturnValue({
+		environmentId: EnvironmentId.make(summary.workspaceId),
+		phase: "connected",
+		generation: 1,
+		error: null,
+	});
+	mocks.get.mockReturnValue(Effect.fail(new Error("check paused compute")));
+	try {
+		await expect(ensureCloudWorkspaceAttached(summary)).rejects.toThrow(
+			"check paused compute",
+		);
+		expect(mocks.get).toHaveBeenCalledOnce();
+	} finally {
+		vi.restoreAllMocks();
+	}
+});

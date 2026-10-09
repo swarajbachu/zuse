@@ -7,6 +7,13 @@ import {
 } from "@zuse/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const preparation = vi.hoisted(() => ({
+	resolveMode: vi.fn(async () => "full-access"),
+}));
+vi.mock("../../src/lib/auto-worktree.ts", () => ({
+	resolveChatRuntimeMode: preparation.resolveMode,
+}));
+
 const canonical = vi.hoisted(() => ({
 	sessionsByProject: {} as Record<string, ReadonlyArray<Session>>,
 }));
@@ -74,6 +81,7 @@ const initialProvidersState = useProvidersStore.getInitialState();
 describe("closing chat tabs", () => {
 	beforeEach(() => {
 		canonical.sessionsByProject = {};
+		preparation.resolveMode.mockClear();
 		useSessionsStore.setState(initialSessionsState, true);
 		useProvidersStore.setState(initialProvidersState, true);
 	});
@@ -142,6 +150,27 @@ describe("closing chat tabs", () => {
 			runtimeMode: "full-access",
 		});
 		expect(archive).not.toHaveBeenCalled();
+	});
+
+	it("resolves tab preferences while provider discovery is still pending", async () => {
+		const active = session("session-pending", 0);
+		let release!: () => void;
+		const availability = new Promise<void>((done) => {
+			release = done;
+		});
+		canonical.sessionsByProject = { [projectId]: [active] };
+		useProvidersStore.setState({ loadFor: vi.fn(() => availability) });
+		const pending = closeChatTab(active.id);
+		try {
+			await Promise.resolve();
+			expect(preparation.resolveMode).toHaveBeenCalledWith(
+				EnvironmentId.make("local"),
+				projectId,
+			);
+		} finally {
+			release();
+			await pending;
+		}
 	});
 
 	it("archives the final tab only after its replacement exists", async () => {

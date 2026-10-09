@@ -562,6 +562,17 @@ export const ensureCloudWorkspaceAttached = (
 	activation: "connect" | "wake" = "wake",
 ): Promise<void> => {
 	const account = rendererAccountSnapshot();
+	// A live, account-owned runtime already authorizes each command. Reuse it
+	// instead of minting another gateway ticket for every tab or action.
+	const registered = registeredCloudEnvironments.get(summary.workspaceId);
+	if (
+		registered !== undefined &&
+		isCloudWorkspaceReady(registered) &&
+		registered.desiredState === "ready" &&
+		getRendererClientBus().connection(EnvironmentId.make(summary.workspaceId))
+			.phase === "connected"
+	)
+		return Promise.resolve();
 	const existing = attaching.get(summary.workspaceId);
 	if (existing !== undefined && existing.account === account) {
 		if (existing.activation === "wake" || activation === "connect") {
