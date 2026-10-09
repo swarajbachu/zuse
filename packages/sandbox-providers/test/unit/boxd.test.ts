@@ -1671,6 +1671,7 @@ test("custom snapshot version mismatch is rejected before runtime preparation", 
 			...createInput,
 			snapshotId: "immutable-source",
 			snapshotVersion: 999,
+			deferWorkspaceReadiness: true,
 		}),
 	);
 	expect(result.code).toBe("rejected");
@@ -1757,4 +1758,182 @@ describe("boxd completed usage", () => {
 			usage.mockRestore();
 		}
 	});
+});
+const preparedAdapter = (client: FakeBoxd) => {
+	const adapter = makeAdapter(client);
+	if (!adapter.startWorkspaceRuntime || !adapter.prepareWorkspaceSnapshot)
+		throw new Error("Boxd capabilities missing");
+	return {
+		startWorkspaceRuntime: adapter.startWorkspaceRuntime,
+		prepareWorkspaceSnapshot: adapter.prepareWorkspaceSnapshot,
+	};
+};
+describe("prepared workspace runtime", () => {
+	const files = [
+		{
+			path: "/var/lib/zuse/project-build/workspace-bootstrap.sh",
+			contents: "bootstrap",
+		},
+	];
+	const input = {
+		command: "/bin/bash",
+		args: ["/var/lib/zuse/project-build/workspace-bootstrap.sh"],
+		tag: "zuse-runtime",
+		user: "zuse",
+		env: { ZUSE_CLOUD_WORKSPACE_ID: "workspace-1" },
+	};
+	test("activates preserved runtime without uploads or launching a second process", async () => {
+		const client = new FakeBoxd();
+		client.store.set("machine-1", machineOf({ id: "machine-1" }));
+		client.execResults = [exit(0, "active")];
+		await run(
+			preparedAdapter(client).startWorkspaceRuntime("machine-1", input, files),
+		);
+		expect(client.uploads).toHaveLength(0);
+		expect(client.execs).toHaveLength(1);
+		expect(client.execs[0]?.params.command).toContain("activate");
+	});
+	test.each([
+		3, 4,
+	])("cold fallback for unavailable or incompatible snapshot (%s)", async (code) => {
+		const client = new FakeBoxd();
+		client.store.set("machine-1", machineOf({ id: "machine-1" }));
+		client.execResults = [exit(code)];
+		await run(
+			preparedAdapter(client).startWorkspaceRuntime("machine-1", input, files),
+		);
+		expect(client.uploads).toHaveLength(1);
+		expect(client.execs.length).toBeGreaterThan(1);
+	});
+	test("ambiguous activation failure never launches a second writer", async () => {
+		const client = new FakeBoxd();
+		client.store.set("machine-1", machineOf({ id: "machine-1" }));
+		client.execResults = [exit(2)];
+		await expect(
+			run(
+				preparedAdapter(client).startWorkspaceRuntime(
+					"machine-1",
+					input,
+					files,
+				),
+			),
+		).rejects.toThrow();
+		expect(client.uploads).toHaveLength(0);
+		expect(client.execs).toHaveLength(1);
+	});
+	test("older runtime bundles keep ordinary snapshot behavior", async () => {
+		const client = new FakeBoxd();
+		client.store.set("machine-1", machineOf({ id: "machine-1" }));
+		client.execResults = [exit(1)];
+		await run(
+			preparedAdapter(client).prepareWorkspaceSnapshot("machine-1", files),
+		);
+		expect(client.uploads).toHaveLength(0);
+		expect(client.execs).toHaveLength(1);
+	});
+});
+
+test("prepared snapshot refuses existing runtime data", async () => {
+	const client = new FakeBoxd();
+	client.store.set("machine-1", machineOf({ id: "machine-1" }));
+	client.execResults = [
+		exit(0, "boxd-runtime-1"),
+		exit(0, "/var/lib/zuse/user-data/zuse.sqlite"),
+	];
+	await expect(
+		run(preparedAdapter(client).prepareWorkspaceSnapshot("machine-1", [])),
+	).rejects.toThrow();
+	expect(client.uploads).toHaveLength(0);
+	expect(client.execs).toHaveLength(2);
+});
+test("prepared snapshot refuses an already active workspace", async () => {
+	const client = new FakeBoxd();
+	client.store.set("machine-1", machineOf({ id: "machine-1" }));
+	client.execResults = [exit(0, "boxd-runtime-1"), exit(0), exit(0, "active")];
+	await expect(
+		run(preparedAdapter(client).prepareWorkspaceSnapshot("machine-1", [])),
+	).rejects.toThrow();
+	expect(client.uploads).toHaveLength(0);
+	expect(client.execs).toHaveLength(3);
+});
+
+test("workspace allocation defers redundant checks to activation", async () => {
+	const client = new FakeBoxd();
+	const adapter = makeAdapter(client);
+	const machine = await run(
+		adapter.fork({
+			...createInput,
+			snapshotId: "prepared-image",
+			deferWorkspaceReadiness: true,
+		}),
+	);
+	expect(client.calls.map((call) => call.method)).toEqual([
+		"machines.create",
+		"machines.setAutoHibernateTimeout",
+	]);
+	client.execResults = [exit(0, "active")];
+	await run(
+		preparedAdapter(client).startWorkspaceRuntime(
+			machine.providerSandboxId,
+			{ command: "/bin/bash", args: ["/bootstrap.sh"], tag: "zuse-runtime" },
+			[],
+		),
+	);
+	expect(client.execs).toHaveLength(1);
+	expect(client.methods("machines.waitUntilReady")).toHaveLength(0);
+});
+test("deferred workspace allocation still fences resize reboots", async () => {
+	const client = new FakeBoxd();
+	await run(
+		makeAdapter(client).fork({
+			...createInput,
+			snapshotId: "prepared-image",
+			sizeId: "small",
+			deferWorkspaceReadiness: true,
+		}),
+	);
+	expect(client.methods("machines.resize")).toHaveLength(1);
+	expect(client.methods("machines.waitUntilReady")).toHaveLength(2);
+});
+test("activation retries transient transport errors without another process launch", async () => {
+	const client = new FakeBoxd();
+	client.store.set("machine-1", machineOf({ id: "machine-1" }));
+	client.fail("machines.exec", new APIConnectionError("not ready"));
+	client.execResults = [exit(0, "active")];
+	await run(
+		preparedAdapter(client).startWorkspaceRuntime(
+			"machine-1",
+			{ command: "/bin/bash", tag: "zuse-runtime" },
+			[],
+		),
+	);
+	expect(client.methods("machines.exec")).toHaveLength(2);
+	expect(client.uploads).toHaveLength(0);
+});
+
+test("idempotent allocation wakes a paused machine after a lost create response", async () => {
+	const client = new FakeBoxd();
+	client.set(
+		machineOf({
+			id: "already-created",
+			name: boxdMachineName(createInput.providerLabel),
+			status: "hibernated",
+		}),
+	);
+	client.fail("machines.create", new ConflictError("name is already taken", 6));
+	const machine = await run(
+		makeAdapter(client).create({
+			...createInput,
+			deferWorkspaceReadiness: true,
+		}),
+	);
+	expect(machine.providerSandboxId).toBe("already-created");
+	expect(client.methods("machines.wake")).toHaveLength(1);
+	expect(client.methods("machines.delete")).toHaveLength(0);
+});
+
+test("custom runtime users retain the normal startup path", () => {
+	const provider = makeAdapter(new FakeBoxd(), { runtimeUser: "developer" });
+	expect(provider.prepareWorkspaceSnapshot).toBeUndefined();
+	expect(provider.startWorkspaceRuntime).toBeUndefined();
 });

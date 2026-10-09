@@ -91,6 +91,41 @@ const fixture = async () => {
 };
 
 describe("CloudCodexAuth", () => {
+	test("closing during background initialization discards the late grant", async () => {
+		const { pair, credentialPublicJwk, keyThumbprint } = await fixture();
+		let release!: () => void;
+		const waiting = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let issued!: () => void;
+		const started = new Promise<void>((resolve) => {
+			issued = resolve;
+		});
+		const statuses: string[] = [];
+		const auth = new CloudCodexAuth({
+			zuseAccountId: "account-1",
+			workspaceId: "workspace-1",
+			runtimeGeneration: 4,
+			credentialPublicJwk,
+			credentialPrivateKey: pair.privateKey,
+			issueGrant: async (request) => {
+				issued();
+				await waiting;
+				return seal({ request, publicKey: pair.publicKey, keyThumbprint });
+			},
+			onStatus: (status) => statuses.push(status),
+		});
+		const initializing = auth.initialize();
+		await started;
+		auth.close();
+		release();
+		await expect(initializing).rejects.toThrow("codex-auth-closed");
+		await expect(auth.getTokens({ reason: "initial" })).rejects.toThrow(
+			"codex-auth-closed",
+		);
+		expect(statuses).toEqual(["codex-auth-reconnecting"]);
+	});
+
 	test("decrypts fenced grants and single-flights concurrent refreshes", async () => {
 		const { pair, credentialPublicJwk, keyThumbprint } = await fixture();
 		let issueCount = 0;

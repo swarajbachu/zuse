@@ -69,6 +69,11 @@ export interface SandboxProcessSelector {
 	readonly legacyCleanup?: "matching-command";
 }
 
+export interface SandboxRuntimeFile {
+	readonly path: string;
+	readonly contents: string;
+}
+
 /** Provider-reported list-price usage for one exact time window. */
 export interface ProviderSandboxUsage {
 	/** Original provider evidence for settlement audits. */
@@ -90,11 +95,24 @@ export interface SandboxProviderCredentials {
 	readonly runtimeUser?: string;
 }
 
+export interface SandboxLocalServiceRequest {
+	readonly descriptorPath: string;
+	readonly expectedIncarnation: string;
+	readonly port: number;
+	readonly path: string;
+	readonly body: string;
+}
+
 export interface SandboxProviderAdapter {
 	/** Rebind infrastructure access without changing the provider identity. */
 	readonly withCredentials?: (
 		credentials: SandboxProviderCredentials,
 	) => SandboxProviderAdapter;
+	/** Provider control-channel request to a guest-local authenticated service. */
+	readonly requestLocalService?: (
+		providerSandboxId: string,
+		request: SandboxLocalServiceRequest,
+	) => Effect.Effect<string, SandboxProviderError>;
 	readonly providerId: string;
 	readonly displayName: string;
 	readonly getUsage?: (
@@ -108,10 +126,22 @@ export interface SandboxProviderAdapter {
 	readonly resources: SandboxProviderResources;
 	/** Whether pause/resume preserves the runtime process. */
 	readonly preservesProcessesOnResume: boolean;
+	/** Boxd-only prepared-image support; absent providers retain cold startup. */
+	readonly prepareWorkspaceSnapshot?: (
+		providerSandboxId: string,
+		files: ReadonlyArray<SandboxRuntimeFile>,
+	) => Effect.Effect<void, SandboxProviderError>;
+	readonly startWorkspaceRuntime?: (
+		providerSandboxId: string,
+		input: SandboxProcessInput,
+		files: ReadonlyArray<SandboxRuntimeFile>,
+	) => Effect.Effect<void, SandboxProviderError>;
 	// The placement choices this provider advertises. Providers with one fixed
 	// profile expose a single entry matching `resources`.
 	readonly sizes: ReadonlyArray<SandboxProviderSize>;
 	readonly create: (input: {
+		/** A capable startWorkspaceRuntime confirms readiness during activation. */
+		readonly deferWorkspaceReadiness?: boolean;
 		readonly sandboxId: string;
 		readonly providerLabel: string;
 		readonly metadata?: Readonly<Record<string, string>>;
@@ -122,6 +152,8 @@ export interface SandboxProviderAdapter {
 		readonly onTimeout: "pause" | "terminate";
 	}) => Effect.Effect<ProviderSandbox, SandboxProviderError>;
 	readonly fork: (input: {
+		/** A capable startWorkspaceRuntime confirms readiness during activation. */
+		readonly deferWorkspaceReadiness?: boolean;
 		readonly sandboxId: string;
 		readonly providerLabel: string;
 		readonly metadata?: Readonly<Record<string, string>>;

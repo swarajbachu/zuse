@@ -88,6 +88,7 @@ const decodeGrantPlaintext = (value: unknown): CodexGrantPlaintext => {
  * single-flight and every grant is generation/key/account fenced.
  */
 export class CloudCodexAuth implements CodexExternalAuthProvider {
+	private closed = false;
 	private cached: CodexChatgptAuthTokens | null = null;
 	private inFlight: Promise<CodexChatgptAuthTokens> | null = null;
 	private proactiveTimer: NodeJS.Timeout | null = null;
@@ -106,6 +107,7 @@ export class CloudCodexAuth implements CodexExternalAuthProvider {
 		readonly reason: CodexGrantRefreshReason;
 		readonly previousChatgptAccountId?: string;
 	}): Promise<CodexChatgptAuthTokens> => {
+		if (this.closed) return Promise.reject(new Error("codex-auth-closed"));
 		const nowMs = Date.now();
 		if (
 			request.reason !== "unauthorized" &&
@@ -126,6 +128,7 @@ export class CloudCodexAuth implements CodexExternalAuthProvider {
 	}
 
 	close(): void {
+		this.closed = true;
 		if (this.proactiveTimer !== null) clearTimeout(this.proactiveTimer);
 		if (this.recoveryTimer !== null) clearTimeout(this.recoveryTimer);
 		this.proactiveTimer = null;
@@ -139,6 +142,7 @@ export class CloudCodexAuth implements CodexExternalAuthProvider {
 		readonly consumerId?: string;
 		readonly reason: string;
 	}): void => {
+		if (this.closed) return;
 		if (input.consumerId !== undefined)
 			this.blockedConsumers.add(input.consumerId);
 		this.recoveryPending = true;
@@ -204,6 +208,7 @@ export class CloudCodexAuth implements CodexExternalAuthProvider {
 				chatgptPlanType: grant.chatgptPlanType,
 				expiresAt: grant.expiresAt,
 			};
+			if (this.closed) throw new Error("codex-auth-closed");
 			this.cached = tokens;
 			this.scheduleProactiveRefresh(tokens.expiresAt);
 			if (this.recoveryTimer !== null) {
@@ -219,6 +224,7 @@ export class CloudCodexAuth implements CodexExternalAuthProvider {
 			this.input.onStatus?.("ready");
 			return tokens;
 		} catch (cause) {
+			if (this.closed) throw cause;
 			const reason = failureReason(cause);
 			const status = reason.includes("reconnect-required")
 				? "codex-auth-reconnect-required"

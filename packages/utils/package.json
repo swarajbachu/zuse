@@ -12,6 +12,7 @@
 		"./dither-background": "./src/dither-background.ts",
 		"./github-installation": "./src/github-installation.ts",
 		"./site-favicon": "./src/site-favicon.ts",
+		"./boxd-runtime-protocol": "./src/boxd-runtime-protocol.ts",
 		"./cloud-timing": "./src/cloud-timing.ts",
 		"./cloud-api": "./src/cloud-api.ts",
 		"./cloud-transcript-crypto": "./src/cloud-transcript-crypto.ts",

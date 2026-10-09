@@ -11,10 +11,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import {
-	beforeCodexExternalAuthDeadline,
-	setDefaultCodexExternalAuthProvider,
-} from "@zuse/agents/drivers/codex-app-server-client";
+import { setDefaultCodexExternalAuthProvider } from "@zuse/agents/drivers/codex-app-server-client";
 import { setDefaultDeviceCommandClient } from "@zuse/agents/drivers/device-command-tools";
 import {
 	createHttpPluginClient,
@@ -258,6 +255,36 @@ const fail = (reason: string, httpStatus?: number) =>
 	new CloudWorkspaceRuntimeError({
 		reason,
 		...(httpStatus === undefined ? {} : { httpStatus }),
+	});
+
+/** Install auth before starting its grant request, without blocking workspace readiness. */
+export const startCloudCodexAuth = <E, R>(
+	workspaceId: string,
+	auth: Pick<
+		CloudCodexAuth,
+		"initialize" | "close" | "getTokens" | "onDeliveryFailure"
+	>,
+	onReady: Effect.Effect<unknown, E, R>,
+) =>
+	Effect.gen(function* () {
+		yield* Effect.acquireRelease(
+			Effect.sync(() => setDefaultCodexExternalAuthProvider(auth)),
+			() =>
+				Effect.sync(() => {
+					auth.close();
+					setDefaultCodexExternalAuthProvider(null);
+				}),
+		);
+		yield* Effect.tryPromise({
+			try: () => auth.initialize(),
+			catch: () => fail("codex-auth-reconnecting"),
+		}).pipe(
+			measureCloudStage({ workspaceId }, "runtime.codex-auth"),
+			Effect.andThen(onReady),
+			// The resolver retains the precise reconnect/update status for agents.
+			Effect.catch(() => Effect.void),
+			Effect.forkScoped({ startImmediately: true }),
+		);
 	});
 
 /** A capped, jittered retry policy shared by enrollment and gateway recovery. */
@@ -2683,6 +2710,10 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					if (bootstrap.codexAuthMode === "broker-v1") {
 						if (bootstrap.zuseAccountId === undefined)
 							return yield* Effect.fail(fail("codex-auth-update-required"));
+						const codexAuthAbort = new AbortController();
+						yield* Effect.addFinalizer(() =>
+							Effect.sync(() => codexAuthAbort.abort()),
+						);
 						const cloudCodexAuth = new CloudCodexAuth({
 							zuseAccountId: bootstrap.zuseAccountId,
 							workspaceId: config.workspaceId,
@@ -2712,6 +2743,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 											schedule: cloudRuntimeRetrySchedule,
 										}),
 									),
+									{ signal: codexAuthAbort.signal },
 								),
 							onStatus: (status) =>
 								console.info("[cloud-codex-auth] status", { status }),
@@ -2733,55 +2765,15 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								);
 							},
 						});
-						yield* Effect.acquireRelease(
-							Effect.tryPromise({
-								try: async () => {
-									let initialized = false;
-									try {
-										await beforeCodexExternalAuthDeadline(
-											cloudCodexAuth.initialize(),
-										);
-										initialized = true;
-									} catch (cause) {
-										const reason =
-											typeof cause === "object" &&
-											cause !== null &&
-											"reason" in cause &&
-											typeof cause.reason === "string"
-												? cause.reason
-												: cause instanceof Error
-													? cause.message
-													: "codex-auth-reconnecting";
-										if (reason === "codex-auth-update-required") throw cause;
-										console.warn("[cloud-codex-auth] initial grant deferred", {
-											reason,
-										});
-									}
-									setDefaultCodexExternalAuthProvider(cloudCodexAuth);
-									if (initialized) {
-										void Effect.runPromise(
-											recoverProviderAuthFailedSessions({
-												workspaces,
-												sessions,
-												messages,
-												providerId: "codex",
-											}).pipe(Effect.catch(() => Effect.void)),
-										);
-									}
-									return cloudCodexAuth;
-								},
-								catch: (cause) =>
-									fail(
-										cause instanceof Error
-											? cause.message
-											: "codex-auth-reconnecting",
-									),
+						yield* startCloudCodexAuth(
+							config.workspaceId,
+							cloudCodexAuth,
+							recoverProviderAuthFailedSessions({
+								workspaces,
+								sessions,
+								messages,
+								providerId: "codex",
 							}),
-							(auth) =>
-								Effect.sync(() => {
-									auth.close();
-									setDefaultCodexExternalAuthProvider(null);
-								}),
 						);
 					}
 					const postCurrentRuntimeReady = (

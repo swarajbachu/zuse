@@ -137,6 +137,10 @@ const WORKSPACE_BOOTSTRAP_FILE =
 const GITHUB_AUTH_FILE = "/var/lib/zuse/project-build/github-auth.sh";
 const WORKSPACE_REPOSITORY_FILE =
 	"/var/lib/zuse/project-build/workspace-repository.sh";
+const WORKSPACE_RUNTIME_FILES = [
+	{ path: WORKSPACE_BOOTSTRAP_FILE, contents: WORKSPACE_BOOTSTRAP_SOURCE },
+	{ path: WORKSPACE_REPOSITORY_FILE, contents: WORKSPACE_REPOSITORY_SOURCE },
+];
 const WORKSPACE_CREDENTIALS_READY_MARKER =
 	"/var/lib/zuse/workspace/credentials-ready";
 const WORKSPACE_START_OBSERVATION_INTERVAL_MS = 250;
@@ -1244,6 +1248,11 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 				`${project.projectId}-${build.buildId}`,
 				nowMs,
 			);
+			if (build.snapshotId === undefined && provider.prepareWorkspaceSnapshot)
+				yield* provider.prepareWorkspaceSnapshot(
+					providerSandboxId,
+					WORKSPACE_RUNTIME_FILES,
+				);
 			const snapshotId =
 				build.snapshotId ??
 				(yield* provider
@@ -2063,6 +2072,19 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				build.snapshotId !== undefined &&
 				(importedSnapshot(build) ||
 					build.templateVersion === provider.templateVersion);
+			// Boxd create is name-idempotent; preserve explicit recovery for resumes.
+			const canActivatePreparedWorkspace =
+				!importedSnapshot(build) &&
+				machineFork === undefined &&
+				config.runtimeManifestUrl === undefined &&
+				provider.providerId === "boxd" &&
+				provider.startWorkspaceRuntime !== undefined;
+			const directCreate =
+				!importedSnapshot(build) &&
+				machineFork === undefined &&
+				provider.providerId === "boxd" &&
+				workspace.statusCode === "start-queued" &&
+				workspace.providerSandboxId === undefined;
 			const allocate = Effect.gen(function* () {
 				if (
 					replacingFailedSandbox &&
@@ -2079,18 +2101,19 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 						.kill(workspace.providerSandboxId)
 						.pipe(withSnapshotLeaseCheck);
 				}
-				const recovered = !replacingFailedSandbox
-					? yield* provider.recoverByLabel(label).pipe(
-							withSnapshotLeaseCheck,
-							measureCloudStage(
-								{
-									workspaceId: workspace.workspaceId,
-									provider: provider.providerId,
-								},
-								"provider.recoverByLabel",
-							),
-						)
-					: null;
+				const recovered =
+					!replacingFailedSandbox && !directCreate
+						? yield* provider.recoverByLabel(label).pipe(
+								withSnapshotLeaseCheck,
+								measureCloudStage(
+									{
+										workspaceId: workspace.workspaceId,
+										provider: provider.providerId,
+									},
+									"provider.recoverByLabel",
+								),
+							)
+						: null;
 				if (
 					recovered === null &&
 					preparedSnapshotAvailable &&
@@ -2115,6 +2138,9 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 							? yield* provider
 									.fork({
 										sandboxId: workspace.workspaceId,
+										...(canActivatePreparedWorkspace
+											? { deferWorkspaceReadiness: true }
+											: {}),
 										providerLabel: label,
 										metadata: {
 											"zuse-account-id": workspace.accountId,
@@ -2150,6 +2176,9 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 									)
 							: yield* provider.create({
 									sandboxId: workspace.workspaceId,
+									...(canActivatePreparedWorkspace
+										? { deferWorkspaceReadiness: true }
+										: {}),
 									providerLabel: label,
 									metadata: {
 										"zuse-account-id": workspace.accountId,
@@ -2198,7 +2227,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					"pause",
 					workspaceSizeId(workspace),
 				);
-			else
+			else if (recovered !== null || provider.providerId !== "boxd")
 				yield* provider.extendTimeout(
 					sandbox.providerSandboxId,
 					config.keepAliveTimeoutSeconds,
@@ -2316,18 +2345,6 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 						cloudWorkspaceLayout(workspace).user,
 						cloudWorkspaceLayout(workspace).snapshot,
 					),
-					provider.writeTextFile(
-						sandbox.providerSandboxId,
-						WORKSPACE_BOOTSTRAP_FILE,
-						WORKSPACE_BOOTSTRAP_SOURCE,
-						cloudWorkspaceLayout(workspace).user,
-					),
-					provider.writeTextFile(
-						sandbox.providerSandboxId,
-						WORKSPACE_REPOSITORY_FILE,
-						WORKSPACE_REPOSITORY_SOURCE,
-						cloudWorkspaceLayout(workspace).user,
-					),
 				],
 				{ concurrency: "unbounded", discard: true },
 			);
@@ -2364,14 +2381,39 @@ exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`,
 				},
 				user: cloudWorkspaceLayout(workspace).user,
 			};
-			const startRuntime =
+			const coldStart = Effect.suspend(() =>
 				machineFork === undefined
 					? provider.startProcess(sandbox.providerSandboxId, runtimeOptions)
 					: provider.replaceProcess(
 							sandbox.providerSandboxId,
 							workspaceRuntimeProcessSelector(),
 							runtimeOptions,
-						);
+						),
+			);
+			// Signed runtime updates and native-fork recovery must retain their upstream launch sequence.
+			const startRuntime =
+				machineFork === undefined &&
+				!importedSnapshot(build) &&
+				provider.startWorkspaceRuntime
+					? provider.startWorkspaceRuntime(
+							sandbox.providerSandboxId,
+							config.runtimeManifestUrl === undefined
+								? { ...runtimeOptions, args: [WORKSPACE_BOOTSTRAP_FILE] }
+								: runtimeOptions,
+							WORKSPACE_RUNTIME_FILES,
+						)
+					: Effect.all(
+							WORKSPACE_RUNTIME_FILES.map((file) =>
+								provider.writeTextFile(
+									sandbox.providerSandboxId,
+									file.path,
+									file.contents,
+									cloudWorkspaceLayout(workspace).user,
+								),
+							),
+							{ concurrency: "unbounded", discard: true },
+						).pipe(Effect.andThen(coldStart));
+
 			// Assert the workspace invariant on every allocation path before the
 			// runtime starts. A recovered sandbox may retain the
 			// policy from its original creation or resume, and starting these in

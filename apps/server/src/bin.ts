@@ -19,12 +19,20 @@ import { parseArgs } from "node:util";
 
 import { NodeRuntime } from "@effect/platform-node";
 import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
+import {
+	BOXD_RUNTIME_COMMAND,
+	BOXD_RUNTIME_PROTOCOL,
+} from "@zuse/utils/boxd-runtime-protocol";
 import { firstReachableIpv4 } from "@zuse/utils/network-address";
 import { Effect, Layer, Redacted } from "effect";
 import type { LanAuthPolicy } from "./lan-auth/policy.ts";
 import { resolveAuthPolicy } from "./lan-auth/policy.ts";
 import { makeFileCredentialsService } from "./provider/layers/file-credentials-service.ts";
 import { makeMainLayer } from "./runtime.ts";
+import {
+	activateBoxdRuntime,
+	prepareBoxdRuntime,
+} from "./serve/boxd-prepared-runtime.ts";
 import { wsServerProtocolLayer } from "./transports/ws.ts";
 
 export { type MainLayerDeps, makeMainLayer } from "./runtime.ts";
@@ -332,7 +340,19 @@ export const isProcessEntrypoint = (
 const entry = process.argv[1];
 if (isProcessEntrypoint(entry)) {
 	try {
-		runHeadlessServer(parseServeOptions(process.argv.slice(2)));
+		if (process.argv[2] === BOXD_RUNTIME_COMMAND) {
+			if (process.argv[3] === "--check") {
+				console.log(`boxd-runtime-${BOXD_RUNTIME_PROTOCOL}`);
+			} else {
+				void prepareBoxdRuntime({
+					files: process.argv.slice(3),
+					activate: activateBoxdRuntime,
+				}).catch(() => {
+					console.error("[boxd-runtime] preparation failed");
+					process.exitCode = 1;
+				});
+			}
+		} else runHeadlessServer(parseServeOptions(process.argv.slice(2)));
 	} catch (error) {
 		console.error(error instanceof Error ? error.message : String(error));
 		process.exitCode = 1;

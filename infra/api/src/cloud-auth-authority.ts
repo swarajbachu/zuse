@@ -15,7 +15,12 @@ import {
 	type SandboxProviderAdapter,
 	SandboxProviders,
 } from "@zuse/sandbox-providers";
+import { measureCloudStage } from "@zuse/utils/cloud-timing";
 import { Effect, Schedule } from "effect";
+import {
+	AUTH_GRANT_SERVICE_PORT,
+	AUTH_GRANT_SERVICE_SOURCE,
+} from "./cloud-auth-grant-service.ts";
 import { CLAUDE_AUTH_VALIDATION_SOURCE } from "./cloud-claude-auth-validation.ts";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
@@ -321,7 +326,7 @@ await Promise.all(providers.map(verify));
 await writeFile(markerPath, "ready", { mode: 0o600 });
 `;
 
-export const AUTH_GRANT_SOURCE =
+export const AUTH_GRANT_MODULE_SOURCE =
 	AUTH_CODEX_PATH_SOURCE +
 	String.raw`import { createCipheriv, createHmac, createPublicKey, constants, publicEncrypt, randomBytes } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
@@ -332,23 +337,21 @@ const home = process.env.ZUSE_CLOUD_AUTH_HOME ?? "/home/zuse/.zuse/cloud-auth";
 const codexAuthFile = process.env.ZUSE_CODEX_AUTH_FILE ?? "/home/zuse/.codex/auth.json";
 const grokAuthFile = process.env.ZUSE_GROK_AUTH_FILE ?? "/home/zuse/.grok/auth.json";
 const grokBinary = process.env.ZUSE_GROK_BINARY ?? "/home/zuse/.local/bin/grok";
-const requestPath = process.argv[2];
-const resultPath = process.argv[3];
-const cachePath = process.argv[4];
-const input = JSON.parse(await readFile(requestPath, "utf8"));
-const writeResult = (value) => writeFile(resultPath, JSON.stringify(value), { mode: 0o600 });
+export async function issueGrant(input, cachePath) {
+let result;
+const writeResult = async (value) => { result = value; };
 const providerId = input.providerId ?? "codex";
 const supportedProviders = new Set(["claude", "codex", "cursor", "grok"]);
 const providerError = (suffix) => providerId + "-auth-" + suffix;
 const requiredStrings = ["requestId", "accountId", "workspaceId", "credentialPublicJwk", "keyThumbprint", "authorityIncarnationId"];
 if (!supportedProviders.has(providerId) || input.protocolVersion !== 1 || !Number.isSafeInteger(input.runtimeGeneration) || requiredStrings.some((key) => typeof input[key] !== "string" || input[key].length === 0)) {
   await writeResult({ errorCode: providerError("update-required") });
-  process.exit(0);
+  return result;
 }
 const incarnation = (await readFile(home + "/storage-incarnation-id", "utf8")).trim();
 if (incarnation !== input.authorityIncarnationId) {
   await writeResult({ errorCode: providerError("reconnect-required") });
-  process.exit(0);
+  return result;
 }
 const fingerprintKey = Buffer.from((await readFile(home + "/grant-fingerprint.key", "utf8")).trim(), "base64url");
 const previousProviderAccountId = input.previousProviderAccountId ?? input.previousChatgptAccountId ?? null;
@@ -363,7 +366,7 @@ try {
   const cached = JSON.parse(await readFile(cachePath, "utf8"));
   if (cached.fingerprint !== fingerprint) await writeResult({ errorCode: providerId + "_grant_request_id_reused" });
   else await writeResult(cached);
-  process.exit(0);
+  return result;
 } catch {}
 const record = (value) => typeof value === "object" && value !== null ? value : {};
 const string = (value) => typeof value === "string" && value.length > 0 ? value : null;
@@ -511,11 +514,11 @@ try {
   }
 } catch {
   await writeResult({ errorCode: providerError("reconnect-required") });
-  process.exit(0);
+  return result;
 }
 if (auth.expiresAt <= Date.now() + 60 * 1000) {
   await writeResult({ errorCode: providerError("reconnect-required") });
-  process.exit(0);
+  return result;
 }
 const publicJwk = JSON.parse(input.credentialPublicJwk);
 const key = createPublicKey({ key: publicJwk, format: "jwk" });
@@ -535,6 +538,15 @@ await writeFile(cachePath, JSON.stringify(output), { mode: 0o600, flag: "wx" }).
 const committed = JSON.parse(await readFile(cachePath, "utf8"));
 if (committed.fingerprint !== fingerprint) await writeResult({ errorCode: providerId + "_grant_request_id_reused" });
 else await writeResult(committed);
+return result;
+}
+`;
+
+export const AUTH_GRANT_SOURCE =
+	AUTH_GRANT_MODULE_SOURCE +
+	`
+const input = JSON.parse(await readFile(process.argv[2], "utf8"));
+await writeFile(process.argv[3], JSON.stringify(await issueGrant(input, process.argv[4])), { mode: 0o600 });
 `;
 
 /** Compatibility name retained for the Codex-only grant contract test. */
@@ -732,7 +744,16 @@ const AUTH_BOOTSTRAP_VERSION = `${AUTH_HOME}/bootstrap-version`;
 
 const initializeAuthority = Effect.fn("initializeCloudAuthAuthority")(
 	function* (authority: Authority) {
-		const version = yield* sha256Hex(JSON.stringify(AUTH_BOOTSTRAP_FILES));
+		const grantVersion = yield* sha256Hex(AUTH_GRANT_MODULE_SOURCE);
+		const sources = [
+			...AUTH_BOOTSTRAP_FILES,
+			[
+				`${AUTH_BOOTSTRAP_HOME}/grant-${grantVersion}.mjs`,
+				AUTH_GRANT_MODULE_SOURCE,
+			],
+			[`${AUTH_BOOTSTRAP_HOME}/grant-service.mjs`, AUTH_GRANT_SERVICE_SOURCE],
+		] as const;
+		const version = yield* sha256Hex(JSON.stringify(sources));
 		const [
 			installedVersion,
 			existingIncarnation,
@@ -767,7 +788,7 @@ const initializeAuthority = Effect.fn("initializeCloudAuthAuthority")(
 			);
 		const initializerCompletion = `${AUTH_HOME}/operations/initialize-${crypto.randomUUID()}.done`;
 		yield* Effect.forEach(
-			AUTH_BOOTSTRAP_FILES,
+			sources,
 			([path, contents]) =>
 				authority.provider
 					.writeTextFile(authority.sandboxId, path, contents, "zuse")
@@ -1448,6 +1469,104 @@ interface IssueAuthorityGrantInput {
 	readonly previousProviderAccountId?: string;
 }
 
+// The service holds no provider secrets in the API. Its private bearer only
+// authorizes requests for grants encrypted to the enrolled workspace key.
+const requestAuthorityGrant = Effect.fn("requestAuthorityGrant")(function* (
+	authority: Authority,
+	body: unknown,
+) {
+	const descriptorPath = `${AUTH_HOME}/grant-service.json`;
+	const request = Effect.gen(function* () {
+		if (authority.provider.requestLocalService)
+			return yield* authority.provider
+				.requestLocalService(authority.sandboxId, {
+					descriptorPath,
+					expectedIncarnation: authority.storageIncarnationId,
+					port: AUTH_GRANT_SERVICE_PORT,
+					path: "/grant",
+					body: JSON.stringify(body),
+				})
+				.pipe(
+					Effect.mapError(() =>
+						serviceUnavailable("cloud_auth_service_unavailable"),
+					),
+				);
+		const raw = yield* readOptional(authority, descriptorPath);
+		let descriptor: { token: string; incarnation: string; port: number };
+		try {
+			descriptor = JSON.parse(raw ?? "null");
+			if (
+				!descriptor ||
+				typeof descriptor.token !== "string" ||
+				descriptor.token.length !== 43 ||
+				descriptor.incarnation !== authority.storageIncarnationId ||
+				descriptor.port !== AUTH_GRANT_SERVICE_PORT
+			)
+				throw new Error("invalid_descriptor");
+		} catch {
+			return yield* Effect.fail(
+				serviceUnavailable("cloud_auth_service_unavailable"),
+			);
+		}
+		const endpoint = yield* authority.provider
+			.resolveEndpoint(authority.sandboxId, descriptor.port)
+			.pipe(
+				Effect.mapError(() =>
+					serviceUnavailable("cloud_auth_service_unavailable"),
+				),
+			);
+		return yield* Effect.tryPromise({
+			try: async (signal) => {
+				const response = await fetch(`${endpoint.httpBaseUrl}/grant`, {
+					method: "POST",
+					redirect: "error",
+					signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+					headers: {
+						authorization: `Bearer ${descriptor.token}`,
+						"content-type": "application/json",
+					},
+					body: JSON.stringify(body),
+				});
+				if (!response.ok) throw new Error("grant_service_unavailable");
+				return response.text();
+			},
+			catch: () => serviceUnavailable("cloud_auth_service_unavailable"),
+		});
+	});
+	return yield* request.pipe(
+		Effect.catch(() =>
+			Effect.gen(function* () {
+				// A cold boot loses the daemon. The OS lock makes simultaneous repair
+				// attempts harmless and never stops an in-flight grant or refresh.
+				yield* authority.provider
+					.startProcess(authority.sandboxId, {
+						command: "flock",
+						args: [
+							"-n",
+							`${AUTH_HOME}/grant-service.lock`,
+							"node",
+							`${AUTH_BOOTSTRAP_HOME}/grant-service.mjs`,
+						],
+						user: "zuse",
+					})
+					.pipe(
+						Effect.mapError(() =>
+							serviceUnavailable("cloud_auth_service_unavailable"),
+						),
+					);
+				return yield* request.pipe(
+					// Newly provisioned Boxd proxies can reject TLS while their
+					// certificate is being issued. Keep the same grant request ID
+					// through that first-use window, without restarting the daemon.
+					Effect.retry({ times: 30, schedule: Schedule.spaced("250 millis") }),
+				);
+			}),
+		),
+		Effect.timeout("30 seconds"),
+		Effect.mapError(() => serviceUnavailable("cloud_auth_service_unavailable")),
+	);
+});
+
 const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
 	input: IssueAuthorityGrantInput,
 ) {
@@ -1461,67 +1580,39 @@ const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
 		return yield* Effect.fail(
 			badRequest(`invalid_${input.providerId}_grant_request`),
 		);
-	const authority = yield* ensureRunning(
-		yield* provisionAuthority(input.accountId),
+	const authority = yield* provisionAuthority(input.accountId).pipe(
+		measureCloudStage(
+			{ workspaceId: input.workspaceId },
+			"auth.authority.prepare",
+		),
 	);
-	const operationId = crypto.randomUUID();
-	const requestPath = `${AUTH_HOME}/operations/${input.providerId}-grant-${operationId}.request.json`;
-	const resultPath = `${AUTH_HOME}/operations/${input.providerId}-grant-${operationId}.result.json`;
-	const cachePath = `${AUTH_HOME}/grant-cache/${input.bindProviderId ? `${input.providerId}-` : ""}${input.requestId}.json`;
-	yield* authority.provider
-		.writeTextFile(
-			authority.sandboxId,
-			requestPath,
-			JSON.stringify({
-				protocolVersion: 1,
-				...(input.bindProviderId ? { providerId: input.providerId } : {}),
-				requestId: input.requestId,
-				accountId: input.accountId,
-				workspaceId: input.workspaceId,
-				runtimeGeneration: input.runtimeGeneration,
-				credentialPublicJwk: input.recipientPublicJwk,
-				keyThumbprint: input.recipientKeyThumbprint,
-				reason: input.reason,
-				...(input.previousProviderAccountId === undefined
-					? {}
-					: input.bindProviderId
-						? {
-								previousProviderAccountId: input.previousProviderAccountId,
-							}
-						: {
-								previousChatgptAccountId: input.previousProviderAccountId,
-							}),
-				authorityIncarnationId: authority.storageIncarnationId,
-				authorityEpoch: authority.authEpoch,
-			}),
-			"zuse",
-		)
-		.pipe(
-			Effect.mapError(() =>
-				serviceUnavailable(`${input.providerId}-auth-reconnecting`),
-			),
-		);
-	yield* authority.provider
-		.startProcess(authority.sandboxId, {
-			command: "flock",
-			args: [
-				"-x",
-				`${AUTH_HOME}/${input.providerId}-refresh.lock`,
-				"node",
-				AUTH_CODEX_GRANT,
-				requestPath,
-				resultPath,
-				cachePath,
-			],
-			user: "zuse",
-			tag: `zuse-cloud-auth-${input.providerId}-grant-${operationId}`,
-		})
-		.pipe(
-			Effect.mapError(() =>
-				serviceUnavailable(`${input.providerId}-auth-reconnecting`),
-			),
-		);
-	const value = yield* waitForFile(authority, resultPath, 350);
+	const grantInput = {
+		protocolVersion: 1,
+		...(input.bindProviderId ? { providerId: input.providerId } : {}),
+		requestId: input.requestId,
+		accountId: input.accountId,
+		workspaceId: input.workspaceId,
+		runtimeGeneration: input.runtimeGeneration,
+		credentialPublicJwk: input.recipientPublicJwk,
+		keyThumbprint: input.recipientKeyThumbprint,
+		reason: input.reason,
+		...(input.previousProviderAccountId === undefined
+			? {}
+			: input.bindProviderId
+				? {
+						previousProviderAccountId: input.previousProviderAccountId,
+					}
+				: {
+						previousChatgptAccountId: input.previousProviderAccountId,
+					}),
+		authorityIncarnationId: authority.storageIncarnationId,
+		authorityEpoch: authority.authEpoch,
+	};
+	const version = yield* sha256Hex(AUTH_GRANT_MODULE_SOURCE);
+	const value = yield* requestAuthorityGrant(authority, {
+		version,
+		input: grantInput,
+	}).pipe(measureCloudStage({ workspaceId: input.workspaceId }, "auth.grant"));
 	let parsed: { readonly errorCode?: unknown; readonly sealed?: unknown };
 	try {
 		parsed = JSON.parse(value) as typeof parsed;

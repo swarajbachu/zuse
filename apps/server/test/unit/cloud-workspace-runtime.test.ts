@@ -52,6 +52,7 @@ import {
 	runtimeCredentialRenewalDelayMs,
 	runtimeReadyPhaseOnGatewayOpen,
 	signRuntimeRenewalProof,
+	startCloudCodexAuth,
 	startCloudWorkspaceLaunchIntent,
 	trackSnapshotNativeAccess,
 	writeGithubBrokerState,
@@ -2088,4 +2089,37 @@ it.each([
 		}),
 	);
 	expect(access.get("codex")?.state).toBe("verified");
+});
+
+it("continues workspace startup while Codex auth is pending and closes it with the scope", async () => {
+	let closed = false;
+	let initialized = false;
+	let continued = false;
+	let recovered = false;
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			yield* startCloudCodexAuth(
+				"workspace",
+				{
+					initialize: () => {
+						initialized = true;
+						return new Promise<void>(() => {});
+					},
+					close: () => {
+						closed = true;
+					},
+					getTokens: () => Promise.reject(new Error("not used")),
+					onDeliveryFailure: () => {},
+				},
+				Effect.sync(() => {
+					recovered = true;
+				}),
+			);
+			continued = true;
+		}).pipe(Effect.scoped, Effect.timeout("1 second")),
+	);
+	expect(initialized).toBe(true);
+	expect(continued).toBe(true);
+	expect(closed).toBe(true);
+	expect(recovered).toBe(false);
 });

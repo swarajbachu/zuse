@@ -110,6 +110,14 @@ export ZUSE_ENABLE_PAIRING=0
 export ZUSE_MACHINE_RUNTIME_ROLE=cloud-environment
 export ZUSE_SERVER_READY_STDOUT=1
 export ZUSE_USER_DATA=/var/lib/zuse/user-data
+# The Boxd snapshot holds the activation service and warmed runtime code.
+# Reuse this preparation phase before launching a fresh runtime process.
+# Other providers never pass this argument and retain the normal launch path.
+if [[ "${1:-}" == "--prepare-boxd-runtime" ]]; then
+  rm -f "$status_dir/credentials-ready-event"
+  node -e 'process.stdout.write(JSON.stringify(process.env) + "\n")'
+  exit 0
+fi
 credentials_event="$status_dir/credentials-ready-event"
 rm -f "$credentials_event"
 mkfifo -m 600 "$credentials_event"

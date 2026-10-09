@@ -20,8 +20,14 @@ import {
 	type UploadSource,
 	type WaitUntilReadyParams,
 } from "@boxd-sh/sdk/web";
+import {
+	BOXD_RUNTIME_COMMAND,
+	BOXD_RUNTIME_COMPILE_CACHE,
+	BOXD_RUNTIME_DIRECTORY,
+	BOXD_RUNTIME_PROTOCOL,
+} from "@zuse/utils/boxd-runtime-protocol";
 import { measureCloudStage } from "@zuse/utils/cloud-timing";
-import { Clock, Duration, Effect, Redacted } from "effect";
+import { Clock, Duration, Effect, Redacted, Schedule } from "effect";
 import { BOX_PORT_FORWARDER } from "./box-port-forwarder.ts";
 import {
 	boxProcessScript,
@@ -29,6 +35,8 @@ import {
 	boxShellQuote,
 	boxSystemdProcessCommand,
 } from "./box-process.ts";
+import { BOXD_LOCAL_SERVICE_CLIENT } from "./boxd-local-service.ts";
+import { BOXD_RUNTIME_CLIENT } from "./boxd-prepared-runtime.ts";
 import type {
 	ProviderSandbox,
 	SandboxNetworkPolicy,
@@ -37,6 +45,7 @@ import type {
 	SandboxProviderAdapter,
 	SandboxProviderError,
 	SandboxProviderResources,
+	SandboxRuntimeFile,
 } from "./index.ts";
 import { clampSeconds, providerError, validatedEnv } from "./provider-input.ts";
 import { zuseSnapshotName } from "./snapshot-name.ts";
@@ -468,6 +477,13 @@ export const makeBoxdSandboxProvider = (
 		},
 	);
 
+	const preparedCommand = (request: unknown) =>
+		`sudo -n -u ${RUNTIME_USER} -H node -e ${shellQuote(BOXD_RUNTIME_CLIENT)} ${shellQuote(JSON.stringify(request))}`;
+	const preparedStatus = preparedCommand({
+		version: BOXD_RUNTIME_PROTOCOL,
+		action: "status",
+	});
+
 	// The reconciler gives a freshly allocated machine ten seconds to enroll,
 	// and a restored VM spends its first seconds paging: on a fresh restore the
 	// runtime took 2.7 s to listen (3.8 s with cold caches, 1.4 s warm) and the
@@ -480,6 +496,7 @@ export const makeBoxdSandboxProvider = (
 		yield* runCommand(
 			providerSandboxId,
 			[
+				`if [ "$(${preparedStatus} 2>/dev/null)" = prepared ]; then exit 0; fi`,
 				`sudo -n -u ${shellQuote(config.runtimeUser ?? RUNTIME_USER)} -H bash -c ${shellQuote(
 					"cd / && timeout 30 zuse --version >/dev/null 2>&1",
 				)}`,
@@ -515,6 +532,7 @@ export const makeBoxdSandboxProvider = (
 	);
 
 	const allocate = Effect.fn("BoxdSandboxProvider.allocate")(function* (input: {
+		readonly deferWorkspaceReadiness?: boolean;
 		readonly providerLabel: string;
 		readonly snapshot: string;
 		readonly snapshotVersion?: number;
@@ -592,6 +610,26 @@ export const makeBoxdSandboxProvider = (
 		if (input.onTimeout === "pause")
 			yield* call("machines.setAutoHibernateTimeout", () =>
 				client.machines.setAutoHibernateTimeout(created.id, idleSeconds),
+			);
+		// A restored launch service can prove readiness by accepting the activation
+		// itself. Avoid SDK polling, a systemd probe and CLI priming beforehand.
+		// Size changes still require the reboot fence and full cold preparation.
+		if (
+			input.deferWorkspaceReadiness &&
+			input.snapshotSource !== "custom-snapshot" &&
+			input.snapshotVersion === undefined &&
+			machineSizeOf(created) === size &&
+			!PAUSED_STATUSES.has(created.status) &&
+			!ABSENT_STATUSES.has(created.status)
+		)
+			return {
+				providerSandboxId: created.id,
+				providerLabel: input.providerLabel,
+				state: "running",
+			} satisfies ProviderSandbox;
+		if (PAUSED_STATUSES.has(created.status))
+			yield* callTolerantOfConflict("machines.wake", () =>
+				client.machines.wake(created.id),
 			);
 		const usable = yield* ready(created.id).pipe(
 			Effect.catchTag("SandboxProviderError", (error) =>
@@ -1048,6 +1086,127 @@ export const makeBoxdSandboxProvider = (
 			);
 		});
 
+	const prepareWorkspaceSnapshot = Effect.fn(
+		"BoxdSandboxProvider.prepareWorkspaceSnapshot",
+	)(function* (id: string, files: ReadonlyArray<SandboxRuntimeFile>) {
+		const supported = yield* runCommand(
+			id,
+			`sudo -n -u zuse -H env NODE_COMPILE_CACHE=${BOXD_RUNTIME_COMPILE_CACHE} node /opt/zuse/current/bin.mjs ${BOXD_RUNTIME_COMMAND} --check`,
+		);
+		if (
+			supported.exitCode !== 0 ||
+			supported.stdout.trim() !== "boxd-runtime-1"
+		)
+			return;
+		// A prepared image must never contain an enrolled runtime's database.
+		const clean = yield* runCommand(
+			id,
+			'for path in /var/lib/zuse/user-data /home/zuse/.zuse-data /srv/zuse/home/.zuse-data; do if sudo -n test -e "$path"; then sudo -n find -L "$path" -type f -print -quit || exit 1; fi; done',
+		);
+		if (clean.exitCode !== 0 || clean.stdout.trim())
+			return yield* providerError("rejected");
+		const existing = yield* runCommand(id, preparedStatus);
+		if (existing.exitCode === 0 && existing.stdout.trim() === "prepared")
+			return;
+		if (existing.exitCode !== 3) return yield* providerError("rejected");
+		yield* Effect.all(
+			files.map((file) => writeTextFile(id, file.path, file.contents, "zuse")),
+			{ concurrency: "unbounded", discard: true },
+		);
+		const directory = yield* runCommand(
+			id,
+			`sudo -n install -d -m 0700 -o zuse -g zuse ${BOXD_RUNTIME_DIRECTORY} /var/lib/zuse/workspace`,
+		);
+		if (directory.exitCode !== 0) return yield* providerError("transient");
+		yield* startManagedProcess(
+			id,
+			{
+				command: "/usr/bin/env",
+				args: [
+					"-i",
+					"HOME=/home/zuse",
+					"USER=zuse",
+					"PATH=/usr/local/bin:/usr/bin:/bin",
+					"ZUSE_RUNTIME_KIND=cloud-workspace",
+					"ZUSE_MACHINE_RUNTIME_ROLE=cloud-environment",
+					"ZUSE_USER_DATA=/var/lib/zuse/user-data",
+					`NODE_COMPILE_CACHE=${BOXD_RUNTIME_COMPILE_CACHE}`,
+					"/bin/bash",
+					"-c",
+					`exec ${["node", "/opt/zuse/current/bin.mjs", BOXD_RUNTIME_COMMAND, ...files.map((file) => file.path)].map(shellQuote).join(" ")} >/var/lib/zuse/workspace/runtime.log 2>&1`,
+				],
+				cwd: "/home/zuse",
+				user: "zuse",
+				tag: "zuse-runtime",
+			},
+			"zuse-runtime",
+		);
+		for (let attempt = 0; attempt < 60; attempt++) {
+			const status = yield* runCommand(id, preparedStatus);
+			if (status.exitCode === 0 && status.stdout.trim() === "prepared") return;
+			yield* Effect.sleep(Duration.millis(250));
+		}
+		return yield* providerError("transient");
+	});
+	const startWorkspaceRuntime = Effect.fn(
+		"BoxdSandboxProvider.startWorkspaceRuntime",
+	)(function* (
+		id: string,
+		input: SandboxProcessInput,
+		files: ReadonlyArray<SandboxRuntimeFile>,
+	) {
+		yield* validatedEnv(input.env ?? {});
+		const digests = yield* Effect.promise(() =>
+			Promise.all(
+				files.map(async (file) => ({
+					path: file.path,
+					sha256: Array.from(
+						new Uint8Array(
+							await crypto.subtle.digest(
+								"SHA-256",
+								new TextEncoder().encode(file.contents),
+							),
+						),
+						(byte) => byte.toString(16).padStart(2, "0"),
+					).join(""),
+				})),
+			),
+		);
+		const result = yield* runCommand(
+			id,
+			preparedCommand({
+				version: BOXD_RUNTIME_PROTOCOL,
+				action: "activate",
+				env: input.env ?? {},
+				bootstrap: input.args?.[0],
+				files: digests,
+			}),
+			8_000,
+		).pipe(
+			Effect.retry({
+				times: 7,
+				schedule: Schedule.spaced(Duration.millis(100)),
+				while: (error) => error.code === "transient",
+			}),
+			Effect.timeoutOrElse({
+				duration: "8 seconds",
+				orElse: () => Effect.fail(providerError("transient")),
+			}),
+		);
+		if (result.exitCode === 0 && result.stdout.trim() === "active") return;
+		if (result.exitCode !== 3 && result.exitCode !== 4)
+			return yield* providerError("transient");
+		yield* prepareRuntime(id);
+		yield* Effect.all(
+			files.map((file) => writeTextFile(id, file.path, file.contents, "zuse")),
+			{ concurrency: "unbounded", discard: true },
+		);
+		if (result.exitCode === 4) {
+			if (!input.tag) return yield* providerError("rejected");
+			yield* replaceProcess(id, { tag: input.tag }, input);
+		} else yield* startProcess(id, input);
+	});
+
 	return {
 		withCredentials: (credentials) =>
 			makeBoxdSandboxProvider({
@@ -1057,6 +1216,18 @@ export const makeBoxdSandboxProvider = (
 				org: credentials.organization,
 				runtimeUser: credentials.runtimeUser,
 			}),
+		requestLocalService: (id, request) =>
+			runCommand(
+				id,
+				`sudo -n -u ${shellQuote(config.runtimeUser ?? RUNTIME_USER)} -H node -e ${shellQuote(BOXD_LOCAL_SERVICE_CLIENT)} ${shellQuote(JSON.stringify(request))}`,
+				30_000,
+			).pipe(
+				Effect.flatMap((result) =>
+					result.exitCode === 0
+						? Effect.succeed(result.stdout)
+						: Effect.fail(providerError("transient")),
+				),
+			),
 		providerId: BOXD_PROVIDER_ID,
 		displayName: "boxd",
 		templateVersion: config.templateVersion,
@@ -1096,6 +1267,14 @@ export const makeBoxdSandboxProvider = (
 						};
 					})
 			: undefined,
+		prepareWorkspaceSnapshot:
+			(config.runtimeUser ?? RUNTIME_USER) === RUNTIME_USER
+				? prepareWorkspaceSnapshot
+				: undefined,
+		startWorkspaceRuntime:
+			(config.runtimeUser ?? RUNTIME_USER) === RUNTIME_USER
+				? startWorkspaceRuntime
+				: undefined,
 		resources: BOXD_MACHINE_RESOURCES[machineSize],
 		sizes: [
 			machineSize,
@@ -1113,6 +1292,7 @@ export const makeBoxdSandboxProvider = (
 		create: (input) =>
 			allocate({
 				providerLabel: input.providerLabel,
+				deferWorkspaceReadiness: input.deferWorkspaceReadiness,
 				snapshot: config.templateSnapshot,
 				sizeId: input.sizeId,
 				timeoutSeconds: input.timeoutSeconds,
@@ -1138,6 +1318,7 @@ export const makeBoxdSandboxProvider = (
 		fork: (input) =>
 			allocate({
 				providerLabel: input.providerLabel,
+				deferWorkspaceReadiness: input.deferWorkspaceReadiness,
 				snapshot: input.snapshotId,
 				snapshotVersion: input.snapshotVersion,
 				snapshotSource: input.snapshotSource,

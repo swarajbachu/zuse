@@ -49,7 +49,10 @@ const apiTestConfig = {
 	mintPublicKey: '{"kty":"OKP"}',
 } as const;
 
-const makeTestLayer = (cloudCommandMailboxEnabled = false) =>
+const makeTestLayer = (
+	cloudCommandMailboxEnabled = false,
+	runtimeManifestUrl?: string,
+) =>
 	Layer.mergeAll(
 		Config.layer({
 			...apiTestConfig,
@@ -59,6 +62,7 @@ const makeTestLayer = (cloudCommandMailboxEnabled = false) =>
 		CloudBillingStoreMemory,
 		SandboxProvidersFake,
 		Layer.succeed(SandboxOfferConfiguration, {
+			runtimeManifestUrl,
 			port: 47_837,
 			createTimeoutSeconds: 3_600,
 			keepAliveTimeoutSeconds: 600,
@@ -2389,4 +2393,82 @@ test("honors an explicit resume after an old session became idle", async () => {
 		state: "resuming",
 		desiredState: "ready",
 	});
+});
+
+test.each([
+	false,
+	true,
+])("allocation delegates startup while preserving signed updates (manifest=%s)", async (manifest) => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			const control = yield* FakeSandboxProviderControlService;
+			const workspace = yield* seedWorkspace({
+				workspaceId: "workspace-prepared",
+				state: "queued",
+				desiredState: "ready",
+				statusCode: "start-queued",
+				requestConfig: { startupTimings: { requestedAt: Date.now() } },
+			});
+			yield* Ref.set(control.sandboxes, new Map());
+			yield* store.saveWorkspace({
+				...workspace,
+				providerSandboxId: undefined,
+				revision: workspace.revision + 1,
+			});
+			const provider = yield* (yield* SandboxProviders).get("fake");
+			const activate = vi.fn(() => Effect.void);
+			Object.assign(provider, {
+				providerId: "boxd",
+				startWorkspaceRuntime: activate,
+			});
+			const extend = vi.spyOn(provider, "extendTimeout");
+			const fork = vi.spyOn(provider, "fork");
+			const recover = vi.spyOn(provider, "recoverByLabel");
+			const upload = vi.spyOn(provider, "writeTextFile");
+			const cold = vi.spyOn(provider, "startProcess");
+			yield* reconcileCloudWorkspace(workspace.workspaceId);
+			expect(activate).toHaveBeenCalledWith(
+				"fake-workspace-prepared",
+				expect.objectContaining({
+					tag: "zuse-runtime",
+					env: expect.objectContaining({
+						ZUSE_CLOUD_WORKSPACE_ID: workspace.workspaceId,
+					}),
+				}),
+				expect.arrayContaining([
+					expect.objectContaining({
+						path: "/var/lib/zuse/project-build/workspace-bootstrap.sh",
+					}),
+				]),
+			);
+			expect(extend).not.toHaveBeenCalled();
+			expect(recover).not.toHaveBeenCalled();
+			expect(fork).toHaveBeenCalledWith(
+				expect.objectContaining(
+					manifest ? {} : { deferWorkspaceReadiness: true },
+				),
+			);
+			expect(activate).toHaveBeenCalledWith(
+				expect.any(String),
+				expect.objectContaining({
+					args: manifest
+						? ["-lc", expect.stringContaining("ensure_workspace_runtime 1")]
+						: ["/var/lib/zuse/project-build/workspace-bootstrap.sh"],
+				}),
+				expect.any(Array),
+			);
+			expect(upload.mock.calls.map((call) => call[1])).toEqual([
+				"/var/lib/zuse/project-build/github-auth.sh",
+			]);
+			expect(cold).not.toHaveBeenCalled();
+		}).pipe(
+			Effect.provide(
+				makeTestLayer(
+					false,
+					manifest ? "https://runtime.test/manifest.json" : undefined,
+				),
+			),
+		),
+	);
 });

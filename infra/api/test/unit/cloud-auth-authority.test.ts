@@ -27,7 +27,7 @@ import {
 } from "@zuse/sandbox-providers";
 import { SandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, Redacted } from "effect";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
 	AUTH_GRANT_SOURCE,
 	AUTH_INITIALIZER_SOURCE,
@@ -35,6 +35,7 @@ import {
 	canSeedCloudAuthSnapshot,
 	cloudAuthAuthorityLabel,
 	cloudAuthStatus,
+	issueProviderGrant,
 	parseDeviceLoginOutput,
 	pollCloudAuthLogin,
 	provisionCloudAuth,
@@ -293,6 +294,167 @@ describe("cloud auth setup reuse", () => {
 });
 
 describe("cloud auth authority identity", () => {
+	test("reuses installed tooling and repairs a stopped grant service without rerunning initialization", async () => {
+		const files = new Map<string, string>();
+		let uploads = 0;
+		let initializations = 0;
+		let serviceStarts = 0;
+		let failedRequestsRemaining = 0;
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (_url, init) => {
+				if (failedRequestsRemaining > 0) {
+					failedRequestsRemaining--;
+					return new Response(null, { status: 503 });
+				}
+				const { input } = JSON.parse(String(init?.body));
+				return Response.json({
+					sealed: {
+						protocolVersion: 1,
+						providerId: input.providerId,
+						requestId: input.requestId,
+						keyThumbprint: input.keyThumbprint,
+						authorityIncarnationId: input.authorityIncarnationId,
+						authorityEpoch: input.authorityEpoch,
+						wrappedKey: "wrapped",
+						iv: "iv",
+						ciphertext: "sealed",
+						tag: "tag",
+					},
+				});
+			});
+		try {
+			await Effect.runPromise(
+				Effect.gen(function* () {
+					const store = yield* CloudWorkspaceStore;
+					yield* store.claimCloudAuthAuthority({
+						accountId: "account",
+						provider: "boxd",
+						candidateStorageIncarnationId: "incarnation",
+						toolchainVersion: "test",
+						leaseOwner: "worker",
+						nowMs: 100,
+						leaseExpiresAtMs: 200,
+					});
+					yield* store.completeCloudAuthAuthorityProvisioning({
+						accountId: "account",
+						providerSandboxId: "authority",
+						storageIncarnationId: "incarnation",
+						toolchainVersion: "test",
+						leaseOwner: "worker",
+						nowMs: 150,
+					});
+					const fake = yield* (yield* SandboxProviders).get("fake");
+					const registry = yield* makeSandboxProviders({
+						defaultProviderId: "boxd",
+						registrations: [
+							{
+								adapter: {
+									...fake,
+									providerId: "boxd",
+									inspect: () =>
+										Effect.succeed({
+											providerSandboxId: "authority",
+											providerLabel: "authority",
+											state: "running" as const,
+										}),
+									pathExists: (_id, path) => Effect.succeed(files.has(path)),
+									readTextFile: (_id, path) =>
+										files.has(path)
+											? Effect.succeed(files.get(path) ?? "")
+											: Effect.fail(
+													new SandboxProviderError({ code: "not-found" }),
+												),
+									writeTextFile: (_id, path, contents) =>
+										Effect.sync(() => {
+											uploads++;
+											files.set(path, contents);
+										}),
+									startProcess: (_id, input) =>
+										Effect.sync(() => {
+											const home = "/home/zuse/.zuse/cloud-auth";
+											if (input.tag === "zuse-cloud-auth-initialize") {
+												initializations++;
+												files.set(input.args?.at(-1) ?? "", "ready");
+												files.set(`${home}/key-id`, "key-id");
+												files.set(`${home}/public.jwk.json`, "{}");
+												files.set(`${home}/private.pem`, "private");
+												files.set(
+													`${home}/grok-toolchain-version`,
+													GROK_EXTERNAL_AUTH_TOOLCHAIN_VERSION,
+												);
+												files.set(
+													`${home}/storage-incarnation-id`,
+													"incarnation",
+												);
+												files.set(
+													`${home}/codex-toolchain-version`,
+													CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION,
+												);
+											} else {
+												serviceStarts++;
+												files.set(
+													`${home}/grant-service.json`,
+													JSON.stringify({
+														token: "a".repeat(43),
+														incarnation: "incarnation",
+														port: 47839,
+													}),
+												);
+											}
+										}),
+								},
+							},
+						],
+					});
+					const grant = () =>
+						issueProviderGrant({
+							accountId: "account",
+							workspaceId: "workspace",
+							runtimeGeneration: 1,
+							providerId: "cursor",
+							recipientPublicJwk: "{}",
+							recipientKeyThumbprint: "key",
+							requestId: crypto.randomUUID(),
+							reason: "initial",
+						}).pipe(Effect.provideService(SandboxProviders, registry));
+					yield* grant();
+					const initialUploads = uploads;
+					yield* grant();
+					expect(uploads).toBe(initialUploads);
+					expect(initializations).toBe(1);
+					expect(serviceStarts).toBe(1);
+					failedRequestsRemaining = 5;
+					yield* grant();
+					expect(serviceStarts).toBe(2);
+					expect(initializations).toBe(1);
+					files.set(
+						"/home/zuse/.zuse/cloud-auth/bootstrap-version",
+						"interrupted",
+					);
+					yield* grant();
+					expect(initializations).toBe(2);
+				}).pipe(
+					Effect.provide(
+						Layer.mergeAll(
+							CloudWorkspaceStoreMemory,
+							SandboxProvidersFake,
+							Config.layer({
+								apiIssuer: "https://api.test",
+								workosJwksUrl: "https://unused.test/jwks",
+								workosIssuer: "https://unused.test",
+								mintPrivateKey: Redacted.make("{}"),
+								mintPublicKey: "{}",
+							}),
+						),
+					),
+				),
+			);
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+
 	test.each([
 		"boxd",
 		"e2b",
