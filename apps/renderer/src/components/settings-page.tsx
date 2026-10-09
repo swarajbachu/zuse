@@ -404,8 +404,7 @@ function SectionTitle({
 					"Verify what's installed, signed in, and which subscription each provider runs on.",
 			};
 		}
-		if (section.kind === "self-hosted") return <SelfHostedServersPane />;
-	if (section.kind === "defaults") {
+		if (section.kind === "defaults") {
 			return {
 				title: uiMessage("settings:settings_page_default_models"),
 				subtitle: "Choose how new chats start.",
@@ -535,6 +534,7 @@ function Pane({ section }: { section: SettingsSection }) {
 				<GeneralPane />
 			</div>
 		);
+	if (section.kind === "self-hosted") return <SelfHostedServersPane />;
 	if (section.kind === "defaults") return <DefaultModelsPane />;
 	if (section.kind === "providers")
 		return isHostedProduct() ? <CloudWorkspacePool /> : <ProvidersPane />;

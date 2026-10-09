@@ -151,7 +151,9 @@ export function settingsNavigationFor(
 ) {
 	if (scope?.kind === "organization") return ORGANIZATION_NAVIGATION;
 	return SETTINGS_NAVIGATION.filter(
-		(item) => desktop || item.section.kind !== "machines",
+		(item) =>
+			desktop ||
+			(item.section.kind !== "machines" && item.section.kind !== "self-hosted"),
 	);
 }
 
