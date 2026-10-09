@@ -16,6 +16,7 @@ import {
 	type ProviderAuthStatus,
 	type ProviderHealthStatus,
 	type ProviderId,
+	type ResolvedModelCatalogProvider,
 } from "@zuse/contracts";
 import { Duration, Effect, FileSystem, Stream } from "effect";
 import {
@@ -956,37 +957,44 @@ const probeKiroAccount: Effect.Effect<
 	return { authStatus: "unauthenticated" } satisfies AccountInfo;
 });
 
-// OpenCode stores per-provider credentials in `$XDG_DATA_HOME/opencode/auth.json`
-// (default `~/.local/share/opencode/auth.json`) after `opencode auth login`.
-// Each top-level key is a provider id (anthropic, openai, …) and the value
-// carries the access token or API key. We treat a non-empty file with at
-// least one entry as "authenticated"; the renderer then surfaces
-// "Connected to N providers" once we wire the dynamic inventory in.
+// Legacy credentials are positive evidence only: OpenCode can also use env,
+// config, and (v2) database credentials. The shared live inventory owns the
+// definitive connected-provider status once it has loaded.
 interface OpencodeAuthBlob {
 	readonly [providerId: string]: unknown;
 }
+
+const opencodeAccountForProviders = (
+	names: ReadonlyArray<string>,
+): AccountInfo => {
+	if (names.length === 0) return { authStatus: "unauthenticated" };
+	return {
+		authStatus: "authenticated",
+		authType: "cli",
+		authLabel:
+			names.length === 1
+				? `Connected to ${names[0]}`
+				: `Connected to ${names.length} providers`,
+	};
+};
 
 const parseOpencodeAuth = (raw: string): AccountInfo => {
 	let parsed: OpencodeAuthBlob;
 	try {
 		parsed = JSON.parse(raw) as OpencodeAuthBlob;
 	} catch {
-		return { authStatus: "authenticated", authType: "cli" };
+		return { authStatus: "unknown" };
+	}
+	if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+		return { authStatus: "unknown" };
 	}
 	const providerIds = Object.keys(parsed).filter(
 		(k) => parsed[k] !== null && parsed[k] !== undefined,
 	);
 	if (providerIds.length === 0) {
-		return { authStatus: "unauthenticated" };
+		return { authStatus: "unknown" };
 	}
-	return {
-		authStatus: "authenticated",
-		authType: "cli",
-		authLabel:
-			providerIds.length === 1
-				? `Connected to ${providerIds[0]}`
-				: `Connected to ${providerIds.length} providers`,
-	};
+	return opencodeAccountForProviders(providerIds);
 };
 
 const probeOpencodeAccount: Effect.Effect<
@@ -1003,15 +1011,51 @@ const probeOpencodeAccount: Effect.Effect<
 		.exists(authPath)
 		.pipe(Effect.catch(() => Effect.succeed(false)));
 	if (!exists) {
-		return { authStatus: "unauthenticated" } satisfies AccountInfo;
+		return { authStatus: "unknown" } satisfies AccountInfo;
 	}
 	const raw = yield* fs
 		.readFileString(authPath)
 		.pipe(Effect.catch(() => Effect.succeed("")));
-	return raw.length === 0
-		? { authStatus: "authenticated", authType: "cli" }
-		: parseOpencodeAuth(raw);
+	return parseOpencodeAuth(raw);
 });
+
+/** Use the already-cached inventory without starting another provider process. */
+export const withOpencodeInventoryAccount = (
+	availability: AgentAvailability,
+	catalog: ResolvedModelCatalogProvider | undefined,
+): AgentAvailability => {
+	const id = availability.providerId;
+	if (
+		(id !== "opencode" && id !== "opencode2") ||
+		!availability.cliInstalled ||
+		catalog?.live.status !== "ok"
+	)
+		return availability;
+	const inventory = catalog[id];
+	if (inventory === undefined) return availability;
+	const account = opencodeAccountForProviders(
+		inventory.providers
+			.filter((provider) => provider.connected)
+			.map((provider) => provider.name),
+	);
+	return AgentAvailability.make({
+		...availability,
+		...account,
+		cliLoggedIn: account.authStatus === "authenticated",
+		authType: account.authType,
+		authLabel: account.authLabel,
+		status: computeHealthStatus({
+			cliInstalled: true,
+			cliVersionStatus: availability.cliVersionStatus ?? "unknown",
+			authStatus: account.authStatus,
+		}),
+	});
+};
+
+export const opencodeAuthTestHelpers = {
+	parseOpencodeAuth,
+	probeOpencodeAccount,
+};
 
 const probeAccount = (
 	providerId: CliProviderId,
@@ -1031,8 +1075,10 @@ const probeAccount = (
 		case "gemini":
 			return probeGeminiAccount;
 		case "opencode":
-		case "opencode2":
 			return probeOpencodeAccount;
+		case "opencode2":
+			// V2 stores credentials in its database, independently of v1 auth.json.
+			return Effect.succeed({ authStatus: "unknown" } satisfies AccountInfo);
 		case "kiro":
 			return probeKiroAccount;
 		case "pi":

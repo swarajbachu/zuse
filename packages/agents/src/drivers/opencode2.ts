@@ -321,19 +321,44 @@ const spawnOpencode2Server = (
 						),
 					);
 				}, timeoutMs);
-				const trySettle = (): void => {
+				const finish = (url: string, password: string): void => {
 					if (settled) return;
-					const urlMatch = stdoutBuf.match(SERVER_READY_REGEX);
-					const passMatch = stdoutBuf.match(SERVER_PASSWORD_REGEX);
-					if (urlMatch === null || passMatch === null) return;
 					settled = true;
 					clearTimeout(timer);
 					child.stdout.off("data", onStdout);
-					resolve({
-						child,
-						url: urlMatch[1]!,
-						password: passMatch[1]!,
-					});
+					resolve({ child, url, password });
+				};
+				let readingPassword = false;
+				const trySettle = (): void => {
+					if (settled) return;
+					const urlMatch = stdoutBuf.match(SERVER_READY_REGEX);
+					if (urlMatch === null) return;
+					const passMatch = stdoutBuf.match(SERVER_PASSWORD_REGEX);
+					if (passMatch !== null) {
+						finish(urlMatch[1]!, passMatch[1]!);
+						return;
+					}
+					if (readingPassword) return;
+					readingPassword = true;
+					// Newer v2 builds persist the daemon password instead of printing it.
+					const stateHome =
+						executionEnv?.XDG_STATE_HOME ?? process.env.XDG_STATE_HOME;
+					const home = executionEnv?.HOME ?? homedir();
+					const passwordPath = join(
+						stateHome?.trim() || join(home, ".local", "state"),
+						"opencode",
+						"password",
+					);
+					void readFile(passwordPath, "utf8")
+						.then((password) => {
+							if (password.trim().length === 0)
+								throw new Error("OpenCode 2 server password is empty");
+							finish(urlMatch[1]!, password);
+						})
+						.catch(() => {
+							// Older builds may print the password in a subsequent stdout chunk.
+							readingPassword = false;
+						});
 				};
 				const onStdout = (chunk: string): void => {
 					if (settled) return;
@@ -694,6 +719,7 @@ interface InventoryProviderRow {
 	readonly id?: unknown;
 	readonly name?: unknown;
 	readonly activation?: unknown;
+	readonly disabled?: unknown;
 }
 
 interface InventoryModelRow {
@@ -719,7 +745,7 @@ export const isUsableOpencode2Model = (m: InventoryModelRow): boolean => {
 	const id = asNonEmptyString(m.id);
 	if (id === null) return false;
 	if (m.enabled === false) return false;
-	if (m.status !== undefined && m.status !== "active") return false;
+	if (m.status === "deprecated") return false;
 	if (m.capabilities?.tools === false) return false;
 	return true;
 };
@@ -756,7 +782,13 @@ export const collectOpencode2Inventory = (
 		const id = asNonEmptyString(p.id);
 		if (id === null) continue;
 		providerName.set(id, asNonEmptyString(p.name) ?? id);
-		if (p.activation === "enabled" || p.activation === "auto") {
+		// /api/provider lists available providers; current v2 has no activation field.
+		if (
+			p.disabled !== true &&
+			(p.activation === undefined ||
+				p.activation === "enabled" ||
+				p.activation === "auto")
+		) {
 			connectedIds.add(id);
 		}
 	}
