@@ -171,7 +171,11 @@ export const interactions = async (
 		});
 		return new Response("ok");
 	}
-	let metadata: { revision?: number; memberRevision?: number };
+	let metadata: {
+		revision?: number;
+		memberRevision?: number;
+		connectionId?: string;
+	};
 	try {
 		const parsed = JSON.parse(payload.view?.private_metadata ?? "null");
 		metadata =
@@ -179,11 +183,17 @@ export const interactions = async (
 	} catch {
 		return new Response("invalid view", { status: 400 });
 	}
+	const homeSelection =
+		typeof metadata.connectionId === "string" &&
+		typeof action.action_ts === "string"
+			? { connectionId: metadata.connectionId, actionTs: action.action_ts }
+			: undefined;
 	let job: AppJob;
 	if (action.action_id === "select_project" && action.selected_option?.value)
 		job = {
 			...identity,
 			kind: "project",
+			homeSelection,
 			userId,
 			projectId: action.selected_option.value,
 			revision: metadata.revision ?? -1,
@@ -203,6 +213,7 @@ export const interactions = async (
 		job = {
 			...identity,
 			kind: "reply-mode",
+			homeSelection,
 			userId,
 			mode,
 			memberRevision: metadata.memberRevision ?? -2,
@@ -229,6 +240,7 @@ export const interactions = async (
 		job = {
 			...identity,
 			kind: "execution-default",
+			homeSelection,
 			userId,
 			field,
 			value,
