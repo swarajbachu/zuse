@@ -74,7 +74,7 @@ import {
 	makeTextInput,
 	sendMessage,
 } from "~/rpc/actions";
-import { cloudControlClient } from "~/rpc/api-client";
+import { cloudControlClientForWorkspace } from "~/rpc/api-client";
 import { authAccountAtom } from "~/store/auth";
 import {
 	connectionAvailabilityAtom,
@@ -83,6 +83,7 @@ import {
 import {
 	cloudAuthenticatedProvidersAtom,
 	cloudCatalogAtom,
+	cloudWorkspaceAdminSnapshot,
 	refreshCloudCatalog,
 } from "~/store/cloud-catalog";
 import { launchMobileCloudChat } from "~/store/cloud-launch";
@@ -538,7 +539,11 @@ export default function NewChatScreen() {
 	const rebuildCloudImage = async () => {
 		setRebuildingImage(true);
 		setError(null);
+		let isCurrent = () => true;
 		try {
+			const snapshot = cloudWorkspaceAdminSnapshot();
+			isCurrent = snapshot.isCurrent;
+			const cloudControlClient = cloudControlClientForWorkspace(snapshot.scope);
 			await Effect.runPromise(
 				cloudControlClient["cloud.image.build"]({
 					mode: "update",
@@ -546,9 +551,9 @@ export default function NewChatScreen() {
 					idempotencyKey: crypto.randomUUID(),
 				}),
 			);
-			await refreshCloudCatalog();
+			if (isCurrent()) await refreshCloudCatalog();
 		} catch (cause) {
-			setError(connectionErrorMessage(cause));
+			if (isCurrent()) setError(connectionErrorMessage(cause));
 		} finally {
 			setRebuildingImage(false);
 		}
