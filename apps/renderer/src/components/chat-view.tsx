@@ -1,5 +1,5 @@
+import { runningBackgroundAgents } from "@zuse/client-runtime/background-agent-presentation";
 import type { SyncPhase } from "@zuse/client-runtime/resource-state";
-import { runningBackgroundAgents } from "@zuse/client-runtime/session-presentation";
 import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
 import { useEnvironmentQuestionAttachments } from "../lib/environment-question-attachments-client-bus.ts";
 import {

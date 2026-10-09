@@ -9,11 +9,13 @@ import {
 	SessionTimelineProjection,
 } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
-import type { ResourceView } from "../../src/resource-state.ts";
 import {
 	countRunningBackgroundAgents,
-	deriveSessionPresentation,
 	runningBackgroundAgents,
+} from "../../src/background-agent-presentation.ts";
+import type { ResourceView } from "../../src/resource-state.ts";
+import {
+	deriveSessionPresentation,
 	type SessionPresentation,
 } from "../../src/session-presentation.ts";
 

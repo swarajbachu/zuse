@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./background-agent-presentation": "./src/background-agent-presentation.ts",
 		"./chat-sharing": "./src/chat-sharing.ts",
 		"./attachment-upload": "./src/attachment-upload.ts",
 		"./chat-recency": "./src/chat-recency.ts",
