@@ -67,5 +67,6 @@
 	"tool_row_edit_plural0_sentence_other": "⟦{{editCount}} ëëdïïts⟧",
 	"code_block_copy": "⟦Côôpy {{name}}⟧",
 	"code_block_empty": "⟦(ëëmpty)⟧",
-	"tool_row_empty": "⟦(ëëmpty)⟧"
+	"tool_row_empty": "⟦(ëëmpty)⟧",
+	"tool_row_message_sent_to_thread": "⟦Mëëssààgëë sëënt tôô thrëëààd⟧"
 }

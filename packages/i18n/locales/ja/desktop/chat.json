@@ -686,5 +686,19 @@
 	"chat_landing_add_a_project_to_start": "プロジェクトを追加して最初のチャットを開始しましょう。",
 	"chat_landing_add_project": "プロジェクトを追加",
 	"chat_working_row_waiting_for_task": "タスク {{task}} を待機中",
-	"changes_review_viewed": "確認済み"
+	"changes_review_viewed": "確認済み",
+	"delegation_group_count": "{{count}} 件のサブエージェント",
+	"delegation_group_count_one": "{{count}} 件のサブエージェント",
+	"delegation_group_count_other": "{{count}} 件のサブエージェント",
+	"delegation_group_working": "{{count}} 件実行中",
+	"delegation_group_done": "{{count}} 件完了",
+	"delegation_group_failed": "{{count}} 件失敗",
+	"delegation_group_stopped": "{{count}} 件停止",
+	"delegation_status_running": "実行中",
+	"delegation_status_done": "完了",
+	"delegation_status_failed": "失敗",
+	"delegation_status_stopped": "停止",
+	"delegation_row_starting": "開始中…",
+	"delegation_row_open": "{{title}} を開く",
+	"delegation_group_running": "{{total}} 件中 {{working}} 件実行中"
 }

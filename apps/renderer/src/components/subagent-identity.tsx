@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { ProviderId } from "@zuse/contracts";
 import {
 	ActivitySparkIcon,
 	AiDnaIcon,
@@ -7,6 +8,7 @@ import {
 	Flower2Icon,
 	GeometricShapes02Icon,
 } from "@zuse/icons/solid-rounded";
+import { ProviderIcon } from "./provider-icons.tsx";
 
 const ICONS = [
 	Atom02Icon,
@@ -53,6 +55,31 @@ export function SubagentAvatar({
 				icon={icon}
 				className={size === "sm" ? "size-4" : "size-6"}
 			/>
+		</span>
+	);
+}
+
+/**
+ * Small provider tile for delegated work. The ring lets a group header
+ * overlap several; agents without a provider fall back to their glyph.
+ */
+export function DelegationAvatar({
+	providerId,
+	name,
+}: {
+	readonly providerId: ProviderId | null;
+	readonly name: string;
+}) {
+	return (
+		<span
+			aria-hidden="true"
+			className="inline-flex size-5 shrink-0 items-center justify-center rounded-md bg-muted ring-2 ring-background"
+		>
+			{providerId !== null ? (
+				<ProviderIcon providerId={providerId} className="size-3" />
+			) : (
+				<SubagentAvatar name={name} size="sm" />
+			)}
 		</span>
 	);
 }

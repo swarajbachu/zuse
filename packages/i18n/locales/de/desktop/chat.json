@@ -686,5 +686,19 @@
 	"chat_landing_add_a_project_to_start": "Füge ein Projekt hinzu, um deinen ersten Chat zu starten.",
 	"chat_landing_add_project": "Projekt hinzufügen",
 	"chat_working_row_waiting_for_task": "Warten auf Aufgabe {{task}}",
-	"changes_review_viewed": "Angesehen"
+	"changes_review_viewed": "Angesehen",
+	"delegation_group_count": "{{count}} Subagenten",
+	"delegation_group_count_one": "{{count}} Subagent",
+	"delegation_group_count_other": "{{count}} Subagenten",
+	"delegation_group_working": "{{count}} aktiv",
+	"delegation_group_done": "{{count}} fertig",
+	"delegation_group_failed": "{{count}} fehlgeschlagen",
+	"delegation_group_stopped": "{{count}} gestoppt",
+	"delegation_status_running": "Läuft",
+	"delegation_status_done": "Fertig",
+	"delegation_status_failed": "Fehlgeschlagen",
+	"delegation_status_stopped": "Gestoppt",
+	"delegation_row_starting": "Wird gestartet…",
+	"delegation_row_open": "{{title}} öffnen",
+	"delegation_group_running": "{{working}} von {{total}} aktiv"
 }

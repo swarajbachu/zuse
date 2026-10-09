@@ -3,7 +3,13 @@ import {
 	isUserMessage,
 	normalizeTimelineMessages,
 } from "@zuse/client-runtime/timeline";
-import type { AgentItemId, Message } from "@zuse/contracts";
+import type { Message } from "@zuse/contracts";
+import {
+	type DelegationMember,
+	delegationItemIds,
+	groupDelegations,
+	isDelegationMessage,
+} from "./delegation-display.ts";
 import { groupMessages } from "./group-messages.ts";
 import { normalizeToolCallEnvelope } from "./tool-call-envelope.ts";
 
@@ -21,23 +27,9 @@ export type ChatTimelineRow =
 			readonly showAssistantCommands: boolean;
 	  }
 	| {
-			readonly kind: "subagent";
+			readonly kind: "delegation";
 			readonly id: string;
-			readonly parent: Message;
-			readonly parentItemId: AgentItemId;
-			readonly agentName: string;
-			readonly prompt: string;
-			readonly modelRequested: string | undefined;
-			readonly childSessionId: string | undefined;
-			readonly presentation: "inline" | "detached";
-			readonly children: ReadonlyArray<Message>;
-			readonly summary: {
-				readonly text: string;
-				readonly turns: number;
-				readonly durationMs: number;
-				readonly model: string;
-				readonly isError: boolean;
-			} | null;
+			readonly members: ReadonlyArray<DelegationMember>;
 	  }
 	| {
 			readonly kind: "turn-summary";
@@ -213,10 +205,24 @@ export function deriveChatTimelineRows({
 			});
 		}
 
-		const hasToolCalls = turn.body.some(
+		const bodyGroups = groupDelegations(groupMessages(turn.body));
+		// Delegated work stays visible after the turn settles, like plans.
+		const delegations = bodyGroups.filter(
+			(group) => group.kind === "delegation",
+		);
+		const delegatedItemIds = delegationItemIds(
+			delegations.flatMap((group) => group.members),
+		);
+		const undelegatedBody =
+			delegatedItemIds.size === 0
+				? turn.body
+				: turn.body.filter(
+						(message) => !isDelegationMessage(message, delegatedItemIds),
+					);
+		const hasToolCalls = undelegatedBody.some(
 			(message) => message.content._tag === "tool_use",
 		);
-		const hasFinalText = turn.body.some(
+		const hasFinalText = undelegatedBody.some(
 			(message) =>
 				message.content._tag === "assistant" &&
 				message.content.text.trim().length > 0,
@@ -226,7 +232,6 @@ export function deriveChatTimelineRows({
 			hasToolCalls &&
 			hasFinalText &&
 			!turn.body.some(isVisualMessage);
-		const bodyGroups = groupMessages(turn.body);
 		const planMessages = turn.body.filter(
 			(message) =>
 				message.content._tag === "tool_use" &&
@@ -239,8 +244,8 @@ export function deriveChatTimelineRows({
 		);
 		const summaryBody =
 			planMessages.length === 0
-				? turn.body
-				: turn.body.filter((message) => {
+				? undelegatedBody
+				: undelegatedBody.filter((message) => {
 						if (
 							message.content._tag === "tool_use" &&
 							message.content.tool === "ExitPlanMode"
@@ -266,6 +271,9 @@ export function deriveChatTimelineRows({
 					showAssistantCommands: showAssistantCommands(message),
 				});
 			}
+			for (const group of delegations) {
+				rows.push({ kind: "delegation", id: group.id, members: group.members });
+			}
 			rows.push({
 				kind: "turn-summary",
 				id: `summary:${turn.user?.id ?? `turn-${index}`}`,
@@ -285,19 +293,7 @@ export function deriveChatTimelineRows({
 					showAssistantCommands: showAssistantCommands(group.message),
 				});
 			} else {
-				rows.push({
-					kind: "subagent",
-					id: `subagent:${group.parent.id}`,
-					parent: group.parent,
-					parentItemId: group.parentItemId,
-					agentName: group.agentName,
-					prompt: group.prompt,
-					modelRequested: group.modelRequested,
-					childSessionId: group.childSessionId,
-					presentation: group.presentation,
-					children: group.children,
-					summary: group.summary,
-				});
+				rows.push({ kind: "delegation", id: group.id, members: group.members });
 			}
 		}
 	}

@@ -6,7 +6,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	type ChatId,
 	isRedundantShellDescription,
-	type SessionId,
 	type UserQuestion,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
@@ -53,7 +52,6 @@ import {
 import { toolImageDataUrl, toolImageResult } from "~/lib/tool-image-result";
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
-import { useSessionsStore } from "~/store/sessions";
 import { type FileView, useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
 import { useWorktreesStore } from "~/store/worktrees";
@@ -1762,23 +1760,13 @@ export function ExitPlanModeRow({
 	);
 }
 
-export function OrchestrationThreadRow({
-	variant,
-	result,
-}: {
-	variant:
-		| "create_thread"
-		| "create_chat"
-		| "create_session"
-		| "send_to_thread";
-	result?: ToolResult;
-}) {
+/** Card for a follow-up sent to an orchestrated thread. */
+export function OrchestrationThreadRow({ result }: { result?: ToolResult }) {
 	const { message: uiMessage } = useUiMessages(["common", "tools"]);
 
 	const parsed =
 		result !== undefined ? parseOrchestrationResult(result.output) : null;
 	const chatId = parsed?.chatId;
-	const sessionId = parsed?.sessionId;
 	const { chatsByProject } = useActiveEnvironmentEntities();
 	const chatLoaded =
 		chatId !== undefined &&
@@ -1791,30 +1779,15 @@ export function OrchestrationThreadRow({
 			<div className="px-4 py-2">
 				<div className="flex items-center gap-2 text-xs text-muted-foreground">
 					<HugeiconsIcon icon={BubbleChatIcon} size={14} strokeWidth={2} />
-					<span>
-						{variant === "send_to_thread"
-							? uiMessage("tools:tool_row_sending_to_thread")
-							: variant === "create_session"
-								? uiMessage("tools:tool_row_creating_session_tab")
-								: uiMessage("tools:tool_row_creating_chat")}
-					</span>
+					<span>{uiMessage("tools:tool_row_sending_to_thread")}</span>
 				</div>
 			</div>
 		);
 	}
 
-	const label =
-		variant === "send_to_thread"
-			? "Message sent to thread"
-			: variant === "create_session"
-				? "Session tab created"
-				: "Chat created";
 	const openChat = () => {
 		if (chatId !== undefined && chatLoaded) {
 			useChatsStore.getState().select(chatId as ChatId);
-		}
-		if (sessionId !== undefined) {
-			useSessionsStore.getState().select(sessionId as SessionId);
 		}
 	};
 
@@ -1822,28 +1795,9 @@ export function OrchestrationThreadRow({
 		<div className="px-4 py-2">
 			<div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
 				<div className="flex items-center justify-between gap-3">
-					<div className="min-w-0">
-						<div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-							<HugeiconsIcon icon={BubbleChatIcon} size={14} strokeWidth={2} />
-							<span>{label}</span>
-						</div>
-						{variant !== "send_to_thread" ? (
-							<>
-								{typeof parsed?.title === "string" &&
-								parsed.title.length > 0 ? (
-									<div className="mt-1 truncate text-sm text-foreground">
-										{parsed.title}
-									</div>
-								) : null}
-								{variant === "create_thread" &&
-								typeof parsed?.branch === "string" &&
-								parsed.branch.length > 0 ? (
-									<div className="mt-0.5 truncate text-xs text-muted-foreground">
-										{parsed.branch}
-									</div>
-								) : null}
-							</>
-						) : null}
+					<div className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
+						<HugeiconsIcon icon={BubbleChatIcon} size={14} strokeWidth={2} />
+						<span>{uiMessage("tools:tool_row_message_sent_to_thread")}</span>
 					</div>
 					<Button
 						type="button"

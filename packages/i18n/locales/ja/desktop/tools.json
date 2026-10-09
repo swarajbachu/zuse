@@ -67,5 +67,6 @@
 	"tool_row_edit_plural0_sentence_other": "{{editCount}}編集",
 	"code_block_copy": "{{name}}をコピー",
 	"code_block_empty": "(空)",
-	"tool_row_empty": "(空)"
+	"tool_row_empty": "(空)",
+	"tool_row_message_sent_to_thread": "スレッドにメッセージを送信しました"
 }

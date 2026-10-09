@@ -15,9 +15,9 @@ import {
 	deriveChatTimelineRows,
 } from "../lib/chat-timeline-rows.ts";
 import { ChatLookupsProvider, deriveChatLookups } from "./chat-lookups.tsx";
+import { DelegationGroup } from "./delegation-group.tsx";
 import { FileChipProvider } from "./file-chip.tsx";
 import { MessageRow } from "./message-row.tsx";
-import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
 
 export function ArchivedChatTimeline({
@@ -119,18 +119,14 @@ function ArchivedTimelineRow({
 					showAssistantCommands={row.showAssistantCommands}
 				/>
 			);
-		case "subagent":
+		case "delegation":
 			return (
-				<SubagentRow
-					agentToolUseId={row.parentItemId}
+				<DelegationGroup
+					members={row.members}
+					providerId={null}
+					parentLive={false}
+					chatRef={null}
 					environmentId={environmentId}
-					agentName={row.agentName}
-					prompt={row.prompt}
-					modelRequested={row.modelRequested}
-					childSessionId={row.childSessionId}
-					presentation={row.presentation}
-					children={row.children}
-					summary={row.summary}
 					readOnly
 				/>
 			);

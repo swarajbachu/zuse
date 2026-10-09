@@ -688,5 +688,20 @@
 	"chat_landing_add_a_project_to_start": "Ajoutez un projet pour démarrer votre première conversation.",
 	"chat_landing_add_project": "Ajouter un projet",
 	"chat_working_row_waiting_for_task": "En attente de la tâche {{task}}",
-	"changes_review_viewed": "Vu"
+	"changes_review_viewed": "Vu",
+	"delegation_group_count": "{{count}} sous-agents",
+	"delegation_group_count_one": "{{count}} sous-agent",
+	"delegation_group_count_other": "{{count}} sous-agents",
+	"delegation_group_working": "{{count}} en cours",
+	"delegation_group_done": "{{count}} terminé(s)",
+	"delegation_group_failed": "{{count}} en échec",
+	"delegation_group_stopped": "{{count}} arrêté(s)",
+	"delegation_status_running": "En cours",
+	"delegation_status_done": "Terminé",
+	"delegation_status_failed": "Échec",
+	"delegation_status_stopped": "Arrêté",
+	"delegation_row_starting": "Démarrage…",
+	"delegation_row_open": "Ouvrir {{title}}",
+	"delegation_group_count_many": "{{count}} sous-agents",
+	"delegation_group_running": "{{working}} sur {{total}} en cours"
 }
