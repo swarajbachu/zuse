@@ -1270,5 +1270,14 @@
 	"settings_page_experimental_description": "Frühe Funktionen, an denen wir noch arbeiten. Sie können sich ändern oder entfernt werden.",
 	"settings_page_thread_list_sidebar": "Seitenleiste als Thread-Liste",
 	"settings_page_thread_list_sidebar_description": "Ersetzt den Projektbaum durch eine Liste aller Threads Ihrer Projekte, neueste zuerst, mit Repository, Live-Agentenstatus, Pull-Request-Status und Diff. Projekte können Sie weiterhin über die Kopfzeile der Seitenleiste hinzufügen.",
-	"settings_page_experimental_sidebar": "Seitenleiste"
+	"settings_page_experimental_sidebar": "Seitenleiste",
+	"prepaid_title": "Zuse-Guthaben",
+	"prepaid_description": "Wird automatisch mit zukünftigen Zuse-Rechnungen verrechnet, einschließlich Abonnements. Nicht verbrauchtes Guthaben bleibt erhalten. Ihr Nutzungskontingent und Ihr Ausgabenlimit bleiben unverändert.",
+	"prepaid_loading": "Guthaben nicht verfügbar",
+	"prepaid_balance": "{{amount}} verfügbar",
+	"prepaid_debit": "{{amount}} auf zukünftigen Rechnungen fällig",
+	"prepaid_buy": "Guthaben kaufen",
+	"prepaid_amount": "Guthabenbetrag",
+	"prepaid_disabled": "Der Guthabenkauf ist für diesen Arbeitsbereich noch nicht aktiviert.",
+	"prepaid_refresh": "Guthaben aktualisieren"
 }

@@ -1270,5 +1270,14 @@
 	"settings_page_experimental_description": "開発中の早期機能です。変更または削除される場合があります。",
 	"settings_page_thread_list_sidebar": "スレッド一覧サイドバー",
 	"settings_page_thread_list_sidebar_description": "プロジェクトツリーを、すべてのプロジェクトのスレッドを新しい順に並べた 1 つのリストに置き換え、リポジトリ、エージェントのライブ状態、プルリクエストの状態、差分を表示します。プロジェクトは引き続きサイドバーのヘッダーから追加できます。",
-	"settings_page_experimental_sidebar": "サイドバー"
+	"settings_page_experimental_sidebar": "サイドバー",
+	"prepaid_title": "Zuse クレジット",
+	"prepaid_description": "サブスクリプションを含む今後の Zuse の請求に自動的に充当されます。未使用のクレジットは繰り越されます。利用枠と支出上限は変わりません。",
+	"prepaid_loading": "残高を取得できません",
+	"prepaid_balance": "利用可能額：{{amount}}",
+	"prepaid_debit": "今後の請求でのお支払い額：{{amount}}",
+	"prepaid_buy": "クレジットを購入",
+	"prepaid_amount": "購入金額",
+	"prepaid_disabled": "このワークスペースではクレジットの購入がまだ有効になっていません。",
+	"prepaid_refresh": "残高を更新"
 }

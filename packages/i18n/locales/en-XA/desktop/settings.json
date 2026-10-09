@@ -1270,5 +1270,14 @@
 	"settings_page_experimental_description": "⟦ËËààrly fëëààtüürëës wëë'rëë stïïll shààpïïng. Thëëy màày chààngëë ôôr bëë rëëmôôvëëd.⟧",
 	"settings_page_thread_list_sidebar": "⟦Thrëëààd lïïst sïïdëëbààr⟧",
 	"settings_page_thread_list_sidebar_description": "⟦Rëëplààcëës thëë prôôjëëct trëëëë wïïth ôônëë lïïst ôôf ëëvëëry thrëëààd ààcrôôss yôôüür prôôjëëcts, nëëwëëst fïïrst, shôôwïïng ëëààch rëëpôôsïïtôôry, lïïvëë ààgëënt stààtüüs, püüll rëëqüüëëst stààtëë, àànd dïïff. Yôôüü cààn stïïll ààdd prôôjëëcts frôôm thëë sïïdëëbààr hëëààdëër.⟧",
-	"settings_page_experimental_sidebar": "⟦Sïïdëëbààr⟧"
+	"settings_page_experimental_sidebar": "⟦Sïïdëëbààr⟧",
+	"prepaid_title": "⟦Züüsëë crëëdïïts⟧",
+	"prepaid_description": "⟦ÀÀpplïïëës ààüütôômààtïïcààlly tôô füütüürëë Züüsëë ïïnvôôïïcëës, ïïnclüüdïïng süübscrïïptïïôôns. ÜÜnüüsëëd crëëdïït rôôlls fôôrwààrd. Yôôüür üüsààgëë ààllôôwààncëë àànd spëëndïïng cààp stàày thëë sààmëë.⟧",
+	"prepaid_loading": "⟦Bààlààncëë üünààvààïïlààblëë⟧",
+	"prepaid_balance": "⟦{{amount}} ààvààïïlààblëë⟧",
+	"prepaid_debit": "⟦{{amount}} ôôwëëd ôôn füütüürëë ïïnvôôïïcëës⟧",
+	"prepaid_buy": "⟦Büüy crëëdïïts⟧",
+	"prepaid_amount": "⟦Crëëdïït ààmôôüünt⟧",
+	"prepaid_disabled": "⟦Crëëdïït püürchààsëës ààrëë nôôt ëënààblëëd fôôr thïïs wôôrkspààcëë yëët.⟧",
+	"prepaid_refresh": "⟦Rëëfrëësh bààlààncëë⟧"
 }

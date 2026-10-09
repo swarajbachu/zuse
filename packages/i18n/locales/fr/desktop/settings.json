@@ -1274,5 +1274,14 @@
 	"settings_page_experimental_description": "Fonctionnalités en cours de conception. Elles peuvent changer ou être supprimées.",
 	"settings_page_thread_list_sidebar": "Barre latérale en liste de fils",
 	"settings_page_thread_list_sidebar_description": "Remplace l'arborescence des projets par une seule liste de tous les fils de vos projets, du plus récent au plus ancien, avec le dépôt, le statut de l'agent en direct, l'état de la pull request et le diff. Vous pouvez toujours ajouter des projets depuis l'en-tête de la barre latérale.",
-	"settings_page_experimental_sidebar": "Barre latérale"
+	"settings_page_experimental_sidebar": "Barre latérale",
+	"prepaid_title": "Crédits Zuse",
+	"prepaid_description": "Appliqués automatiquement aux prochaines factures Zuse, y compris aux abonnements. Le crédit inutilisé est reporté. Votre quota d’utilisation et votre plafond de dépenses restent inchangés.",
+	"prepaid_loading": "Solde indisponible",
+	"prepaid_balance": "{{amount}} disponibles",
+	"prepaid_debit": "{{amount}} dus sur les prochaines factures",
+	"prepaid_buy": "Acheter des crédits",
+	"prepaid_amount": "Montant des crédits",
+	"prepaid_disabled": "L’achat de crédits n’est pas encore activé pour cet espace de travail.",
+	"prepaid_refresh": "Actualiser le solde"
 }

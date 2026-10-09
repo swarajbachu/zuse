@@ -1270,5 +1270,14 @@
 	"settings_page_experimental_description": "아직 다듬고 있는 초기 기능입니다. 변경되거나 제거될 수 있습니다.",
 	"settings_page_thread_list_sidebar": "스레드 목록 사이드바",
 	"settings_page_thread_list_sidebar_description": "프로젝트 트리를 모든 프로젝트의 스레드를 최신순으로 보여 주는 하나의 목록으로 바꾸고, 저장소, 실시간 에이전트 상태, 풀 리퀘스트 상태, 변경 사항을 표시합니다. 프로젝트는 계속 사이드바 헤더에서 추가할 수 있습니다.",
-	"settings_page_experimental_sidebar": "사이드바"
+	"settings_page_experimental_sidebar": "사이드바",
+	"prepaid_title": "Zuse 크레딧",
+	"prepaid_description": "구독료를 포함한 향후 Zuse 청구서에 자동으로 적용됩니다. 사용하지 않은 크레딧은 이월됩니다. 사용 허용량과 지출 한도는 그대로 유지됩니다.",
+	"prepaid_loading": "잔액을 불러올 수 없습니다",
+	"prepaid_balance": "사용 가능한 금액: {{amount}}",
+	"prepaid_debit": "향후 청구서에 청구될 금액: {{amount}}",
+	"prepaid_buy": "크레딧 구매",
+	"prepaid_amount": "크레딧 금액",
+	"prepaid_disabled": "이 워크스페이스에서는 아직 크레딧 구매가 활성화되지 않았습니다.",
+	"prepaid_refresh": "잔액 새로고침"
 }
