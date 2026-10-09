@@ -55,6 +55,7 @@ let computerAwakeSubscriberCount = 0;
  * listener for response frames from main and returns an unsubscribe handle.
  */
 const bridge = {
+	htmlVisualPublicNetwork: true,
 	locale: {
 		get: (): Promise<import("@zuse/contracts").LocaleSnapshot> =>
 			ipcRenderer.invoke("locale:get"),

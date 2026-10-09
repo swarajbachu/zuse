@@ -1,3 +1,4 @@
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { viewWorkspaceImage } from "@zuse/agents/drivers/image-mcp-tools";
 
 /** Embed only canonical workspace images. The image tool owns path/MIME/size policy. */
@@ -6,10 +7,23 @@ export async function embedHtmlImages(
 	cwd: string,
 	signal: AbortSignal,
 ): Promise<string> {
+	signal.throwIfAborted();
 	const paths = new Set<string>();
 	const pattern =
-		/["'`(]((?:\/|[A-Za-z]:[\\/])[^"'`()\r\n<>]+\.(?:png|jpe?g|gif|webp))["'`)]/gi;
-	for (const match of html.matchAll(pattern)) if (match[1]) paths.add(match[1]);
+		/["'`(]((?:\/(?!\/)|[A-Za-z]:[\\/])[^"'`()\r\n<>]+\.(?:png|jpe?g|gif|webp))["'`)]/gi;
+	const root = resolve(cwd);
+	for (const match of html.matchAll(pattern)) {
+		const candidate = match[1];
+		if (!candidate) continue;
+		const path = relative(root, resolve(candidate));
+		if (
+			path &&
+			path !== ".." &&
+			!path.startsWith(`..${sep}`) &&
+			!isAbsolute(path)
+		)
+			paths.add(candidate);
+	}
 	if (paths.size > 32)
 		throw new Error("A visual can embed at most 32 workspace images");
 	const maxDocumentBytes = 4 * 1024 * 1024;

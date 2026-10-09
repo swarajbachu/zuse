@@ -3,9 +3,20 @@ import "@zuse/i18n/english/chat";
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import type { HtmlRenderReference } from "@zuse/contracts";
 import { useMessages } from "@zuse/i18n/react";
-import { defaultHtmlTheme, readVisualHeight } from "@zuse/utils/html-document";
+import {
+	defaultHtmlTheme,
+	prepareHtmlDisplayUrl,
+	readVisualHeight,
+} from "@zuse/utils/html-document";
 import { Expand, X } from "lucide-react";
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+	memo,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useResolvedAppearance } from "~/lib/appearance";
 import { useAttachmentUrl } from "~/lib/attachments";
 import { Button } from "./ui/button.tsx";
@@ -61,7 +72,7 @@ function VisualDocument({
 			onLoad={postTheme}
 			className="block w-full border-0 bg-transparent"
 			style={{
-				height: expanded ? "75vh" : Math.min(height, measured),
+				height: expanded ? "75vh" : measured,
 				colorScheme: appearance,
 			}}
 		/>
@@ -76,6 +87,7 @@ export const HtmlVisual = memo(function HtmlVisual({
 	sessionRef: SessionRef;
 }) {
 	const { message } = useMessages(["common", "chat"]);
+	const publicNetwork = window.zuse?.htmlVisualPublicNetwork === true;
 	const container = useRef<HTMLDivElement>(null);
 	const [visible, setVisible] = useState(false);
 	const [expanded, setExpanded] = useState(false);
@@ -98,14 +110,23 @@ export const HtmlVisual = memo(function HtmlVisual({
 		return () => observer.disconnect();
 	}, []);
 	const resource = useAttachmentUrl(
-		visible ? sessionRef : null,
+		visible && publicNetwork ? sessionRef : null,
 		visual.attachmentId,
 	);
 	// A fetched attachment must actually be HTML; references cannot execute other blobs.
-	const src = resource.src?.startsWith("data:text/html;base64,")
-		? resource.src
-		: null;
-	const failed = resource.failed || (resource.src !== null && src === null);
+	const src = useMemo(() => {
+		if (!publicNetwork || !resource.src?.startsWith("data:text/html;base64,"))
+			return null;
+		try {
+			return prepareHtmlDisplayUrl(resource.src);
+		} catch {
+			return null;
+		}
+	}, [resource.src, publicNetwork]);
+	const failed =
+		!publicNetwork ||
+		resource.failed ||
+		(resource.src !== null && src === null);
 	return (
 		<div
 			ref={container}
@@ -136,9 +157,17 @@ export const HtmlVisual = memo(function HtmlVisual({
 					{failed ? (
 						<>
 							{visual.title} —{" "}
-							<Button className="h-7" variant="ghost" onClick={resource.retry}>
-								{message("chat:message_row_retry_preview")}
-							</Button>
+							{publicNetwork ? (
+								<Button
+									className="h-7"
+									variant="ghost"
+									onClick={resource.retry}
+								>
+									{message("chat:message_row_retry_preview")}
+								</Button>
+							) : (
+								message("chat:cloud_setup_unavailable")
+							)}
 						</>
 					) : (
 						message("common:loading")

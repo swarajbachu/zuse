@@ -1,4 +1,5 @@
 import {
+	HTML_MCP_TOOLS,
 	type HtmlToolsClient,
 	handleHtmlTool,
 } from "@zuse/agents/drivers/html-tools";
@@ -55,4 +56,11 @@ it.each([
 		),
 	).rejects.toThrow();
 	expect(client.render).not.toHaveBeenCalled();
+});
+
+it("does not advertise executable network tools as read-only", () => {
+	for (const tool of HTML_MCP_TOOLS) {
+		expect(tool.annotations.readOnlyHint).toBe(false);
+		expect(tool.annotations.openWorldHint).toBe(true);
+	}
 });

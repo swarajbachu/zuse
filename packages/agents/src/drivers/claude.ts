@@ -52,7 +52,7 @@ import { pluginCliEnv } from "./plugin-tools.ts";
 
 /**
  * User MCP servers → SDK external-server config entries. Tools surface as
- * `mcp__<name>__<tool>` and fall through `policyFor` to the permission
+ * `mcp__<name>__<tool>` and fall through `claudeToolPermissionPolicy` to the permission
  * broker like any unlisted tool. With toolSearch on, the SDK defers their
  * tool schemas behind search (the default); with it off we pin
  * `alwaysLoad` so behavior matches the builtins.
@@ -1308,7 +1308,7 @@ export const translateClaudeSdkMessages = (
  * Tools the agent can run without a prompt. These are pure reads or
  * internal-state tools (`TodoWrite`) with no observable blast radius. The
  * `Read` exception for sensitive paths is enforced separately in
- * `policyFor` — even read-only tools force a prompt when the target looks
+ * `claudeToolPermissionPolicy` — even read-only tools force a prompt when the target looks
  * like a secret.
  *
  * `ASK_USER_QUESTION_FQN` is here because asking the user a question IS
@@ -1324,9 +1324,6 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 	"BashOutput",
 	"TodoWrite",
 	ASK_USER_QUESTION_FQN,
-	// Sandboxed, app-owned visuals publish only into the caller's conversation.
-	`mcp__${ZUSE_MCP_NAME}__html_preview`,
-	`mcp__${ZUSE_MCP_NAME}__html_render`,
 	// Agent browser — navigate / screenshot / snapshot / wait are read-only and
 	// fully visible to the user (the page loads in the on-screen webview,
 	// screenshots flash a shutter). Auto-allow like Grep/Glob.
@@ -1410,7 +1407,7 @@ const isAskUserQuestion = (toolName: string): boolean =>
 	toolName === SDK_BUILTIN_ASK_USER_QUESTION ||
 	toolName.endsWith(`__${ASK_USER_QUESTION_TOOL}`);
 
-const policyFor = (
+export const claudeToolPermissionPolicy = (
 	toolName: string,
 	toolInput: Record<string, unknown>,
 	runtimeMode: RuntimeMode,
@@ -1958,7 +1955,11 @@ export const startClaudeSession = (
 			// `PermissionService`. The renderer's toast eventually fulfills the
 			// promise this awaits.
 			canUseTool: async (toolName, toolInput) => {
-				const policy = policyFor(toolName, toolInput, getRuntimeMode());
+				const policy = claudeToolPermissionPolicy(
+					toolName,
+					toolInput,
+					getRuntimeMode(),
+				);
 				// One-line debug so if the auto-allow ever misses (e.g. SDK
 				// changes the MCP-tool naming convention) we can see the
 				// exact toolName arriving and patch `isAskUserQuestion`.

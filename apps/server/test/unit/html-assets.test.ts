@@ -55,3 +55,32 @@ it("bounds expanded bytes including repeated uses of the same image", async () =
 		await rm(cwd, { recursive: true, force: true });
 	}
 });
+
+it("preserves protocol-relative and root-relative asset URLs without reading local files", async () => {
+	const html =
+		'<img src="//cdn.example.com/logo.png"><style>body{background:url(/img/a.png)}</style><img src="/outside/secret.png">';
+	expect(
+		await embedHtmlImages(html, "/workspace", new AbortController().signal),
+	).toBe(html);
+});
+
+it("embeds dot-prefixed workspace filenames and rejects sibling-prefix escapes", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "zuse-html-paths-"));
+	try {
+		const path = join(cwd, "..logo.png");
+		await writeFile(path, Buffer.from("89504e470d0a1a0a", "hex"));
+		expect(
+			await embedHtmlImages(
+				`<img src="${path}">`,
+				cwd,
+				new AbortController().signal,
+			),
+		).toContain("data:image/png;base64,");
+		const sibling = `<img src="${cwd}-other/secret.png">`;
+		expect(
+			await embedHtmlImages(sibling, cwd, new AbortController().signal),
+		).toBe(sibling);
+	} finally {
+		await rm(cwd, { recursive: true, force: true });
+	}
+});

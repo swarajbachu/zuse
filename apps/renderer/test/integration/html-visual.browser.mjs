@@ -53,12 +53,12 @@ const server = await createServer({
     import React from 'react';import {createRoot} from 'react-dom/client';
     import {HtmlVisual} from '/src/components/html-visual.tsx';
     import {prepareHtmlDocument} from '@zuse/utils/html-document';import '/src/styles.css';
-    window.reads=0;window.appearance='dark';document.documentElement.classList.add('dark');
+    window.zuse={htmlVisualPublicNetwork:true};window.reads=0;window.appearance='dark';document.documentElement.classList.add('dark');
     window.visualSrc='data:text/html;base64,'+btoa(unescape(encodeURIComponent(prepareHtmlDocument(${JSON.stringify(html)}))));
     const root=createRoot(document.getElementById('root'));let count=0;
     window.renderVisual=()=>root.render(React.createElement('main',{style:{maxWidth:780,margin:'36px auto',padding:'0 16px'}},
       React.createElement('p',{style:{color:'var(--muted-foreground)',fontSize:13}},'Zuse · inline visualization'),
-      React.createElement(HtmlVisual,{key:'visual',visual:{attachmentId:'saved',title:'Typecheck benchmarks',height:1100},sessionRef:{environmentId:'local',sessionId:'owner'}}),
+      React.createElement(HtmlVisual,{key:'visual',visual:{attachmentId:'saved',title:'Typecheck benchmarks',height:80},sessionRef:{environmentId:'local',sessionId:'owner'}}),
       React.createElement('p',null,'Streaming reply '+(++count))));
     window.renderVisual();window.mountVisual=()=>{root.render(null);setTimeout(window.renderVisual,50)};
     window.changeTheme=()=>{window.appearance=window.appearance==='dark'?'light':'dark';document.documentElement.classList.toggle('dark',window.appearance==='dark');window.dispatchEvent(new Event('theme'))};
@@ -102,6 +102,9 @@ if (process.argv.includes("--serve")) {
 		);
 		const inner = () =>
 			page.frames().find((f) => f.parentFrame() === page.mainFrame());
+		await page.waitForFunction(
+			() => parseInt(document.querySelector("iframe").style.height, 10) > 80,
+		);
 		const instance = await inner().evaluate(() => window.visualInstance);
 		assert.equal(typeof instance, "string");
 		await frame.getByRole("button", { name: "Show methodology" }).click();
@@ -173,6 +176,15 @@ if (process.argv.includes("--serve")) {
 			),
 			true,
 		);
+		const contentHeight = await inner().evaluate(() =>
+			Math.ceil(document.body.getBoundingClientRect().height),
+		);
+		await page.waitForFunction(
+			(expected) =>
+				parseInt(document.querySelector("iframe").style.height, 10) >=
+				Math.min(2000, expected),
+			contentHeight,
+		);
 		if (screenshots)
 			await page.screenshot({
 				path: resolve(screenshots, "html-visual-narrow.png"),
@@ -189,6 +201,16 @@ if (process.argv.includes("--serve")) {
 			.getByRole("heading", { name: "Typecheck benchmarks", exact: true })
 			.waitFor();
 		assert.equal(errors.length, 0, errors.join("\n"));
+		await page.evaluate(() => {
+			window.zuse.htmlVisualPublicNetwork = false;
+			window.mountVisual();
+		});
+		await page.waitForTimeout(150);
+		assert.equal(
+			await page.locator("iframe").count(),
+			0,
+			"unprotected browser must not execute HTML",
+		);
 		console.log(
 			"HTML visual browser checks passed: interaction, theme, stable mount, isolation, expansion, narrow layout, reload and retry.",
 		);

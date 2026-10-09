@@ -34,7 +34,7 @@ export const HTML_MCP_TOOLS = [
 	{
 		name: "html_preview",
 		annotations: {
-			readOnlyHint: true,
+			readOnlyHint: false,
 			destructiveHint: false,
 			idempotentHint: true,
 			openWorldHint: true,
@@ -58,7 +58,7 @@ export const HTML_MCP_TOOLS = [
 	{
 		name: "html_render",
 		annotations: {
-			readOnlyHint: true,
+			readOnlyHint: false,
 			destructiveHint: false,
 			idempotentHint: false,
 			openWorldHint: true,
