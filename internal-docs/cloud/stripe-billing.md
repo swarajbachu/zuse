@@ -258,8 +258,13 @@ Signed webhooks retrieve the canonical Checkout Session, captured payment and
 successful refunds, verify customer/account ownership, price and paid face value,
 then issue immutable balance transactions. Refunds reverse each successful refund
 once, including partial refunds. Refunded credit already consumed becomes a debit
-on a future invoice. Dispute withdrawals reverse the disputed principal and funds
-reinstatement restores it; fees remain a business cost.
+on a future invoice. A refund with status `failed`, `canceled`, or `requires_action`
+fails closed with `reconciliation-required`, including when a previously successful
+refund already reversed credit. Inspect the refund and its balance transaction
+before restoring credit manually; these events never silently acknowledge the
+changed refund or automatically grant replacement credit. Dispute withdrawals
+reverse the disputed principal and funds reinstatement restores it; fees remain a
+business cost.
 
 Funding, refunds, disputes and meter exports share the durable delivery helper and
 existing `api_stripe_meter_deliveries` receipts (the table name is historical).

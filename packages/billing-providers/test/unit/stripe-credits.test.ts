@@ -350,6 +350,7 @@ describe("Stripe SDK credit transport", () => {
 			billing_scheme: "per_unit",
 			transform_quantity: null,
 		};
+		let refundStatus = "succeeded";
 		const requests: Array<{ path: string; body: string; key?: string }> = [];
 		const http = Stripe.createFetchHttpClient(async (url, init) => {
 			const path = new URL(String(url)).pathname;
@@ -370,7 +371,7 @@ describe("Stripe SDK credit transport", () => {
 				value = {
 					data: [
 						{ id: "re_pending", amount: 500, status: "pending" },
-						{ id: "re_paid", amount: 1000, status: "succeeded" },
+						{ id: "re_paid", amount: 1000, status: refundStatus },
 					],
 					has_more: false,
 				};
@@ -388,6 +389,9 @@ describe("Stripe SDK credit transport", () => {
 		return {
 			client,
 			requests,
+			changeRefundStatus: (value: string) => {
+				refundStatus = value;
+			},
 			changeSession: (value: Partial<typeof session>) => {
 				session = { ...session, ...value };
 			},
@@ -412,6 +416,35 @@ describe("Stripe SDK credit transport", () => {
 			"/v1/checkout/sessions/cs_1",
 			"/v1/refunds",
 		]);
+	});
+	test.each([
+		"failed",
+		"canceled",
+		"requires_action",
+	])("refund transition from succeeded to %s requires reconciliation without further adjustments", async (status) => {
+		const sdk = sdkFixture();
+		const f = fixture();
+		const credits = makeStripeCredits({
+			priceId: "price_credit",
+			client: sdk.client,
+			store: f.store,
+			customer: f.customer,
+		});
+		await Effect.runPromise(
+			credits.process(event("refund.updated", { charge: "ch_1" })),
+		);
+		const adjustmentCount = () =>
+			sdk.requests.filter((request) =>
+				request.path.endsWith("/balance_transactions"),
+			).length;
+		expect(adjustmentCount()).toBe(2);
+		sdk.changeRefundStatus(status);
+		await expect(
+			Effect.runPromise(
+				credits.process(event("refund.updated", { charge: "ch_1" })),
+			),
+		).rejects.toMatchObject({ code: "reconciliation-required" });
+		expect(adjustmentCount()).toBe(2);
 	});
 	test("unrelated checkout and inconsistent charge ownership are rejected", async () => {
 		const f = sdkFixture();

@@ -40,6 +40,7 @@ export interface StripeCreditClient {
 	) => Promise<void>;
 }
 
+/** Retrieves canonical Stripe payment evidence and writes idempotent invoice balance adjustments. */
 export const makeStripeCreditClient = (sdk: Stripe): StripeCreditClient => ({
 	validatePrice: async (id) => {
 		const price = await sdk.prices.retrieve(id);
@@ -106,6 +107,13 @@ export const makeStripeCreditClient = (sdk: Stripe): StripeCreditClient => ({
 			charge: charge.id,
 			limit: 100,
 		})) {
+			// A refund can fail after its credit reversal was already delivered.
+			if (
+				refund.status === "failed" ||
+				refund.status === "canceled" ||
+				refund.status === "requires_action"
+			)
+				throw new BillingProviderError({ code: "reconciliation-required" });
 			if (refund.status === "succeeded")
 				refunds.push({ id: refund.id, amount: refund.amount });
 		}
@@ -164,7 +172,10 @@ export const makeStripeCredits = (input: {
 	const call = <A>(operation: () => Promise<A>) =>
 		Effect.tryPromise({
 			try: operation,
-			catch: () => new BillingProviderError({ code: "provider-unavailable" }),
+			catch: (error) =>
+				error instanceof BillingProviderError
+					? error
+					: new BillingProviderError({ code: "provider-unavailable" }),
 		});
 	const adjust = (
 		purchase: StripeCreditPurchase,
