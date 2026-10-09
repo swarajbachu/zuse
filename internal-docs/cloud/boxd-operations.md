@@ -70,8 +70,13 @@ publish with the same API key owner used by the Worker.
   count as continued work. Build sandboxes get boxd's destroy timer
   instead, which counts `createTimeoutSeconds` from the machine's start
   regardless of activity: a build that outlives the deadline is destroyed.
-- Every machine is isolated (no in-VM boxd CLI, integrations, or peers). Egress
-  is open; restricted policies are rejected like Boat.
+- Managed images launch isolated (no in-VM boxd CLI, integrations, or peers).
+  Custom-snapshot inspection and launches request `isolated: false` to retain
+  Boxd account integrations and agent credential injection. This also retains
+  Boxd account access and default peer networking; it is not just a login flag.
+  Already-isolated source snapshots cannot be de-isolated by this option.
+  Native live-machine forks still require an isolated source for safe quarantine.
+  Egress is open; restricted policies are rejected like Boat.
 - A restore keeps its snapshot's size. Choosing another placement in the
   composer costs one cold reboot at creation (about 3 s); resuming never
   resizes unless the placement changed.

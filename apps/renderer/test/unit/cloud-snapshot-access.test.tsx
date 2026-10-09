@@ -118,7 +118,10 @@ it("lists each snapshot agent with its login state and account", () => {
 	expect(markup).toContain("dev@example.test");
 	expect(markup).toContain("Codex");
 	expect(markup).toContain("Signed out");
-	expect(markup).toContain("Sign in on the source machine");
+	expect(markup).toContain("Sign in inside the affected workspace");
+	expect(markup).toContain("Login detected");
+	expect(markup).toContain("Inspected Linux user: developer");
+	expect(markup).not.toContain("Signed in");
 	expect(markup).not.toContain("Reauthorize");
 	expect(
 		renderToStaticMarkup(

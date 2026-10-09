@@ -62,6 +62,7 @@ export function ProviderSignInTray({
 	const reopenSession = useSessionsStore((s) => s.resume);
 	const { state, signedInAt, start, cancel } = useProviderLogin(providerId, {
 		environmentId,
+		sessionId,
 		onSuccess: () => {
 			// Re-probe first so the credential write has landed, then reopen the
 			// provider and release a fresh chat's queued first message.
@@ -89,9 +90,10 @@ export function ProviderSignInTray({
 	const busy = state.kind === "waiting" || state.kind === "success";
 	const subtitle =
 		state.kind === "waiting"
-			? state.url === null
-				? uiMessage("chat:message_row_starting_sign_in", { label })
-				: uiMessage("chat:message_row_waiting_for_browser_sign_in")
+			? state.output ||
+				(state.url === null
+					? uiMessage("chat:message_row_starting_sign_in", { label })
+					: uiMessage("chat:message_row_waiting_for_browser_sign_in"))
 			: state.kind === "success"
 				? uiMessage("chat:message_row_signed_in_finishing")
 				: state.kind === "failed"

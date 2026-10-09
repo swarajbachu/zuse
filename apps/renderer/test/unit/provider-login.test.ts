@@ -13,7 +13,7 @@ describe("provider inline login", () => {
 		expect(supportsProviderLogin("claude")).toBe(true);
 		expect(supportsProviderLogin("cursor")).toBe(false);
 		expect(supportsProviderLogin("grok")).toBe(true);
-		expect(supportsProviderLogin("codex")).toBe(false);
+		expect(supportsProviderLogin("codex")).toBe(true);
 		expect(supportsProviderLogin("gemini")).toBe(false);
 		expect(supportsProviderLogin("opencode")).toBe(false);
 		expect(supportsProviderLogin("opencode2")).toBe(false);

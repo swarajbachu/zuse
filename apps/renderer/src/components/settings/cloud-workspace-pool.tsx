@@ -22,6 +22,7 @@ import {
 	type CloudHostingMode,
 	CloudHostingSettings,
 } from "./cloud-hosting-settings.tsx";
+import { CloudSnapshotAuthSetup } from "./cloud-snapshot-auth-setup.tsx";
 import "@zuse/i18n/english/settings";
 import {
 	type CloudAccountImage,
@@ -980,7 +981,12 @@ function ScopedCloudWorkspacePool({
 					{showsSection("agents", "auth") ? (
 						snapshotImage !== null &&
 						snapshotImage.snapshot?.agentAuthentication !== "zuse" ? (
-							<CloudSnapshotAgentAuthentication image={snapshotImage} />
+							<>
+								<CloudSnapshotAgentAuthentication image={snapshotImage} />
+								{canManageProviders ? (
+									<CloudSnapshotAuthSetup onChanged={() => load(true)} />
+								) : null}
+							</>
 						) : (
 							<CloudWorkspaceAuth />
 						)

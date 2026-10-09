@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./background-agent-presentation": "./src/background-agent-presentation.ts",
 		"./chat-sharing": "./src/chat-sharing.ts",
 		"./attachment-upload": "./src/attachment-upload.ts",
 		"./chat-recency": "./src/chat-recency.ts",
@@ -54,7 +55,8 @@
 		"./frame-subscription": "./src/frame-subscription.ts",
 		"./background-history": "./src/background-history.ts",
 		"./organization-control-client": "./src/organization-control-client.ts",
-		"./control-api-error": "./src/control-api-error.ts"
+		"./control-api-error": "./src/control-api-error.ts",
+		"./html-render": "./src/html-render.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",

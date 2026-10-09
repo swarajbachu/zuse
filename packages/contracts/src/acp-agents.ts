@@ -35,11 +35,14 @@ export const AcpDefinition = Schema.Struct({
 	command: Schema.String,
 	args: Schema.Array(Schema.String),
 	envKeys: Schema.Array(Schema.String),
+	mcpEnabled: Schema.optional(Schema.Boolean),
 	enabled: Schema.Boolean,
 	catalogId: Schema.optional(Schema.String),
 	version: Schema.optional(Schema.String),
 	icon: Schema.optional(Schema.String),
 	probe: Schema.optional(AcpProbe),
+	/** Named account home owned by this ACP instance; credentials stay on the host. */
+	accountProvider: Schema.optional(Schema.Literals(["claude", "codex"])),
 });
 export type AcpDefinition = typeof AcpDefinition.Type;
 export const AcpDefinitionInput = Schema.Struct({
@@ -49,6 +52,7 @@ export const AcpDefinitionInput = Schema.Struct({
 	args: Schema.Array(Schema.String),
 	enabled: Schema.Boolean,
 	env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+	mcpEnabled: Schema.optional(Schema.Boolean),
 });
 export type AcpDefinitionInput = typeof AcpDefinitionInput.Type;
 export const AcpCatalogEntry = Schema.Struct({
@@ -111,7 +115,10 @@ export const AcpAuthenticateRpc = Rpc.make("provider.acp.authenticate", {
 });
 
 export const AcpDuplicateRpc = Rpc.make("provider.acp.duplicate", {
-	payload: { id: AcpProviderId },
+	payload: {
+		id: AcpProviderId,
+		accountProvider: Schema.optional(Schema.Literals(["claude", "codex"])),
+	},
 	success: AcpDefinition,
 	error: AcpOperationError,
 });

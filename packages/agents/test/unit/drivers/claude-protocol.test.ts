@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	claudeToolPermissionPolicy,
 	makeClaudeUserMessage,
 	runtimeModeToSdkPermissionMode,
 	translateClaudeSdkMessages,
@@ -324,4 +325,17 @@ describe("Claude streamed usage windows", () => {
 			},
 		]);
 	});
+});
+
+it.each([
+	"html_preview",
+	"html_render",
+])("applies the normal approval policy to %s", (tool) => {
+	expect(
+		claudeToolPermissionPolicy(`mcp__zuse__${tool}`, {}, "approval-required")
+			.kind,
+	).toBe("prompt");
+	expect(
+		claudeToolPermissionPolicy(`mcp__zuse__${tool}`, {}, "full-access").kind,
+	).toBe("auto-allow");
 });

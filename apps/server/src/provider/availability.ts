@@ -6,6 +6,7 @@ import type { Account } from "@zuse/agents/codex-generated/v2/Account";
 import type { GetAccountResponse } from "@zuse/agents/codex-generated/v2/GetAccountResponse";
 import { withCodexControlClient } from "@zuse/agents/drivers/codex-control-client";
 import { readKiroAuthContext } from "@zuse/agents/drivers/kiro-auth";
+import { isolatedProviderAccountEnv } from "@zuse/agents/drivers/provider-account-env";
 import type { CliProviderId } from "@zuse/contracts";
 import {
 	AgentAvailability,
@@ -717,11 +718,16 @@ const codexAccountLabel = (account: Account): string | undefined => {
  * UI can show "Needs attention" without crashing the whole availability
  * RPC.
  */
-const probeCodexAccount = (codexPath: string): Effect.Effect<AccountInfo> =>
+const probeCodexAccount = (
+	codexPath: string,
+	accountHome?: string,
+): Effect.Effect<AccountInfo> =>
 	Effect.promise(async () => {
 		try {
-			const response = await withCodexControlClient(codexPath, (client) =>
-				client.request<GetAccountResponse>("account/read", {}),
+			const response = await withCodexControlClient(
+				codexPath,
+				(client) => client.request<GetAccountResponse>("account/read", {}),
+				accountHome,
 			);
 			if (response.account === null) {
 				return {
@@ -760,6 +766,11 @@ const CLAUDE_SUB_LABEL: Record<string, string> = {
 	free: "Requires Claude Pro",
 };
 
+const claudeSubscriptionLabel = (subscriptionType?: string): string => {
+	const tier = subscriptionType?.toLowerCase();
+	return (tier && CLAUDE_SUB_LABEL[tier]) || "Claude subscription";
+};
+
 interface ClaudeCredentialBlob {
 	readonly oauthAccount?: {
 		readonly emailAddress?: string;
@@ -781,7 +792,6 @@ const parseClaudeCredentials = (raw: string): AccountInfo => {
 	}
 	const oauth = parsed.claudeAiOauth;
 	if (!oauth) return { authStatus: "authenticated" };
-	const sub = oauth.subscriptionType?.toLowerCase();
 	const email = oauth.emailAddress ?? oauth.email;
 	// A present OAuth login already proves a paid Claude account — Claude Code
 	// agent usage is not available on the free tier. So only an *explicitly*
@@ -791,10 +801,7 @@ const parseClaudeCredentials = (raw: string): AccountInfo => {
 	// which only blocks on a *confirmed* below-entitlement tier.) Defaulting
 	// unknown tiers to "Requires …" wrongly nagged Pro users — and anyone whose
 	// tier string we don't map — to subscribe despite an active subscription.
-	const authLabel =
-		sub && CLAUDE_SUB_LABEL[sub]
-			? CLAUDE_SUB_LABEL[sub]
-			: "Claude subscription";
+	const authLabel = claudeSubscriptionLabel(oauth.subscriptionType);
 	return {
 		authStatus: "authenticated",
 		authType: "oauth",
@@ -887,9 +894,6 @@ const probeGrokAccount = (
 	});
 
 export const grokAuthTestHelpers = { parseGrokModelsAuth, probeGrokAccount };
-
-// Exported for tests only. Not part of the public module surface.
-export const claudeAuthTestHelpers = { parseClaudeCredentials };
 
 // Gemini CLI writes OAuth tokens + settings under `~/.gemini/` after the
 // first interactive sign-in. We
@@ -1057,9 +1061,51 @@ const computeHealthStatus = (input: {
 	return "warning";
 };
 
+const probeNamedClaudeAccount = (
+	cliPath: string,
+	home: string,
+): Effect.Effect<AccountInfo, never, CommandExecutor.ChildProcessSpawner> =>
+	Effect.gen(function* () {
+		const result = yield* runCapture(
+			Command.make(cliPath, ["auth", "status", "--json"], {
+				env: isolatedProviderAccountEnv("claude", home, process.env),
+				extendEnv: false,
+			}),
+		).pipe(
+			Effect.timeoutOption(PROBE_TIMEOUT),
+			Effect.catch(() => Effect.succeedNone),
+		);
+		if (result._tag === "None")
+			return { authStatus: "unknown" } satisfies AccountInfo;
+		try {
+			const parsed = JSON.parse(result.value.stdout) as {
+				loggedIn?: boolean;
+				email?: string;
+				subscriptionType?: string;
+			};
+			if (parsed.loggedIn !== true)
+				return { authStatus: "unauthenticated" } satisfies AccountInfo;
+			return {
+				authStatus: "authenticated",
+				authType: "oauth",
+				authEmail: parsed.email,
+				authLabel: claudeSubscriptionLabel(parsed.subscriptionType),
+			} satisfies AccountInfo;
+		} catch {
+			return { authStatus: "unknown" } satisfies AccountInfo;
+		}
+	});
+
+// Exported for tests only. Not part of the public module surface.
+export const claudeAuthTestHelpers = {
+	parseClaudeCredentials,
+	probeNamedClaudeAccount,
+};
+
 const probeOne = (
 	probe: ProviderProbe,
 	overrides: Readonly<Record<string, string>> = {},
+	accountHomes: Readonly<Record<string, string>> = {},
 ): Effect.Effect<
 	AgentAvailability,
 	never,
@@ -1149,7 +1195,12 @@ const probeOne = (
 		const updateCommand =
 			buildUpdateCommand(probe.providerId, [cliPath, realPath]) ?? undefined;
 
-		const account = yield* probeAccount(probe.providerId, cliPath);
+		const accountHome = accountHomes[probe.providerId];
+		const account = yield* accountHome && probe.providerId === "claude"
+			? probeNamedClaudeAccount(cliPath, accountHome)
+			: accountHome && probe.providerId === "codex"
+				? probeCodexAccount(cliPath, accountHome)
+				: probeAccount(probe.providerId, cliPath);
 		const cliLoggedIn = account.authStatus === "authenticated";
 
 		const status = computeHealthStatus({
@@ -1207,8 +1258,9 @@ export const probeAllProviders: Effect.Effect<
 
 export const probeProvidersWithPaths = (
 	overrides: Readonly<Record<string, string>>,
+	accountHomes: Readonly<Record<string, string>> = {},
 ) =>
 	Effect.all(
-		PROBES.map((probe) => probeOne(probe, overrides)),
+		PROBES.map((probe) => probeOne(probe, overrides, accountHomes)),
 		{ concurrency: "unbounded" },
 	);

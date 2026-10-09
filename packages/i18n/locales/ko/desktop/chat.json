@@ -684,5 +684,6 @@
 	"provider_sign_in_tray_sign_in_to_continue": "이 채팅을 계속하려면 로그인하세요.",
 	"chat_landing_choose_a_project_in_the_sidebar": "사이드바에서 프로젝트를 선택해 새 채팅을 시작하세요.",
 	"chat_landing_add_a_project_to_start": "프로젝트를 추가해 첫 채팅을 시작하세요.",
-	"chat_landing_add_project": "프로젝트 추가"
+	"chat_landing_add_project": "프로젝트 추가",
+	"chat_working_row_waiting_for_task": "작업 {{task}} 대기 중"
 }

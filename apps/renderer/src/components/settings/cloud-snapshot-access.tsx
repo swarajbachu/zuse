@@ -1,5 +1,5 @@
 import "@zuse/i18n/english/settings";
-import type { CloudAccountImage, SnapshotAgentAccess } from "@zuse/contracts";
+import type { CloudAccountImage } from "@zuse/contracts";
 import { useMessages } from "@zuse/i18n/react";
 import { ProviderIcon } from "../provider-icons.tsx";
 import { Badge } from "../ui/badge.tsx";
@@ -138,13 +138,18 @@ export function CloudSnapshotAgentAuthentication({
 	return (
 		<CloudSettingsGroup
 			title={message("settings:cloud_hosting_agent_auth")}
-			help={message("settings:snapshot_native_agents")}
 			action={
 				<Badge variant="outline">
 					{message("settings:snapshot_source_snapshot")}
 				</Badge>
 			}
 		>
+			<p className="px-3 py-2 text-[11px] text-muted-foreground">
+				{message("settings:snapshot_inspected_user", {
+					user: image.snapshot?.runtimeUser ?? "",
+				})}{" "}
+				{message("settings:snapshot_native_agents")}
+			</p>
 			{SNAPSHOT_AGENTS.map((agent) => {
 				const access = recorded?.find(
 					(item) => item.providerId === agent.providerId,
@@ -167,9 +172,11 @@ export function CloudSnapshotAgentAuthentication({
 										? "settings:snapshot_login_unavailable"
 										: access.state === "missing-tool"
 											? "settings:snapshot_agent_missing_tool"
-											: signedIn(access)
+											: access.state === "verified"
 												? "settings:snapshot_agent_signed_in"
-												: "settings:snapshot_agent_signed_out",
+												: access.state === "detected"
+													? "settings:snapshot_login_detected"
+													: "settings:snapshot_agent_signed_out",
 							)
 						}
 						action={<LoginBadge state={access?.state} />}
@@ -180,14 +187,10 @@ export function CloudSnapshotAgentAuthentication({
 	);
 }
 
-const signedIn = (access: SnapshotAgentAccess) =>
-	access.state === "detected" || access.state === "verified";
-
 function LoginBadge({ state }: { readonly state: string | undefined }) {
 	const { message } = useMessages(["settings"]);
 	if (state === undefined) return null;
-	const ok =
-		state === "authenticated" || state === "detected" || state === "verified";
+	const ok = state === "authenticated" || state === "verified";
 	return (
 		<Badge
 			variant={
@@ -197,11 +200,13 @@ function LoginBadge({ state }: { readonly state: string | undefined }) {
 			{message(
 				ok
 					? "settings:snapshot_login_signed_in"
-					: state === "missing-tool"
-						? "settings:snapshot_login_not_installed"
-						: state === "unavailable"
-							? "settings:snapshot_login_unknown"
-							: "settings:snapshot_login_signed_out",
+					: state === "detected"
+						? "settings:snapshot_login_detected"
+						: state === "missing-tool"
+							? "settings:snapshot_login_not_installed"
+							: state === "unavailable"
+								? "settings:snapshot_login_unknown"
+								: "settings:snapshot_login_signed_out",
 			)}
 		</Badge>
 	);

@@ -27,7 +27,7 @@ Discovery is bounded and read-only, canonicalizes GitHub identity without return
 
 ## Exception to credential-authority architecture
 
-This is an explicit exception to the managed credential-authority architecture documented in ADR 0001. `snapshot-native` is separate from `legacy-image` and `broker-v1`. Native inspection and launch must not create an account auth authority or copy credentials into a broker. Native Claude configuration and Codex account state are reported as detected, not verified. A successful agent turn establishes verified access. Native token expiration is visible, including copied-refresh-token invalidation. No hidden token synchronization is allowed.
+This is an explicit exception to the managed credential-authority architecture documented in ADR 0001. `snapshot-native` is separate from `legacy-image` and `broker-v1`. Native inspection and launch must not create an account auth authority or copy credentials into a broker. Native Claude configuration and Codex account state are reported as detected, not verified. A successful agent turn establishes verified access. Native token expiration is visible, including copied-refresh-token invalidation. No Zuse-managed synchronization of copied native tokens is allowed. Custom-snapshot inspection and launches explicitly request non-isolated Boxd machines, allowing Boxd’s own account-level credential injection; managed images retain isolation. Boxd’s user/home and private-machine requirements still apply. Already-isolated snapshots cannot be de-isolated, and the live-machine fork path retains its isolated-source requirement.
 
 The user can explicitly select managed agent accounts for new workspaces. That requires both managed broker enrollment flags and connected accounts. Managed Git selection applies to agent Git and gh through the existing actor-scoped execution broker; SSH origins are mapped to HTTPS only in the execution environment. Default native Git read failures distinguish authentication from network errors. Native Git credentials and author configuration remain intact.
 
@@ -53,3 +53,21 @@ Recovery guidance:
 ## Required live acceptance before enablement
 
 Use an unsubscribed test account and its own Boxd key. Verify first agent response without an account-image build; native and managed Git/gh; missing/expired agent access; two concurrent OAuth snapshot copies; explicit queued-turn recovery without duplicate execution; arbitrary paths across terminal/files/Git/SSH/desktop sync; staged/untracked preservation; pause/resume/restart; machine forks; installer reruns; interrupted startup; failed update rollback. Verify key disconnection/replacement, organization permissions, no platform usage invoicing, and external snapshot survival after cleanup.
+
+## Managed Claude setup-token verification
+
+Claude subscription setup tokens are whitespace-normalized on the authority before
+verification and persistence. Configuration and explicit re-verification share a
+real, bounded Claude request in an empty temporary configuration directory, with
+tools, MCP, and inherited alternative credentials disabled. `claude auth status`
+is not sufficient evidence that a token can authenticate. Network failures remain
+verification errors rather than being labeled expired. Failed configuration does
+not replace the stored credential, and the client keeps the setup dialog open
+unless the returned status is `connected`.
+
+On 2026-10-08, the managed Claude credential contained two internal ASCII spaces.
+The original token returned 401; removing only those spaces yielded a successful
+response. The authority credential and legacy image-secret copy were repaired with
+private backups, then verified with the real-request validator. This was malformed
+stored input, not confirmed expiration or revocation. Where the spaces originated
+was not established.

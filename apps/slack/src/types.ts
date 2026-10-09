@@ -1,3 +1,4 @@
+import type { HomeSelection } from "./home-settings.ts";
 import type { InstallationStore } from "./installations.ts";
 import type { ZuseClientConfig } from "./zuse.ts";
 
@@ -43,6 +44,7 @@ export type AppJob = {
 	| { readonly kind: "home"; readonly userId: string }
 	| {
 			readonly kind: "execution-default";
+			readonly homeSelection?: HomeSelection;
 			readonly userId: string;
 			readonly field: "agent" | "model" | "agentModel" | "providerId";
 			readonly value: string;
@@ -51,6 +53,7 @@ export type AppJob = {
 	  }
 	| {
 			readonly kind: "reply-mode";
+			readonly homeSelection?: HomeSelection;
 			readonly userId: string;
 			readonly mode: "mentions" | "all";
 			readonly memberRevision: number;
@@ -109,6 +112,7 @@ export type AppJob = {
 	  }
 	| {
 			readonly kind: "project";
+			readonly homeSelection?: HomeSelection;
 			readonly memberRevision?: number;
 			readonly userId: string;
 			readonly projectId: string;

@@ -1303,6 +1303,32 @@ describe("cloud workspace mailbox runtime", () => {
 		expect(sendMessage).not.toHaveBeenCalled();
 	});
 
+	it("reports a pre-commit active-turn conflict as rejected, not ambiguous", async () => {
+		const durable = await makeDurableMessageLease();
+		const receipts = makeReceiptStore(null);
+
+		const acknowledgment = await Effect.runPromise(
+			applyCloudMailboxLease({
+				config: { workspaceId: "workspace-1" },
+				lease: durable.lease,
+				runtimeGeneration: 7,
+				providerSandboxId: "sandbox-1",
+				nowMs: Effect.succeed(1),
+				transcriptKey: durable.transcriptKey,
+				storageIncarnationId: "storage-1",
+				sendMessage: () =>
+					Effect.die({ _tag: "TurnAlreadyRunning", turnId: "existing-turn" }),
+				receipts: receipts.store,
+			}),
+		);
+
+		expect(acknowledgment).toMatchObject({
+			state: "rejected",
+			category: "session-turn-active",
+		});
+		expect(JSON.stringify(acknowledgment)).not.toContain("Bearer");
+	});
+
 	it("does not publish unexpected apply failure details", async () => {
 		const durable = await makeDurableMessageLease();
 		const receipts = makeReceiptStore(null);

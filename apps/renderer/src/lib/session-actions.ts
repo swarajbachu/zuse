@@ -752,7 +752,27 @@ export const retryLastSessionMessage = async (
 	ref: SessionRef,
 	providerId?: ProviderId,
 ): Promise<boolean> => {
-	const messages = projectionFor(ref)?.messages ?? [];
+	const projection = projectionFor(ref);
+	if (projection?.status === "error" && projection.currentTurn !== null) {
+		// The runtime owns the persisted failed request. Resume replays that turn;
+		// submitting a new message would hit TurnAlreadyRunning or duplicate it.
+		const commandId = CommandId.make(`session-resume:${crypto.randomUUID()}`);
+		setSessionError(ref, null);
+		try {
+			await dispatchSessionCommand({
+				ref,
+				kind: "session.resume",
+				commandId,
+				payload: { sessionId: ref.sessionId },
+				retry: "never",
+			});
+			return true;
+		} catch (cause) {
+			setSessionError(ref, classifyError(cause, providerId));
+			return false;
+		}
+	}
+	const messages = projection?.messages ?? [];
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const content = messages[index]?.content;
 		if (content?._tag === "user_rich") {

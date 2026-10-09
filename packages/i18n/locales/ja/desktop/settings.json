@@ -1183,7 +1183,7 @@
 	"snapshot_inspecting": "スナップショットを検査中…",
 	"snapshot_git_login": "Git へのログインが必要です — クラウド設定で GitHub に接続してください",
 	"snapshot_git_unavailable": "Git のアクセスを確認できませんでした。接続を確認してください",
-	"snapshot_native_agents": "Claude Code と Codex はスナップショット内のログインを使います。期限切れの場合は元のマシンで再度サインインし、新しいスナップショットを保存してください。",
+	"snapshot_native_agents": "これは保存されたスナップショットの検査結果で、現在のワークスペースのアクセス状態ではありません。コピーされたログイン情報は期限切れや無効になる場合があります。",
 	"snapshot_installer_required": "元のマシンに Zuse をインストールし、新しいスナップショットを作成して、その ID で再試行してください。",
 	"snapshot_user_mismatch": "インストーラーが表示した Linux ユーザーを入力してください。",
 	"snapshot_no_repositories": "GitHub リポジトリが見つかりません。絶対パスを追加して再検査してください。",
@@ -1249,7 +1249,7 @@
 	"snapshot_login_unavailable": "このログインを確認できませんでした",
 	"snapshot_agent_missing_tool": "スナップショットにインストールされていません",
 	"snapshot_agent_signed_in": "スナップショットでサインイン済み",
-	"snapshot_agent_signed_out": "未サインインです。元のマシンでサインインし、新しいスナップショットを保存してください。",
+	"snapshot_agent_signed_out": "該当するワークスペース内でログインするか、新しいワークスペースに Zuse のアカウントを使用してください。",
 	"snapshot_login_signed_in": "サインイン済み",
 	"snapshot_login_signed_out": "未サインイン",
 	"snapshot_login_not_installed": "未インストール",
@@ -1258,5 +1258,11 @@
 	"cloud_hosting_switch_to_zuse": "Zuse Cloud を使用",
 	"cloud_hosting_switch_to_zuse_title": "Zuse Cloud に切り替えますか？",
 	"cloud_hosting_switch_to_zuse_description": "{{provider}} キーの接続を解除し、新しいワークスペースは契約中の Zuse Cloud で実行されます。既存のワークスペースはクリーンアップのためキーを保持します。自分のアカウントやスナップショットを再び使うには、キーを再接続してスナップショットを保存してください。",
-	"snapshot_check_title": "スナップショットの確認"
+	"snapshot_check_title": "スナップショットの確認",
+	"snapshot_use_zuse_accounts": "Zuse のエージェントアカウントを使用",
+	"snapshot_managed_auth_help": "以下で Claude Code または Codex を接続し、保存してください。新しいワークスペースでは Zuse のアカウントを使用します。スナップショットの再構築は不要です。既存のワークスペースの認証は変わりません。",
+	"snapshot_login_detected": "ログイン情報を検出",
+	"snapshot_inspected_user": "検査した Linux ユーザー: {{user}}。",
+	"acp_agents_add_account": "アカウントを追加",
+	"acp_agents_busy_adding_account": "アカウントを追加中…"
 }

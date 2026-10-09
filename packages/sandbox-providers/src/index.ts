@@ -128,6 +128,8 @@ export interface SandboxProviderAdapter {
 		readonly sizeId?: string;
 		readonly snapshotId: string;
 		readonly snapshotVersion?: number;
+		/** User-owned snapshots retain provider integrations and native logins. */
+		readonly snapshotSource?: "custom-snapshot";
 		readonly timeoutSeconds: number;
 		readonly env: Readonly<Record<string, string>>;
 		readonly network: SandboxNetworkPolicy;

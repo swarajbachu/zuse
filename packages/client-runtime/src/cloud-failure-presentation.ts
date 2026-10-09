@@ -305,6 +305,14 @@ const presentationFor = (
 export const cloudFailurePresentation = (
 	input: CloudFailureInput,
 ): CloudFailurePresentation | null => {
+	if (input.state === "rejected" && input.category === "session-turn-active")
+		return {
+			kind: "rejected",
+			label: "Previous turn pending",
+			headline: "Previous turn is still pending",
+			message:
+				"This message was not sent. Wait for the current turn, or retry or stop the previous failed turn before sending again.",
+		};
 	if (input.state === "outcome-unknown")
 		return presentationFor("outcome-unknown", input.category);
 	const categorized = categoryKind(input.category, input.blockedUntil);

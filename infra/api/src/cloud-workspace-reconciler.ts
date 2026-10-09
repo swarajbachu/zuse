@@ -1681,6 +1681,10 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 				...runtimeFence,
 				runtimeSessionRecoveryPending: true,
 				runtimeInstallPending: config.runtimeManifestUrl !== undefined,
+				runtimeLaunchRecoveryAttempts:
+					workspace.statusCode === "resume-runtime-restarting"
+						? (workspace.requestConfig.runtimeLaunchRecoveryAttempts ?? 0)
+						: 0,
 				startupTimings: { ...timings, allocatedAt: preparedAtMs },
 			},
 			nextActionAtMs:
@@ -2125,6 +2129,9 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 										},
 										sizeId: workspaceSizeId(workspace),
 										snapshotId: build.snapshotId as string,
+										snapshotSource: importedSnapshot(build)
+											? "custom-snapshot"
+											: undefined,
 										snapshotVersion:
 											importedSnapshot(build) &&
 											typeof build.settings?.snapshotVersion === "number"
@@ -2404,36 +2411,26 @@ exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`,
 			(workspace.state === "provisioning" || workspace.state === "setup") &&
 			workspace.providerSandboxId !== undefined
 		) {
-			if (workspaceStartupTimedOut(workspace, nowMs)) {
-				// Do not issue provider commands after the deadline: an archiving
-				// sandbox rejects them and would otherwise hide this terminal state.
-				console.warn("[cloud-workspace] runtime connection timeout", {
-					workspaceId: workspace.workspaceId,
-					statusCode: workspace.statusCode,
-				});
-				yield* saveWorkspace({
-					...workspace,
-					state: "failed",
-					statusCode:
-						workspace.statusCode === "runtime-memory-recovering"
-							? "runtime-memory-recovery-failed"
-							: "runtime-connection-timeout",
-					runtimeState: "offline",
-					runtimeCredentialHash: undefined,
-					runtimeBootTokenHash: undefined,
-					runtimeBootTokenExpiresAtMs: undefined,
-					nextActionAtMs: Number.MAX_SAFE_INTEGER,
-					revision: workspace.revision + 1,
-					updatedAtMs: nowMs,
-				});
-				return;
-			}
+			const startupTimedOut = workspaceStartupTimedOut(workspace, nowMs);
+			const attempts = workspace.requestConfig.runtimeLaunchRecoveryAttempts;
+			const recoveryAttempts =
+				typeof attempts === "number" &&
+				Number.isInteger(attempts) &&
+				attempts >= 0
+					? attempts
+					: 0;
+			const canRecoverLaunch =
+				workspace.state === "provisioning" &&
+				workspace.desiredState === "ready" &&
+				workspace.statusCode === "resume-runtime-restarting" &&
+				recoveryAttempts < 2;
 			if (
-				yield* provider.pathExists(
+				(!startupTimedOut || canRecoverLaunch) &&
+				(yield* provider.pathExists(
 					workspace.providerSandboxId,
 					"/var/lib/zuse/workspace/failed",
 					cloudWorkspaceLayout(workspace).user,
-				)
+				))
 			) {
 				const runtimeDiagnostic = yield* readWorkspaceRuntimeDiagnostic(
 					provider,
@@ -2463,6 +2460,50 @@ exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`,
 							? {}
 							: { startupFailureDiagnostic: runtimeDiagnostic }),
 					},
+					nextActionAtMs: Number.MAX_SAFE_INTEGER,
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
+
+			if (startupTimedOut) {
+				// Authorizing a new generation and launching its process are separate
+				// operations. A failed request or interrupted worker can leave the
+				// authorized generation unlaunched. Retry on the same disk, with a
+				// fresh fence, rather than permanently stranding the saved session.
+				if (canRecoverLaunch) {
+					return yield* restartWorkspaceRuntime(
+						{
+							...workspace,
+							requestConfig: {
+								...workspace.requestConfig,
+								runtimeLaunchRecoveryAttempts: recoveryAttempts + 1,
+							},
+						},
+						workspace.providerSandboxId,
+						provider,
+						nowMs,
+						saveWorkspace,
+					);
+				}
+				// Do not issue provider commands after the deadline: an archiving
+				// sandbox rejects them and would otherwise hide this terminal state.
+				console.warn("[cloud-workspace] runtime connection timeout", {
+					workspaceId: workspace.workspaceId,
+					statusCode: workspace.statusCode,
+				});
+				yield* saveWorkspace({
+					...workspace,
+					state: "failed",
+					statusCode:
+						workspace.statusCode === "runtime-memory-recovering"
+							? "runtime-memory-recovery-failed"
+							: "runtime-connection-timeout",
+					runtimeState: "offline",
+					runtimeCredentialHash: undefined,
+					runtimeBootTokenHash: undefined,
+					runtimeBootTokenExpiresAtMs: undefined,
 					nextActionAtMs: Number.MAX_SAFE_INTEGER,
 					revision: workspace.revision + 1,
 					updatedAtMs: nowMs,

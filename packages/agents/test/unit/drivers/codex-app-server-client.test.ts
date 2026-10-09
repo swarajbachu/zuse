@@ -16,7 +16,7 @@ import {
 	setDefaultCodexExternalAuthProvider,
 } from "@zuse/agents/drivers/codex-app-server-client";
 import { CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION } from "@zuse/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 
@@ -124,6 +124,32 @@ process.stdout.write(JSON.stringify(response) + "\\n");
 });
 
 describe("Codex app-server external authentication", () => {
+	it("allows a named native account to bypass the process-wide credential broker", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-native-codex-account-"));
+		const getTokens = vi.fn(async () => {
+			throw new Error("Wrong account broker used");
+		});
+		setDefaultCodexExternalAuthProvider({ getTokens });
+		let client: CodexAppServerClient | undefined;
+		try {
+			client = await CodexAppServerClient.start({
+				codexPath: require.resolve("@openai/codex/bin/codex.js"),
+				env: { ...process.env, CODEX_HOME: directory },
+				externalAuthProvider: null,
+				startupTimeoutMs: 5000,
+				onNotification: () => {},
+				onServerRequest: () => {},
+			});
+			expect(await client.request("account/read", {})).toMatchObject({
+				account: null,
+			});
+			expect(getTokens).not.toHaveBeenCalled();
+		} finally {
+			client?.close();
+			setDefaultCodexExternalAuthProvider(null);
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
 	it("shares brokered tokens with non-session Codex capabilities without disk auth", async () => {
 		setDefaultCodexExternalAuthProvider({
 			getTokens: async ({ reason }) => ({

@@ -254,6 +254,7 @@ export const reconcileSnapshotImport = Effect.fn("reconcileSnapshotImport")(
 					sandboxId: build.buildId,
 					providerLabel: label,
 					snapshotId: settings.snapshotId,
+					snapshotSource: "custom-snapshot",
 					snapshotVersion:
 						typeof build.settings?.snapshotVersion === "number"
 							? build.settings.snapshotVersion

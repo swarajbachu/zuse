@@ -1183,7 +1183,7 @@
 	"snapshot_inspecting": "⟦ÏÏnspëëctïïng snààpshôôt…⟧",
 	"snapshot_git_login": "⟦Gïït lôôgïïn nëëëëdëëd — côônnëëct GïïtHüüb ïïn Clôôüüd sëëttïïngs⟧",
 	"snapshot_git_unavailable": "⟦Gïït ààccëëss côôüüld nôôt bëë vëërïïfïïëëd; chëëck thëë côônnëëctïïôôn⟧",
-	"snapshot_native_agents": "⟦Clààüüdëë Côôdëë àànd Côôdëëx üüsëë thëë lôôgïïns ôôn yôôüür snààpshôôt. ÏÏf ôônëë ëëxpïïrëës, sïïgn ïïn ààgààïïn ôôn thëë sôôüürcëë mààchïïnëë àànd sààvëë àà nëëw snààpshôôt.⟧",
+	"snapshot_native_agents": "⟦Thëësëë ààrëë sààvëëd snààpshôôt chëëcks, nôôt lïïvëë wôôrkspààcëë ààccëëss. Côôpïïëëd lôôgïïns cààn ëëxpïïrëë ôôr bëëcôômëë ïïnvààlïïd.⟧",
 	"snapshot_installer_required": "⟦ÏÏnstààll Züüsëë ôôn thëë sôôüürcëë mààchïïnëë, crëëààtëë àà nëëw snààpshôôt, thëën rëëtry wïïth ïïts ÏÏD.⟧",
 	"snapshot_user_mismatch": "⟦ËËntëër thëë Lïïnüüx üüsëër prïïntëëd by thëë ïïnstààllëër.⟧",
 	"snapshot_no_repositories": "⟦Nôô GïïtHüüb rëëpôôsïïtôôrïïëës fôôüünd. ÀÀdd thëëïïr ààbsôôlüütëë pààths àànd ïïnspëëct ààgààïïn.⟧",
@@ -1249,7 +1249,7 @@
 	"snapshot_login_unavailable": "⟦Côôüüldn’t chëëck thïïs lôôgïïn⟧",
 	"snapshot_agent_missing_tool": "⟦Nôôt ïïnstààllëëd ôôn thëë snààpshôôt⟧",
 	"snapshot_agent_signed_in": "⟦Sïïgnëëd ïïn ôôn yôôüür snààpshôôt⟧",
-	"snapshot_agent_signed_out": "⟦Nôôt sïïgnëëd ïïn. Sïïgn ïïn ôôn thëë sôôüürcëë mààchïïnëë, thëën sààvëë àà nëëw snààpshôôt.⟧",
+	"snapshot_agent_signed_out": "⟦Sïïgn ïïn ïïnsïïdëë thëë ààffëëctëëd wôôrkspààcëë, ôôr üüsëë Züüsëë ààgëënt ààccôôüünts fôôr nëëw wôôrkspààcëës.⟧",
 	"snapshot_login_signed_in": "⟦Sïïgnëëd ïïn⟧",
 	"snapshot_login_signed_out": "⟦Sïïgnëëd ôôüüt⟧",
 	"snapshot_login_not_installed": "⟦Nôôt ïïnstààllëëd⟧",
@@ -1258,5 +1258,11 @@
 	"cloud_hosting_switch_to_zuse": "⟦ÜÜsëë Züüsëë Clôôüüd⟧",
 	"cloud_hosting_switch_to_zuse_title": "⟦Swïïtch tôô Züüsëë Clôôüüd?⟧",
 	"cloud_hosting_switch_to_zuse_description": "⟦Thïïs dïïscôônnëëcts yôôüür {{provider}} këëy, sôô nëëw wôôrkspààcëës rüün ôôn Züüsëë Clôôüüd üündëër yôôüür süübscrïïptïïôôn. ËËxïïstïïng wôôrkspààcëës këëëëp thëë këëy fôôr clëëàànüüp. Tôô üüsëë yôôüür ôôwn ààccôôüünt ôôr cüüstôôm snààpshôôt ààgààïïn, rëëcôônnëëct thëë këëy àànd sààvëë thëë snààpshôôt.⟧",
-	"snapshot_check_title": "⟦Snààpshôôt chëëck⟧"
+	"snapshot_check_title": "⟦Snààpshôôt chëëck⟧",
+	"snapshot_use_zuse_accounts": "⟦ÜÜsëë Züüsëë ààgëënt ààccôôüünts⟧",
+	"snapshot_managed_auth_help": "⟦Côônnëëct Clààüüdëë Côôdëë ôôr Côôdëëx bëëlôôw, thëën sààvëë. Nëëw wôôrkspààcëës üüsëë yôôüür Züüsëë ààgëënt ààccôôüünts. Nôô snààpshôôt rëëbüüïïld ïïs nëëëëdëëd. ËËxïïstïïng wôôrkspààcëës këëëëp thëëïïr cüürrëënt ààüüthëëntïïcààtïïôôn.⟧",
+	"snapshot_login_detected": "⟦Lôôgïïn dëëtëëctëëd⟧",
+	"snapshot_inspected_user": "⟦ÏÏnspëëctëëd Lïïnüüx üüsëër: {{user}}.⟧",
+	"acp_agents_add_account": "⟦ÀÀdd ààccôôüünt⟧",
+	"acp_agents_busy_adding_account": "⟦ÀÀddïïng ààccôôüünt…⟧"
 }

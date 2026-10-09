@@ -15,6 +15,7 @@ import {
 	PtySpawnError,
 	PtySummary,
 } from "@zuse/contracts";
+import { childProcessEnv } from "@zuse/utils/process-env";
 import { Effect, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
 import * as pty from "node-pty";
 import { ensureNodePtySpawnHelperExecutable } from "../node-pty-helper.ts";
@@ -182,11 +183,11 @@ export const PtyServiceLive = Layer.effect(
 						cols: active.cols,
 						rows: active.rows,
 						cwd: active.cwd,
-						env: {
-							...(process.env as Record<string, string>),
-							...(active.command?.env ?? {}),
-							TERM: "xterm-256color",
-						},
+						env: childProcessEnv(
+							process.env,
+							{ ...active.command?.env, TERM: "xterm-256color" },
+							active.command?.unsetEnv,
+						),
 					});
 					const pending: PendingChildEvent[] = [];
 					let consumer: ((event: PendingChildEvent) => void) | null = null;

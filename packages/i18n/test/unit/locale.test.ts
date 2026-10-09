@@ -84,8 +84,13 @@ describe("offline resources and formatting", () => {
 		await activateLocale("en");
 	});
 	it("expands pseudo-language without damaging interpolation", async () => {
-		await prepareLocale("en-XA");
+		await prepareLocale("en-XA", ["common", "chat"]);
 		await activateLocale("en-XA");
+		expect(
+			message("chat:chat_working_row_waiting_for_task", {
+				task: "Review changes",
+			}),
+		).toContain("Review changes");
 		expect(message("common:language")).toMatch(/^⟦.*⟧$/);
 		expect(message("common:language").length).toBeGreaterThan(
 			"Language".length,

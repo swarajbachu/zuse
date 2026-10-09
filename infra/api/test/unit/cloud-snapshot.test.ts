@@ -148,6 +148,9 @@ describe("custom snapshot import", () => {
 				expect(ready?.snapshotId).toBe("external-snapshot");
 				expect(ready?.providerSandboxId).toBeUndefined();
 				expect(fork).toHaveBeenCalledOnce();
+				expect(fork).toHaveBeenCalledWith(
+					expect.objectContaining({ snapshotSource: "custom-snapshot" }),
+				);
 				expect(snapshot).not.toHaveBeenCalled();
 				expect(remove).not.toHaveBeenCalled();
 				const projects = yield* store.listProjects("account");

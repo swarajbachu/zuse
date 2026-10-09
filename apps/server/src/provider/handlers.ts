@@ -77,6 +77,7 @@ import { BrowserBridgeService } from "./services/browser-bridge-service.ts";
 import { CredentialsService } from "./services/credentials-service.ts";
 import { startProviderLogin } from "./services/login-service.ts";
 import { PermissionService } from "./services/permission-service.ts";
+import { ProviderAccounts } from "./services/provider-accounts.ts";
 import { ProviderService } from "./services/provider-service.ts";
 import { startProviderUpdate } from "./services/update-service.ts";
 import { sessionSummaryEvents } from "./session-summary-events.ts";
@@ -146,7 +147,98 @@ const RemoveCredential = MemoizeRpcs.toLayerHandler(
 // back. When the renderer unsubscribes, the service finalizer stops the child.
 const StartLogin = MemoizeRpcs.toLayerHandler(
 	"provider.startLogin",
-	({ providerId }) => startProviderLogin(providerId),
+	({ providerId, accountId, sessionId }) =>
+		Stream.unwrap(
+			Effect.gen(function* () {
+				let accountHome: string | undefined;
+				if (accountId !== undefined) {
+					if (providerId !== "claude" && providerId !== "codex")
+						return yield* new AgentSessionStartError({
+							providerId,
+							reason: "Additional accounts are supported for Claude and Codex.",
+						});
+					const accounts = yield* ProviderAccounts;
+					accountHome = yield* accounts.home(providerId, accountId).pipe(
+						Effect.mapError(
+							(error) =>
+								new AgentSessionStartError({
+									providerId,
+									reason: error.message,
+								}),
+						),
+					);
+				}
+				if (sessionId && (providerId === "claude" || providerId === "codex")) {
+					if (accountId)
+						return yield* new AgentSessionStartError({
+							providerId,
+							reason: "Choose an account or a chat for sign-in.",
+						});
+					const sessions = yield* SessionService;
+					const session = yield* sessions.getSession(sessionId).pipe(
+						Effect.mapError(
+							() =>
+								new AgentSessionStartError({
+									providerId,
+									reason: "Chat is unavailable.",
+								}),
+						),
+					);
+					if (session.providerId !== providerId)
+						return yield* new AgentSessionStartError({
+							providerId,
+							reason: "This chat uses another provider.",
+						});
+					const accounts = yield* ProviderAccounts;
+					const account = yield* accounts
+						.resolve(providerId, sessionId, session.cursor !== null)
+						.pipe(
+							Effect.mapError(
+								(error) =>
+									new AgentSessionStartError({
+										providerId,
+										reason: error.message,
+									}),
+							),
+						);
+					accountHome = account?.home;
+				}
+				if (
+					!accountId &&
+					!sessionId &&
+					(providerId === "claude" || providerId === "codex")
+				) {
+					const accounts = yield* ProviderAccounts;
+					accountHome = (yield* accounts.selected(providerId).pipe(
+						Effect.mapError(
+							(error) =>
+								new AgentSessionStartError({
+									providerId,
+									reason: error.message,
+								}),
+						),
+					))?.home;
+				}
+				const config = yield* ConfigStoreService;
+				const settings = yield* config.getSettings();
+				const command = yield* resolveCliPath(
+					providerId,
+					settings.providerBinaryPaths ?? {},
+				).pipe(
+					Effect.mapError(
+						() =>
+							new AgentSessionStartError({
+								providerId,
+								reason: "Provider CLI could not be found.",
+							}),
+					),
+				);
+				return startProviderLogin(providerId, {
+					accountHome,
+					...(command ? { command } : {}),
+				});
+			}),
+		),
 );
 
 // Renderer subscribes to this when the user clicks "Update" on a provider
@@ -2183,7 +2275,36 @@ const BrowserRemoveCredential = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+const ProviderAccountHandlers = Layer.mergeAll(
+	MemoizeRpcs.toLayerHandler("provider.accounts.list", ({ providerId }) =>
+		Effect.flatMap(ProviderAccounts, (accounts) => accounts.list(providerId)),
+	),
+	MemoizeRpcs.toLayerHandler(
+		"provider.accounts.save",
+		({ providerId, name, id }) =>
+			Effect.flatMap(ProviderAccounts, (accounts) =>
+				accounts.save(providerId, name, id),
+			),
+	),
+	MemoizeRpcs.toLayerHandler(
+		"provider.accounts.preferred",
+		({ providerId, id }) =>
+			Effect.flatMap(ProviderAccounts, (accounts) =>
+				withUsageCredentialChange(
+					providerId,
+					accounts.preferred(providerId, id),
+				),
+			),
+	),
+	MemoizeRpcs.toLayerHandler("provider.accounts.remove", ({ providerId, id }) =>
+		Effect.flatMap(ProviderAccounts, (accounts) =>
+			withUsageCredentialChange(providerId, accounts.remove(providerId, id)),
+		),
+	),
+);
+
 export const ProviderHandlersLayer = Layer.mergeAll(
+	ProviderAccountHandlers,
 	AcpHandlers,
 	Availability,
 	SetCredential,

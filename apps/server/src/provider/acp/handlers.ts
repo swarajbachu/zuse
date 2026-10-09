@@ -10,10 +10,12 @@ import { extractProviderLoginUrl } from "../services/login-service.ts";
 import { AcpAgentService, acpOperation } from "./service.ts";
 
 export const AcpHandlers = Layer.mergeAll(
-	MemoizeRpcs.toLayerHandler("provider.acp.duplicate", ({ id }) =>
-		acpOperation((service) => service.duplicate(id)).pipe(
-			Effect.uninterruptible,
-		),
+	MemoizeRpcs.toLayerHandler(
+		"provider.acp.duplicate",
+		({ id, accountProvider }) =>
+			acpOperation((service) => service.duplicate(id, accountProvider)).pipe(
+				Effect.uninterruptible,
+			),
 	),
 	MemoizeRpcs.toLayerHandler("provider.acp.list", () =>
 		acpOperation((service) => service.list()),
@@ -60,7 +62,8 @@ export const AcpHandlers = Layer.mergeAll(
 							{
 								cmd: launch.command,
 								args: [...launch.args, ...(method.args ?? [])],
-								env: { ...launch.env, ...method.env },
+								env: { ...method.env, ...launch.env },
+								unsetEnv: launch.unsetEnv,
 							},
 							{
 								ownerId,

@@ -8,9 +8,10 @@ import type {
 	RuntimeMode,
 } from "@zuse/contracts";
 import { AgentSessionStartError as StartError } from "@zuse/contracts";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { BrowserSend } from "../drivers/browser-tools.ts";
 import { getDefaultDeviceCommandClient } from "../drivers/device-command-tools.ts";
+import { HtmlTools } from "../drivers/html-tools.ts";
 import type { OrchestrationSessionTools } from "../drivers/orchestration-tools.ts";
 import { getDefaultPluginClient } from "../drivers/plugin-tools.ts";
 import {
@@ -38,6 +39,7 @@ export const issueProviderMcpSession = Effect.fn("ProviderMcpSession.issue")(
 	function* (
 		options: ProviderMcpSessionOptions,
 	): Effect.fn.Return<McpGatewaySession, AgentSessionStartError> {
+		const html = yield* Effect.serviceOption(HtmlTools);
 		const plugins = yield* Effect.promise(getDefaultPluginClient);
 		return yield* Effect.tryPromise({
 			try: () =>
@@ -48,6 +50,7 @@ export const issueProviderMcpSession = Effect.fn("ProviderMcpSession.issue")(
 						browser: true,
 						orchestration: options.orchestrationTools !== null,
 						images: true,
+						html: Option.isSome(html),
 						deviceCommands: getDefaultDeviceCommandClient() !== undefined,
 						interaction: options.interaction !== undefined,
 					},
@@ -61,6 +64,9 @@ export const issueProviderMcpSession = Effect.fn("ProviderMcpSession.issue")(
 								}
 							: undefined,
 						images: { cwd: options.cwd },
+						...(Option.isSome(html)
+							? { html: { client: html.value, cwd: options.cwd } }
+							: {}),
 						deviceCommands: getDefaultDeviceCommandClient(),
 						getPermissionMode: options.getPermissionMode,
 						browser: {

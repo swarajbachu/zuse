@@ -97,7 +97,7 @@ export function MenuItem({
 	return (
 		<MenuPrimitive.Item
 			className={cn(
-				"flex min-h-6 cursor-default select-none items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-foreground outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-inset:ps-7 data-[variant=destructive]:text-destructive-foreground data-highlighted:text-accent-foreground data-disabled:opacity-64 [&>svg:not([class*='opacity-'])]:opacity-80 [&>svg:not([class*='size-'])]:size-3.5 [&>svg]:pointer-events-none [&>svg]:-mx-0.5 [&>svg]:shrink-0",
+				"flex min-h-6 cursor-default select-none items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-foreground outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-inset:ps-7 data-[variant=destructive]:text-destructive data-highlighted:text-accent-foreground data-disabled:opacity-64 [&>svg:not([class*='opacity-'])]:opacity-80 [&>svg:not([class*='size-'])]:size-3.5 [&>svg]:pointer-events-none [&>svg]:-mx-0.5 [&>svg]:shrink-0",
 				className,
 			)}
 			data-inset={inset}
