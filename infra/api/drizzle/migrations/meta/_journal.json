@@ -309,6 +309,13 @@
 			"when": 1791558000000,
 			"tag": "0042_billing_recovery",
 			"breakpoints": true
+		},
+		{
+			"idx": 44,
+			"version": "7",
+			"when": 1791561600000,
+			"tag": "0043_stripe_customer_recovery_jobs",
+			"breakpoints": true
 		}
 	]
 }

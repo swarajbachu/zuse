@@ -88,6 +88,12 @@ const polarConfig = (
 /** Store injection is supplied by the Worker SQL layer. Config-only callers
  * can inspect registration without opening a database connection. */
 const unavailableStore: StripeBillingStore = {
+	claimCustomerRecoveries: async () => {
+		throw new Error("stripe_store_unavailable");
+	},
+	finishCustomerRecovery: async () => {
+		throw new Error("stripe_store_unavailable");
+	},
 	getCustomer: async () => {
 		throw new Error("stripe_store_unavailable");
 	},

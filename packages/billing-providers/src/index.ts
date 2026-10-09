@@ -43,6 +43,8 @@ export interface CheckoutSummary {
 }
 
 export interface BillingProviderAdapter {
+	/** Advances a bounded batch of durable customer recovery jobs. */
+	readonly recoverCustomers?: () => Effect.Effect<number, BillingProviderError>;
 	readonly providerId: string;
 	readonly checkout: (input: {
 		readonly accountId: string;

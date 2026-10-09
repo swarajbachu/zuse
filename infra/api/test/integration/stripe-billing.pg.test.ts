@@ -94,12 +94,69 @@ it.skipIf(!connectionString)(
 				1,
 			);
 
+			await stripe.reserveCustomer("scan-account");
+			await db.query(
+				"UPDATE api_stripe_customers SET created_at=created_at-86400000 WHERE account_id='scan-account'",
+			);
+			const scanNow = Date.now();
+			const claimed = (
+				await Promise.all(
+					Array.from({ length: 8 }, () =>
+						stripe.claimCustomerRecoveries(scanNow, 5),
+					),
+				)
+			).flat();
+			expect(claimed.map((job) => job.accountId)).toEqual(["scan-account"]);
+			await stripe.finishCustomerRecovery("scan-account", 0, undefined, {
+				matches: ["cus_match"],
+				nextCursor: "cus_cursor",
+			});
+			expect(await stripe.claimCustomerRecoveries(scanNow + 1, 5)).toEqual([]);
+			const resumedStore = makeStripeBillingStorePg(sql);
+			const resumed = await resumedStore.claimCustomerRecoveries(
+				scanNow + 300001,
+				5,
+			);
+			expect(resumed[0]).toMatchObject({
+				recoveryCursor: "cus_cursor",
+				recoveryMatches: ["cus_match"],
+				recoveryComplete: false,
+			});
+			// Delayed responses from the preceding page cannot discard current progress.
+			await stripe.finishCustomerRecovery("scan-account", 0, undefined, {
+				matches: [],
+				nextCursor: "stale",
+			});
+			expect(
+				(await stripe.reserveCustomer("scan-account")).recoveryCursor,
+			).toBe("cus_cursor");
+			await resumedStore.finishCustomerRecovery(
+				"scan-account",
+				0,
+				"cus_cursor",
+				{ matches: [] },
+			);
+			expect(await stripe.reserveCustomer("scan-account")).toMatchObject({
+				recoveryComplete: true,
+				recoveryMatches: ["cus_match"],
+			});
+			expect(
+				(await stripe.renewCustomerReservation("scan-account", 0)).generation,
+			).toBe(0);
+
 			const renewal = await stripe.reserveCustomer("retry-account");
 			expect(renewal.generation).toBe(0);
 			await db.query(
 				"UPDATE api_stripe_customers SET created_at=created_at-86400000 WHERE account_id='retry-account'",
 			);
 			const legacyReservation = await stripe.reserveCustomer("retry-account");
+			await stripe.finishCustomerRecovery("retry-account", 0, undefined, {
+				matches: [],
+			});
+			expect(await stripe.reserveCustomer("retry-account")).toMatchObject({
+				recoveryComplete: true,
+				recoveryMatches: [],
+			});
 			const renewed = await Promise.all(
 				Array.from({ length: 8 }, () =>
 					stripe.renewCustomerReservation("retry-account", renewal.generation),

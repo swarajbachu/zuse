@@ -147,18 +147,25 @@ settlement against its original period; handle finalized invoices through a
 reviewed credit note or supplemental invoice, never move costs into a newer
 allowance or reset a timestamp to charge them automatically.
 
-For unfinished customer creation older than 23 hours, the adapter paginates
-Stripe's customer list for exact `account_id` metadata matches. It binds a sole
-match, or atomically renews the reservation with a fresh generation and
-idempotency key when none exist. Concurrent renewals reuse the winning generation;
+For unfinished customer creation older than 23 hours, scheduled billing
+maintenance scans Stripe's customer list for exact `account_id` metadata matches.
+Each run leases at most five accounts for five minutes and reads one page of
+100 customers per account. Cursors and matches persist across failures and
+Worker restarts. Checkout makes no lookup requests and returns
+`reconciliation-required` until the scan is complete. A sole match is then bound;
+an empty completed scan atomically renews the reservation with a fresh generation
+and idempotency key. Multiple matches stop the scan and require operator review.
+Concurrent renewals reuse the winning generation;
 existing generation-zero reservations retain their original key. The original
 creation timestamp is preserved so older Workers refuse expired reservations
-during deployment rather than replaying an old key. Multiple matches
-require operator reconciliation, and a failed lookup cannot trigger creation.
+during deployment rather than replaying an old key. A failed lookup cannot
+trigger creation.
 The list API is used because Stripe search cannot guarantee immediate consistency.
 
-Apply migration `0042_billing_recovery` before deploying these recovery paths.
-It adds reservation generations and an attempt scheduling table without changing
+Apply migrations `0042_billing_recovery` and `0043_stripe_customer_recovery_jobs`
+before deploying these recovery paths.
+These add reservation generations, recovery cursors and an attempt scheduling
+table without changing
 existing customer bindings, meter observations, balances or invoice usage.
 
 ## Coordinated subscription transfer

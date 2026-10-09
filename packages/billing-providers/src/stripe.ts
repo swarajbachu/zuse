@@ -16,10 +16,27 @@ export interface StripeCustomerReservation {
 	readonly customerId?: string;
 	readonly createdAtMs: number;
 	readonly generation: number;
+	readonly recoveryCursor?: string;
+	readonly recoveryMatches: ReadonlyArray<string>;
+	readonly recoveryComplete: boolean;
 }
 
 /** Persisted by the application, including unfinished remote operations. */
 export interface StripeBillingStore {
+	/** Leases at most limit expired recovery jobs for five minutes. */
+	readonly claimCustomerRecoveries: (
+		nowMs: number,
+		limit: number,
+	) => Promise<
+		ReadonlyArray<StripeCustomerReservation & { readonly accountId: string }>
+	>;
+	/** Persists one page only when its generation and previous cursor still match. */
+	readonly finishCustomerRecovery: (
+		accountId: string,
+		generation: number,
+		cursor: string | undefined,
+		page: StripeCustomerPage,
+	) => Promise<void>;
 	readonly reserveCustomer: (
 		accountId: string,
 	) => Promise<StripeCustomerReservation>;
@@ -60,12 +77,18 @@ export interface StripeCheckout {
 	readonly status: "paid" | "pending" | "failed";
 	readonly createdAtMs: number;
 }
+/** One bounded, consistent customer-list page; absence is established only at the end. */
+export interface StripeCustomerPage {
+	readonly matches: ReadonlyArray<string>;
+	readonly nextCursor?: string;
+}
 export interface StripeBillingClient {
 	readonly createCustomer: (accountId: string, key: string) => Promise<string>;
-	/** Lists exact metadata matches, stopping after two to detect ambiguous bindings. */
-	readonly findCustomersByAccount: (
+	/** Reads one list page; reserved for background recovery, never checkout. */
+	readonly customerPage: (
 		accountId: string,
-	) => Promise<ReadonlyArray<string>>;
+		cursor?: string,
+	) => Promise<StripeCustomerPage>;
 	readonly customerAccountId: (
 		customerId: string,
 	) => Promise<string | undefined>;
@@ -129,14 +152,20 @@ const makeClient = (
 				{ idempotencyKey: key },
 			)
 		).id,
-	findCustomersByAccount: async (accountId) => {
-		const matches: string[] = [];
-		// Search is eventually consistent and cannot establish absence before a retry.
-		for await (const customer of sdk.customers.list({ limit: 100 })) {
-			if (customer.metadata.account_id === accountId) matches.push(customer.id);
-			if (matches.length === 2) break;
-		}
-		return matches;
+	customerPage: async (accountId, cursor) => {
+		const page = await sdk.customers.list({
+			limit: 100,
+			...(cursor ? { starting_after: cursor } : {}),
+		});
+		const last = page.data.at(-1);
+		if (page.has_more && !last)
+			throw new Error("stripe_customer_cursor_missing");
+		return {
+			matches: page.data
+				.filter((customer) => customer.metadata.account_id === accountId)
+				.map((customer) => customer.id),
+			...(page.has_more && last ? { nextCursor: last.id } : {}),
+		};
 	},
 	customerAccountId: async (id) => {
 		const customer = await sdk.customers.retrieve(id);
@@ -334,12 +363,12 @@ export const makeStripeBillingProvider = (
 				reservation.customerId === undefined &&
 				now() - reservation.createdAtMs >= 23 * 60 * 60_000
 			) {
-				const matches = yield* call(() =>
-					client.findCustomersByAccount(accountId),
-				);
+				if (!reservation.recoveryComplete) return yield* needsReconciliation();
+				const matches = reservation.recoveryMatches;
 				if (matches.length > 1) return yield* needsReconciliation();
 				const recovered = matches[0];
 				if (recovered !== undefined) {
+					yield* verifiedCustomer(accountId, recovered);
 					yield* call(() => deps.store.linkCustomer(accountId, recovered));
 					return recovered;
 				}
@@ -363,6 +392,29 @@ export const makeStripeBillingProvider = (
 		});
 	return {
 		providerId: "stripe",
+		recoverCustomers: () =>
+			Effect.gen(function* () {
+				const jobs = yield* call(() =>
+					deps.store.claimCustomerRecoveries(now(), 5),
+				);
+				let advanced = 0;
+				for (const job of jobs) {
+					const result = yield* call(() =>
+						client.customerPage(job.accountId, job.recoveryCursor),
+					).pipe(Effect.result);
+					if (result._tag === "Failure") continue;
+					yield* call(() =>
+						deps.store.finishCustomerRecovery(
+							job.accountId,
+							job.generation,
+							job.recoveryCursor,
+							result.success,
+						),
+					);
+					advanced++;
+				}
+				return advanced;
+			}),
 		checkout: (input) =>
 			Effect.gen(function* () {
 				const price = config.offerPrices[input.offerId];

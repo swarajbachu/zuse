@@ -16,16 +16,53 @@ export const makeStripeBillingStorePg = (
 				customer_id: string | null;
 				created_at: number;
 				generation: number;
-			}>`SELECT customer_id, COALESCE(reservation_created_at, created_at) AS created_at, generation FROM api_stripe_customers WHERE account_id=${accountId}`;
+				recovery_cursor: string | null;
+				recovery_matches: string[];
+				recovery_complete: boolean;
+			}>`SELECT customer_id, COALESCE(reservation_created_at, created_at) AS created_at, generation, recovery_cursor, recovery_matches, recovery_complete FROM api_stripe_customers WHERE account_id=${accountId}`;
 			const row = rows[0];
 			if (!row) throw new Error("stripe_customer_reservation_missing");
 			return {
 				customerId: row.customer_id ?? undefined,
 				createdAtMs: Number(row.created_at),
 				generation: Number(row.generation),
+				recoveryCursor: row.recovery_cursor ?? undefined,
+				recoveryMatches: row.recovery_matches,
+				recoveryComplete: row.recovery_complete,
 			};
 		});
 	return {
+		claimCustomerRecoveries: (nowMs, limit) =>
+			run(
+				Effect.gen(function* () {
+					const rows = yield* sql<{
+						account_id: string;
+					}>`WITH jobs AS (SELECT account_id FROM api_stripe_customers WHERE customer_id IS NULL AND NOT recovery_complete AND COALESCE(reservation_created_at, created_at) <= ${nowMs - 23 * 60 * 60_000} AND COALESCE(recovery_attempted_at, 0) <= ${nowMs - 5 * 60_000} ORDER BY COALESCE(recovery_attempted_at, 0), account_id FOR UPDATE SKIP LOCKED LIMIT ${limit}) UPDATE api_stripe_customers c SET recovery_attempted_at=${nowMs} FROM jobs WHERE c.account_id=jobs.account_id RETURNING c.account_id`;
+					const jobs = [];
+					for (const row of rows)
+						jobs.push({
+							accountId: row.account_id,
+							...(yield* readReservation(row.account_id)),
+						});
+					return jobs;
+				}).pipe(sql.withTransaction),
+			),
+		finishCustomerRecovery: (accountId, generation, cursor, page) =>
+			run(
+				Effect.gen(function* () {
+					const current = yield* readReservation(accountId);
+					if (
+						current.generation !== generation ||
+						current.recoveryCursor !== cursor ||
+						current.recoveryComplete
+					)
+						return;
+					const matches = [
+						...new Set([...current.recoveryMatches, ...page.matches]),
+					].slice(0, 2);
+					yield* sql`UPDATE api_stripe_customers SET recovery_cursor=${page.nextCursor ?? null}, recovery_matches=${JSON.stringify(matches)}::jsonb, recovery_complete=${page.nextCursor === undefined || matches.length > 1} WHERE account_id=${accountId} AND customer_id IS NULL AND generation=${generation} AND NOT recovery_complete AND recovery_cursor IS NOT DISTINCT FROM ${cursor ?? null}`;
+				}),
+			),
 		getCustomer: (accountId) =>
 			run(
 				sql<{
@@ -44,7 +81,7 @@ export const makeStripeBillingStorePg = (
 		renewCustomerReservation: (accountId, generation) =>
 			run(
 				Effect.gen(function* () {
-					yield* sql`UPDATE api_stripe_customers SET generation=generation+1, reservation_created_at=(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint WHERE account_id=${accountId} AND customer_id IS NULL AND generation=${generation}`;
+					yield* sql`UPDATE api_stripe_customers SET recovery_cursor=NULL, recovery_matches='[]'::jsonb, recovery_complete=FALSE, recovery_attempted_at=NULL, generation=generation+1, reservation_created_at=(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint WHERE account_id=${accountId} AND customer_id IS NULL AND generation=${generation} AND recovery_complete AND recovery_matches='[]'::jsonb`;
 					return yield* readReservation(accountId);
 				}).pipe(sql.withTransaction),
 			),

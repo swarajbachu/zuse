@@ -44,23 +44,69 @@ const setup = () => {
 	let linked: string | null = "cus_1";
 	let reservedAt = now;
 	let generation = 0;
+	let recoveryCursor: string | undefined;
+	let recoveryMatches: ReadonlyArray<string> = [];
+	let recoveryComplete = false;
 	let claim: "send" | "sent" | "busy" | "expired" = "send";
 	const store: StripeBillingStore = {
+		claimCustomerRecoveries: async () =>
+			linked === null &&
+			now - reservedAt >= 23 * 60 * 60_000 &&
+			!recoveryComplete
+				? [
+						{
+							accountId: "account",
+							createdAtMs: reservedAt,
+							generation,
+							recoveryCursor,
+							recoveryMatches,
+							recoveryComplete,
+						},
+					]
+				: [],
+		finishCustomerRecovery: async (
+			_account,
+			expectedGeneration,
+			cursor,
+			page,
+		) => {
+			if (
+				generation !== expectedGeneration ||
+				cursor !== recoveryCursor ||
+				recoveryComplete
+			)
+				return;
+			recoveryMatches = [
+				...new Set([...recoveryMatches, ...page.matches]),
+			].slice(0, 2);
+			recoveryCursor = page.nextCursor;
+			recoveryComplete =
+				page.nextCursor === undefined || recoveryMatches.length > 1;
+		},
 		getCustomer: async () => linked,
 		reserveCustomer: async () => ({
 			customerId: linked ?? undefined,
 			createdAtMs: reservedAt,
 			generation,
+			recoveryCursor,
+			recoveryMatches,
+			recoveryComplete,
 		}),
 		renewCustomerReservation: vi.fn(async (_account, expectedGeneration) => {
 			if (linked === null && expectedGeneration === generation) {
 				reservedAt = now;
 				generation++;
+				recoveryCursor = undefined;
+				recoveryMatches = [];
+				recoveryComplete = false;
 			}
 			return {
 				customerId: linked ?? undefined,
 				createdAtMs: reservedAt,
 				generation,
+				recoveryCursor,
+				recoveryMatches,
+				recoveryComplete,
 			};
 		}),
 		linkCustomer: async (_account, id) => {
@@ -72,7 +118,7 @@ const setup = () => {
 		}),
 	};
 	const client: StripeBillingClient = {
-		findCustomersByAccount: vi.fn(async () => []),
+		customerPage: vi.fn(async () => ({ matches: [] })),
 		createCustomer: vi.fn(async () => "cus_1"),
 		customerAccountId: async () => "account",
 		createCheckout: vi.fn(async () => "https://checkout.stripe.test"),
@@ -96,13 +142,18 @@ const setup = () => {
 		store,
 		now: () => now,
 	});
-	if (!provider.reportMeterEvent || !provider.reconcileMeter)
+	if (
+		!provider.reportMeterEvent ||
+		!provider.reconcileMeter ||
+		!provider.recoverCustomers
+	)
 		throw new Error("Missing metering methods");
 	return {
 		provider: {
 			...provider,
 			reportMeterEvent: provider.reportMeterEvent,
 			reconcileMeter: provider.reconcileMeter,
+			recoverCustomers: provider.recoverCustomers,
 		},
 		client,
 		store,
@@ -184,10 +235,10 @@ describe("Stripe billing provider", () => {
 		const fake = setup();
 		fake.setLinked(null);
 		fake.setReservedAt(now - 24 * 60 * 60_000);
-		vi.spyOn(fake.client, "findCustomersByAccount").mockResolvedValue([
-			"cus_1",
-			"cus_2",
-		]);
+		vi.spyOn(fake.client, "customerPage").mockResolvedValue({
+			matches: ["cus_1", "cus_2"],
+		});
+		await Effect.runPromise(fake.provider.recoverCustomers());
 		await expect(
 			Effect.runPromise(
 				fake.provider.checkout({
@@ -209,7 +260,8 @@ describe("Stripe billing provider", () => {
 		const fake = setup();
 		fake.setLinked(null);
 		fake.setReservedAt(now - 24 * 60 * 60_000);
-		vi.spyOn(fake.client, "findCustomersByAccount").mockResolvedValue(matches);
+		vi.spyOn(fake.client, "customerPage").mockResolvedValue({ matches });
+		await Effect.runPromise(fake.provider.recoverCustomers());
 		const checkout = () =>
 			Effect.runPromise(
 				fake.provider.checkout({
@@ -233,9 +285,10 @@ describe("Stripe billing provider", () => {
 		const fake = setup();
 		fake.setLinked(null);
 		fake.setReservedAt(now - 24 * 60 * 60_000);
-		vi.spyOn(fake.client, "findCustomersByAccount").mockRejectedValue(
+		vi.spyOn(fake.client, "customerPage").mockRejectedValue(
 			new Error("unavailable"),
 		);
+		expect(await Effect.runPromise(fake.provider.recoverCustomers())).toBe(0);
 		await expect(
 			Effect.runPromise(
 				fake.provider.checkout({
@@ -244,7 +297,7 @@ describe("Stripe billing provider", () => {
 					successUrl: "https://api.test",
 				}),
 			),
-		).rejects.toMatchObject({ code: "provider-unavailable" });
+		).rejects.toMatchObject({ code: "reconciliation-required" });
 		expect(fake.store.renewCustomerReservation).not.toHaveBeenCalled();
 		expect(fake.client.createCustomer).not.toHaveBeenCalled();
 	});
@@ -252,10 +305,13 @@ describe("Stripe billing provider", () => {
 		const fake = setup();
 		fake.setLinked(null);
 		fake.setReservedAt(now - 24 * 60 * 60_000);
+		await Effect.runPromise(fake.provider.recoverCustomers());
 		vi.spyOn(fake.store, "renewCustomerReservation").mockResolvedValue({
 			customerId: "cus_1",
 			createdAtMs: now,
 			generation: 1,
+			recoveryComplete: false,
+			recoveryMatches: [],
 		});
 		await Effect.runPromise(
 			fake.provider.checkout({
@@ -523,6 +579,12 @@ test.each([
 				url: "/v1/customers",
 			});
 		}
+		if (url.pathname === "/v1/customers/cus_match_0")
+			return Response.json({
+				id: "cus_match_0",
+				object: "customer",
+				metadata: { account_id: "account" },
+			});
 		if (url.pathname === "/v1/checkout/sessions")
 			return Response.json({
 				id: "cs_test",
@@ -536,6 +598,21 @@ test.each([
 			store: fake.store,
 			now: () => now,
 		});
+		if (!provider.recoverCustomers)
+			throw new Error("missing customer recovery");
+		expect(await Effect.runPromise(provider.recoverCustomers())).toBe(1);
+		expect(requests).toHaveLength(1);
+		await expect(
+			Effect.runPromise(
+				provider.checkout({
+					accountId: "account",
+					offerId: "cloud-workspace-standard-v1",
+					successUrl: "https://api.test",
+				}),
+			),
+		).rejects.toMatchObject({ code: "reconciliation-required" });
+		expect(requests).toHaveLength(1);
+		expect(await Effect.runPromise(provider.recoverCustomers())).toBe(1);
 		const checkout = Effect.runPromise(
 			provider.checkout({
 				accountId: "account",
@@ -558,4 +635,26 @@ test.each([
 	} finally {
 		vi.unstubAllGlobals();
 	}
+});
+
+test("revalidates persisted recovery matches before linking a customer", async () => {
+	const fake = setup();
+	fake.setLinked(null);
+	fake.setReservedAt(now - 24 * 60 * 60_000);
+	vi.spyOn(fake.client, "customerPage").mockResolvedValue({
+		matches: ["cus_recovered"],
+	});
+	await Effect.runPromise(fake.provider.recoverCustomers());
+	vi.spyOn(fake.client, "customerAccountId").mockResolvedValue("other-account");
+	await expect(
+		Effect.runPromise(
+			fake.provider.checkout({
+				accountId: "account",
+				offerId: "cloud-workspace-standard-v1",
+				successUrl: "https://api.test",
+			}),
+		),
+	).rejects.toMatchObject({ code: "provider-unavailable" });
+	expect(await fake.store.getCustomer("account")).toBeNull();
+	expect(fake.client.createCheckout).not.toHaveBeenCalled();
 });
