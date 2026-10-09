@@ -11,6 +11,7 @@ import {
 } from "../../src/api/api-link-service.ts";
 import { ManagedTunnelRuntime } from "../../src/api/managed-tunnel-runtime.ts";
 import { AuthService } from "../../src/auth/services/auth-service.ts";
+import { CollaborationService } from "../../src/collaboration/services/collaboration-service.ts";
 import {
 	LanAuthConfig,
 	LanAuthService,
@@ -44,6 +45,10 @@ it("does not resume a saved dev registration, tunnel, or heartbeat on boot", asy
 	const layer = makeApiLinkServiceLive({ resumeExistingLink: false }).pipe(
 		Layer.provide(
 			Layer.mergeAll(
+				Layer.succeed(
+					CollaborationService,
+					dependency<CollaborationService["Service"]>({}),
+				),
 				Layer.succeed(LanAuthConfig, {
 					policy: "protected",
 					advertisedHost: null,
@@ -115,6 +120,10 @@ describe("retiring a saved registration", () => {
 		const layer = makeApiLinkServiceLive({ resumeExistingLink: false }).pipe(
 			Layer.provide(
 				Layer.mergeAll(
+					Layer.succeed(
+						CollaborationService,
+						dependency<CollaborationService["Service"]>({}),
+					),
 					Layer.succeed(LanAuthConfig, {
 						policy: "protected",
 						advertisedHost: null,

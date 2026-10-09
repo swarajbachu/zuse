@@ -3,12 +3,12 @@ import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import type { Organization } from "@zuse/contracts";
 import { useMessages } from "@zuse/i18n/react";
 import { useEffect, useRef, useState } from "react";
+import { organizationErrorMessage } from "../lib/organization-error.ts";
 import { subscribeRendererAccount } from "../lib/renderer-account.ts";
 import {
 	type WorkspaceSharingState,
 	workspaceSharing,
 } from "../lib/workspace-sharing.ts";
-import { organizationErrorMessage } from "./settings/organizations-pane.tsx";
 import { Button } from "./ui/button.tsx";
 import { PopoverDescription, PopoverTitle } from "./ui/popover.tsx";
 

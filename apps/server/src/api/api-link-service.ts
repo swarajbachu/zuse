@@ -1014,6 +1014,7 @@ export const makeApiLinkServiceLive = (
 	| AccountAccessService
 	| ManagedTunnelRuntime
 	| TelemetryStore
+	| CollaborationService
 > => Layer.effect(ApiLinkService, makeApiLinkService(options));
 
 export const ApiLinkServiceLive = makeApiLinkServiceLive();

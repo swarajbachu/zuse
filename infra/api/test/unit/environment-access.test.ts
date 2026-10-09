@@ -1,8 +1,10 @@
-import { ManagedRuntime, Redacted } from "effect";
+import { Layer, ManagedRuntime, Redacted } from "effect";
 import { afterAll, afterEach, beforeEach, expect, it, vi } from "vitest";
+import { CloudWorkspaceStoreMemory } from "../../src/cloud-workspace-store.ts";
 import { layer } from "../../src/config.ts";
 import { canDiscoverEnvironment } from "../../src/environment-access.ts";
 import type { EnvironmentRecord } from "../../src/store.ts";
+import { ApiStoreMemory } from "../../src/store.ts";
 
 const environment: EnvironmentRecord = {
 	environmentId: "host",
@@ -23,14 +25,19 @@ const environment: EnvironmentRecord = {
 	],
 };
 const runtime = ManagedRuntime.make(
-	layer({
-		apiIssuer: "https://api.test",
-		workosIssuer: "https://auth.test",
-		workosJwksUrl: "https://auth.test/jwks",
-		mintPrivateKey: Redacted.make("unused"),
-		mintPublicKey: "unused",
-		workosApiKey: Redacted.make("test-key"),
-	}),
+	Layer.mergeAll(
+		CloudWorkspaceStoreMemory,
+		ApiStoreMemory,
+		layer({
+			organizationWorkspacesEnabled: true,
+			apiIssuer: "https://api.test",
+			workosIssuer: "https://auth.test",
+			workosJwksUrl: "https://auth.test/jwks",
+			mintPrivateKey: Redacted.make("unused"),
+			mintPublicKey: "unused",
+			workosApiKey: Redacted.make("test-key"),
+		}),
+	),
 );
 let role = "member";
 let membershipId = "bob-member";
