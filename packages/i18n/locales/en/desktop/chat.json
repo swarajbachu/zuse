@@ -686,6 +686,7 @@
 	"chat_landing_add_a_project_to_start": "Add a project to start your first chat.",
 	"chat_landing_add_project": "Add project",
 	"chat_working_row_waiting_for_task": "Waiting for task {{task}}",
+	"changes_review_viewed": "Viewed",
 	"delegation_group_count": "{{count}} subagents",
 	"delegation_group_count_one": "{{count}} subagent",
 	"delegation_group_count_other": "{{count}} subagents",

@@ -8,6 +8,7 @@ import {
 	supportsSandboxBilling,
 } from "../src/sandbox-provider-availability.ts";
 import { assertRuntimeCompatibility } from "./runtime-deploy-compatibility.mjs";
+import { assertStripeProductionBillingGates } from "./stripe-production-setup.mjs";
 
 const confirmation = "deploy-api.zuse.sh";
 const configPath = "wrangler.production.jsonc";
@@ -25,6 +26,23 @@ if (process.env.ZUSE_CONFIRM_PRODUCTION_API_DEPLOY !== confirmation) {
 
 const config = parse(readFileSync(configPath, "utf8"));
 const vars = config.vars ?? {};
+assertStripeProductionBillingGates(vars);
+const billingProvider = vars.BILLING_DEFAULT_PROVIDER ?? "polar";
+const polarEnabled =
+	typeof vars.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1 === "string" &&
+	vars.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1.trim() !== "";
+const stripeEnabled =
+	typeof vars.STRIPE_PRICE_CLOUD_WORKSPACE_STANDARD_V1 === "string" &&
+	vars.STRIPE_PRICE_CLOUD_WORKSPACE_STANDARD_V1.trim() !== "";
+if (
+	!["polar", "stripe"].includes(billingProvider) ||
+	(billingProvider === "stripe" && !stripeEnabled) ||
+	(billingProvider === "polar" && !polarEnabled)
+) {
+	console.error("Production default billing provider is not configured.");
+	process.exit(1);
+}
+
 const boat = readBoatEnvironment(vars);
 const boatEnabled = boat.BOAT_ADAPTER_ENABLED === "true";
 const e2bEnabled = vars.E2B_ADAPTER_ENABLED === "true";
@@ -74,9 +92,21 @@ const requiredValues = {
 	GITHUB_APP_ID: vars.GITHUB_APP_ID,
 	GITHUB_APP_SLUG: vars.GITHUB_APP_SLUG,
 	GITHUB_APP_CLIENT_ID: vars.GITHUB_APP_CLIENT_ID,
-	POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1:
-		vars.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1,
-	POLAR_CLOUD_OVERAGE_METER_ID: vars.POLAR_CLOUD_OVERAGE_METER_ID,
+	...(polarEnabled
+		? {
+				POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1:
+					vars.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1,
+				POLAR_CLOUD_OVERAGE_METER_ID: vars.POLAR_CLOUD_OVERAGE_METER_ID,
+			}
+		: {}),
+	...(stripeEnabled
+		? {
+				STRIPE_PRICE_CLOUD_WORKSPACE_STANDARD_V1:
+					vars.STRIPE_PRICE_CLOUD_WORKSPACE_STANDARD_V1,
+				STRIPE_CLOUD_OVERAGE_PRICE_ID: vars.STRIPE_CLOUD_OVERAGE_PRICE_ID,
+				STRIPE_CLOUD_OVERAGE_METER_ID: vars.STRIPE_CLOUD_OVERAGE_METER_ID,
+			}
+		: {}),
 	CLOUD_BILLING_CUTOVER_AT: vars.CLOUD_BILLING_CUTOVER_AT,
 	...(slackEnabled
 		? {
@@ -107,9 +137,13 @@ if (!enabledAdapters.has(cloudAuthProvider)) {
 	);
 	process.exit(1);
 }
-if (vars.POLAR_ENVIRONMENT !== "production" || missingValues.length > 0) {
+if (
+	(polarEnabled && vars.POLAR_ENVIRONMENT !== "production") ||
+	(stripeEnabled && vars.STRIPE_ENVIRONMENT !== "production") ||
+	missingValues.length > 0
+) {
 	console.error(
-		`Production configuration is incomplete: ${missingValues.join(", ") || "POLAR_ENVIRONMENT"}.`,
+		`Production configuration is incomplete: ${missingValues.join(", ") || "billing provider environment"}.`,
 	);
 	process.exit(1);
 }
@@ -150,8 +184,8 @@ const requiredSecrets = [
 	"CF_API_TOKEN",
 	...(e2bEnabled ? ["E2B_API_KEY", "E2B_WEBHOOK_SECRET"] : []),
 	"CLOUD_CREDENTIAL_VAULT_KEY",
-	"POLAR_ACCESS_TOKEN",
-	"POLAR_WEBHOOK_SECRET",
+	...(polarEnabled ? ["POLAR_ACCESS_TOKEN", "POLAR_WEBHOOK_SECRET"] : []),
+	...(stripeEnabled ? ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"] : []),
 	"GITHUB_APP_PRIVATE_KEY",
 	...(slackEnabled ? ["SLACK_CLIENT_SECRET", "SLACK_SIGNING_SECRET"] : []),
 ];

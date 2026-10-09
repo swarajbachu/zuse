@@ -686,6 +686,7 @@
 	"chat_landing_add_a_project_to_start": "프로젝트를 추가해 첫 채팅을 시작하세요.",
 	"chat_landing_add_project": "프로젝트 추가",
 	"chat_working_row_waiting_for_task": "작업 {{task}} 대기 중",
+	"changes_review_viewed": "확인함",
 	"delegation_group_count": "하위 에이전트 {{count}}개",
 	"delegation_group_count_one": "하위 에이전트 {{count}}개",
 	"delegation_group_count_other": "하위 에이전트 {{count}}개",

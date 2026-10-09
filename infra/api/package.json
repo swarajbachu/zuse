@@ -52,7 +52,13 @@
 		"deploy": "wrangler deploy --env=",
 		"deploy:staging": "wrangler deploy --env=",
 		"deploy:production": "node scripts/deploy-production.mjs",
-		"cloud-snapshots:ops": "node scripts/cloud-snapshot-ops.mjs"
+		"cloud-snapshots:ops": "node scripts/cloud-snapshot-ops.mjs",
+		"billing:stripe:migrate": "bun scripts/stripe-billing-migrate.mjs",
+		"billing:stripe:production": "bun scripts/stripe-production-setup.mjs",
+		"secret:stripe": "wrangler secret put STRIPE_SECRET_KEY --env=",
+		"secret:stripe-webhook": "wrangler secret put STRIPE_WEBHOOK_SECRET --env=",
+		"secret:stripe:production": "wrangler secret put STRIPE_SECRET_KEY --config wrangler.production.jsonc",
+		"secret:stripe-webhook:production": "wrangler secret put STRIPE_WEBHOOK_SECRET --config wrangler.production.jsonc"
 	},
 	"dependencies": {
 		"@effect/sql-pg": "catalog:",
@@ -68,7 +74,8 @@
 		"@zuse/utils": "*",
 		"effect": "catalog:",
 		"jose": "^6.2.3",
-		"@zuse/executor-v2": "*"
+		"@zuse/executor-v2": "*",
+		"stripe": "23.0.0"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20260601.1",

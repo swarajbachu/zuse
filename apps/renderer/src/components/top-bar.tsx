@@ -2,6 +2,7 @@ import { openPathInTarget } from "../lib/open-path-in-target.ts";
 import { useGitPrState } from "../lib/use-git-pr-state.ts";
 import { CopyButton } from "./copy-button.tsx";
 import { GitStackMenu } from "./git-stack-menu.tsx";
+import { GitHubStatusNotice } from "./github-status-notice.tsx";
 import { PreviewPortsMenu } from "./preview-ports-menu.tsx";
 import { WorkspaceSharingButton } from "./workspace-sharing-button.tsx";
 import "@zuse/i18n/english/projects";
@@ -1217,6 +1218,7 @@ export function TopBarRightContent({
 					</>
 				) : null}
 			</div>
+			<GitHubStatusNotice pr={pr} executionRef={executionRef} />
 			<WorkflowActions compact={compact} />
 		</div>
 	);
@@ -1495,7 +1497,9 @@ export function WorkflowActions({
 				/>
 			) : null}
 			{workflow.kind === "open-pr" &&
-			workflow.mergeable !== "conflicting" &&
+			!workflow.stale &&
+			workflow.checksComplete &&
+			workflow.mergeable === "clean" &&
 			workflow.checks !== "failure" &&
 			!workflow.isDraft &&
 			folderId !== null ? (

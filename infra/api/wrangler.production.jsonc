@@ -103,11 +103,21 @@
 		"CLOUD_USAGE_EXPORT_ENABLED": "true",
 		"CLOUD_BILLING_CUTOVER_AT": "2026-08-17T18:30:00.000Z",
 
+		// Keep legacy checkout until Stripe prices, taxes and migration are verified.
+		// Populate live Stripe IDs with billing:stripe:production prepare, then
+		// install-secrets. Test-mode IDs and signing secrets cannot be reused.
+		"BILLING_DEFAULT_PROVIDER": "polar",
+		"STRIPE_ENVIRONMENT": "production",
+		"STRIPE_PRICE_CLOUD_WORKSPACE_STANDARD_V1": "price_1UOcC1PTgFt61LRrMqCBHq3m",
+		"STRIPE_PRICE_PERSISTENT_STANDARD_V1": "",
+		"STRIPE_CLOUD_OVERAGE_PRICE_ID": "price_1UOcC2PTgFt61LRr4ltvoZI5",
+		"STRIPE_CLOUD_OVERAGE_METER_ID": "mtr_61VY09MpRxtwhKExi41PTgFt61LRrWI4",
 		"POLAR_ENVIRONMENT": "production",
 		"POLAR_PRODUCT_PERSISTENT_STANDARD_V1": "",
 		"POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1": "80f89e4a-dc3a-44db-8523-b4863168437f",
 		"POLAR_CLOUD_OVERAGE_METER_ID": "30037005-05ba-4bbb-8e6c-f6cab58826b7",
-		"POLAR_VPS_SALES_APPROVED": "false"
+		"POLAR_VPS_SALES_APPROVED": "false",
+		"STRIPE_PORTAL_CONFIGURATION_ID": "bpc_1UOcEBPTgFt61LRrzfE3mY52"
 	},
 	"hyperdrive": [
 		{

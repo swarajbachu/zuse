@@ -1264,5 +1264,11 @@
 	"snapshot_login_detected": "Anmeldung erkannt",
 	"snapshot_inspected_user": "Geprüfter Linux-Benutzer: {{user}}.",
 	"acp_agents_add_account": "Konto hinzufügen",
-	"acp_agents_busy_adding_account": "Konto wird hinzugefügt…"
+	"acp_agents_busy_adding_account": "Konto wird hinzugefügt…",
+	"settings_navigation_experimental": "Experimentell",
+	"settings_page_experimental": "Experimentell",
+	"settings_page_experimental_description": "Frühe Funktionen, an denen wir noch arbeiten. Sie können sich ändern oder entfernt werden.",
+	"settings_page_thread_list_sidebar": "Seitenleiste als Thread-Liste",
+	"settings_page_thread_list_sidebar_description": "Ersetzt den Projektbaum durch eine Liste aller Threads Ihrer Projekte, neueste zuerst, mit Repository, Live-Agentenstatus, Pull-Request-Status und Diff. Projekte können Sie weiterhin über die Kopfzeile der Seitenleiste hinzufügen.",
+	"settings_page_experimental_sidebar": "Seitenleiste"
 }

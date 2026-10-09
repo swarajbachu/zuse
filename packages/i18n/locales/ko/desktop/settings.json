@@ -1264,5 +1264,11 @@
 	"snapshot_login_detected": "로그인 정보 감지됨",
 	"snapshot_inspected_user": "검사한 Linux 사용자: {{user}}.",
 	"acp_agents_add_account": "계정 추가",
-	"acp_agents_busy_adding_account": "계정 추가 중…"
+	"acp_agents_busy_adding_account": "계정 추가 중…",
+	"settings_navigation_experimental": "실험적 기능",
+	"settings_page_experimental": "실험적 기능",
+	"settings_page_experimental_description": "아직 다듬고 있는 초기 기능입니다. 변경되거나 제거될 수 있습니다.",
+	"settings_page_thread_list_sidebar": "스레드 목록 사이드바",
+	"settings_page_thread_list_sidebar_description": "프로젝트 트리를 모든 프로젝트의 스레드를 최신순으로 보여 주는 하나의 목록으로 바꾸고, 저장소, 실시간 에이전트 상태, 풀 리퀘스트 상태, 변경 사항을 표시합니다. 프로젝트는 계속 사이드바 헤더에서 추가할 수 있습니다.",
+	"settings_page_experimental_sidebar": "사이드바"
 }

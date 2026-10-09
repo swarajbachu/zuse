@@ -686,6 +686,7 @@
 	"chat_landing_add_a_project_to_start": "プロジェクトを追加して最初のチャットを開始しましょう。",
 	"chat_landing_add_project": "プロジェクトを追加",
 	"chat_working_row_waiting_for_task": "タスク {{task}} を待機中",
+	"changes_review_viewed": "確認済み",
 	"delegation_group_count": "{{count}} 件のサブエージェント",
 	"delegation_group_count_one": "{{count}} 件のサブエージェント",
 	"delegation_group_count_other": "{{count}} 件のサブエージェント",

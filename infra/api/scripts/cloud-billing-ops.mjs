@@ -66,18 +66,18 @@ try {
 		const periodId = args[0];
 		if (periodId === undefined) throw new Error("usage: report PERIOD_ID");
 		const result = await pool.query(
-			`SELECT p.period_id, p.account_id, p.period_start, p.period_end, p.base_price_micros,
+			`SELECT p.period_id, p.account_id, p.billing_provider, p.period_start, p.period_end, p.base_price_micros,
 			 COALESCE((SELECT SUM(amount_micros) FROM api_cloud_billing_ledger WHERE period_id=p.period_id AND kind='provider-cost'),0) AS account_provider_cost_micros,
 			 COALESCE((SELECT SUM(l.amount_micros) FROM api_cloud_billing_ledger l JOIN api_cloud_billing_periods statement_period ON statement_period.period_id=l.period_id WHERE l.kind='provider-cost' AND statement_period.period_start=p.period_start AND statement_period.period_end=p.period_end),0) AS calculated_statement_scope_micros,
 			 COALESCE((SELECT SUM(cycle_period.base_price_micros) FROM api_cloud_billing_periods cycle_period WHERE cycle_period.period_start=p.period_start AND cycle_period.period_end=p.period_end),0) AS cycle_base_revenue_micros,
 			 COALESCE((SELECT SUM(l.amount_micros) FROM api_cloud_billing_ledger l JOIN api_cloud_billing_periods cycle_period ON cycle_period.period_id=l.period_id WHERE l.kind='overage-charge' AND cycle_period.period_start=p.period_start AND cycle_period.period_end=p.period_end),0) AS cycle_overage_revenue_micros,
 			 COALESCE((SELECT SUM(amount_micros) FROM api_cloud_billing_ledger WHERE period_id=p.period_id AND kind='included-allowance'),0) AS included_used_micros,
 			 COALESCE((SELECT SUM(amount_micros) FROM api_cloud_billing_ledger WHERE period_id=p.period_id AND kind='overage-charge'),0) AS internal_overage_micros,
-			 COALESCE((SELECT SUM(amount_cents) FROM api_cloud_billing_outbox WHERE period_id=p.period_id),0) AS polar_meter_cents,
-			 COALESCE((SELECT SUM(amount_cents) FROM api_cloud_billing_outbox WHERE period_id=p.period_id AND acknowledged_at IS NOT NULL),0) AS polar_acknowledged_cents,
+			 COALESCE((SELECT SUM(amount_cents) FROM api_cloud_billing_outbox WHERE period_id=p.period_id),0) AS billing_meter_cents,
+			 COALESCE((SELECT SUM(amount_cents) FROM api_cloud_billing_outbox WHERE period_id=p.period_id AND acknowledged_at IS NOT NULL),0) AS billing_acknowledged_cents,
 			 (SELECT SUM(amount_micros) FROM api_provider_statement_totals WHERE provider='e2b' AND period_start=p.period_start AND period_end=p.period_end) AS e2b_statement_micros,
 			 COALESCE((SELECT SUM(amount_micros) FROM api_platform_costs WHERE period_start < p.period_end AND period_end > p.period_start),0) AS platform_overhead_micros,
-			 COALESCE((SELECT SUM(amount_micros) FROM api_platform_costs WHERE vendor='polar' AND period_start < p.period_end AND period_end > p.period_start),0) AS polar_fees_micros
+			 COALESCE((SELECT SUM(amount_micros) FROM api_platform_costs WHERE vendor IN ('polar','stripe') AND period_start < p.period_end AND period_end > p.period_start),0) AS billing_fees_micros
 			 FROM api_cloud_billing_periods p WHERE p.period_id=$1`,
 			[periodId],
 		);

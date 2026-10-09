@@ -131,6 +131,8 @@ describe("environment PR rows", () => {
 			null,
 		],
 		["a clean branch with passing checks", openPr, "merge"],
+		["stale status", { ...openPr, stale: true }, null],
+		["incomplete checks", { ...openPr, checksComplete: false }, null],
 		["a merged PR", { ...openPr, state: "merged" }, null],
 	])("offers one row action for %s", (_name, pr, action) => {
 		expect(deriveEnvironmentPrRows(pr).action).toBe(action);

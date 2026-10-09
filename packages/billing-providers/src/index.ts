@@ -13,6 +13,7 @@ export class BillingProviderError extends Schema.TaggedErrorClass<BillingProvide
 			"invalid-event",
 			"subscription-unlinked",
 			"provider-unavailable",
+			"reconciliation-required",
 		]),
 	},
 ) {}
@@ -42,6 +43,8 @@ export interface CheckoutSummary {
 }
 
 export interface BillingProviderAdapter {
+	/** Advances a bounded batch of durable customer recovery jobs. */
+	readonly recoverCustomers?: () => Effect.Effect<number, BillingProviderError>;
 	readonly providerId: string;
 	readonly checkout: (input: {
 		readonly accountId: string;
@@ -62,7 +65,7 @@ export interface BillingProviderAdapter {
 	readonly verifyEvent: (
 		request: Request,
 	) => Effect.Effect<
-		{ readonly eventId: string; readonly subscriptionId: string },
+		{ readonly eventId: string; readonly subscriptionId: string } | null,
 		BillingProviderError
 	>;
 	readonly reconcileSubscription: (
@@ -90,6 +93,8 @@ export interface BillingProviderAdapter {
 	readonly reconcileMeter?: (input: {
 		readonly accountId: string;
 		readonly meterId: string;
+		readonly periodStartMs?: number;
+		readonly periodEndMs?: number;
 	}) => Effect.Effect<number, BillingProviderError>;
 }
 

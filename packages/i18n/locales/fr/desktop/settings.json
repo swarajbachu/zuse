@@ -1268,5 +1268,11 @@
 	"snapshot_login_detected": "Connexion détectée",
 	"snapshot_inspected_user": "Utilisateur Linux inspecté : {{user}}.",
 	"acp_agents_add_account": "Ajouter un compte",
-	"acp_agents_busy_adding_account": "Ajout du compte…"
+	"acp_agents_busy_adding_account": "Ajout du compte…",
+	"settings_navigation_experimental": "Expérimental",
+	"settings_page_experimental": "Expérimental",
+	"settings_page_experimental_description": "Fonctionnalités en cours de conception. Elles peuvent changer ou être supprimées.",
+	"settings_page_thread_list_sidebar": "Barre latérale en liste de fils",
+	"settings_page_thread_list_sidebar_description": "Remplace l'arborescence des projets par une seule liste de tous les fils de vos projets, du plus récent au plus ancien, avec le dépôt, le statut de l'agent en direct, l'état de la pull request et le diff. Vous pouvez toujours ajouter des projets depuis l'en-tête de la barre latérale.",
+	"settings_page_experimental_sidebar": "Barre latérale"
 }

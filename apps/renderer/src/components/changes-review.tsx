@@ -36,6 +36,7 @@ import type {
 import { CommandId } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
+	Check,
 	ChevronDown,
 	ChevronRight,
 	ChevronsUpDown,
@@ -79,6 +80,7 @@ import { useActiveContext } from "../store/active-workspace.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
+import { DiffStat } from "./dock-panel/diff-stat.tsx";
 import { FileIcon } from "./file-icon.tsx";
 import {
 	SavedReviewAnnotation,
@@ -725,38 +727,15 @@ function ChangesReviewReady({
 							<ChevronDown className="size-3.5" />
 						)}
 					</button>
-					<input
-						type="checkbox"
-						checked={isViewed(file.path)}
-						onChange={() => {
-							const wasViewed = isViewed(file.path);
-							toggleViewed(file.path);
-							if (!wasViewed) {
-								setCollapsed((current) => new Set(current).add(file.path));
-							}
-						}}
-						onClick={(event) => event.stopPropagation()}
-						aria-label={
-							isViewed(file.path)
-								? uiMessage("chat:changes_review_mark_unviewed")
-								: uiMessage("chat:changes_review_mark_viewed_and_collapse")
-						}
-						title={
-							isViewed(file.path)
-								? uiMessage("chat:changes_review_mark_unviewed")
-								: uiMessage("chat:changes_review_mark_viewed_and_collapse")
-						}
-						className="size-3.5 cursor-pointer accent-foreground"
-					/>
 					<FileIcon
 						name={file.path}
 						kind="file"
-						className="ml-1 size-4 shrink-0"
+						className="ml-0.5 size-4 shrink-0"
 					/>
 				</div>
 			);
 		},
-		[collapsed, fileByPath, isViewed, toggleCollapsed, toggleViewed, uiMessage],
+		[collapsed, fileByPath, toggleCollapsed, uiMessage],
 	);
 
 	const renderHeaderMetadata = useCallback(
@@ -764,8 +743,33 @@ function ChangesReviewReady({
 			const file = fileByPath.get(item.id);
 			if (file === undefined) return null;
 			const editing = editingPath === item.id;
+			const viewedFile = isViewed(file.path);
 			return (
-				<div className="flex items-center gap-1 pr-2">
+				<div className="flex items-center gap-1 pr-1">
+					<button
+						type="button"
+						aria-pressed={viewedFile}
+						title={
+							viewedFile
+								? uiMessage("chat:changes_review_mark_unviewed")
+								: uiMessage("chat:changes_review_mark_viewed_and_collapse")
+						}
+						onClick={(event) => {
+							event.stopPropagation();
+							toggleViewed(file.path);
+							if (!viewedFile) {
+								setCollapsed((current) => new Set(current).add(file.path));
+							}
+						}}
+						className={`flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] transition-colors ${
+							viewedFile
+								? "bg-foreground/10 text-foreground"
+								: "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+						}`}
+					>
+						<Check className="size-3" />
+						{uiMessage("chat:changes_review_viewed")}
+					</button>
 					{editing ? (
 						<button
 							type="button"
@@ -792,6 +796,8 @@ function ChangesReviewReady({
 			editingPath,
 			enterEdit,
 			fileByPath,
+			isViewed,
+			toggleViewed,
 			leaveEdit,
 			restoreToBase,
 			saveEdit,
@@ -994,37 +1000,31 @@ function ChangesReviewReady({
 				) ?? null);
 	return (
 		<section className="flex h-full min-h-0 flex-col bg-background">
-			<div className="flex min-h-12 shrink-0 items-center gap-3 border-b border-border/50 px-4">
-				<div className="min-w-0">
-					<div className="truncate text-xs font-medium text-foreground">
-						{uiMessage("chat:changes_review_review_changes")}
-					</div>
-					<div className="mt-0.5 flex items-center gap-1.5 truncate text-[10px] text-muted-foreground">
-						<span>
-							{summary.baseRef === null
-								? uiMessage("chat:changes_review_working_tree")
-								: summary.baseRef}
-						</span>
-						<span aria-hidden="true">·</span>
-						<span className="tabular-nums">
-							{uiMessage("chat:changes_review_of_reviewed_sentence", {
-								viewedCount: viewedCount,
-								value: summary.files.length,
-							})}
-						</span>
-					</div>
-				</div>
-				<div className="ml-auto flex shrink-0 items-center gap-1">
-					<div
-						className="mr-1 flex h-7 items-center gap-1.5 rounded-md bg-muted/60 px-2 font-mono text-[10px] tabular-nums"
-						title={uiMessage("chat:changes_review_additions_and_deletions", {
-							additions: String(summary.additions),
-							deletions: String(summary.deletions),
+			<div className="flex h-11 shrink-0 items-center gap-3 px-4">
+				<div
+					className="flex min-w-0 items-center gap-2 text-xs"
+					title={uiMessage("chat:changes_review_additions_and_deletions", {
+						additions: String(summary.additions),
+						deletions: String(summary.deletions),
+					})}
+				>
+					<span className="truncate font-medium text-foreground">
+						{summary.baseRef === null
+							? uiMessage("chat:changes_review_working_tree")
+							: summary.baseRef}
+					</span>
+					<DiffStat
+						additions={summary.additions}
+						deletions={summary.deletions}
+					/>
+					<span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
+						{uiMessage("chat:changes_review_of_reviewed_sentence", {
+							viewedCount: viewedCount,
+							value: summary.files.length,
 						})}
-					>
-						<span className="text-emerald-500">+{summary.additions}</span>
-						<span className="text-rose-500">−{summary.deletions}</span>
-					</div>
+					</span>
+				</div>
+				<div className="ml-auto flex shrink-0 items-center gap-0.5">
 					<ToolbarButton
 						label={
 							preferences.diffStyle === "split"
@@ -1569,7 +1569,7 @@ function ToolbarButton({
 			title={label}
 			aria-pressed={active}
 			onClick={onClick}
-			className={`rounded p-1.5 transition-colors ${
+			className={`grid size-7 place-items-center rounded-md transition-colors ${
 				active
 					? "bg-foreground/10 text-foreground"
 					: "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"

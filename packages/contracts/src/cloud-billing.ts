@@ -30,6 +30,7 @@ export class CloudBillingSummary extends Schema.Class<CloudBillingSummary>(
 	markupBasisPoints: Schema.Number,
 	currentInvoiceEstimateMicros: Schema.Number,
 	lastProviderReconciledAt: Schema.optional(Schema.Number),
+	lastBillingReconciledAt: Schema.optional(Schema.Number),
 	lastPolarReconciledAt: Schema.optional(Schema.Number),
 	usageProvisional: Schema.Boolean,
 }) {}

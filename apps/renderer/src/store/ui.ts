@@ -52,6 +52,7 @@ export type SettingsSection =
 	| { readonly kind: "pokedex" }
 	| { readonly kind: "diagnostics" }
 	| { readonly kind: "shortcuts" }
+	| { readonly kind: "experimental" }
 	| { readonly kind: "developer" }
 	| { readonly kind: "repository"; readonly projectId: FolderId };
 
@@ -236,6 +237,8 @@ type UiState = {
 	/** User preference for the fullscreen environment summary. The summary is
 	 * still gated by native fullscreen and available width at render time. */
 	readonly environmentSummaryOpen: boolean;
+	/** Changes dock file list layout; persisted across reloads. */
+	readonly changesListMode: ChangesListMode;
 	/** Right-dock tab layout, scoped per sidebar-chat. */
 	readonly rightPanelsByChat: Record<string, ReadonlyArray<PanelInstance>>;
 	readonly activeRightPanelByChat: Record<string, string | null>;
@@ -285,6 +288,7 @@ type UiState = {
 	readonly setFullScreen: (full: boolean) => void;
 	readonly setEnvironmentSummaryOpen: (open: boolean) => void;
 	readonly toggleEnvironmentSummary: () => void;
+	readonly setChangesListMode: (mode: ChangesListMode) => void;
 	/** Add a panel to the dock. Singletons that are already open are focused
 	 * instead of duplicated; terminals always append a new slot. */
 	readonly addPanel: (ref: ChatRef, kind: PanelKind) => void;
@@ -327,6 +331,8 @@ const newPanelId = (): string =>
 
 export const ENVIRONMENT_SUMMARY_STORAGE_KEY =
 	"zuse.environmentSummary.open.v1";
+export const CHANGES_LIST_MODE_STORAGE_KEY = "zuse.changes.listMode.v1";
+export type ChangesListMode = "list" | "tree";
 // v1 used unqualified chat ids, so it is intentionally not loaded: equal ids
 // from two environments could otherwise inherit each other's layout.
 export const RIGHT_PANE_WIDTHS_STORAGE_KEY = "zuse.rightPane.widths.v2";
@@ -413,6 +419,25 @@ const initialEnvironmentSummaryOpen = (): boolean => {
 const persistEnvironmentSummaryOpen = (open: boolean): void => {
 	try {
 		window.localStorage.setItem(ENVIRONMENT_SUMMARY_STORAGE_KEY, String(open));
+	} catch {
+		// The preference remains usable for this session when storage is blocked.
+	}
+};
+
+const initialChangesListMode = (): ChangesListMode => {
+	if (typeof window === "undefined") return "list";
+	try {
+		return window.localStorage.getItem(CHANGES_LIST_MODE_STORAGE_KEY) === "tree"
+			? "tree"
+			: "list";
+	} catch {
+		return "list";
+	}
+};
+
+const persistChangesListMode = (mode: ChangesListMode): void => {
+	try {
+		window.localStorage.setItem(CHANGES_LIST_MODE_STORAGE_KEY, mode);
 	} catch {
 		// The preference remains usable for this session when storage is blocked.
 	}
@@ -586,6 +611,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 	chatSwitcherOpen: false,
 	isFullScreen: false,
 	environmentSummaryOpen: initialEnvironmentSummaryOpen(),
+	changesListMode: initialChangesListMode(),
 	rightPanelsByChat: {},
 	activeRightPanelByChat: {},
 	selectedSubagentByChat: {},
@@ -755,6 +781,10 @@ export const useUiStore = create<UiState>((set, get) => ({
 			persistEnvironmentSummaryOpen(open);
 			return { environmentSummaryOpen: open };
 		}),
+	setChangesListMode: (mode) => {
+		persistChangesListMode(mode);
+		set({ changesListMode: mode });
+	},
 	addPanel: (ref, kind) =>
 		set((s) => {
 			const key = rightPaneKey(ref);

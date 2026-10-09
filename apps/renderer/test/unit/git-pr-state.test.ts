@@ -111,3 +111,14 @@ test("enriched checks with decoded dates remain valid when opening the PR", () =
 		new Date("2026-09-15T13:56:18Z"),
 	);
 });
+
+test("incomplete checks cannot imply success in any status surface", () => {
+	const state = resolveGitPrState(
+		{ ...pr, checksComplete: false, checkRuns: [run] },
+		details,
+		"feature",
+	);
+	expect(state.pr?.checks).toBe("pending");
+	expect(state.details?.checks).toBe("pending");
+	expect(deriveEnvironmentPrRows(state.pr).checks?.kind).toBe("pending");
+});

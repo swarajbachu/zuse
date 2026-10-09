@@ -1,5 +1,13 @@
-import { HugeiconsIcon } from "@hugeicons/react";
-import { GitBranchIcon } from "@zuse/icons/solid-rounded";
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import type { GitPrInfo } from "@zuse/contracts";
+import {
+	GitBranchIcon,
+	GitMergeConflictIcon,
+	GitMergeIcon,
+	GitPullRequestClosedIcon,
+	GitPullRequestDraftIcon,
+	GitPullRequestIcon,
+} from "@zuse/icons/solid-rounded";
 
 import { cn } from "~/lib/utils";
 
@@ -43,6 +51,11 @@ const COLOR_BY_STATE: Record<BranchState, { idle: string; selected: string }> =
 		},
 	};
 
+const branchStateTextClass = (state: BranchState, selected = false): string => {
+	const color = COLOR_BY_STATE[state];
+	return selected ? color.selected : color.idle;
+};
+
 export function BranchIcon({
 	state = "default",
 	selected = false,
@@ -52,16 +65,55 @@ export function BranchIcon({
 	selected?: boolean;
 	className?: string;
 }) {
-	const color = COLOR_BY_STATE[state];
 	return (
 		<HugeiconsIcon
 			icon={GitBranchIcon}
 			className={cn(
 				"size-3.5 shrink-0 transition-colors",
-				selected ? color.selected : color.idle,
+				branchStateTextClass(state, selected),
 				className,
 			)}
 			aria-hidden="true"
 		/>
 	);
 }
+
+/**
+ * GitHub-style pull request glyph: the icon follows the PR lifecycle (open,
+ * draft, merged, closed, conflict) and its color follows GitHub's palette,
+ * with open PRs tinted by their checks.
+ */
+export function PrStateIcon({
+	pr,
+	className,
+}: {
+	pr: Pick<GitPrInfo, "state" | "isDraft" | "checks" | "mergeable">;
+	className?: string;
+}) {
+	const { icon, tone } = prStateGlyph(pr);
+	return (
+		<HugeiconsIcon
+			icon={icon}
+			className={cn("size-3.5 shrink-0", tone, className)}
+			aria-hidden="true"
+		/>
+	);
+}
+
+const prStateGlyph = (
+	pr: Pick<GitPrInfo, "state" | "isDraft" | "checks" | "mergeable">,
+): { icon: IconSvgElement; tone: string } => {
+	if (pr.state === "merged")
+		return { icon: GitMergeIcon, tone: "text-purple-400" };
+	if (pr.state === "closed")
+		return { icon: GitPullRequestClosedIcon, tone: "text-destructive" };
+	if (pr.mergeable === "conflicting")
+		return { icon: GitMergeConflictIcon, tone: "text-destructive" };
+	if (pr.isDraft)
+		return { icon: GitPullRequestDraftIcon, tone: "text-muted-foreground" };
+	if (pr.checks === "failure")
+		return { icon: GitPullRequestIcon, tone: "text-destructive" };
+	if (pr.checks === "pending")
+		return { icon: GitPullRequestIcon, tone: "text-warning" };
+	return { icon: GitPullRequestIcon, tone: "text-success" };
+};

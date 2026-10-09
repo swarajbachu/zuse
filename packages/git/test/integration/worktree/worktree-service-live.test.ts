@@ -16,8 +16,12 @@ import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect, Layer, ManagedRuntime, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type { SqlError } from "effect/unstable/sql/SqlError";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
-
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import {
+	GitHubClient,
+	GitHubClientService,
+	GitHubFailure,
+} from "../../../src/github-client.ts";
 import {
 	PokemonAssignment,
 	ProjectLocator,
@@ -27,6 +31,7 @@ import {
 } from "../../../src/worktree/ports.ts";
 import { WorktreeService } from "../../../src/worktree/worktree-service.ts";
 import { WorktreeServiceLive } from "../../../src/worktree/worktree-service-live.ts";
+import { pr } from "../../github-fixture.ts";
 
 const projectId = FolderId.make("project-1");
 
@@ -38,6 +43,8 @@ describe("WorktreeServiceLive", () => {
 	let repositoryRoot = "";
 	let worktreeRoot = "";
 	let setupScript: string | null = null;
+	let github: GitHubClient;
+	let pullRequest = pr();
 	let originalHome: string | undefined;
 	let originalGitConfigGlobal: string | undefined;
 	let runtime: ManagedRuntime.ManagedRuntime<
@@ -142,7 +149,14 @@ describe("WorktreeServiceLive", () => {
 			}),
 		);
 
+		pullRequest = pr();
+		github = new GitHubClient({
+			resolveCredential: async () => ({ token: "worktree-test" }),
+			fetch: async () =>
+				new Response(JSON.stringify({ data: { p0: { pullRequest } } })),
+		});
 		const WorktreeLive = WorktreeServiceLive.pipe(
+			Layer.provide(Layer.succeed(GitHubClientService, github)),
 			Layer.provide(PortsLive),
 			Layer.provide(MigratedSql),
 			Layer.provide(NodeServices.layer),
@@ -153,6 +167,8 @@ describe("WorktreeServiceLive", () => {
 
 	afterEach(async () => {
 		await runtime.dispose();
+		github.close();
+		vi.unstubAllEnvs();
 		if (originalHome === undefined) delete process.env.HOME;
 		else process.env.HOME = originalHome;
 		if (originalGitConfigGlobal === undefined)
@@ -167,6 +183,55 @@ describe("WorktreeServiceLive", () => {
 	const runSql = <A, E>(
 		operation: (sql: SqlClient.SqlClient) => Effect.Effect<A, E>,
 	) => runtime.runPromise(Effect.flatMap(SqlClient.SqlClient, operation));
+
+	test("checks out API-resolved PR metadata with native Git and verifies the fetched head", async () => {
+		const remote = join(temporaryRoot, "remote.git");
+		git(temporaryRoot, "clone", "--bare", repositoryRoot, remote);
+		const sha = git(repositoryRoot, "rev-parse", "HEAD");
+		git(remote, "update-ref", "refs/heads/feature", sha);
+		git(
+			repositoryRoot,
+			"remote",
+			"add",
+			"origin",
+			"https://github.com/acme/app.git",
+		);
+		// Git's URL rewrite lets the production HTTPS path fetch a local fixture.
+		git(
+			repositoryRoot,
+			"config",
+			`url.${remote}.insteadOf`,
+			"https://github.com/acme/app.git",
+		);
+		git(repositoryRoot, "config", "protocol.file.allow", "always");
+		vi.stubEnv("GH_REPO", "acme/app");
+		pullRequest = pr({
+			headRefOid: sha,
+			commits: {
+				nodes: [
+					{
+						commit: {
+							oid: sha,
+							statusCheckRollup:
+								pr().commits.nodes[0]?.commit.statusCheckRollup ?? null,
+						},
+					},
+				],
+			},
+		});
+		const checkout = await run((service) =>
+			service.create(projectId, {
+				_tag: "pr",
+				number: 1,
+				headRefName: "ignored-picker-cache",
+			}),
+		);
+		expect(checkout.branch).toBe("feature");
+		expect(git(checkout.path, "rev-parse", "HEAD")).toBe(sha);
+		expect(git(checkout.path, "rev-parse", "--abbrev-ref", "@{upstream}")).toBe(
+			"acme/feature",
+		);
+	});
 
 	test("reuses a journaled worktree id after a duplicate bootstrap", async () => {
 		const requestedId = WorktreeId.make("worktree-create-operation");
@@ -242,6 +307,27 @@ describe("WorktreeServiceLive", () => {
 		expect(git(created.path, "rev-parse", "HEAD")).toBe(
 			git(clone, "rev-parse", "HEAD"),
 		);
+	});
+
+	test.each([
+		"authentication",
+		"offline",
+	] as const)("renames unpublished branches despite %s GitHub failures", async (kind) => {
+		const created = await run((service) => service.create(projectId));
+		git(
+			repositoryRoot,
+			"remote",
+			"add",
+			"origin",
+			"https://github.com/acme/app.git",
+		);
+		vi.spyOn(github, "credential").mockRejectedValue(
+			new GitHubFailure(kind, "Unavailable"),
+		);
+		const renamed = await run((service) =>
+			service.renameBranch(created.id, "offline-name", "automatic"),
+		);
+		expect(renamed.branch).toBe("offline-name");
 	});
 
 	test("renames a pending branch automatically exactly once", async () => {

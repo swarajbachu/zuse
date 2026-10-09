@@ -686,6 +686,7 @@
 	"chat_landing_add_a_project_to_start": "添加一个项目以开始你的第一次聊天。",
 	"chat_landing_add_project": "添加项目",
 	"chat_working_row_waiting_for_task": "正在等待任务 {{task}}",
+	"changes_review_viewed": "已查看",
 	"delegation_group_count": "{{count}} 个子代理",
 	"delegation_group_count_one": "{{count}} 个子代理",
 	"delegation_group_count_other": "{{count}} 个子代理",

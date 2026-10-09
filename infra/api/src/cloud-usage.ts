@@ -52,24 +52,34 @@ export const flushCloudUsage = Effect.fn("flushCloudUsage")(function* (
 ) {
 	if (!(yield* ApiConfiguration).cloudUsageExportEnabled) return 0;
 	const providers = yield* BillingProviders;
-	if (!providers.providerIds.includes("polar")) return 0;
-	const provider = yield* providers.get("polar").pipe(Effect.orDie);
-	const reportMeterEvent = provider.reportMeterEvent;
-	if (reportMeterEvent === undefined) return 0;
 	const store = yield* CloudBillingStore;
 	const pending = yield* store.pendingUsageExports(nowMs, limit);
 	const results = yield* Effect.forEach(
 		pending,
 		(event) =>
 			Effect.gen(function* () {
-				const result = yield* reportMeterEvent({
-					accountId: event.accountId,
-					eventName: event.eventName,
-					units: event.units,
-					idempotencyKey: event.eventId,
-					occurredAtMs: event.occurredAtMs,
-					metadata: event.metadata,
-				}).pipe(Effect.timeout("10 seconds"), Effect.result);
+				const providerId = event.billingProvider ?? "polar";
+				const provider = yield* providers
+					.get(providerId)
+					.pipe(Effect.catch(() => Effect.succeed(null)));
+				if (provider?.reportMeterEvent === undefined) {
+					yield* store.retryUsageExport(
+						event.eventId,
+						nowMs,
+						"provider-unavailable",
+					);
+					return 0;
+				}
+				const result = yield* provider
+					.reportMeterEvent({
+						accountId: event.accountId,
+						eventName: event.eventName,
+						units: event.units,
+						idempotencyKey: event.eventId,
+						occurredAtMs: event.occurredAtMs,
+						metadata: event.metadata,
+					})
+					.pipe(Effect.timeout("10 seconds"), Effect.result);
 				if (result._tag === "Success") {
 					yield* store.acknowledgeUsageExport(event.eventId, nowMs);
 					return 1;
@@ -79,14 +89,14 @@ export const flushCloudUsage = Effect.fn("flushCloudUsage")(function* (
 							? "timeout"
 							: result.failure.code;
 					yield* store.retryUsageExport(event.eventId, nowMs, code);
-					console.warn("[cloud-usage] Polar export failed", {
+					console.warn("[cloud-usage] billing export failed", {
 						eventId: event.eventId,
 						code,
 					});
 					return 0;
 				}
 			}),
-		{ concurrency: 5 },
+		{ concurrency: 1 },
 	);
 	return results.reduce<number>((sum, count) => sum + count, 0);
 });

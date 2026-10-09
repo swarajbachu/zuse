@@ -144,8 +144,20 @@ const lookupCheckoutSummary = (input: {
 }): Effect.Effect<CheckoutSummary | null, never, BillingProviders> =>
 	Effect.gen(function* () {
 		const billingProviders = yield* BillingProviders;
-		const billing = yield* billingProviders.getDefault;
-		return yield* billing.getCheckout(input);
+		const providerIds = [
+			billingProviders.defaultProviderId,
+			...billingProviders.providerIds.filter(
+				(id) => id !== billingProviders.defaultProviderId,
+			),
+		];
+		for (const providerId of providerIds) {
+			const summary = yield* Effect.gen(function* () {
+				const billing = yield* billingProviders.get(providerId);
+				return yield* billing.getCheckout(input);
+			}).pipe(Effect.orElseSucceed(() => null));
+			if (summary !== null) return summary;
+		}
+		return null;
 	}).pipe(
 		Effect.timeout("2 seconds"),
 		Effect.orElseSucceed(() => null),
@@ -510,34 +522,43 @@ const claimCheckoutLinkSubscriptions = Effect.fn(
 	const identity = yield* AccountIdentity;
 	const email = yield* identity.verifiedEmail(accountId);
 	if (email === null) return;
-	const billing = yield* (yield* BillingProviders).getDefault.pipe(
-		Effect.mapError(() => serviceUnavailable("billing_provider_unavailable")),
-	);
-	if (billing.claimSubscriptions === undefined) return;
-	const subscriptionIds = yield* billing
-		.claimSubscriptions({ accountId, verifiedEmail: email })
-		.pipe(
-			Effect.mapError(() => serviceUnavailable("billing_provider_unavailable")),
-		);
-	for (const subscriptionId of subscriptionIds) {
-		const subscription = yield* billing
-			.reconcileSubscription(subscriptionId)
+	const providers = yield* BillingProviders;
+	for (const providerId of providers.providerIds) {
+		const billing = yield* providers
+			.get(providerId)
 			.pipe(
 				Effect.mapError(() =>
 					serviceUnavailable("billing_provider_unavailable"),
 				),
 			);
-		if (
-			subscription.accountId !== accountId ||
-			subscription.offerId !== CLOUD_WORKSPACE_OFFER_ID
-		)
-			continue;
-		yield* applyBillingSubscription({
-			billingProviderId: billing.providerId,
-			eventId: `claim:${accountId}:${subscriptionId}`,
-			nowMs,
-			subscription,
-		});
+		if (billing.claimSubscriptions === undefined) continue;
+		const subscriptionIds = yield* billing
+			.claimSubscriptions({ accountId, verifiedEmail: email })
+			.pipe(
+				Effect.mapError(() =>
+					serviceUnavailable("billing_provider_unavailable"),
+				),
+			);
+		for (const subscriptionId of subscriptionIds) {
+			const subscription = yield* billing
+				.reconcileSubscription(subscriptionId)
+				.pipe(
+					Effect.mapError(() =>
+						serviceUnavailable("billing_provider_unavailable"),
+					),
+				);
+			if (
+				subscription.accountId !== accountId ||
+				subscription.offerId !== CLOUD_WORKSPACE_OFFER_ID
+			)
+				continue;
+			yield* applyBillingSubscription({
+				billingProviderId: billing.providerId,
+				eventId: `claim:${accountId}:${subscriptionId}`,
+				nowMs,
+				subscription,
+			});
+		}
 	}
 });
 
@@ -717,6 +738,7 @@ export const routeMachineRequest = (
 			const event = yield* billing
 				.verifyEvent(request)
 				.pipe(Effect.mapError(() => unauthorized("invalid_billing_event")));
+			if (event === null) return json({ ok: true, ignored: true });
 			const subscription = yield* billing
 				.reconcileSubscription(event.subscriptionId)
 				.pipe(
@@ -1159,7 +1181,9 @@ export const routeMachineRequest = (
 				...new Set(
 					entitlements
 						.filter(
-							(entitlement) => entitlement.providerSubscriptionId !== undefined,
+							(entitlement) =>
+								entitlement.providerSubscriptionId !== undefined &&
+								entitlement.status !== "ended",
 						)
 						.map((entitlement) => entitlement.provider),
 				),

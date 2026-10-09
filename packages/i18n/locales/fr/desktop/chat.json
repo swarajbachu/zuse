@@ -688,6 +688,7 @@
 	"chat_landing_add_a_project_to_start": "Ajoutez un projet pour démarrer votre première conversation.",
 	"chat_landing_add_project": "Ajouter un projet",
 	"chat_working_row_waiting_for_task": "En attente de la tâche {{task}}",
+	"changes_review_viewed": "Vu",
 	"delegation_group_count": "{{count}} sous-agents",
 	"delegation_group_count_one": "{{count}} sous-agent",
 	"delegation_group_count_other": "{{count}} sous-agents",
