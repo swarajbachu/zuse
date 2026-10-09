@@ -259,6 +259,7 @@ import {
 	OrganizationsDomainRestoreRpc,
 	OrganizationsDomainsRpc,
 	OrganizationsGetRpc,
+	OrganizationsGetWorkspaceSharingRpc,
 	OrganizationsGithubAuthorizeRpc,
 	OrganizationsGithubConnectionRpc,
 	OrganizationsGithubPolicyRpc,
@@ -269,6 +270,8 @@ import {
 	OrganizationsRemoveMemberRpc,
 	OrganizationsRevokeInviteRpc,
 	OrganizationsSetRoleRpc,
+	OrganizationsSetWorkspaceGrantRpc,
+	OrganizationsSetWorkspaceSharingRpc,
 } from "./organizations.ts";
 import {
 	PairingListNearbyRequestsRpc,
@@ -459,8 +462,11 @@ export const MemoizeRpcs = RpcGroup.make(
 	ModelConnectionAcknowledgePlanRpc,
 	PluginsRequestRpc,
 	DeviceBridgeControlRpc,
+	OrganizationsSetWorkspaceSharingRpc,
 	CloudDeviceBridgeRpc,
+	OrganizationsGetWorkspaceSharingRpc,
 	PingRpc,
+	OrganizationsSetWorkspaceGrantRpc,
 	PreviewsListServersRpc,
 	AnalyticsGetContextRpc,
 	AnalyticsContextChangesRpc,

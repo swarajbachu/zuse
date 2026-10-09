@@ -265,7 +265,27 @@ export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 		const principal = yield* requireWorkos(request);
 		const userId = principal.accountId;
 		const method = request.method;
-
+		if (path === ApiPaths.organizationAuthorize && method === "POST") {
+			const input = yield* decodeBody(
+				Schema.Struct({
+					organizationId: Organization.fields.id,
+					subject: Organization.fields.id,
+				}),
+				request,
+			);
+			const caller = yield* requireOrganizationMember(
+				userId,
+				input.organizationId,
+			);
+			const target =
+				input.subject === userId
+					? caller
+					: yield* requireOrganizationMember(
+							input.subject,
+							input.organizationId,
+						);
+			return json({ membershipId: target.id, role: target.role.slug });
+		}
 		if (path === ApiPaths.organizations && method === "GET") {
 			return json(yield* listAccessibleOrganizations(userId));
 		}

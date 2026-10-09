@@ -65,6 +65,7 @@ import { Migration0061HarnessExecutions } from "./migrations/0061_harness_execut
 import { Migration0062ModelConnections } from "./migrations/0062_model_connections.ts";
 import { Migration0063ProjectWorkspaceKey } from "./migrations/0063_project_workspace_key.ts";
 import { Migration0064ProviderAccounts } from "./migrations/0064_provider_accounts.ts";
+import { Migration0065SharedHostAccess } from "./migrations/0065_shared_host_access.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -159,6 +160,7 @@ const MigrationDefinitions = {
 	"0062_model_connections": Migration0062ModelConnections,
 	"0063_project_workspace_key": Migration0063ProjectWorkspaceKey,
 	"0064_provider_accounts": Migration0064ProviderAccounts,
+	"0065_shared_host_access": Migration0065SharedHostAccess,
 } as const;
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */

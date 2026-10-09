@@ -279,11 +279,43 @@ describe("organization access and lifecycle", () => {
 		).rejects.toMatchObject({ status: 403 });
 		expect(provider).toHaveBeenCalledTimes(1);
 	});
-	it("does not expose the deferred shared-host authorization endpoint", async () => {
+	it("authorizes a subject only while both caller and subject remain members", async () => {
+		expect(
+			await (
+				await call("/authorize", "alice", {
+					organizationId: "org-a",
+					subject: "bob",
+				})
+			)?.json(),
+		).toEqual({ role: "member", membershipId: "driver" });
+		expect(
+			provider.mock.calls.every(
+				([url]) =>
+					new URL(String(url)).pathname ===
+					"/user_management/organization_memberships",
+			),
+		).toBe(true);
+		await expect(
+			call("/authorize", "alice", { organizationId: "org-a", subject: "eve" }),
+		).rejects.toMatchObject({ status: 403 });
+		await expect(
+			call("/authorize", "eve", { organizationId: "org-a", subject: "bob" }),
+		).rejects.toMatchObject({ status: 403 });
+		members = members.filter((entry) => entry.user_id !== "bob");
 		await expect(
 			call("/authorize", "alice", { organizationId: "org-a", subject: "bob" }),
-		).rejects.toMatchObject({ status: 404 });
-		expect(provider).not.toHaveBeenCalled();
+		).rejects.toMatchObject({ status: 403 });
+	});
+	it("checks a caller's own membership once without trusting the selected token organization", async () => {
+		expect(
+			await (
+				await call("/authorize", "eve", {
+					organizationId: "org-b",
+					subject: "eve",
+				})
+			)?.json(),
+		).toEqual({ role: "admin", membershipId: "other" });
+		expect(provider).toHaveBeenCalledTimes(1);
 	});
 	it("counts an existing created organization, not an invited admin membership", async () => {
 		const fallback = provider.getMockImplementation();

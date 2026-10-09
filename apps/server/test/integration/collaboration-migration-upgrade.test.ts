@@ -8,6 +8,7 @@ import { Migration0057DeviceBridgeDefaultAccess } from "../../src/persistence/mi
 import { Migration0058QuestionAnswerDeliveries } from "../../src/persistence/migrations/0058_question_answer_deliveries.ts";
 import { Migration0059EventSequenceIndex } from "../../src/persistence/migrations/0059_event_sequence_index.ts";
 import { Migration0060ChatUserMessageTime } from "../../src/persistence/migrations/0060_chat_user_message_time.ts";
+import { Migration0065SharedHostAccess } from "../../src/persistence/migrations/0065_shared_host_access.ts";
 import {
 	MigrationsLive,
 	MigrationsThrough0054Live,
@@ -50,9 +51,7 @@ it.each([
 					yield* Migration0059EventSequenceIndex;
 					yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (59, 'event_sequence_index')`;
 				}
-				// Existing installations keep their historical tables; new installs
-				// only reserve the migration slot while shared-host work is deferred.
-				yield* sql`CREATE TABLE collaboration_teams (id TEXT PRIMARY KEY, name TEXT, created_at TEXT, updated_at TEXT)`;
+				yield* Migration0065SharedHostAccess;
 				yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${legacyId}, 'collaboration_foundation')`;
 				yield* sql`INSERT INTO collaboration_teams (id, name, created_at, updated_at) VALUES ('team', 'Preserved', '2026-09-01', '2026-09-01')`;
 				if (recency) {
@@ -95,6 +94,8 @@ it.each([
 			{ migration_id: 61, name: "harness_executions" },
 			{ migration_id: 62, name: "model_connections" },
 			{ migration_id: 63, name: "project_workspace_key" },
+			{ migration_id: 64, name: "provider_accounts" },
+			{ migration_id: 65, name: "shared_host_access" },
 		]);
 		expect(state.harness).toEqual([]);
 		expect(state.connections).toEqual([]);

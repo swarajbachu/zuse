@@ -1,5 +1,7 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
+import { TeamMember, WorkspaceGrant } from "./collaboration.ts";
+import { ChatId } from "./ids.ts";
 
 /** Includes the creator; pending invitations reserve seats. */
 export const ORGANIZATION_MEMBER_LIMIT = 5;
@@ -116,12 +118,50 @@ export const OrganizationsListRpc = Rpc.make("organizations.list", {
 	error: OrganizationError,
 });
 
+export const OrganizationsSetWorkspaceSharingRpc = Rpc.make(
+	"organizations.setWorkspaceSharing",
+	{
+		payload: Schema.Struct({
+			organizationId: Identifier,
+			chatId: ChatId,
+			shared: Schema.Boolean,
+		}),
+		success: Schema.Void,
+		error: OrganizationError,
+	},
+);
 export const OrganizationsCreateRpc = Rpc.make("organizations.create", {
 	payload: OrganizationCreateInput,
 	success: Organization,
 	error: OrganizationError,
 });
 
+export const OrganizationsGetWorkspaceSharingRpc = Rpc.make(
+	"organizations.getWorkspaceSharing",
+	{
+		payload: Schema.Struct({ organizationId: Identifier, chatId: ChatId }),
+		success: Schema.Struct({
+			shared: Schema.Boolean,
+			grants: Schema.Array(WorkspaceGrant),
+			members: Schema.Array(TeamMember),
+		}),
+		error: OrganizationError,
+	},
+);
+
+export const OrganizationsSetWorkspaceGrantRpc = Rpc.make(
+	"organizations.setWorkspaceGrant",
+	{
+		payload: Schema.Struct({
+			organizationId: Identifier,
+			chatId: ChatId,
+			userId: Identifier,
+			role: Schema.NullOr(Schema.Literals(["driver", "viewer"])),
+		}),
+		success: Schema.Void,
+		error: OrganizationError,
+	},
+);
 export const OrganizationsGetRpc = Rpc.make("organizations.get", {
 	payload: Schema.Struct({ organizationId: Identifier }),
 	success: OrganizationDetails,
