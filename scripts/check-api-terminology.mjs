@@ -12,6 +12,8 @@ const historicalPaths = [
 	/^internal-docs\/adr\/0003-api-control-plane-naming\.md$/u,
 	/^infra\/api\/drizzle\/migrations\/0016_api_naming\.sql$/u,
 	/^infra\/api\/test\/unit\/migration-safety\.test\.ts$/u,
+	// Exercises the shipped pre-rename GitHub installation table during upgrade.
+	/^infra\/api\/test\/integration\/github-member-scope\.pg\.test\.ts$/u,
 	/^apps\/server\/test\/integration\/api-config-migration\.test\.ts$/u,
 	/^tests\/system\/fixtures\/legacy-v29\.sql$/u,
 	/^apps\/server\/test\/integration\/(?:lan-auth-service|ws-auth)\.test\.ts$/u,

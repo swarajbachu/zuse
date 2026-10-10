@@ -165,7 +165,7 @@ Reuse recovered account-authority source digests, persistent grant handler, requ
 
 ## Gateway and client semantics
 
-Keep the existing hibernatable DO relay. Its constructor remains trivial; socket role/identity is serialized in attachments and reconstructed after hibernation. Deploy/runtime shutdown can terminate sockets; this is a transport event, not permission to replace a sandbox.
+Keep the existing hibernatable Durable Object gateway. Its constructor remains trivial; socket role/identity is serialized in attachments and reconstructed after hibernation. Deploy/runtime shutdown can terminate sockets; this is a transport event, not permission to replace a sandbox.
 
 Add bounded `runtime-pending` / `runtime-available` control states to the current framing with capability negotiation. A transient same-owner runtime detach need not close every client immediately. New clients may wait while actual demand wakes the guest. Passive clients cannot trigger wake. Start with a 30-second gateway pending lifetime and bounded frame/request caps, configurable from measured load. Expiry returns a typed retryable attachment result and releases resources; durable work and its wake operation remain intact. Avoid retaining arbitrary RPC frames indefinitely: durable mutations use the mailbox; reads either wait within a bounded budget or return a typed retryable result.
 
