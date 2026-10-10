@@ -51,14 +51,18 @@ running agent does not change a healthy cloud icon from online to reconnecting.
 1. API authenticates the WorkOS account and checks the Cloud entitlement.
 2. The client sends a stable workspace and command identity.
 3. API records the workspace request and encrypted launch intent atomically.
-4. The reconciler claims a prewarmed sandbox or forks the active account image.
+4. The reconciler creates or restores a sandbox from the compatible account image.
 5. The runtime starts with a one-time token and registers its signing and
    encryption keys.
-6. The runtime selects the included repository checkout, resets it to the
-   requested branch, and consumes the launch command. It does not clone, fetch,
-   move the repository, create a worktree, or download a runtime on this path.
-7. The runtime records the command receipt in SQLite and reports a monotonic
-   summary to API.
+6. After validating retained storage and establishing the initial chat/session,
+   the runtime opens its authenticated gateway. The client opens the chat and can
+   submit durable prompts while preparation runs.
+7. Account credentials and repository/branch preparation report actual progress.
+   The shared execution gate releases agent startup and queued sends only after
+   both prerequisites complete. Ordinary startup uses the installed runtime;
+   release downloads are explicit maintenance.
+8. The runtime records command receipts in SQLite and reports monotonic summaries
+   to API.
 
 Agent execution begins only after worktree setup is complete. A client closing
 after acceptance does not interrupt the runtime consumer.
@@ -68,7 +72,7 @@ after acceptance does not interrupt the runtime consumer.
 Viewing a cloud chat does not imply compute:
 
 - `cache-only` reads local persistence.
-- `sync` reads catalog metadata and a newer R2 checkpoint without waking E2B.
+- `sync` reads catalog metadata and a newer R2 checkpoint without waking compute.
 - `connect` attaches only when the runtime is already online.
 - `wake` resumes or creates compute, then attaches.
 
@@ -79,13 +83,16 @@ resource requests `wake`. Resume is single-flight for all surfaces.
 ## Pause and resume
 
 Pause quiesces new work, attempts a bounded final transcript checkpoint, records
-provider usage, and pauses the same E2B sandbox. Checkpoint upload failure does
+provider usage, and pauses the same provider sandbox. Checkpoint upload failure does
 not destroy the authoritative SQLite database or block pause; the cloud copy is
 marked stale and retried when the runtime next runs.
 
-Resume reuses the same sandbox ID. API fences the prior connection generation,
-issues fresh short-lived credentials, and waits for runtime enrollment. The
-client keeps cached data visible throughout.
+Resume reuses the same sandbox ID. A preserved runtime retains execution ownership
+and renews access with its registered signing identity when needed. A broken socket
+does not authorize a process restart. Confirmed process loss or explicit release
+activation uses the guarded launch path on the original storage, with a fresh
+execution fence when ownership transfers. The client keeps cached data visible
+throughout. See the [runtime architecture plan](runtime-architecture-plan.md).
 
 Account-image and runtime releases follow
 [ADR 0002](../adr/0002-cloud-runtime-compatibility.md). A generation mismatch,

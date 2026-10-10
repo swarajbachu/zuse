@@ -42,6 +42,8 @@ Local, SSH, pairing, and user-managed remote environments keep their existing pa
 | Document | Purpose |
 | --- | --- |
 | [Architecture](architecture.md) | Components, authority boundaries, control and data planes |
+| [Runtime architecture plan](runtime-architecture-plan.md) | Current runtime ownership, startup sequence, reliability contract, and Boxd latency budget |
+| [Runtime validation](runtime-architecture-validation.md) | Test evidence, release-specific measurements, and remaining rollout gates |
 | [Lifecycle](lifecycle.md) | Project preparation, workspace states, pause, archive, and deletion |
 | [Realtime and storage](realtime-and-storage.md) | Offline opening, R2 catch-up, live synchronization, and large histories |
 | [Security](security.md) | Identity, authorization, credentials, encryption, and isolation |

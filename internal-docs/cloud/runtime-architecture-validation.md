@@ -451,3 +451,17 @@ failed chats remain visible until their deletion is accepted. This is an API
 catalog fix and does not require a new runtime image. The “hii” and “yoo does
 this work?” workspaces in the same screenshot separately report
 `provider-unavailable`; this catalog fix does not repair those provider failures.
+
+### Historical production incident motivating the redesign
+
+On October 9, Boxd workspace `workspace_bCyAzJ7Zy0eQHkfG` recorded API generation
+29 with `runtime-connection-timeout`, while retained runtime logs showed generation
+28 rejected and no generation-29 shell-start entry. Guest inspection found no
+runtime process, an existing machine and database, no recorded OOM, and unchanged
+boot identity. This identifies an interrupted replacement handoff; retained evidence
+does not establish the original provider launch error or explain every disconnect.
+The original chat/session existed and the database passed a read-only integrity
+check. The initial signed-renewal rollout is retained in the
+[October 9 deployment record](deployments/2026-10-09-runtime-renewal-staging.md).
+Current architecture and validation gates are owned by this record and the
+[architecture plan](runtime-architecture-plan.md).

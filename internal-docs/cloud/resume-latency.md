@@ -1,7 +1,15 @@
 # Resume latency investigation
 
-The target is five seconds from user send to session acceptance on E2B and the
-lowest safe latency on Box. It is a target, not a measured result of this change.
+Current startup and recovery behavior is defined in the
+[architecture plan](runtime-architecture-plan.md); the
+[validation record](runtime-architecture-validation.md) contains current release
+measurements and remaining gates. Boxd targets under five seconds for ordinary
+startup preparation, with repository work and total agent receipt reported
+separately. Boat and E2B share the reliability contract and report their actual
+provider-specific timings.
+
+The older measurements below are historical evidence, not current performance
+claims or instructions for the updated runtime.
 
 ## What the existing measurements establish
 
@@ -18,39 +26,17 @@ runtime capability upgrade. Do not subtract an assumed model latency.
 Box's earlier measurements are in [the benchmark report](benchmarks/2026-09-16-box-resume.md).
 They are server-health measurements and cannot be compared to those API totals.
 
-## The path and its restart boundaries
+## Current path
 
-1. The public API authenticates, authorizes billing, seals and durably saves the
-   message plus a resume command. The desktop also has a durable command mailbox;
-   public API and desktop delivery must both be tested.
-2. Reconciliation claims the workspace and selects its recorded provider.
-3. E2B preserves processes. A compatible retained runtime is woken and gets a
-   reconnect grace window. Box does not preserve processes and must start Zuse.
-4. An explicit restart, old mailbox protocol, required generation fence, missing
-   reconnect, or stalled consumer can cause a fenced runtime replacement.
-5. Replacement inspects/wakes compute, prepares the signing key and repository
-   marker, authorizes a fresh boot generation, applies network policy, then starts
-   the runtime updater and Zuse. The updater already skips installation when the
-   signed manifest matches the installed version; it still checks the manifest.
-6. Runtime startup creates keys, exchanges the boot token, configures provider
-   authentication, reconnects its gateway, and recovers the chat/session. The
-   durable consumer can work independently of the UI gateway.
-7. The consumer receives/leases a command, materializes any attachments, submits
-   the message to the session, and acknowledges delivery. Agent/model work follows;
-   session acceptance does not prove the external model has received the request.
+Preserved-process wake resumes the same machine and renews access if needed.
+Confirmed process loss starts the compatible installed release on the original
+disk under the shared writer fence. Neither path installs software or checks the
+latest channel. Signed artifact installation is explicit release maintenance.
 
-The E2B grace deadline was calculated before provider resume, consuming some or
-all of its 500 ms budget while waking the VM. The grace is now 12 seconds,
-starting after provider resume completes.
-The mailbox's first read now happens immediately; subsequent cycles retain their
-one-second delay and remain serialized.
-
-Box cannot avoid process startup by using systemd: its disk restore loses RAM.
-The adapter prepares persisted paths, but Box firewall setup and waits have been
-removed. See [Box open networking](box-open-networking.md) for deployment order
-and the remaining measured delays.
-Fresh boot authorization must precede startup; consumed boot tokens cannot be
-replayed by an automatically restarting service.
+A new workspace opens the authenticated runtime connection and accepts durable
+prompts before repository/account preparation completes. The execution gate
+releases provider startup and sends only after those prerequisites are ready.
+See [lifecycle](lifecycle.md) for the canonical sequence.
 
 ## Timestamp collection
 
@@ -84,24 +70,11 @@ external model receipt, or first token. Add those boundaries before claiming a
 complete user-visible first-token metric. Avoid interpreting `agentStartedAt` from
 existing workspace projections as external model receipt.
 
-## Next live experiment
+## Further validation
 
-Deploy the API instrumentation and publish the matching signed runtime to staging;
-ensure both provider account images can load that runtime. Merely deploying the
-API will not instrument already paused runtimes. Upgrade once, then pause the same
-workspace for repeated warm-resume tests. Record runtime versions and restart reason.
-
-For each provider, use a disposable workspace, wait for the initial turn to settle,
-pause, then send a unique short message. Collect client send time, API `createdAt`
-and `deliveredAt`, runtime timing records, and completion separately. Include short
-and long pauses (expired sockets/credentials), unchanged vs updated runtimes, and
-attachments. Verify one accepted turn per message and delete the test workspace.
-
-Prioritize E2B reconnect/capability failures before changing updater behavior. If a
-preserved consumer can acknowledge the queue promptly, avoid killing it merely
-because the disposable UI gateway has not reconnected. Any such change must retain
-runtime fencing, compatibility upgrades and bounded recovery for dead processes.
-Next, consider gateway wake notifications for the existing serialized mailbox
-consumer, retaining periodic recovery reads. For Box, separate VM readiness and
-command dispatch from file preparation; measure updater and auth costs before
-attempting caching or concurrency changes.
+Use the [shared validation gates](runtime-architecture-validation.md), including
+matching deployed API/runtime versions, actual message receipt, unchanged
+conversation/storage identity, expired-token wake, and interrupted update tests.
+Provider restore, local health, gateway handshake, domain acceptance, and first
+model output are different milestones; report each without hiding time spent
+between them.

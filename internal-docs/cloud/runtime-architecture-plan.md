@@ -179,7 +179,7 @@ Remove serial GET→resume→500ms poll→ticket→handshake→folder-list from 
 
 WorkspaceStartup executes due work until the authoritative operation is complete or explicitly waiting on a prerequisite. Re-arm its alarm at the authoritative next due time if reconciliation returns after an observation window. Keep the DO dispatch revision to avoid losing concurrent requests. A successful callback or idle activity cannot postpone unfinished launch/update work to the idle deadline. The reconciler returns an exhaustive scheduling outcome: complete, due-at timestamp, or blocked on a named prerequisite with wake source/deadline. Credential/account events reschedule blocked work; missing guest evidence has a bounded next observation. The DO persists/re-arms its pointer from this outcome. Maintenance scans repair missed dispatch; they are not the normal completion path.
 
-Separate `restart-installed-runtime` from `change-release`. The current uncommitted transactional updater path must not run for every process restart merely because manifest configuration exists.
+Separate `restart-installed-runtime` from `change-release`. The transactional updater path must not run for every process restart merely because manifest configuration exists.
 
 For a real update: prepare/download/verify while current owner remains authorized; retain signed previous bytes; checkpoint SQLite/WAL and required provider-session state; commit one authorized handoff; launch against the same data; confirm the exact version/generation and original session head; then confirm the journal. Rollback uses retained signed bytes and fresh execution authority, never a spent boot token. Failures keep the original disk and actionable per-operation phase/exit diagnostics.
 
@@ -244,7 +244,7 @@ For pre-migration runtimes, cold recovery uses a fresh API-authorized generation
 5. **Isolated release maintenance:** finish scoped updater/journal confirmation/rollback and immutable artifact retention. Gate on interrupted updates of old populated workspaces and compatible current/previous client protocols.
 6. **Staging then controlled rollout:** deploy backward-compatible API/runtime, test new and existing workspaces on each provider, publish compatible images for new workspaces, then opt in by provider/capability. Existing data is never recreated. Keep a kill switch for fast prepared activation that falls back to retained installed release, not image rebuild.
 
-Apply checks and evidence to each slice. Keep changes small enough to review; do not present the current broad uncommitted prototype as the finished architecture. Deployment follows implementation and the stated validation gates. Current PR and prototype coverage are input, not proof of this new plan.
+Apply checks and evidence to each slice. Keep changes small enough to review; implementation remains subject to the live qualification gates. Deployment follows implementation and the stated validation gates. Current PR and prototype coverage are input, not proof of this new plan.
 
 ## Implementation seams
 
@@ -274,3 +274,16 @@ Official references: [Boxd memory sleep/restore](https://docs.boxd.sh/guides/sus
 - Removed the replaced client gateway recovery module, request-scoped startup observation polling, E2B unfenced list/kill/start cleanup, generic authentication-failure retirement timer, caller-driven runtime recovery hints, and startup-time channel downloads. Compatibility handling still used by deployed runtimes remains intentional.
 
 This changes code, not deployed templates or running customer machines. Boat already persists `/opt`, so releases remain there without migration; only populated, unaliased `/var/lib` data or ownership state requires a safe cold migration. Conflicting populated roots or cross-device moves of authoritative lock directories fail closed. See [Boat snapshot capture paths](https://docs.boat.dev/snapshots). Live Boxd desktop-to-selected-agent latency, multi-day provider sleep, provider migration and fleet failure-rate gates still require staged execution. Unit tests do not establish the five-second or one-in-a-million targets.
+
+## Remaining containment and execution gates
+
+A boot-independent guest supervisor and cold-boot behavior require provider
+qualification; guarded process launch alone does not establish that guarantee.
+Measure separate control/runtime/agent resource budgets and descendant containment
+before enabling limits. Unsupported isolation stays explicit, and paid compute
+is never resized silently. Qualify agent-driver reattachment and bounded output
+spooling independently of runtime reconnection; uncertain external effects must
+never be automatically replayed. Define any offline execution authorization
+window together with expiry, revocation, and clock behavior. A 72-hour soak per
+provider must exercise sleep/wake, gateway recycle, renewal response loss,
+interrupted updates, process death, and disk/memory pressure on the original data.
