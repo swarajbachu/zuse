@@ -3925,27 +3925,47 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
-				"line": 145
+				"line": 184
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
-	"chat:provider_updates_toast_dismiss": {
-		"source": "Dismiss",
+	"chat:provider_updates_toast_title": {
+		"source": "Agent updates available",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
-				"line": 159
+				"line": 166
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
-	"chat:provider_updates_toast_review_in_settings": {
-		"source": "Review in settings",
+	"chat:provider_updates_toast_update_all": {
+		"source": "Update all",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
-				"line": 162
+				"line": 175
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:provider_updates_toast_update": {
+		"source": "Update",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
+				"line": 287
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:provider_updates_toast_hint": {
+		"source": "New models often need the latest version.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
+				"line": 204
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8590,6 +8610,10 @@
 				"line": 628
 			},
 			{
+				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
+				"line": 286
+			},
+			{
 				"path": "apps/renderer/src/components/right-pane.tsx",
 				"line": 898
 			},
@@ -8763,7 +8787,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 658
+				"line": 654
 			},
 			{
 				"path": "apps/renderer/src/components/remove-computer-button.tsx",
@@ -8941,7 +8965,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 890
+				"line": 870
 			},
 			{
 				"path": "apps/renderer/src/components/settings/diagnostics-pane.tsx",
@@ -9077,7 +9101,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 496
+				"line": 492
 			},
 			{
 				"path": "apps/renderer/src/components/settings/cloud-machines-pane.tsx",
@@ -9183,6 +9207,10 @@
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
 				"line": 2766
+			},
+			{
+				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
+				"line": 276
 			},
 			{
 				"path": "apps/renderer/src/components/workspace-switcher.tsx",
@@ -9322,11 +9350,11 @@
 			},
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 291
+				"line": 287
 			},
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 703
+				"line": 699
 			},
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
@@ -17135,7 +17163,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 262
+				"line": 258
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17145,7 +17173,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 274
+				"line": 270
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17155,7 +17183,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 351
+				"line": 347
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17165,7 +17193,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 355
+				"line": 351
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17175,7 +17203,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 364
+				"line": 360
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17185,7 +17213,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 439
+				"line": 435
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17195,7 +17223,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 453
+				"line": 449
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17205,7 +17233,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 482
+				"line": 478
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17215,7 +17243,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 561
+				"line": 557
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17225,7 +17253,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 602
+				"line": 598
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17235,7 +17263,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 624
+				"line": 620
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17245,7 +17273,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 645
+				"line": 641
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17255,7 +17283,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 689
+				"line": 685
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17265,7 +17293,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 693
+				"line": 689
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17345,7 +17373,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 212
+				"line": 208
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17355,7 +17383,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 216
+				"line": 212
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17365,11 +17393,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 115
+				"line": 112
 			},
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 222
+				"line": 218
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17379,7 +17407,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 483
+				"line": 479
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17389,7 +17417,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 620
+				"line": 616
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17519,7 +17547,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 408
+				"line": 404
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17529,7 +17557,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 501
+				"line": 497
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17539,7 +17567,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 539
+				"line": 535
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17549,7 +17577,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 545
+				"line": 541
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17559,7 +17587,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 716
+				"line": 712
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17569,7 +17597,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 722
+				"line": 718
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17679,7 +17707,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 460
+				"line": 456
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17693,7 +17721,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 334
+				"line": 330
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17703,11 +17731,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 906
+				"line": 886
 			},
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 911
+				"line": 891
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17717,7 +17745,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 912
+				"line": 892
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17727,7 +17755,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 918
+				"line": 898
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17737,7 +17765,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 236
+				"line": 232
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17747,7 +17775,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 839
+				"line": 819
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17757,11 +17785,15 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 783
+				"line": 763
 			},
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 843
+				"line": 823
+			},
+			{
+				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
+				"line": 257
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17771,7 +17803,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 841
+				"line": 821
 			},
 			{
 				"path": "apps/renderer/src/store/providers.ts",
@@ -17785,7 +17817,15 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 781
+				"line": 761
+			},
+			{
+				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
+				"line": 263
+			},
+			{
+				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
+				"line": 264
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17795,7 +17835,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 774
+				"line": 754
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17805,7 +17845,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
-				"line": 778
+				"line": 758
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30976,7 +31016,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/prepaid-credits.tsx",
-				"line": 34
+				"line": 35
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30986,7 +31026,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/prepaid-credits.tsx",
-				"line": 45
+				"line": 101
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30996,7 +31036,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/prepaid-credits.tsx",
-				"line": 41
+				"line": 44
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -31006,7 +31046,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/prepaid-credits.tsx",
-				"line": 38
+				"line": 41
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -31016,7 +31056,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/prepaid-credits.tsx",
-				"line": 49
+				"line": 59
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -31026,7 +31066,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/prepaid-credits.tsx",
-				"line": 81
+				"line": 97
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -31036,7 +31076,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/prepaid-credits.tsx",
-				"line": 56
+				"line": 70
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -31046,7 +31086,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/prepaid-credits.tsx",
-				"line": 89
+				"line": 105
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -31056,7 +31096,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/prepaid-credits.tsx",
-				"line": 84
+				"line": 54
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -31634,7 +31674,11 @@
 			},
 			{
 				"path": "apps/renderer/src/lib/provider-status.ts",
-				"line": 190
+				"line": 191
+			},
+			{
+				"path": "apps/renderer/src/lib/provider-status.ts",
+				"line": 199
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -31644,7 +31688,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/provider-status.ts",
-				"line": 183
+				"line": 192
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

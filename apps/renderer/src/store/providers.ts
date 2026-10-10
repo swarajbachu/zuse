@@ -474,3 +474,22 @@ subscribeControlPlaneSessionCache((key) => {
 		},
 	}));
 });
+
+/** Store-owned update run: state survives row collapse and page navigation. */
+export function useProviderUpdate(
+	environmentId: string,
+	providerId: ProviderId,
+) {
+	const state = useProvidersStore(
+		(s) =>
+			s.updateStateByKey[providerUpdateKey(environmentId, providerId)] ??
+			IDLE_PROVIDER_UPDATE_STATE,
+	);
+	const updateProvider = useProvidersStore((s) => s.updateProvider);
+	return {
+		state,
+		run: () => updateProvider(environmentId, providerId),
+		cancel: () =>
+			useProvidersStore.getState().cancelUpdate(environmentId, providerId),
+	};
+}

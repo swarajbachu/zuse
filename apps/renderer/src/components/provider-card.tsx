@@ -27,6 +27,7 @@ import { Switch } from "~/components/ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { INSTALL_HINT } from "~/lib/provider-setup";
 import {
+	canRunProviderUpdate,
 	formatVersionLabel,
 	getProviderSummary,
 	PROVIDER_STATUS_STYLES,
@@ -39,11 +40,7 @@ import {
 } from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
 import { useProviderModels } from "~/store/model-catalog";
-import {
-	IDLE_PROVIDER_UPDATE_STATE,
-	providerUpdateKey,
-	useProvidersStore,
-} from "~/store/providers";
+import { useProviderUpdate } from "~/store/providers";
 
 const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
 	claude: "claude /login",
@@ -128,10 +125,9 @@ export function ProviderSettingsRow({
 	// CLIs (Grok, version "unknown") stay updatable.
 	const showUpdate =
 		enabled &&
-		providerId !== "cursor" &&
 		!showUpgrade &&
-		availability?.cliInstalled === true &&
-		availability.updateCommand !== undefined &&
+		availability !== undefined &&
+		canRunProviderUpdate(availability) &&
 		availability.latestVersionStatus !== "current";
 	// Subscription-gated rows still open so the Subscribe call to action is reachable.
 	const canExpand = enabled || unmetSubscriptionRequirement;
@@ -727,22 +723,6 @@ function ProviderSignInRow({
 			</div>
 		</div>
 	);
-}
-
-/** Store-owned update run: state survives row collapse and page navigation. */
-function useProviderUpdate(environmentId: string, providerId: ProviderId) {
-	const state = useProvidersStore(
-		(s) =>
-			s.updateStateByKey[providerUpdateKey(environmentId, providerId)] ??
-			IDLE_PROVIDER_UPDATE_STATE,
-	);
-	const updateProvider = useProvidersStore((s) => s.updateProvider);
-	return {
-		state,
-		run: () => updateProvider(environmentId, providerId),
-		cancel: () =>
-			useProvidersStore.getState().cancelUpdate(environmentId, providerId),
-	};
 }
 
 /**

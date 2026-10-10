@@ -217,6 +217,18 @@ export function getProviderSummary(
 }
 
 /**
+ * Whether Zuse can run this provider's CLI update in-app (an installed CLI
+ * with an update command). Some providers are never updated in-app.
+ */
+export function canRunProviderUpdate(availability: AgentAvailability): boolean {
+	return (
+		availability.providerId !== "cursor" &&
+		availability.cliInstalled &&
+		availability.updateCommand !== undefined
+	);
+}
+
+/**
  * Format a CLI version string for display. Prefixes a bare `1.2.3` with `v`
  * so cards render consistently regardless of which CLI is reporting.
  */

@@ -10,7 +10,11 @@ const state = vi.hoisted(() => ({
 		providerUpdateNotificationsEnabled: true,
 		providerEnabled: {} as Partial<Record<ProviderId, boolean>>,
 	},
-	providers: { availability: [] as AgentAvailability[] },
+	providers: {
+		availability: [] as AgentAvailability[],
+		updateStateByKey: {},
+		updateProvider: vi.fn(),
+	},
 	ui: { setView: vi.fn(), setSettingsSection: vi.fn() },
 }));
 
@@ -19,8 +23,21 @@ vi.mock("~/lib/settings-client-bus", () => ({
 		select(state.settings),
 }));
 vi.mock("~/store/providers", () => ({
+	IDLE_PROVIDER_UPDATE_STATE: { kind: "idle" },
+	providerUpdateKey: (environmentId: string, providerId: string) =>
+		`${environmentId}:${providerId}`,
+	useProviderUpdate: () => ({
+		state: { kind: "idle" },
+		run: vi.fn(),
+		cancel: vi.fn(),
+	}),
 	useProvidersStore: (select: (providers: typeof state.providers) => unknown) =>
 		select(state.providers),
+}));
+vi.mock("~/store/environment-catalog", () => ({
+	useEnvironmentCatalogStore: (
+		select: (catalog: { activeEnvironmentId: string }) => unknown,
+	) => select({ activeEnvironmentId: "local" }),
 }));
 vi.mock("~/store/ui", () => ({
 	useUiStore: (select: (ui: typeof state.ui) => unknown) => select(state.ui),
@@ -39,8 +56,10 @@ const provider = (
 	cliInstalled: true,
 	cliLoggedIn: true,
 	hasApiKey: false,
+	cliVersion: "1.0.0",
 	latestVersion: "2.0.0",
 	latestVersionStatus,
+	updateCommand: "npm i -g example",
 });
 
 const renderToast = () => renderToStaticMarkup(<ProviderUpdatesToast />);
@@ -75,14 +94,29 @@ describe("provider update notifications", () => {
 			cursor: true,
 		};
 		const markup = renderToast();
-		expect(markup).toContain("Updates available: 2 providers");
-		expect(markup).toContain("Claude v2.0.0, Gemini v2.0.0");
+		expect(markup).toContain("Agent updates available");
+		expect(markup).toContain("Claude");
+		expect(markup).toContain("Gemini");
+		expect(markup).toContain("Update all");
 		expect(markup).not.toContain("Codex");
 		expect(markup).not.toContain("Cursor");
 	});
 
 	it("uses the enabled default when a provider has no saved toggle", () => {
-		expect(renderToast()).toContain("Update available: Claude v2.0.0");
+		const markup = renderToast();
+		expect(markup).toContain("Claude");
+		expect(markup).toContain("1.0.0");
+		expect(markup).toContain("2.0.0");
+		expect(markup).not.toContain("Update all");
+	});
+
+	it("links to settings when the provider cannot update in-app", () => {
+		state.providers.availability = [
+			{ ...provider("claude", "Claude"), updateCommand: undefined },
+		];
+		const markup = renderToast();
+		expect(markup).toContain("Settings");
+		expect(markup).not.toContain(">Update<");
 	});
 
 	it("respects the global notification toggle", () => {
