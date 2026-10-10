@@ -21,6 +21,7 @@ import {
 	Check,
 	ChevronRight,
 	ExternalLink,
+	MoreHorizontal,
 	RefreshCw,
 	Terminal,
 } from "lucide-react";
@@ -31,6 +32,7 @@ import {
 	useMemo,
 	useState,
 } from "react";
+import { cn } from "~/lib/utils";
 import { runCloudControl } from "../../lib/control-plane-client.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
 import { ProviderIcon } from "../provider-icons.tsx";
@@ -47,8 +49,16 @@ import {
 	DialogTitle,
 } from "../ui/dialog.tsx";
 import { Input } from "../ui/input.tsx";
+import {
+	compactMenuItemClass,
+	Menu,
+	MenuItem,
+	MenuPopup,
+	MenuTrigger,
+} from "../ui/menu.tsx";
 import { CloudAuthMethodTabs } from "./cloud-auth-method-tabs.tsx";
 import {
+	CloudProviderTile,
 	CloudSettingsGroup,
 	CloudSettingsRow,
 	COMPACT_CLOUD_ACTION,
@@ -194,7 +204,16 @@ const authFailureMessage = (cause: unknown, fallback: string): string => {
 	return fallback;
 };
 
-export function CloudWorkspaceAuth() {
+export function CloudWorkspaceAuth({
+	providers = PROVIDERS,
+	embedded = false,
+	onConnectedCountChange,
+}: {
+	readonly providers?: readonly CloudAuthProvider[];
+	/** Render only the provider rows, inside a group owned by the caller. */
+	readonly embedded?: boolean;
+	readonly onConnectedCountChange?: (count: number | null) => void;
+}) {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 
 	const [status, setStatus] = useState<CloudAuthStatus | null>(
@@ -413,8 +432,12 @@ export function CloudWorkspaceAuth() {
 	};
 
 	const connectedCount = status?.providers.filter(
-		(provider) => provider.state === "connected",
+		(provider) =>
+			providers.includes(provider.providerId) && provider.state === "connected",
 	).length;
+	useEffect(() => {
+		onConnectedCountChange?.(loading ? null : (connectedCount ?? 0));
+	}, [loading, connectedCount, onConnectedCountChange]);
 	const displayedError =
 		error ??
 		(status?.authorityState === "error"
@@ -436,132 +459,216 @@ export function CloudWorkspaceAuth() {
 		}
 		if (canConfigure) void configure();
 	};
-	return (
-		<>
-			<CloudSettingsGroup
-				title={uiMessage("settings:cloud_workspace_auth_agent_authentication")}
-				help={uiMessage(
-					"settings:cloud_workspace_auth_authorize_each_provider_once_account_credentials_are_shared_by_new_clo",
+	const errorRow =
+		displayedError === null ? null : (
+			<CloudSettingsRow
+				title={uiMessage(
+					"settings:cloud_workspace_auth_cloud_authentication_needs_attention",
 				)}
+				description={displayedError}
+				className="bg-destructive/5"
 				action={
-					<span className="text-[11px] text-muted-foreground">
-						{loading
-							? uiMessage("settings:cloud_workspace_auth_checking")
-							: uiMessage("settings:cloud_workspace_auth_of_connected", {
-									value1: String(connectedCount ?? 0),
-									length: String(PROVIDERS.length),
-								})}
-					</span>
+					<Button
+						size="sm"
+						variant="outline"
+						className={COMPACT_AUTH_ACTION}
+						loading={loading}
+						onClick={() => {
+							setLoading(true);
+							void refresh(
+								true,
+								status?.providers.some(
+									(provider) =>
+										provider.errorCode === "cloud_auth_status_refresh_required",
+								) === true,
+							);
+						}}
+					>
+						<RefreshCw aria-hidden />
+						{uiMessage("settings:cloud_workspace_auth_try_again")}
+					</Button>
 				}
-			>
-				{displayedError === null ? null : (
-					<CloudSettingsRow
-						title={uiMessage(
-							"settings:cloud_workspace_auth_cloud_authentication_needs_attention",
-						)}
-						description={displayedError}
-						className="bg-destructive/5"
-						action={
-							<Button
-								size="sm"
-								variant="outline"
-								className={COMPACT_AUTH_ACTION}
-								loading={loading}
-								onClick={() => {
-									setLoading(true);
-									void refresh(
-										true,
-										status?.providers.some(
-											(provider) =>
-												provider.errorCode ===
-												"cloud_auth_status_refresh_required",
-										) === true,
-									);
-								}}
-							>
-								<RefreshCw aria-hidden />
-								{uiMessage("settings:cloud_workspace_auth_try_again")}
-							</Button>
-						}
-					/>
-				)}
-				{PROVIDERS.map((providerId) => {
-					const providerStatus = statusByProvider.get(providerId);
-					const presentation = statusPresentation(providerStatus);
-					const isConnected = providerStatus?.state === "connected";
-					const needsReconnect =
-						providerStatus?.state === "expired" ||
-						providerStatus?.state === "error";
-					return (
-						<CloudSettingsRow
-							key={providerId}
-							title={LABEL[providerId]}
-							description={
-								providerStatus?.state === "connected"
-									? uiMessage(
-											"settings:cloud_workspace_auth_shared_account_wide_with_new_cloud_chats_via",
-											{
-												value1: String(LABEL[providerId]),
-												value2: String(
-													providerStatus.method ?? "provider authentication",
-												),
-											},
-										)
-									: providerId === "claude"
-										? uiMessage(
-												"settings:cloud_workspace_auth_claude_code_subscription_anthropic_api_key_or_custom_endpoint",
-											)
-										: providerId === "codex"
-											? uiMessage(
-													"settings:cloud_workspace_auth_one_account_level_chatgpt_subscription_login_openai_api_key_or_custom",
-												)
-											: providerId === "cursor"
-												? uiMessage(
-														"settings:cloud_workspace_auth_cursor_api_key_for_cloud_chat_sandboxes",
-													)
-												: uiMessage(
-														"settings:cloud_workspace_auth_grok_device_login_xai_api_key_or_custom_endpoint",
-													)
-							}
-							action={
-								<>
-									{providerStatus !== undefined &&
-									providerStatus.state !== "disconnected" ? (
-										<Badge variant={presentation.variant}>
-											{presentation.label}
-										</Badge>
-									) : null}
-									{isConnected ? (
-										<Button
-											size="xs"
-											variant="ghost"
-											className={COMPACT_AUTH_ACTION}
-											loading={busy === `disconnect:${providerId}`}
+			/>
+		);
+	const providerRows = providers.map((providerId) => {
+		const providerStatus = statusByProvider.get(providerId);
+		const presentation = statusPresentation(providerStatus);
+		const isConnected = providerStatus?.state === "connected";
+		const needsReconnect =
+			providerStatus?.state === "expired" || providerStatus?.state === "error";
+		const statusBadge =
+			providerStatus !== undefined &&
+			providerStatus.state !== "disconnected" ? (
+				<Badge variant={presentation.variant}>{presentation.label}</Badge>
+			) : null;
+		const setupLabel = isConnected
+			? uiMessage("settings:cloud_workspace_auth_reauthorize")
+			: needsReconnect
+				? uiMessage("settings:cloud_workspace_auth_reconnect")
+				: uiMessage("common:connect");
+		if (embedded)
+			return (
+				<CloudSettingsRow
+					key={providerId}
+					leading={<CloudProviderTile providerId={providerId} />}
+					title={LABEL[providerId]}
+					description={
+						providerStatus?.accountLabel ??
+						(isConnected && providerStatus.method !== undefined
+							? uiMessage(
+									providerStatus.method === "subscription"
+										? "settings:cloud_auth_method_tabs_subscription"
+										: providerStatus.method === "api-key"
+											? "settings:cloud_auth_method_tabs_api_key"
+											: "settings:cloud_auth_method_tabs_custom",
+								)
+							: loading
+								? uiMessage("settings:cloud_workspace_auth_checking")
+								: presentation.label)
+					}
+					action={
+						isConnected ? (
+							<>
+								{statusBadge}
+								<Menu>
+									<MenuTrigger
+										render={
+											<Button
+												className={cn(COMPACT_AUTH_ACTION, "w-7 px-0")}
+												variant="ghost"
+												size="xs"
+												aria-label={uiMessage("settings:cloud_hosting_manage")}
+												loading={busy === `disconnect:${providerId}`}
+												disabled={busy !== null}
+											/>
+										}
+									>
+										<MoreHorizontal aria-hidden />
+									</MenuTrigger>
+									<MenuPopup align="end">
+										<MenuItem
+											className={compactMenuItemClass}
+											onClick={() => openProviderSetup(providerId)}
+										>
+											{setupLabel}
+										</MenuItem>
+										<MenuItem
+											className={compactMenuItemClass}
+											variant="destructive"
 											onClick={() => void disconnect(providerId)}
 										>
 											{uiMessage("common:disconnect")}
-										</Button>
-									) : null}
-									<Button
-										size="sm"
-										variant="settings"
-										className={COMPACT_AUTH_ACTION}
-										disabled={busy !== null}
-										onClick={() => void openProviderSetup(providerId)}
-									>
-										{isConnected
-											? uiMessage("settings:cloud_workspace_auth_reauthorize")
-											: needsReconnect
-												? uiMessage("settings:cloud_workspace_auth_reconnect")
-												: uiMessage("common:connect")}
-										<ChevronRight aria-hidden />
-									</Button>
-								</>
-							}
-						/>
-					);
-				})}
-			</CloudSettingsGroup>
+										</MenuItem>
+									</MenuPopup>
+								</Menu>
+							</>
+						) : (
+							<>
+								{statusBadge}
+								<Button
+									size="xs"
+									variant="outline"
+									className={COMPACT_AUTH_ACTION}
+									disabled={busy !== null || loading}
+									onClick={() => void openProviderSetup(providerId)}
+								>
+									{setupLabel}
+								</Button>
+							</>
+						)
+					}
+				/>
+			);
+		return (
+			<CloudSettingsRow
+				key={providerId}
+				title={LABEL[providerId]}
+				description={
+					providerStatus?.state === "connected"
+						? uiMessage(
+								"settings:cloud_workspace_auth_shared_account_wide_with_new_cloud_chats_via",
+								{
+									value1: String(LABEL[providerId]),
+									value2: String(
+										providerStatus.method ?? "provider authentication",
+									),
+								},
+							)
+						: providerId === "claude"
+							? uiMessage(
+									"settings:cloud_workspace_auth_claude_code_subscription_anthropic_api_key_or_custom_endpoint",
+								)
+							: providerId === "codex"
+								? uiMessage(
+										"settings:cloud_workspace_auth_one_account_level_chatgpt_subscription_login_openai_api_key_or_custom",
+									)
+								: providerId === "cursor"
+									? uiMessage(
+											"settings:cloud_workspace_auth_cursor_api_key_for_cloud_chat_sandboxes",
+										)
+									: uiMessage(
+											"settings:cloud_workspace_auth_grok_device_login_xai_api_key_or_custom_endpoint",
+										)
+				}
+				action={
+					<>
+						{statusBadge}
+						{isConnected ? (
+							<Button
+								size="xs"
+								variant="ghost"
+								className={COMPACT_AUTH_ACTION}
+								loading={busy === `disconnect:${providerId}`}
+								onClick={() => void disconnect(providerId)}
+							>
+								{uiMessage("common:disconnect")}
+							</Button>
+						) : null}
+						<Button
+							size="sm"
+							variant="settings"
+							className={COMPACT_AUTH_ACTION}
+							disabled={busy !== null}
+							onClick={() => void openProviderSetup(providerId)}
+						>
+							{setupLabel}
+							<ChevronRight aria-hidden />
+						</Button>
+					</>
+				}
+			/>
+		);
+	});
+	return (
+		<>
+			{embedded ? (
+				<>
+					{errorRow}
+					{providerRows}
+				</>
+			) : (
+				<CloudSettingsGroup
+					title={uiMessage(
+						"settings:cloud_workspace_auth_agent_authentication",
+					)}
+					help={uiMessage(
+						"settings:cloud_workspace_auth_authorize_each_provider_once_account_credentials_are_shared_by_new_clo",
+					)}
+					action={
+						<span className="text-[11px] text-muted-foreground">
+							{loading
+								? uiMessage("settings:cloud_workspace_auth_checking")
+								: uiMessage("settings:cloud_workspace_auth_of_connected", {
+										value1: String(connectedCount ?? 0),
+										length: String(providers.length),
+									})}
+						</span>
+					}
+				>
+					{errorRow}
+					{providerRows}
+				</CloudSettingsGroup>
+			)}
 
 			<Dialog
 				open={selectedProvider !== null}

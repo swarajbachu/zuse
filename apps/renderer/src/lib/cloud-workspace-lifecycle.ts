@@ -6,11 +6,17 @@ import type { CloudWorkspace } from "@zuse/contracts";
 export const cloudTranscriptActivation = (
 	summary: Pick<CloudWorkspace, "state" | "runtimeState">,
 ): "sync" | "connect" =>
-	summary.state === "ready" && summary.runtimeState === "online"
-		? "connect"
-		: "sync";
+	isCloudWorkspaceAttachable(summary) ? "connect" : "sync";
 
 import { Effect, Option, Stream } from "effect";
+
+/** Socket attachment does not wait for repository preparation. Paused and
+ * terminal workspaces never gain permission from a stale online observation. */
+export const isCloudWorkspaceAttachable = (
+	workspace: Pick<CloudWorkspace, "runtimeState" | "state">,
+): boolean =>
+	(workspace.state === "setup" || workspace.state === "ready") &&
+	workspace.runtimeState === "online";
 
 export const isCloudWorkspaceReady = (
 	workspace: Pick<CloudWorkspace, "runtimeState" | "state">,

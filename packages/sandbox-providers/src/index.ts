@@ -11,6 +11,7 @@ export class SandboxProviderError extends Schema.TaggedErrorClass<SandboxProvide
 	"SandboxProviderError",
 	{
 		code: Schema.Literals(["transient", "not-found", "rejected"]),
+		diagnostic: Schema.optionalKey(Schema.String),
 	},
 ) {}
 
@@ -30,6 +31,8 @@ export interface ProviderSandbox {
 	readonly providerSandboxId: string;
 	readonly providerLabel: string;
 	readonly state: "running" | "paused";
+	/** Observation from this resume, never an unconditional health guarantee. */
+	readonly processContinuity?: "preserved" | "lost" | "unknown";
 }
 
 export interface SandboxProviderResources {
@@ -61,13 +64,27 @@ export interface SandboxProcessInput {
 	readonly env?: Readonly<Record<string, string>>;
 	readonly user?: string;
 	readonly tag?: string;
+	/** Monotonic ownership for providers advertising fenced replacement. */
+	readonly activation?: {
+		readonly operationId: string;
+		readonly generation: number;
+	};
 }
 
 export interface SandboxProcessSelector {
 	readonly tag: string;
 	readonly legacyCommandMarkers?: ReadonlyArray<string>;
-	readonly legacyCleanup?: "matching-command";
 }
+
+/** Shared identity used for workspace launch and quarantined native fork retirement. */
+export const WORKSPACE_RUNTIME_PROCESS_SELECTOR = {
+	tag: "zuse-runtime",
+	legacyCommandMarkers: [
+		"zuse-workspace-bootstrap",
+		"/opt/zuse/current/bin.mjs serve",
+		"/usr/local/bin/zuse serve",
+	],
+} as const satisfies SandboxProcessSelector;
 
 /** Provider-reported list-price usage for one exact time window. */
 export interface ProviderSandboxUsage {
@@ -108,6 +125,12 @@ export interface SandboxProviderAdapter {
 	readonly resources: SandboxProviderResources;
 	/** Whether pause/resume preserves the runtime process. */
 	readonly preservesProcessesOnResume: boolean;
+	/** Guest serializes replacement and rejects stale or unfenced operations. */
+	readonly supportsFencedProcessReplacement?: boolean;
+	/** Create/restore adopts a conflicting stable label after a lost response. */
+	readonly supportsIdempotentAllocation?: boolean;
+	/** Create/restore configures the requested timeout, including adopted machines. */
+	readonly configuresAllocationTimeout?: boolean;
 	// The placement choices this provider advertises. Providers with one fixed
 	// profile expose a single entry matching `resources`.
 	readonly sizes: ReadonlyArray<SandboxProviderSize>;
@@ -153,6 +176,12 @@ export interface SandboxProviderAdapter {
 		selector: SandboxProcessSelector,
 		input: SandboxProcessInput,
 	) => Effect.Effect<void, SandboxProviderError>;
+	/** Read-only guest evidence; transport loss must never imply process death. */
+	readonly inspectProcess?: (
+		providerSandboxId: string,
+		selector: SandboxProcessSelector,
+		user?: string,
+	) => Effect.Effect<"active" | "inactive" | "unknown", SandboxProviderError>;
 	readonly pathExists: (
 		providerSandboxId: string,
 		path: string,
@@ -167,6 +196,12 @@ export interface SandboxProviderAdapter {
 		providerSandboxId: string,
 		path: string,
 		contents: string,
+		user?: string,
+	) => Effect.Effect<void, SandboxProviderError>;
+	/** Batch launch assets through one guest installation operation when supported. */
+	readonly writeTextFiles?: (
+		providerSandboxId: string,
+		files: ReadonlyArray<{ readonly path: string; readonly contents: string }>,
 		user?: string,
 	) => Effect.Effect<void, SandboxProviderError>;
 	readonly inspect: (

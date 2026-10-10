@@ -582,7 +582,7 @@ printf '%s\n' '{"token":"lazy-installation-token","expiresAtMs":4102444800000}'
 			"runtime_command=(node /opt/zuse/current/bin.mjs serve --foreground)",
 		);
 		expect(reconciler).toContain(
-			`exec "\\\${ZUSE_RUNTIME_NODE:-node}" "$runtime" serve`,
+			`exec_workspace_runtime "\\\${ZUSE_RUNTIME_NODE:-node}" "$runtime" serve`,
 		);
 		expect(bootstrap).not.toContain("runtime-updater.mjs");
 		expect(reconciler).toContain("ZUSE_RUNTIME_INSTALL_ONLY=1");
@@ -794,7 +794,7 @@ printf '%s\n' '{"token":"lazy-installation-token","expiresAtMs":4102444800000}'
 		expect(cloudInit).not.toMatch(/^\s+tcp dport (22|47837) accept$/mu);
 	});
 
-	test("uses immutable release directories and restores the prior target after a failed health check", async () => {
+	test("uses immutable releases and durable explicit activation and rollback", async () => {
 		const updater = await readWorkspaceFile(
 			"apps/server/scripts/runtime-updater.mjs",
 		);
@@ -804,14 +804,23 @@ printf '%s\n' '{"token":"lazy-installation-token","expiresAtMs":4102444800000}'
 			"await rm(release, { recursive: true, force: true })",
 		);
 		expect(updater).toContain("if (!(await waitForHealthyRuntime()))");
-		expect(updater).toContain("previousTarget = await readlink(currentLink)");
-		expect(updater).toContain("await symlink(previousTarget, rollbackLink)");
 		expect(updater).not.toContain("currentLink}.target");
+		expect(updater).toContain("runtime-signed-manifest.json");
+		expect(updater).toContain("runtime-signed-archive.tar.gz");
+		expect(updater).toContain("ZUSE_RUNTIME_UPDATE_TRANSACTION_ID");
+		expect(updater).toContain("ZUSE_RUNTIME_UPDATE_GENERATION");
+		expect(updater).toContain('await save({ phase: "activated" })');
+		expect(updater).toContain('await save({ phase: "rolled-back" })');
+		expect(updater).toContain(
+			"Rollback requires a fresh fenced runtime generation",
+		);
+		expect(updater).toContain(
+			"Runtime confirmation version or generation does not match",
+		);
 		expect(updater).toContain(
 			'await run("systemctl", ["restart", "zuse.service"])',
 		);
 		expect(updater).toContain('process.env.ZUSE_RUNTIME_INSTALL_ONLY === "1"');
-		expect(updater).toContain("if (installOnly)");
 		expect(updater).toContain("const fetchWithRetry");
 		expect(updater).toContain("AbortSignal.timeout");
 		expect(updater).toContain("Runtime hash is invalid");
@@ -828,13 +837,9 @@ printf '%s\n' '{"token":"lazy-installation-token","expiresAtMs":4102444800000}'
 		);
 		expect(updater).toContain("Number.isInteger(wireProtocol.min)");
 		expect(updater).toContain("const waitForHealthyRuntime = async () =>");
-		expect(updater).toContain("await rm(currentLink, { force: true })");
-		expect(updater).toContain("Rollback runtime failed its health check");
 		expect(updater).toContain('process.argv.includes("--check")');
 		expect(updater).toContain("ZUSE_RUNTIME_UPDATE_REQUEST_FILE");
 		expect(updater).toContain("ZUSE_RUNTIME_UPDATE_STATUS_FILE");
-		expect(updater).toContain('phase: "restarting"');
-		expect(updater).toContain('phase: "verifying"');
 	});
 
 	test("installs a narrow root-owned manual update trigger", async () => {

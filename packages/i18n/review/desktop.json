@@ -1,8 +1,8 @@
 {
 	"en": {
 		"status": "reviewed",
-		"sourceRevision": "dbed9c16c353a9676a037d75e85601dd17aa0199cf22c00e2b58990016243dfd",
-		"reviewer": "source"
+		"reviewer": "source",
+		"sourceRevision": "91048e640e4cc5d5d54074a73dc62d27a0fa6a0d442f816d2917ca74cf377f1b"
 	},
 	"fr": {
 		"status": "draft",

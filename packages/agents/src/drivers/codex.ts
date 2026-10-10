@@ -1967,6 +1967,16 @@ export const startCodexSession = (
 					? { collaborationMode: turnMode.collaborationMode }
 					: {}),
 			});
+			const cloudWorkspaceId = process.env.ZUSE_CLOUD_WORKSPACE_ID;
+			if (cloudWorkspaceId !== undefined) {
+				console.info("[cloud-timing]", {
+					workspaceId: cloudWorkspaceId,
+					sessionId,
+					turnId: turn.turn.id,
+					stage: "agent.turn-accepted",
+					atMs: Date.now(),
+				});
+			}
 			currentTurnId = turn.turn.id;
 		};
 

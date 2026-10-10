@@ -2,6 +2,10 @@ import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import { type Duration, Layer } from "effect";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import { Socket } from "effect/unstable/socket";
+import {
+	cloudGatewaySocket,
+	needsCloudGatewayReadiness,
+} from "./cloud-gateway-socket.ts";
 import { withWireProtocolVersion } from "./connection.ts";
 
 export type WsProtocolOptions = {
@@ -85,22 +89,20 @@ export const wsClientProtocolLayer = (
 	options?: WsProtocolLayerOptions,
 ): Layer.Layer<RpcClient.Protocol> => {
 	const protocols = options?.protocols;
-	const baseConstructor =
-		protocols === undefined
-			? options?.makeWebSocket
-			: (url: string) =>
-					(
-						options?.makeWebSocket ??
-						((target, values) => new globalThis.WebSocket(target, values))
-					)(url, [...protocols]);
+	const baseConstructor: WebSocketConstructor = (url, values) => {
+		const negotiated = protocols === undefined ? values : [...protocols];
+		const socket = (
+			options?.makeWebSocket ??
+			((target, offered) => new globalThis.WebSocket(target, offered))
+		)(url, negotiated);
+		return needsCloudGatewayReadiness(negotiated)
+			? cloudGatewaySocket(socket)
+			: socket;
+	};
 	const makeWebSocket =
 		options?.onClose === undefined
 			? baseConstructor
-			: observeWebSocketConstructor(
-					baseConstructor ??
-						((url, protocols) => new globalThis.WebSocket(url, protocols)),
-					options.onClose,
-				);
+			: observeWebSocketConstructor(baseConstructor, options.onClose);
 	return RpcClient.layerProtocolSocket().pipe(
 		Layer.provide(
 			Socket.layerWebSocket(
@@ -108,11 +110,7 @@ export const wsClientProtocolLayer = (
 				{ openTimeout: options?.openTimeout },
 			),
 		),
-		Layer.provide(
-			makeWebSocket === undefined
-				? Socket.layerWebSocketConstructorGlobal
-				: Layer.succeed(Socket.WebSocketConstructor, makeWebSocket),
-		),
+		Layer.provide(Layer.succeed(Socket.WebSocketConstructor, makeWebSocket)),
 		Layer.provide(RpcSerialization.layerJson),
 	);
 };

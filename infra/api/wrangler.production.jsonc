@@ -16,6 +16,7 @@
 				"**/project-builder.sh",
 				"**/install-grok.sh",
 				"**/workspace-bootstrap.sh",
+				"**/workspace-runtime.sh",
 				"**/github-auth.sh",
 				"**/workspace-repository.sh",
 				"**/workspace-fork-prepare.sh",

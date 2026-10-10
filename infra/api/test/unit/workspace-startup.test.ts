@@ -2,10 +2,14 @@ import type { DurableObjectState } from "@cloudflare/workers-types";
 import { describe, expect, test, vi } from "vitest";
 import {
 	scheduleWorkspaceStartup,
+	type WorkspaceStartupOutcome,
 	WorkspaceStartupTask,
 } from "../../src/workspace-startup.ts";
 
-const harness = (reconcile: (workspaceId: string) => Promise<void>) => {
+const harness = (
+	reconcile: (workspaceId: string) => Promise<WorkspaceStartupOutcome>,
+	commit: () => Promise<void> = async () => {},
+) => {
 	const values = new Map<string, unknown>();
 	let alarm: number | null = null;
 	const storage = {
@@ -18,7 +22,11 @@ const harness = (reconcile: (workspaceId: string) => Promise<void>) => {
 		setAlarm: async (value: number) => {
 			alarm = value;
 		},
-		transaction: async <T>(run: (s: unknown) => Promise<T>) => run(storage),
+		transaction: async <T>(run: (s: unknown) => Promise<T>) => {
+			const result = await run(storage);
+			await commit();
+			return result;
+		},
 	};
 	const state = { storage } as unknown as DurableObjectState;
 	const task = new WorkspaceStartupTask(state, reconcile);
@@ -40,8 +48,43 @@ const harness = (reconcile: (workspaceId: string) => Promise<void>) => {
 };
 
 describe("durable workspace startup", () => {
+	test("does not acknowledge scheduling before the pending request and alarm commit", async () => {
+		let release!: () => void;
+		let entered!: () => void;
+		const committing = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		const committed = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const reconcile = vi.fn(async () => ({ kind: "complete" as const }));
+		const h = harness(reconcile, async () => {
+			entered();
+			await committed;
+		});
+		let acknowledged = false;
+		const scheduling = h.schedule().then(() => {
+			acknowledged = true;
+		});
+		await committing;
+		expect(acknowledged).toBe(false);
+		expect(h.values.has("pending")).toBe(true);
+		expect(h.alarm()).not.toBeNull();
+		expect(reconcile).not.toHaveBeenCalled();
+		release();
+		await scheduling;
+		expect(acknowledged).toBe(true);
+	});
+	test("rejects acknowledgement when the durable transaction cannot commit", async () => {
+		const reconcile = vi.fn(async () => ({ kind: "complete" as const }));
+		const h = harness(reconcile, async () => {
+			throw new Error("storage commit failed");
+		});
+		await expect(h.schedule()).rejects.toThrow("storage commit failed");
+		expect(reconcile).not.toHaveBeenCalled();
+	});
 	test("acknowledges durable scheduling without running startup in the HTTP request", async () => {
-		const reconcile = vi.fn(async () => {});
+		const reconcile = vi.fn(async () => ({ kind: "complete" as const }));
 		const h = harness(reconcile);
 		await h.schedule();
 		expect(h.alarm()).not.toBeNull();
@@ -55,7 +98,7 @@ describe("durable workspace startup", () => {
 		const reconcile = vi
 			.fn()
 			.mockRejectedValueOnce(new Error("provider unavailable"))
-			.mockResolvedValue(undefined);
+			.mockResolvedValue({ kind: "complete" });
 		const h = harness(reconcile);
 		await h.schedule();
 		await expect(h.fire()).rejects.toThrow("provider unavailable");
@@ -77,7 +120,7 @@ describe("durable workspace startup", () => {
 			expect(h.alarm()).toBeLessThanOrEqual(Date.now() + 30_000);
 			expect(h.values.has("pending")).toBe(true);
 		}
-		reconcile.mockResolvedValue(undefined);
+		reconcile.mockResolvedValue({ kind: "complete" });
 		await new WorkspaceStartupTask(h.state, reconcile).alarm();
 		expect(h.values.has("pending")).toBe(false);
 	});
@@ -92,6 +135,7 @@ describe("durable workspace startup", () => {
 			await new Promise<void>((_resolve, reject) => {
 				fail = reject;
 			});
+			return { kind: "complete" };
 		});
 		await h.schedule();
 		const firing = h.fire(5);
@@ -116,6 +160,7 @@ describe("durable workspace startup", () => {
 		const h = harness(async () => {
 			resolveStarted();
 			await finish;
+			return { kind: "complete" };
 		});
 		await h.schedule();
 		const running = h.fire();
@@ -128,6 +173,56 @@ describe("durable workspace startup", () => {
 		await h.fire();
 		expect(h.values.has("pending")).toBe(false);
 	});
+	test("retains an active operation beyond an observation window and follows its next due time after eviction", async () => {
+		const due = Date.now() + 120_000;
+		const reconcile = vi
+			.fn()
+			.mockResolvedValueOnce({ kind: "due", dueAtMs: due })
+			.mockResolvedValueOnce({ kind: "due", dueAtMs: due + 30_000 })
+			.mockResolvedValue({ kind: "complete" });
+		const h = harness(reconcile);
+		await h.schedule();
+		await h.fire();
+		expect(h.values.has("pending")).toBe(true);
+		expect(h.alarm()).toBe(due);
+		await new WorkspaceStartupTask(h.state, reconcile).alarm();
+		expect(h.values.has("pending")).toBe(true);
+		await h.fire();
+		expect(h.values.has("pending")).toBe(false);
+	});
+
+	test("new demand brings a future continuation forward immediately", async () => {
+		const h = harness(async () => ({
+			kind: "due",
+			dueAtMs: Date.now() + 120_000,
+		}));
+		await h.schedule();
+		await h.fire();
+		expect(h.alarm()).toBeGreaterThan(Date.now() + 100_000);
+		await h.schedule();
+		expect(h.alarm()).toBeLessThanOrEqual(Date.now());
+	});
+
+	test("event-blocked work retains its pointer without polling and its named wake resumes it", async () => {
+		const reconcile = vi
+			.fn()
+			.mockResolvedValueOnce({
+				kind: "blocked",
+				prerequisite: "account-login",
+				wakeSource: "workspace-request",
+			})
+			.mockResolvedValue({ kind: "complete" });
+		const h = harness(reconcile);
+		await h.schedule();
+		await h.fire();
+		expect(h.values.has("pending")).toBe(true);
+		expect(h.alarm()).toBeNull();
+		await h.schedule();
+		expect(h.alarm()).not.toBeNull();
+		await h.fire();
+		expect(h.values.has("pending")).toBe(false);
+	});
+
 	test("rejects scheduling failures instead of silently losing startup", async () => {
 		await expect(
 			scheduleWorkspaceStartup(

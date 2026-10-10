@@ -142,7 +142,7 @@ done
 
 echo "==> uploading provisioning payload"
 box_command "$box_id" "mkdir -p $provision_dir/artifacts $provision_dir/box"
-for file in provision.sh install-grok.sh project-builder.sh workspace-bootstrap.sh git-askpass.sh github-auth.sh repository-script.ts sshd_config; do
+for file in provision.sh install-grok.sh project-builder.sh workspace-bootstrap.sh workspace-runtime.sh git-askpass.sh github-auth.sh repository-script.ts sshd_config; do
 	upload_file "$box_id" "$script_dir/$file" "$provision_dir/$file"
 done
 for file in "$script_dir"/box/*; do

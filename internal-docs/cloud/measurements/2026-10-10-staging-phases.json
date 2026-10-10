@@ -1,0 +1,743 @@
+{
+	"phase-cold": {
+		"apiReceiptMs": 6227,
+		"startWallMs": 1791629103266,
+		"agentReceiptLowerMs": 35241,
+		"agentReceiptUpperMs": 36620,
+		"clockCalibrationUncertaintyMs": 1379,
+		"runtimeVersion": "be5291de53fd4c46149b71283859c46ca2e565cc",
+		"events": [
+			{
+				"stage": "runtime.initializing",
+				"atMs": 1791629127507,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.bootstrap",
+				"event": "start",
+				"atMs": 1791629127555,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.bootstrap",
+				"event": "end",
+				"atMs": 1791629128246,
+				"durationMs": 690.949517
+			},
+			{
+				"stage": "runtime.codex-auth",
+				"event": "start",
+				"atMs": 1791629128276,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.credentials-ready",
+				"atMs": 1791629128298,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.bootstrap-ack",
+				"event": "start",
+				"atMs": 1791629128756,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.bootstrap-ack",
+				"event": "end",
+				"atMs": 1791629131753,
+				"durationMs": 2997.6183249999995
+			},
+			{
+				"stage": "runtime.gateway-open",
+				"atMs": 1791629132090,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.mailbox-starting",
+				"atMs": 1791629133909,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.codex-auth",
+				"event": "end",
+				"atMs": 1791629134040,
+				"durationMs": 5764.193453
+			},
+			{
+				"stage": "agent.turn-accepted",
+				"atMs": 1791629139380,
+				"durationMs": null
+			}
+		],
+		"serverTimings": {
+			"requestedAt": 1791629104904,
+			"forkedAt": 1791629114607,
+			"allocatedAt": 1791629114607,
+			"enrolledAt": 1791629127752,
+			"runtimeReadyAt": 1791629127752,
+			"enrollmentDurationMs": 13145,
+			"repositoryReadyAt": 1791629128466,
+			"connectedAt": 1791629128466,
+			"agentStartedAt": 1791629129042,
+			"messageAcceptedAt": 1791629129042,
+			"launchDurationMs": 24138
+		},
+		"observations": [
+			{
+				"elapsedMs": 9129,
+				"httpStatus": 200,
+				"state": "queued",
+				"startupPhase": "allocating",
+				"runtimeState": "offline",
+				"timings": {
+					"requestedAt": 1791629104904
+				}
+			},
+			{
+				"elapsedMs": 13323,
+				"httpStatus": 200,
+				"state": "provisioning",
+				"startupPhase": "booting",
+				"runtimeState": "offline",
+				"timings": {
+					"requestedAt": 1791629104904,
+					"forkedAt": 1791629114607,
+					"allocatedAt": 1791629114607
+				}
+			},
+			{
+				"elapsedMs": 15247,
+				"httpStatus": 200,
+				"state": "provisioning",
+				"startupPhase": "booting",
+				"runtimeState": "offline",
+				"timings": {
+					"requestedAt": 1791629104904,
+					"forkedAt": 1791629114607,
+					"allocatedAt": 1791629114607
+				}
+			},
+			{
+				"elapsedMs": 17020,
+				"httpStatus": 200,
+				"state": "provisioning",
+				"startupPhase": "booting",
+				"runtimeState": "offline",
+				"timings": {
+					"requestedAt": 1791629104904,
+					"forkedAt": 1791629114607,
+					"allocatedAt": 1791629114607
+				}
+			},
+			{
+				"elapsedMs": 20091,
+				"httpStatus": 200,
+				"state": "provisioning",
+				"startupPhase": "booting",
+				"runtimeState": "offline",
+				"timings": {
+					"requestedAt": 1791629104904,
+					"forkedAt": 1791629114607,
+					"allocatedAt": 1791629114607
+				}
+			},
+			{
+				"elapsedMs": 23164,
+				"httpStatus": 200,
+				"state": "provisioning",
+				"startupPhase": "booting",
+				"runtimeState": "offline",
+				"timings": {
+					"requestedAt": 1791629104904,
+					"forkedAt": 1791629114607,
+					"allocatedAt": 1791629114607
+				}
+			},
+			{
+				"elapsedMs": 24940,
+				"httpStatus": 200,
+				"state": "setup",
+				"startupPhase": "authenticating-runtime",
+				"runtimeState": "connecting",
+				"timings": {
+					"requestedAt": 1791629104904,
+					"forkedAt": 1791629114607,
+					"allocatedAt": 1791629114607,
+					"enrolledAt": 1791629127752,
+					"runtimeReadyAt": 1791629127752,
+					"enrollmentDurationMs": 13145
+				}
+			},
+			{
+				"elapsedMs": 28096,
+				"httpStatus": 200,
+				"state": "ready",
+				"startupPhase": "running",
+				"runtimeState": "online",
+				"timings": {
+					"requestedAt": 1791629104904,
+					"forkedAt": 1791629114607,
+					"allocatedAt": 1791629114607,
+					"enrolledAt": 1791629127752,
+					"runtimeReadyAt": 1791629127752,
+					"enrollmentDurationMs": 13145,
+					"repositoryReadyAt": 1791629128466,
+					"connectedAt": 1791629128466,
+					"agentStartedAt": 1791629129042,
+					"messageAcceptedAt": 1791629129042,
+					"launchDurationMs": 24138
+				}
+			},
+			{
+				"elapsedMs": 30135,
+				"httpStatus": 200,
+				"state": "ready",
+				"startupPhase": "running",
+				"runtimeState": "online",
+				"timings": {
+					"requestedAt": 1791629104904,
+					"forkedAt": 1791629114607,
+					"allocatedAt": 1791629114607,
+					"enrolledAt": 1791629127752,
+					"runtimeReadyAt": 1791629127752,
+					"enrollmentDurationMs": 13145,
+					"repositoryReadyAt": 1791629128466,
+					"connectedAt": 1791629128466,
+					"agentStartedAt": 1791629129042,
+					"messageAcceptedAt": 1791629129042,
+					"launchDurationMs": 24138
+				}
+			},
+			{
+				"elapsedMs": 34910,
+				"httpStatus": 200,
+				"state": "ready",
+				"startupPhase": "running",
+				"runtimeState": "online",
+				"timings": {
+					"requestedAt": 1791629104904,
+					"forkedAt": 1791629114607,
+					"allocatedAt": 1791629114607,
+					"enrolledAt": 1791629127752,
+					"runtimeReadyAt": 1791629127752,
+					"enrollmentDurationMs": 13145,
+					"repositoryReadyAt": 1791629128466,
+					"connectedAt": 1791629128466,
+					"agentStartedAt": 1791629129042,
+					"messageAcceptedAt": 1791629129042,
+					"launchDurationMs": 24138
+				}
+			},
+			{
+				"elapsedMs": 36933,
+				"httpStatus": 200,
+				"state": "ready",
+				"startupPhase": "running",
+				"runtimeState": "online",
+				"timings": {
+					"requestedAt": 1791629104904,
+					"forkedAt": 1791629114607,
+					"allocatedAt": 1791629114607,
+					"enrolledAt": 1791629127752,
+					"runtimeReadyAt": 1791629127752,
+					"enrollmentDurationMs": 13145,
+					"repositoryReadyAt": 1791629128466,
+					"connectedAt": 1791629128466,
+					"agentStartedAt": 1791629129042,
+					"messageAcceptedAt": 1791629129042,
+					"launchDurationMs": 24138
+				}
+			},
+			{
+				"elapsedMs": 38800,
+				"httpStatus": 200,
+				"state": "ready",
+				"startupPhase": "running",
+				"runtimeState": "online",
+				"timings": {
+					"requestedAt": 1791629104904,
+					"forkedAt": 1791629114607,
+					"allocatedAt": 1791629114607,
+					"enrolledAt": 1791629127752,
+					"runtimeReadyAt": 1791629127752,
+					"enrollmentDurationMs": 13145,
+					"repositoryReadyAt": 1791629128466,
+					"connectedAt": 1791629128466,
+					"agentStartedAt": 1791629129042,
+					"messageAcceptedAt": 1791629129042,
+					"launchDurationMs": 24138
+				}
+			},
+			{
+				"elapsedMs": 40800,
+				"httpStatus": 200,
+				"state": "ready",
+				"startupPhase": "running",
+				"runtimeState": "online",
+				"timings": {
+					"requestedAt": 1791629104904,
+					"forkedAt": 1791629114607,
+					"allocatedAt": 1791629114607,
+					"enrolledAt": 1791629127752,
+					"runtimeReadyAt": 1791629127752,
+					"enrollmentDurationMs": 13145,
+					"repositoryReadyAt": 1791629128466,
+					"connectedAt": 1791629128466,
+					"agentStartedAt": 1791629129042,
+					"messageAcceptedAt": 1791629129042,
+					"launchDurationMs": 24138
+				}
+			}
+		]
+	},
+	"phase-cold-new": {
+		"apiReceiptMs": 4716,
+		"startWallMs": 1791629505686,
+		"agentReceiptLowerMs": 22636,
+		"agentReceiptUpperMs": 24395,
+		"clockCalibrationUncertaintyMs": 1759,
+		"runtimeVersion": "be5291de53fd4c46149b71283859c46ca2e565cc",
+		"events": [
+			{
+				"stage": "runtime.initializing",
+				"atMs": 1791629518680,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.bootstrap",
+				"event": "start",
+				"atMs": 1791629518883,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.bootstrap",
+				"event": "end",
+				"atMs": 1791629520732,
+				"durationMs": 1849.70028
+			},
+			{
+				"stage": "runtime.codex-auth",
+				"event": "start",
+				"atMs": 1791629520757,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.credentials-ready",
+				"atMs": 1791629520768,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.bootstrap-ack",
+				"event": "start",
+				"atMs": 1791629521186,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.bootstrap-ack",
+				"event": "end",
+				"atMs": 1791629522001,
+				"durationMs": 814.9858550000008
+			},
+			{
+				"stage": "runtime.mailbox-starting",
+				"atMs": 1791629522378,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.gateway-open",
+				"atMs": 1791629523745,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.codex-auth",
+				"event": "end",
+				"atMs": 1791629526150,
+				"durationMs": 5392.955613
+			},
+			{
+				"stage": "agent.turn-accepted",
+				"atMs": 1791629529624,
+				"durationMs": null
+			}
+		],
+		"serverTimings": {
+			"requestedAt": 1791629506241,
+			"forkedAt": 1791629512912,
+			"allocatedAt": 1791629512912,
+			"enrolledAt": 1791629520055,
+			"runtimeReadyAt": 1791629520055,
+			"enrollmentDurationMs": 7143,
+			"repositoryReadyAt": 1791629520981,
+			"connectedAt": 1791629520981,
+			"agentStartedAt": 1791629521457,
+			"messageAcceptedAt": 1791629521457,
+			"launchDurationMs": 15216
+		},
+		"observations": [
+			{
+				"elapsedMs": 5345,
+				"httpStatus": 200,
+				"state": "queued",
+				"startupPhase": "allocating",
+				"runtimeState": "offline",
+				"timings": {
+					"requestedAt": 1791629506241
+				}
+			},
+			{
+				"elapsedMs": 7333,
+				"httpStatus": 200,
+				"state": "queued",
+				"startupPhase": "allocating",
+				"runtimeState": "offline",
+				"timings": {
+					"requestedAt": 1791629506241
+				}
+			},
+			{
+				"elapsedMs": 9149,
+				"httpStatus": 200,
+				"state": "provisioning",
+				"startupPhase": "booting",
+				"runtimeState": "offline",
+				"timings": {
+					"requestedAt": 1791629506241,
+					"forkedAt": 1791629512912,
+					"allocatedAt": 1791629512912
+				}
+			},
+			{
+				"elapsedMs": 10842,
+				"httpStatus": 200,
+				"state": "provisioning",
+				"startupPhase": "booting",
+				"runtimeState": "offline",
+				"timings": {
+					"requestedAt": 1791629506241,
+					"forkedAt": 1791629512912,
+					"allocatedAt": 1791629512912
+				}
+			},
+			{
+				"elapsedMs": 12844,
+				"httpStatus": 200,
+				"state": "provisioning",
+				"startupPhase": "booting",
+				"runtimeState": "offline",
+				"timings": {
+					"requestedAt": 1791629506241,
+					"forkedAt": 1791629512912,
+					"allocatedAt": 1791629512912
+				}
+			},
+			{
+				"elapsedMs": 14477,
+				"httpStatus": 200,
+				"state": "provisioning",
+				"startupPhase": "booting",
+				"runtimeState": "offline",
+				"timings": {
+					"requestedAt": 1791629506241,
+					"forkedAt": 1791629512912,
+					"allocatedAt": 1791629512912
+				}
+			},
+			{
+				"elapsedMs": 16772,
+				"httpStatus": 200,
+				"state": "ready",
+				"startupPhase": "running",
+				"runtimeState": "online",
+				"timings": {
+					"requestedAt": 1791629506241,
+					"forkedAt": 1791629512912,
+					"allocatedAt": 1791629512912,
+					"enrolledAt": 1791629520055,
+					"runtimeReadyAt": 1791629520055,
+					"enrollmentDurationMs": 7143,
+					"repositoryReadyAt": 1791629520981,
+					"connectedAt": 1791629520981,
+					"agentStartedAt": 1791629521457,
+					"messageAcceptedAt": 1791629521457,
+					"launchDurationMs": 15216
+				}
+			},
+			{
+				"elapsedMs": 18793,
+				"httpStatus": 200,
+				"state": "ready",
+				"startupPhase": "running",
+				"runtimeState": "online",
+				"timings": {
+					"requestedAt": 1791629506241,
+					"forkedAt": 1791629512912,
+					"allocatedAt": 1791629512912,
+					"enrolledAt": 1791629520055,
+					"runtimeReadyAt": 1791629520055,
+					"enrollmentDurationMs": 7143,
+					"repositoryReadyAt": 1791629520981,
+					"connectedAt": 1791629520981,
+					"agentStartedAt": 1791629521457,
+					"messageAcceptedAt": 1791629521457,
+					"launchDurationMs": 15216
+				}
+			},
+			{
+				"elapsedMs": 20952,
+				"httpStatus": 200,
+				"state": "ready",
+				"startupPhase": "running",
+				"runtimeState": "online",
+				"timings": {
+					"requestedAt": 1791629506241,
+					"forkedAt": 1791629512912,
+					"allocatedAt": 1791629512912,
+					"enrolledAt": 1791629520055,
+					"runtimeReadyAt": 1791629520055,
+					"enrollmentDurationMs": 7143,
+					"repositoryReadyAt": 1791629520981,
+					"connectedAt": 1791629520981,
+					"agentStartedAt": 1791629521457,
+					"messageAcceptedAt": 1791629521457,
+					"launchDurationMs": 15216
+				}
+			},
+			{
+				"elapsedMs": 23008,
+				"httpStatus": 200,
+				"state": "ready",
+				"startupPhase": "running",
+				"runtimeState": "online",
+				"timings": {
+					"requestedAt": 1791629506241,
+					"forkedAt": 1791629512912,
+					"allocatedAt": 1791629512912,
+					"enrolledAt": 1791629520055,
+					"runtimeReadyAt": 1791629520055,
+					"enrollmentDurationMs": 7143,
+					"repositoryReadyAt": 1791629520981,
+					"connectedAt": 1791629520981,
+					"agentStartedAt": 1791629521457,
+					"messageAcceptedAt": 1791629521457,
+					"launchDurationMs": 15216
+				}
+			},
+			{
+				"elapsedMs": 25084,
+				"httpStatus": 200,
+				"state": "ready",
+				"startupPhase": "running",
+				"runtimeState": "online",
+				"timings": {
+					"requestedAt": 1791629506241,
+					"forkedAt": 1791629512912,
+					"allocatedAt": 1791629512912,
+					"enrolledAt": 1791629520055,
+					"runtimeReadyAt": 1791629520055,
+					"enrollmentDurationMs": 7143,
+					"repositoryReadyAt": 1791629520981,
+					"connectedAt": 1791629520981,
+					"agentStartedAt": 1791629521457,
+					"messageAcceptedAt": 1791629521457,
+					"launchDurationMs": 15216
+				}
+			},
+			{
+				"elapsedMs": 26998,
+				"httpStatus": 200,
+				"state": "ready",
+				"startupPhase": "running",
+				"runtimeState": "online",
+				"timings": {
+					"requestedAt": 1791629506241,
+					"forkedAt": 1791629512912,
+					"allocatedAt": 1791629512912,
+					"enrolledAt": 1791629520055,
+					"runtimeReadyAt": 1791629520055,
+					"enrollmentDurationMs": 7143,
+					"repositoryReadyAt": 1791629520981,
+					"connectedAt": 1791629520981,
+					"agentStartedAt": 1791629521457,
+					"messageAcceptedAt": 1791629521457,
+					"launchDurationMs": 15216
+				}
+			}
+		]
+	},
+	"transitions": {
+		"offset": {
+			"min": -803,
+			"max": 844
+		},
+		"rows": [
+			{
+				"scenario": "awake",
+				"startWallMs": 1791629284356,
+				"apiReceiptMs": 2548,
+				"apiStatus": 200,
+				"observations": [],
+				"agentReceiptLowerMs": 7288,
+				"agentReceiptUpperMs": 8935,
+				"ackObservedMs": 8391,
+				"events": [
+					{
+						"stage": "message.received",
+						"atMs": 1791629292433,
+						"durationMs": null
+					},
+					{
+						"stage": "message.session-accept",
+						"atMs": 1791629292434,
+						"event": "start",
+						"durationMs": null
+					},
+					{
+						"stage": "message.session-accept",
+						"atMs": 1791629292467,
+						"event": "end",
+						"durationMs": 33.37922800000524
+					},
+					{
+						"stage": "message.delivery-ack",
+						"atMs": 1791629292468,
+						"event": "start",
+						"durationMs": null
+					},
+					{
+						"stage": "agent.turn-accepted",
+						"atMs": 1791629292488,
+						"durationMs": null
+					}
+				],
+				"completed": true,
+				"finalTimings": {
+					"requestedAt": 1791629104904,
+					"forkedAt": 1791629114607,
+					"allocatedAt": 1791629114607,
+					"enrolledAt": 1791629127752,
+					"runtimeReadyAt": 1791629127752,
+					"enrollmentDurationMs": 13145,
+					"repositoryReadyAt": 1791629128466,
+					"connectedAt": 1791629128466,
+					"agentStartedAt": 1791629129042,
+					"messageAcceptedAt": 1791629129042,
+					"launchDurationMs": 24138
+				}
+			},
+			{
+				"scenario": "sleep-wake",
+				"startWallMs": 1791629304637,
+				"apiReceiptMs": 2128,
+				"apiStatus": 200,
+				"observations": [
+					{
+						"elapsedMs": 2488,
+						"state": "paused",
+						"runtimeState": "offline",
+						"timings": {
+							"requestedAt": 1791629305070,
+							"resumeRequestedAt": 1791629305070
+						}
+					},
+					{
+						"elapsedMs": 3181,
+						"state": "paused",
+						"runtimeState": "offline",
+						"timings": {
+							"requestedAt": 1791629305070,
+							"resumeRequestedAt": 1791629305070
+						}
+					},
+					{
+						"elapsedMs": 3845,
+						"state": "paused",
+						"runtimeState": "offline",
+						"timings": {
+							"requestedAt": 1791629305070,
+							"resumeRequestedAt": 1791629305070
+						}
+					},
+					{
+						"elapsedMs": 4446,
+						"state": "paused",
+						"runtimeState": "offline",
+						"timings": {
+							"requestedAt": 1791629305070,
+							"resumeRequestedAt": 1791629305070
+						}
+					},
+					{
+						"elapsedMs": 4985,
+						"state": "resuming",
+						"runtimeState": "connecting",
+						"timings": {
+							"requestedAt": 1791629305070,
+							"resumeRequestedAt": 1791629305070
+						}
+					},
+					{
+						"elapsedMs": 5473,
+						"state": "ready",
+						"runtimeState": "online",
+						"timings": {
+							"requestedAt": 1791629305070,
+							"resumeRequestedAt": 1791629305070,
+							"repositoryReadyAt": 1791629309819,
+							"connectedAt": 1791629309819
+						}
+					}
+				],
+				"agentReceiptLowerMs": 8496,
+				"agentReceiptUpperMs": 10143,
+				"ackObservedMs": 9823,
+				"events": [
+					{
+						"stage": "runtime.warm-readiness-restored",
+						"atMs": 1791629311218,
+						"durationMs": null
+					},
+					{
+						"stage": "runtime.gateway-open",
+						"atMs": 1791629312942,
+						"durationMs": null
+					},
+					{
+						"stage": "message.received",
+						"atMs": 1791629313820,
+						"durationMs": null
+					},
+					{
+						"stage": "message.session-accept",
+						"atMs": 1791629313821,
+						"event": "start",
+						"durationMs": null
+					},
+					{
+						"stage": "message.session-accept",
+						"atMs": 1791629313889,
+						"event": "end",
+						"durationMs": 67.9764439999999
+					},
+					{
+						"stage": "message.delivery-ack",
+						"atMs": 1791629313890,
+						"event": "start",
+						"durationMs": null
+					},
+					{
+						"stage": "agent.turn-accepted",
+						"atMs": 1791629313977,
+						"durationMs": null
+					}
+				],
+				"completed": true,
+				"finalTimings": {
+					"requestedAt": 1791629305070,
+					"resumeRequestedAt": 1791629305070,
+					"repositoryReadyAt": 1791629309819,
+					"connectedAt": 1791629309819
+				}
+			}
+		]
+	}
+}

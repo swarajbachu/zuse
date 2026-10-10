@@ -144,6 +144,10 @@ test("cloud management preserves billing, repository, and lifecycle mutation pay
 		client["cloud.projects.remove"]({ projectId: "project/a" }),
 		client["cloud.workspaces.list"]({ projectId: "project/a&b" }),
 		client["cloud.workspaces.delete"](deletion),
+		client["cloud.workspaces.update"]({
+			workspaceId: "workspace/a",
+			commandId: "update:1",
+		}),
 	];
 	for (const effect of effects) await Effect.runPromiseExit(effect);
 	expect(calls).toEqual([
@@ -171,6 +175,11 @@ test("cloud management preserves billing, repository, and lifecycle mutation pay
 			path: ApiPaths.cloudWorkspaceAction("workspace/a", "delete"),
 			method: "POST",
 			body: deletion,
+		},
+		{
+			path: ApiPaths.cloudWorkspaceAction("workspace/a", "update"),
+			method: "POST",
+			body: { workspaceId: "workspace/a", commandId: "update:1" },
 		},
 	]);
 });

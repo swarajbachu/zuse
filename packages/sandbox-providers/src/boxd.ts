@@ -24,10 +24,13 @@ import { measureCloudStage } from "@zuse/utils/cloud-timing";
 import { Clock, Duration, Effect, Redacted } from "effect";
 import { BOX_PORT_FORWARDER } from "./box-port-forwarder.ts";
 import {
+	boxForkRuntimePreparedCommand,
+	boxForkRuntimeResetCommand,
 	boxProcessScript,
 	boxProcessUnit,
 	boxShellQuote,
 	boxSystemdProcessCommand,
+	boxSystemdProcessInspectionCommand,
 } from "./box-process.ts";
 import type {
 	ProviderSandbox,
@@ -35,8 +38,11 @@ import type {
 	SandboxProcessInput,
 	SandboxProcessSelector,
 	SandboxProviderAdapter,
-	SandboxProviderError,
 	SandboxProviderResources,
+} from "./index.ts";
+import {
+	SandboxProviderError,
+	WORKSPACE_RUNTIME_PROCESS_SELECTOR,
 } from "./index.ts";
 import { clampSeconds, providerError, validatedEnv } from "./provider-input.ts";
 import { zuseSnapshotName } from "./snapshot-name.ts";
@@ -98,6 +104,7 @@ export interface BoxdSandboxClient {
 	readonly snapshots: {
 		create(machine: string, name: string): Promise<CreatedSnapshot>;
 		get(name: string, params?: { org?: string }): Promise<Snapshot>;
+		list(params?: { org?: string }): Promise<Snapshot[]>;
 		delete(name: string, params?: { org?: string }): Promise<void>;
 	};
 }
@@ -143,7 +150,7 @@ const PAUSED_STATUSES = new Set<Machine["status"]>([
 	"hibernated",
 	"stopped",
 ]);
-const ABSENT_STATUSES = new Set<Machine["status"]>(["failed", "destroyed"]);
+const ABSENT_STATUSES = new Set<Machine["status"]>(["destroyed"]);
 
 const shellQuote = boxShellQuote;
 
@@ -337,6 +344,30 @@ export const makeBoxdSandboxProvider = (
 			},
 		});
 
+	// Snapshot metadata lookup accepts names; restore accepts names or immutable IDs.
+	// Only a genuine missing name warrants an ID lookup; outages must propagate.
+	const snapshotReference = (reference: string) =>
+		call("snapshots.get", () =>
+			client.snapshots.get(reference, org === undefined ? undefined : { org }),
+		).pipe(
+			Effect.catchTag("SandboxProviderError", (error) =>
+				error.code !== "not-found"
+					? Effect.fail(error)
+					: call("snapshots.list", () =>
+							client.snapshots.list(org === undefined ? undefined : { org }),
+						).pipe(
+							Effect.flatMap((snapshots) => {
+								const found = snapshots.find(
+									(snapshot) => snapshot.id === reference,
+								);
+								return found === undefined
+									? Effect.fail(providerError("not-found"))
+									: Effect.succeed(found);
+							}),
+						),
+			),
+		);
+
 	// A lifecycle request answered with a state conflict already holds: the
 	// machine parked or woke on its own. Rate limits and outages still fail.
 	const callTolerantOfConflict = (
@@ -387,8 +418,8 @@ export const makeBoxdSandboxProvider = (
 		state: PAUSED_STATUSES.has(found.status) ? "paused" : "running",
 	});
 
-	// Booting, migrating and unknown states stay retryable; failed or
-	// destroyed machines are reported absent so the caller replaces them.
+	// Booting, failed, migrating and unknown states retain their data and stay
+	// retryable. Only confirmed destruction or not-found means absence.
 	const settledSandbox = (
 		found: Machine,
 	): Effect.Effect<ProviderSandbox | null, SandboxProviderError> =>
@@ -468,27 +499,6 @@ export const makeBoxdSandboxProvider = (
 		},
 	);
 
-	// The reconciler gives a freshly allocated machine ten seconds to enroll,
-	// and a restored VM spends its first seconds paging: on a fresh restore the
-	// runtime took 2.7 s to listen (3.8 s with cold caches, 1.4 s warm) and the
-	// first transient unit 0.6 s (16 ms warm). Loading the runtime once and
-	// starting one unit moves that cost ahead of the enrollment window. Best
-	// effort: a template without the runtime on PATH still allocates.
-	const primeRuntime = Effect.fn("BoxdSandboxProvider.primeRuntime")(function* (
-		providerSandboxId: string,
-	) {
-		yield* runCommand(
-			providerSandboxId,
-			[
-				`sudo -n -u ${shellQuote(config.runtimeUser ?? RUNTIME_USER)} -H bash -c ${shellQuote(
-					"cd / && timeout 30 zuse --version >/dev/null 2>&1",
-				)}`,
-				`sudo -n systemd-run --quiet --collect --wait --uid=${shellQuote(config.runtimeUser ?? RUNTIME_USER)} -- /bin/true >/dev/null 2>&1`,
-				"true",
-			].join("; "),
-		).pipe(Effect.ignore);
-	});
-
 	// Every API key is fenced to one organization, so a name resolves in the
 	// same context the adapter creates in.
 	const findByName = (
@@ -500,16 +510,11 @@ export const makeBoxdSandboxProvider = (
 			),
 		);
 
-	// Names are unique, so a machine that failed keeps its label wedged until
-	// it is deleted. Callers that see "absent" allocate a replacement.
+	// Failed machines may retain authoritative data. Keep the name and disk.
 	const settledByName = Effect.fn("BoxdSandboxProvider.settledByName")(
 		function* (name: string) {
 			const found = yield* findByName(name);
-			if (found === null) return null;
-			if (found.status === "failed") {
-				yield* kill(found.id);
-				return null;
-			}
+			if (found?.status === "failed") return yield* providerError("transient");
 			return found;
 		},
 	);
@@ -539,8 +544,8 @@ export const makeBoxdSandboxProvider = (
 		// timeout becomes the hibernate (pause) or destroy (terminate) timer.
 		// ALREADY_EXISTS is the one create failure worth a second look: the
 		// label is the machine name, so a retried create after a lost response
-		// adopts the machine the first attempt made, and a failed one is
-		// deleted and replaced. Every other failure ends this attempt.
+		// adopts the machine the first attempt made. A failed owner retains its
+		// identity and data; every other failure ends this attempt.
 		const createMachine = Effect.tryPromise({
 			try: async () => {
 				try {
@@ -585,33 +590,29 @@ export const makeBoxdSandboxProvider = (
 							),
 				),
 			));
-		// Arm the idle timer before waiting, so a machine that never answers
-		// is not left on the organization default. One that never becomes
-		// usable would keep its label wedged; delete it so the retry starts
-		// fresh instead of adopting it and timing out again.
+		// Configure the backstop once. The actual guarded launch proves guest
+		// readiness; same-size restores need no SDK exec probe or CLI priming.
 		if (input.onTimeout === "pause")
 			yield* call("machines.setAutoHibernateTimeout", () =>
 				client.machines.setAutoHibernateTimeout(created.id, idleSeconds),
 			);
-		const usable = yield* ready(created.id).pipe(
-			Effect.catchTag("SandboxProviderError", (error) =>
-				kill(created.id).pipe(
-					Effect.ignore,
-					Effect.andThen(Effect.fail(error)),
-				),
-			),
-		);
-		if (
-			input.snapshotVersion !== undefined &&
-			(usable.source?.id !== input.snapshot ||
-				usable.source.version !== input.snapshotVersion)
-		) {
-			yield* kill(created.id);
-			return yield* providerError("rejected");
+		let usable = created;
+		if (input.snapshotVersion !== undefined) {
+			if (usable.source?.id == null) usable = yield* machine(created.id);
+			if (
+				usable.source?.id !== input.snapshot ||
+				usable.source.version !== input.snapshotVersion
+			)
+				return yield* providerError("rejected");
 		}
-		yield* applySize(usable, size);
-		yield* prepareRuntime(created.id);
-		yield* primeRuntime(created.id);
+		if (PAUSED_STATUSES.has(usable.status)) {
+			yield* resume(usable.id, input.timeoutSeconds, input.onTimeout, size);
+		} else if (machineSizeOf(usable) !== size) {
+			usable = yield* ready(created.id);
+			yield* applySize(usable, size);
+			yield* prepareRuntime(created.id);
+		}
+
 		return {
 			providerSandboxId: created.id,
 			providerLabel: input.providerLabel,
@@ -635,8 +636,33 @@ export const makeBoxdSandboxProvider = (
 			providerSandboxId,
 			boxSystemdProcessCommand({ ...input, tag, user }, unit, selector),
 		);
-		if (result.exitCode !== 0) return yield* providerError("transient");
+		if (result.exitCode !== 0) {
+			// Provider output can contain the command's environment. Remove every
+			// supplied value before exposing a bounded launch diagnosis.
+			let diagnostic = `${result.stderr ?? ""}\n${result.stdout ?? ""}`;
+			for (const value of Object.values(input.env ?? {})) {
+				if (value.length > 0)
+					diagnostic = diagnostic.replaceAll(value, "[redacted]");
+			}
+			return yield* new SandboxProviderError({
+				code: "transient",
+				diagnostic: diagnostic.slice(-4_096),
+			});
+		}
 	});
+
+	const inspectProcess: NonNullable<
+		SandboxProviderAdapter["inspectProcess"]
+	> = (id, selector, user = COMMAND_USER) =>
+		runCommand(id, boxSystemdProcessInspectionCommand(selector, user)).pipe(
+			Effect.map((result) => {
+				const state = result.stdout.trim();
+				return result.exitCode === 0 &&
+					(state === "active" || state === "inactive")
+					? state
+					: "unknown";
+			}),
+		);
 
 	const startProcess = Effect.fn("BoxdSandboxProvider.startProcess")(function* (
 		providerSandboxId: string,
@@ -692,36 +718,55 @@ export const makeBoxdSandboxProvider = (
 		return result.stdout;
 	});
 
-	const writeTextFile = Effect.fn("BoxdSandboxProvider.writeTextFile")(
-		function* (
-			providerSandboxId: string,
-			path: string,
-			contents: string,
-			user?: string,
-		) {
-			if (
-				!path.startsWith("/") ||
-				new TextEncoder().encode(contents).byteLength > MAX_TEXT_FILE_BYTES
-			)
-				return yield* providerError("rejected");
-			// Uploads land as the command user; stage in /tmp, then install
-			// with owner-only permissions and parents created.
-			const stagingPath = `/tmp/.zuse-write-${crypto.randomUUID()}`;
-			yield* call("machines.files.upload", () =>
-				client.machines.files.upload(providerSandboxId, stagingPath, contents),
-			);
-			const owner = user ?? COMMAND_USER;
-			// Missing parents are created as the owner so the runtime user can
-			// keep writing beside the file; a parent it may not create is made
-			// by root, as before.
-			const directory = path.slice(0, path.lastIndexOf("/")) || "/";
-			const install = yield* runCommand(
-				providerSandboxId,
-				`(sudo -n -u ${shellQuote(owner)} mkdir -p ${shellQuote(directory)} 2>/dev/null || sudo -n install -d -m 0755 ${shellQuote(directory)}) && sudo -n install -m 600 -o ${shellQuote(owner)} -g "$(id -gn ${shellQuote(owner)})" ${shellQuote(stagingPath)} ${shellQuote(path)} && sudo -n rm -f ${shellQuote(stagingPath)}`,
-			);
-			if (install.exitCode !== 0) return yield* providerError("transient");
-		},
-	);
+	const writeTextFiles: NonNullable<SandboxProviderAdapter["writeTextFiles"]> =
+		Effect.fn("BoxdSandboxProvider.writeTextFiles")(
+			function* (providerSandboxId, files, user) {
+				// Validate the entire batch before uploading or changing any file.
+				if (
+					files.some(
+						({ path, contents }) =>
+							!path.startsWith("/") ||
+							new TextEncoder().encode(contents).byteLength >
+								MAX_TEXT_FILE_BYTES,
+					)
+				)
+					return yield* providerError("rejected");
+				if (files.length === 0) return;
+				const owner = user ?? COMMAND_USER;
+				const staged = files.map((file) => ({
+					...file,
+					stagingPath: `/tmp/.zuse-write-${crypto.randomUUID()}`,
+				}));
+				yield* Effect.all(
+					staged.map(({ stagingPath, contents }) =>
+						call("machines.files.upload", () =>
+							client.machines.files.upload(
+								providerSandboxId,
+								stagingPath,
+								contents,
+							),
+						),
+					),
+					{ concurrency: "unbounded", discard: true },
+				);
+				const commands = staged.map(({ path, stagingPath }) => {
+					const directory = path.slice(0, path.lastIndexOf("/")) || "/";
+					return `(sudo -n -u ${shellQuote(owner)} mkdir -p ${shellQuote(directory)} 2>/dev/null || sudo -n install -d -m 0755 ${shellQuote(directory)}) && sudo -n install -m 600 -o ${shellQuote(owner)} -g "$(id -gn ${shellQuote(owner)})" ${shellQuote(stagingPath)} ${shellQuote(path)}`;
+				});
+				const cleanup = `sudo -n rm -f ${staged.map(({ stagingPath }) => shellQuote(stagingPath)).join(" ")}`;
+				const install = yield* runCommand(
+					providerSandboxId,
+					`set -e; trap ${shellQuote(cleanup)} EXIT; ${commands.join(" && ")}`,
+				);
+				if (install.exitCode !== 0) return yield* providerError("transient");
+			},
+		);
+	const writeTextFile: SandboxProviderAdapter["writeTextFile"] = (
+		id,
+		path,
+		contents,
+		user,
+	) => writeTextFiles(id, [{ path, contents }], user);
 
 	const inspect = (
 		providerSandboxId: string,
@@ -855,8 +900,8 @@ export const makeBoxdSandboxProvider = (
 
 	const resume = Effect.fn("BoxdSandboxProvider.resume")(function* (
 		providerSandboxId: string,
-		timeoutSeconds: number,
-		onTimeout: "pause" | "terminate",
+		_timeoutSeconds: number,
+		_onTimeout: "pause" | "terminate",
 		sizeId?: string,
 	) {
 		const current = yield* machine(providerSandboxId);
@@ -879,32 +924,29 @@ export const makeBoxdSandboxProvider = (
 							)
 						: Effect.void;
 		yield* wake.pipe(timing(providerSandboxId, "boxd.resume.request"));
-		const usable = yield* ready(providerSandboxId).pipe(
-			timing(providerSandboxId, "boxd.resume.usable"),
-		);
-		if (onTimeout === "pause")
-			yield* call("machines.setAutoHibernateTimeout", () =>
-				client.machines.setAutoHibernateTimeout(
-					providerSandboxId,
-					clampIdleSeconds(timeoutSeconds),
-				),
-			);
-		// A stopped machine boots cold and a resize reboots: the runtime is
-		// gone either way, and the reconciler's warm reconnect window expires
-		// into the fenced restart. Neither happens on the adapter's own paths.
+		if (current.status === "failed") return yield* providerError("transient");
+		const requestedSize =
+			sizeId === undefined ? undefined : yield* machineSizeFor(sizeId);
+		const resizeRequired =
+			requestedSize !== undefined && machineSizeOf(current) !== requestedSize;
+		// A retained restore requires no guest probes, SDK readiness poll, setup,
+		// CLI priming or timeout rewrite. The installed runtime owns reattachment.
+		if (current.status !== "stopped" && !resizeRequired) {
+			if (current.status !== "running" && !PAUSED_STATUSES.has(current.status))
+				return yield* providerError("transient");
+			return {
+				...toProviderSandbox(current),
+				state: "running" as const,
+				processContinuity: "preserved" as const,
+			};
+		}
+		const usable = yield* ready(providerSandboxId);
 		const sized =
-			sizeId === undefined
+			requestedSize === undefined
 				? usable
-				: yield* applySize(usable, yield* machineSizeFor(sizeId));
-		yield* prepareRuntime(providerSandboxId).pipe(
-			timing(providerSandboxId, "boxd.resume.prepare"),
-		);
-		// Only a cold boot lost its page cache and runtime; a wake keeps both.
-		if (current.status === "stopped" || sized !== usable)
-			yield* primeRuntime(providerSandboxId).pipe(
-				timing(providerSandboxId, "boxd.resume.prime"),
-			);
-		return toProviderSandbox(sized);
+				: yield* applySize(usable, requestedSize);
+		yield* prepareRuntime(providerSandboxId);
+		return { ...toProviderSandbox(sized), processContinuity: "lost" as const };
 	});
 
 	// Hibernate only a running machine, and confirm it parked: a machine
@@ -1003,10 +1045,43 @@ export const makeBoxdSandboxProvider = (
 		input,
 	) =>
 		Effect.gen(function* () {
+			const name = boxdMachineName(input.providerLabel);
+			const existing = yield* settledByName(name);
+			if (existing !== null) {
+				// Adoption is safe only for this exact native fork. A completed child
+				// can now be running its own work: never quarantine or reset it again.
+				if (
+					existing.source?.kind !== "fork" ||
+					existing.source.id !== input.sourceSandboxId
+				)
+					return yield* providerError("rejected");
+				const prepared = yield* runCommand(
+					existing.id,
+					boxForkRuntimePreparedCommand(existing.id),
+				);
+				if (prepared.exitCode === 0) return toProviderSandbox(existing);
+				if (prepared.exitCode !== 1) return yield* providerError("transient");
+				if (
+					!existing.networking.isolated ||
+					existing.networking.networks.length > 0 ||
+					existing.egressAllow.length !== 1 ||
+					existing.egressAllow[0] !== BOXD_FORK_QUARANTINE
+				)
+					return yield* providerError("rejected");
+				const reset = yield* runCommand(
+					existing.id,
+					boxForkRuntimeResetCommand(
+						existing.id,
+						config.runtimeUser ?? RUNTIME_USER,
+						WORKSPACE_RUNTIME_PROCESS_SELECTOR,
+					),
+				);
+				if (reset.exitCode !== 0) return yield* providerError("transient");
+				return toProviderSandbox(existing);
+			}
 			const source = yield* ready(input.sourceSandboxId);
 			if (!source.networking.isolated || source.networking.networks.length > 0)
 				return yield* providerError("rejected");
-			const name = boxdMachineName(input.providerLabel);
 			// The lifecycle owner persists a source-network recovery intent before
 			// this call, so a worker crash cannot leave the parent fenced forever.
 			return yield* Effect.gen(function* () {
@@ -1020,6 +1095,7 @@ export const makeBoxdSandboxProvider = (
 						config: { autoSuspendTimeout: 0 },
 					}),
 				);
+				if (created.id === source.id) return yield* providerError("rejected");
 				yield* call("machines.setAutoHibernateTimeout", () =>
 					client.machines.setAutoHibernateTimeout(
 						created.id,
@@ -1028,12 +1104,25 @@ export const makeBoxdSandboxProvider = (
 				);
 				const child = yield* ready(created.id);
 				if (
+					child.source?.kind !== "fork" ||
+					child.source.id !== source.id ||
+					!child.networking.isolated ||
+					child.networking.networks.length > 0 ||
 					child.egressAllow.length !== 1 ||
 					child.egressAllow[0] !== BOXD_FORK_QUARANTINE
 				) {
 					yield* kill(child.id);
 					return yield* providerError("rejected");
 				}
+				const reset = yield* runCommand(
+					child.id,
+					boxForkRuntimeResetCommand(
+						child.id,
+						config.runtimeUser ?? RUNTIME_USER,
+						WORKSPACE_RUNTIME_PROCESS_SELECTOR,
+					),
+				);
+				if (reset.exitCode !== 0) return yield* providerError("transient");
 				return {
 					providerSandboxId: child.id,
 					providerLabel: input.providerLabel,
@@ -1061,6 +1150,9 @@ export const makeBoxdSandboxProvider = (
 		displayName: "boxd",
 		templateVersion: config.templateVersion,
 		preservesProcessesOnResume: true,
+		supportsFencedProcessReplacement: true,
+		supportsIdempotentAllocation: true,
+		configuresAllocationTimeout: true,
 		getUsage: config.billingUsageEnabled
 			? (id, window) =>
 					call("usage", async () => {
@@ -1123,12 +1215,7 @@ export const makeBoxdSandboxProvider = (
 		// Account images are snapshots; a restore boots into the captured
 		// state in milliseconds with its memory intact.
 		resolveSnapshotSource: (snapshotId) =>
-			call("snapshots.get", () =>
-				client.snapshots.get(
-					snapshotId,
-					org === undefined ? undefined : { org },
-				),
-			).pipe(
+			snapshotReference(snapshotId).pipe(
 				Effect.flatMap((info) =>
 					info.status === "ready" && info.version !== null
 						? Effect.succeed({ snapshotId: info.id, version: info.version })
@@ -1153,7 +1240,9 @@ export const makeBoxdSandboxProvider = (
 		replaceProcess,
 		pathExists,
 		readTextFile,
+		inspectProcess,
 		writeTextFile,
+		writeTextFiles,
 		inspect,
 		resolveEndpoint,
 		revokeEndpoint,

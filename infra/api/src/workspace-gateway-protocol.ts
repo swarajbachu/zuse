@@ -3,6 +3,7 @@ export const LEGACY_WORKSPACE_GATEWAY_PROTOCOL = "zuse-workspace-v1" as const;
 
 export type WorkspaceGatewayProtocol =
 	| typeof WORKSPACE_GATEWAY_PROTOCOL
+	| typeof WORKSPACE_GATEWAY_PENDING_PROTOCOL
 	| typeof LEGACY_WORKSPACE_GATEWAY_PROTOCOL;
 
 /** Only the API's verified response may supply internal gateway authority. */
@@ -36,6 +37,7 @@ export const workspaceGatewayProtocol = (
 	value: string | undefined,
 ): WorkspaceGatewayProtocol | undefined =>
 	value === WORKSPACE_GATEWAY_PROTOCOL ||
+	value === WORKSPACE_GATEWAY_PENDING_PROTOCOL ||
 	value === LEGACY_WORKSPACE_GATEWAY_PROTOCOL
 		? value
 		: undefined;
@@ -95,3 +97,7 @@ export const decodeGatewayMessage = (
 			return null;
 	}
 };
+
+import { WORKSPACE_GATEWAY_PENDING_PROTOCOL } from "@zuse/contracts";
+
+export { WORKSPACE_GATEWAY_PENDING_PROTOCOL } from "@zuse/contracts";

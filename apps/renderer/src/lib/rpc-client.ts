@@ -106,95 +106,11 @@ const cloudWorkspaceRegistrations = new Map<
 	string,
 	CloudWorkspaceRegistration
 >();
-const cloudWorkspaceRuntimeRecoveryCommands = new Map<string, string>();
-const cloudWorkspaceAbnormalCloseCounts = new Map<string, number>();
-const cloudWorkspaceHealthyConnections = new Set<string>();
-
 const invalidateCloudWorkspaceTicket = (workspaceId: string): void => {
 	const registration = cloudWorkspaceRegistrations.get(workspaceId);
 	if (registration !== undefined) registration.connection = null;
 };
 
-/** Queue one idempotent resume/reconcile when the provider confirms runtime loss. */
-export const requestCloudWorkspaceRuntimeRecovery = (
-	workspaceId: string,
-): void => {
-	invalidateCloudWorkspaceTicket(workspaceId);
-	if (!cloudWorkspaceRuntimeRecoveryCommands.has(workspaceId)) {
-		cloudWorkspaceRuntimeRecoveryCommands.set(workspaceId, crypto.randomUUID());
-	}
-};
-
-const recordCloudWorkspaceGatewayClose = (
-	workspaceId: string,
-	close: Pick<WebSocketCloseInfo, "code">,
-): void => {
-	const result = cloudGatewayCloseRecovery(
-		close.code,
-		cloudWorkspaceHealthyConnections.has(workspaceId),
-		cloudWorkspaceAbnormalCloseCounts.get(workspaceId) ?? 0,
-	);
-	if (result.abnormalCloses === 0)
-		cloudWorkspaceAbnormalCloseCounts.delete(workspaceId);
-	else
-		cloudWorkspaceAbnormalCloseCounts.set(workspaceId, result.abnormalCloses);
-	if (result.recover) requestCloudWorkspaceRuntimeRecovery(workspaceId);
-};
-
-export const markCloudWorkspaceConnectionHealthy = (
-	workspaceId: string,
-): void => {
-	cloudWorkspaceAbnormalCloseCounts.delete(workspaceId);
-	cloudWorkspaceHealthyConnections.add(workspaceId);
-};
-
-export const cloudWorkspaceRequiresRuntimeRecovery = (
-	workspaceId: string,
-): boolean => cloudWorkspaceRuntimeRecoveryCommands.has(workspaceId);
-
-export const cloudWorkspaceRuntimeRecoveryCommandId = (
-	workspaceId: string,
-): string | undefined => cloudWorkspaceRuntimeRecoveryCommands.get(workspaceId);
-
-export const clearCloudWorkspaceRuntimeRecovery = (
-	workspaceId: string,
-): void => {
-	cloudWorkspaceRuntimeRecoveryCommands.delete(workspaceId);
-};
-
-/** Consume a missing-runtime signal before issuing the next one-time gateway
- * ticket. Recovery and ticket minting stay ordered inside the same retry so a
- * healthy-looking but detached api record cannot cause a reconnect loop. */
-export const refreshCloudWorkspaceConnectionWithRecovery = async (
-	workspaceId: string,
-	recover: (commandId: string) => Promise<void>,
-	connect: () => Promise<CloudWorkspaceConnection>,
-): Promise<CloudWorkspaceConnection> => {
-	const recoveryCommandId = cloudWorkspaceRuntimeRecoveryCommandId(workspaceId);
-	if (recoveryCommandId !== undefined) {
-		try {
-			await recover(recoveryCommandId);
-		} catch (cause) {
-			// A completed recovery can still end in a terminal startup failure. Its
-			// command id remains a valid idempotency receipt, so replaying it can only
-			// return that same failed workspace forever. Let the next missing-runtime
-			// close mint one fresh recovery command.
-			if (
-				cloudWorkspaceRuntimeRecoveryCommandId(workspaceId) ===
-				recoveryCommandId
-			)
-				clearCloudWorkspaceRuntimeRecovery(workspaceId);
-			throw cause;
-		}
-	}
-	const connection = await connect();
-	if (
-		recoveryCommandId !== undefined &&
-		cloudWorkspaceRuntimeRecoveryCommandId(workspaceId) === recoveryCommandId
-	)
-		clearCloudWorkspaceRuntimeRecovery(workspaceId);
-	return connection;
-};
 // Tickets last roughly a minute. Keep only a short safety margin so one live
 // activation can reuse its freshly issued ticket without minting a second one.
 const CLOUD_TICKET_REUSE_WINDOW_MS = 10_000;
@@ -374,13 +290,7 @@ const makeRendererRpcSession = async (
 					),
 					{
 						openTimeout: rendererWebSocketOpenTimeout(options.key),
-						makeWebSocket:
-							options.protocols === undefined
-								? undefined
-								: (url) =>
-										new globalThis.WebSocket(url, [
-											...(options.protocols ?? []),
-										]),
+						protocols: options.protocols,
 						onClose: notifyClose,
 					},
 				);
@@ -437,7 +347,6 @@ const supervisor = createConnectionSupervisor<
 				if (options.key.startsWith("workspace:")) {
 					const workspaceId = options.key.slice("workspace:".length);
 					invalidateCloudWorkspaceTicket(workspaceId);
-					recordCloudWorkspaceGatewayClose(workspaceId, event);
 				}
 				reportRendererEntryFailure(
 					options.key,
@@ -585,7 +494,6 @@ export const acquireRendererRpcSession = async (
 			if (prepared.key.startsWith("workspace:")) {
 				const workspaceId = prepared.key.slice("workspace:".length);
 				hooks.invalidateCloudTicket(workspaceId);
-				recordCloudWorkspaceGatewayClose(workspaceId, close);
 			}
 			options.onClose?.(
 				new Error(
@@ -857,9 +765,6 @@ export const removeRendererEnvironment = async (
 ): Promise<void> => {
 	environmentConnections.delete(environmentId);
 	cloudWorkspaceRegistrations.delete(environmentId);
-	cloudWorkspaceAbnormalCloseCounts.delete(environmentId);
-	cloudWorkspaceHealthyConnections.delete(environmentId);
-	cloudWorkspaceRuntimeRecoveryCommands.delete(environmentId);
 	const entry = rendererEntries.get(environmentId);
 	rendererEntries.delete(environmentId);
 	if (activeEnvironmentId === environmentId)
@@ -932,9 +837,6 @@ export const disposeRpcClient = async (): Promise<void> => {
 	rendererEntries.clear();
 	environmentConnections.clear();
 	cloudWorkspaceRegistrations.clear();
-	cloudWorkspaceRuntimeRecoveryCommands.clear();
-	cloudWorkspaceAbnormalCloseCounts.clear();
-	cloudWorkspaceHealthyConnections.clear();
 	localEnvironmentId = LOCAL_ENVIRONMENT_KEY;
 	setActiveEnvironmentStorageScope(LOCAL_RENDERER_STORAGE_SCOPE);
 	await supervisor.dispose();
@@ -947,5 +849,3 @@ if (typeof window !== "undefined") {
 		void disposeRpcClient();
 	});
 }
-
-import { cloudGatewayCloseRecovery } from "@zuse/client-runtime/cloud-gateway-recovery";

@@ -1,4 +1,5 @@
 import { makeRpcClientSession } from "@zuse/client-runtime/connection";
+import type { EnvironmentWakeIntent } from "@zuse/client-runtime/environment-runtime";
 import {
 	type ConnectionSnapshot,
 	type ConnectionSupervisorEntry,
@@ -13,7 +14,6 @@ import { connectEnvironment } from "./api-client";
 import {
 	connectCloudRuntime,
 	markCloudGatewayHealthy,
-	recordCloudGatewayClose,
 	requestCloudRuntimeWake,
 } from "./cloud-runtime";
 import {
@@ -44,7 +44,6 @@ type PreparedOptions = WsProtocolOptions & {
 	readonly cloudProtocols?: readonly string[];
 };
 const makeClientSession = (options: PreparedOptions) => {
-	const workspaceId = options.cloudWorkspaceId;
 	logConnectionDiagnostic("runtime.create", {
 		key: runtimeKey(options),
 		api: options.environmentId !== undefined,
@@ -59,10 +58,6 @@ const makeClientSession = (options: PreparedOptions) => {
 		openTimeout: "25 seconds",
 		makeWebSocket: makeMobileWebSocket,
 		protocols: options.cloudProtocols,
-		onClose:
-			workspaceId === undefined
-				? undefined
-				: (event) => recordCloudGatewayClose(workspaceId, event.code),
 	}).pipe(Layer.orDie);
 	return makeRpcClientSession(protocolLayer, MemoizeRpcs, {
 		protocolVersion: WIRE_PROTOCOL_VERSION,
@@ -172,6 +167,7 @@ const connectionEntry = (
 export const getConnectionClient = (
 	options: WsProtocolOptions,
 	wake = true,
+	wakeIntent?: EnvironmentWakeIntent,
 ): Effect.Effect<MemoizeClient, ConnectionFailed> =>
 	Effect.suspend(() => {
 		if (
@@ -179,7 +175,7 @@ export const getConnectionClient = (
 			options.cloudWorkspaceId !== undefined &&
 			getConnectionSnapshot(options).status !== "connected"
 		)
-			requestCloudRuntimeWake(options.cloudWorkspaceId);
+			requestCloudRuntimeWake(options.cloudWorkspaceId, wakeIntent);
 		return connectionEntry(options)
 			.getClient()
 			.pipe(

@@ -5,7 +5,7 @@ describe("cloud SSH readiness", () => {
 	it("keeps a wake lease until the gateway authorizes the desktop key", () => {
 		const retainGateway = cloudSshSource.indexOf("retainEnvironmentShell(");
 		const waitForGateway = cloudSshSource.indexOf(
-			"await waitForWorkspaceGateway(environmentId, retained.key)",
+			"await waitForEnvironmentGateway(environmentId, retained.key)",
 		);
 		const requestAccess = cloudSshSource.indexOf(
 			"access = await requestSshAccess(workspaceId)",

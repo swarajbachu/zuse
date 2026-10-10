@@ -34,7 +34,10 @@ for agent in claude codex; do
 done
 
 # Fail publication if native dependencies or the installed CLI cannot load.
-runuser -u zuse -- /usr/local/bin/zuse --help >/dev/null
+runuser -u zuse -- env NODE_COMPILE_CACHE=/opt/zuse/node-compile-cache /usr/local/bin/zuse --help >/dev/null
+# Load transient-service machinery before capturing memory. Workspace allocation
+# executes only its authorized guarded launch, without separate priming calls.
+systemd-run --quiet --collect --wait --uid=zuse -- /bin/true
 
 # Keep the runtime user unprivileged: no sudo or admin groups.
 gpasswd -d zuse sudo 2>/dev/null || true

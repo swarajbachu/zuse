@@ -27,6 +27,7 @@ import { ApiConfiguration } from "./config.ts";
 import { type ApiContext, handleRequest } from "./handler.ts";
 import { reconcileMachine, reconcileMachines } from "./machine-reconciler.ts";
 import { makeSlackModule, type SlackOptions } from "./slack/module.ts";
+import type { WorkspaceStartupOutcome } from "./workspace-startup.ts";
 
 export * from "./account-identity.ts";
 export * from "./api-webhook-dispatch.ts";
@@ -60,9 +61,7 @@ export const makeApi = (
 	layer: Layer.Layer<ApiContext>,
 	options?: {
 		readonly slack?: SlackOptions;
-		readonly scheduleColdWorkspaceStartup?: (
-			workspaceId: string,
-		) => Promise<void>;
+		readonly scheduleWorkspaceStartup?: (workspaceId: string) => Promise<void>;
 		/** Retain the receiver's identity while disabled so pending deliveries retry. */
 		readonly slackPublicOrigin?: string;
 	},
@@ -90,7 +89,7 @@ export const makeApi = (
 	readonly reconcileCloudWorkspace: (workspaceId: string) => Promise<void>;
 	readonly reconcileCloudWorkspaceStartup: (
 		workspaceId: string,
-	) => Promise<void>;
+	) => Promise<WorkspaceStartupOutcome>;
 	readonly requestCloudMailboxWake: (
 		workspaceId: string,
 		accountId: string,
@@ -187,7 +186,7 @@ export const makeApi = (
 			runtime.runPromise(
 				reconcileCloudWorkspaceStartup(
 					workspaceId,
-					options?.scheduleColdWorkspaceStartup,
+					options?.scheduleWorkspaceStartup,
 				),
 			),
 		requestCloudMailboxWake: (workspaceId, accountId) =>

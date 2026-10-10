@@ -83,8 +83,10 @@ it("shows the snapshot's GitHub user with an avatar and owner avatars for reposi
 		/>,
 	);
 	expect(markup).toContain("@octo-cat");
-	expect(markup).toContain("Signed in with gh on your snapshot");
-	expect(markup).toContain("Signed in");
+	expect(markup).toContain(
+		"GitHub login verified when the snapshot was checked",
+	);
+	expect(markup).toContain("Verified in snapshot");
 	expect(markup).toContain('aria-label="acme avatar"');
 	expect(markup).toContain('aria-label="octo-cat avatar"');
 	expect(

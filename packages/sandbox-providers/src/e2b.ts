@@ -8,7 +8,11 @@ import {
 	SandboxProviderError,
 	type SandboxProviderResources,
 } from "./index.ts";
-import { providerError } from "./provider-input.ts";
+import {
+	processGroupCommand,
+	processGroupInspectionCommand,
+} from "./process-group.ts";
+import { providerError, validatedEnv } from "./provider-input.ts";
 
 const SandboxMetadata = Schema.optional(
 	Schema.NullOr(Schema.Record(Schema.String, Schema.String)),
@@ -34,18 +38,6 @@ const SandboxListResponse = Schema.Array(SandboxDetail);
 
 const SnapshotResponse = Schema.Struct({
 	snapshotID: Schema.String,
-});
-
-const ProcessInfo = Schema.Struct({
-	config: Schema.Struct({
-		cmd: Schema.String,
-		args: Schema.optional(Schema.Array(Schema.String)),
-	}),
-	pid: Schema.Number,
-	tag: Schema.optional(Schema.NullOr(Schema.String)),
-});
-const ProcessListResponse = Schema.Struct({
-	processes: Schema.Array(ProcessInfo),
 });
 
 type SandboxDetail = Schema.Schema.Type<typeof SandboxDetail>;
@@ -144,32 +136,50 @@ const connectJsonEnvelope = (value: unknown): Uint8Array<ArrayBuffer> => {
 	return envelope;
 };
 
-const readConnectJsonEnvelope = async (
+async function* readConnectJsonEvents(
 	reader: ReadableStreamDefaultReader<Uint8Array>,
-): Promise<unknown> => {
+) {
 	let bytes = new Uint8Array(0);
-	let payloadLength: number | undefined;
-	while (payloadLength === undefined || bytes.byteLength < payloadLength + 5) {
+	while (true) {
+		while (bytes.byteLength >= 5) {
+			const size = new DataView(bytes.buffer, bytes.byteOffset).getUint32(
+				1,
+				false,
+			);
+			if (size > 1_048_576) throw new Error("Connect event exceeded limit");
+			if (bytes.byteLength < size + 5) break;
+			const flags = bytes[0];
+			const event = JSON.parse(
+				new TextDecoder().decode(bytes.slice(5, size + 5)),
+			);
+			bytes = bytes.slice(size + 5);
+			if (flags !== 0)
+				throw new Error("Connect stream ended before process receipt");
+			yield event;
+		}
 		const next = await reader.read();
-		if (next.done) throw new Error("Connect stream ended before an event");
+		if (next.done)
+			throw new Error("Connect stream ended before process receipt");
 		const merged = new Uint8Array(bytes.byteLength + next.value.byteLength);
 		merged.set(bytes);
 		merged.set(next.value, bytes.byteLength);
 		bytes = merged;
-		if (bytes.byteLength >= 5 && payloadLength === undefined) {
-			if ((bytes[0] ?? 0) !== 0) {
-				throw new Error("Connect stream returned an end-stream envelope");
-			}
-			payloadLength = new DataView(bytes.buffer).getUint32(1, false);
-			if (payloadLength > 1_048_576) {
-				throw new Error("Connect stream event exceeded the size limit");
-			}
-		}
 	}
-	return JSON.parse(
-		new TextDecoder().decode(bytes.slice(5, 5 + (payloadLength ?? 0))),
-	);
-};
+}
+
+const ProcessEvent = Schema.Struct({
+	event: Schema.Struct({
+		data: Schema.optionalKey(
+			Schema.Struct({ stdout: Schema.optionalKey(Schema.String) }),
+		),
+		end: Schema.optionalKey(
+			Schema.Struct({
+				exitCode: Schema.optionalKey(Schema.Number),
+				exited: Schema.Boolean,
+			}),
+		),
+	}),
+});
 
 const isProcessStartEvent = (
 	value: unknown,
@@ -407,150 +417,119 @@ export const makeE2bSandboxProvider = (
 			: { Authorization: `Basic ${btoa(`${user}:`)}` }),
 	});
 
-	const startProcess = Effect.fn("E2bSandboxProvider.startProcess")(function* (
-		providerSandboxId: string,
-		input: SandboxProcessInput,
-	) {
-		const { accessToken, host } = yield* processConnection(providerSandboxId);
-		const response = yield* Effect.tryPromise({
-			try: () =>
-				http.fetch(`https://${host}/process.Process/Start`, {
-					method: "POST",
-					headers: {
-						"Connect-Protocol-Version": "1",
-						"Content-Type": "application/connect+json",
-						...envdHeaders(providerSandboxId, accessToken, input.user),
-					},
-					body: connectJsonEnvelope({
-						process: {
-							cmd: input.command,
-							args: input.args ?? [],
-							cwd: input.cwd,
-							envs: input.env ?? {},
-						},
-						tag: input.tag,
-						stdin: false,
-					}),
-				}),
-			catch: () => providerError("transient"),
-		});
-
-		if (!response.ok) return yield* errorForStatus(response.status);
-		// Process.Start is a server stream. Wait for envd's first process event so
-		// cancelling the response cannot race process creation, then release the
-		// stream instead of holding a Worker request for the server's lifetime.
-		yield* Effect.tryPromise({
-			try: async () => {
-				if (response.body === null) {
-					throw new Error("Process.Start returned no stream");
-				}
-				const reader = response.body.getReader();
-				try {
-					const first = await readConnectJsonEnvelope(reader);
-					if (!isProcessStartEvent(first)) {
-						throw new Error("Process.Start did not return a start event");
-					}
-				} finally {
-					await reader.cancel();
-				}
-			},
-			catch: () => providerError("transient"),
-		});
-	});
-
-	const replaceProcess = Effect.fn("E2bSandboxProvider.replaceProcess")(
+	const executeProcess = Effect.fn("E2bSandboxProvider.executeProcess")(
 		function* (
 			providerSandboxId: string,
-			selector: SandboxProcessSelector,
 			input: SandboxProcessInput,
+			waitForExit = false,
 		) {
+			yield* validatedEnv(input.env ?? {});
 			const { accessToken, host } = yield* processConnection(providerSandboxId);
-			const listResponse = yield* Effect.tryPromise({
+			const response = yield* Effect.tryPromise({
 				try: () =>
-					http.fetch(`https://${host}/process.Process/List`, {
+					http.fetch(`https://${host}/process.Process/Start`, {
 						method: "POST",
 						headers: {
 							"Connect-Protocol-Version": "1",
-							"Content-Type": "application/json",
-							...envdHeaders(providerSandboxId, accessToken),
+							"Content-Type": "application/connect+json",
+							...envdHeaders(providerSandboxId, accessToken, input.user),
 						},
-						body: "{}",
+						signal: AbortSignal.timeout(60_000),
+						body: connectJsonEnvelope({
+							process: {
+								cmd: input.command,
+								args: input.args ?? [],
+								cwd: input.cwd,
+								envs: input.env ?? {},
+							},
+							tag: input.tag,
+							stdin: false,
+						}),
 					}),
 				catch: () => providerError("transient"),
 			});
-			if (!listResponse.ok) return yield* errorForStatus(listResponse.status);
-			const listed = yield* Effect.tryPromise({
-				try: () => listResponse.json(),
-				catch: () => providerError("transient"),
-			}).pipe(
-				Effect.flatMap(Schema.decodeUnknownEffect(ProcessListResponse)),
-				Effect.mapError(() => providerError("transient")),
-			);
-			const legacyMarkers = selector.legacyCommandMarkers ?? [];
-			const replaced = listed.processes.filter((process) => {
-				if (process.tag === selector.tag) {
-					return true;
-				}
-				const command = [
-					process.config.cmd,
-					...(process.config.args ?? []),
-				].join(" ");
-				const matches = legacyMarkers.some((marker) =>
-					command.includes(marker),
-				);
-				return matches;
-			});
-			yield* Effect.forEach(
-				replaced,
-				(process) =>
-					Effect.tryPromise({
-						try: () =>
-							http.fetch(`https://${host}/process.Process/SendSignal`, {
-								method: "POST",
-								headers: {
-									"Connect-Protocol-Version": "1",
-									"Content-Type": "application/json",
-									...envdHeaders(providerSandboxId, accessToken),
-								},
-								body: JSON.stringify({
-									process: { pid: process.pid },
-									signal: "SIGNAL_SIGKILL",
-								}),
-							}),
-						catch: () => providerError("transient"),
-					}).pipe(
-						Effect.flatMap((response) =>
-							response.ok
-								? Effect.void
-								: Effect.fail(errorForStatus(response.status)),
-						),
-					),
-				{ concurrency: "unbounded" },
-			);
-			const cleanupLegacyCommands =
-				selector.legacyCleanup === "matching-command" &&
-				legacyMarkers.length > 0;
-			const replacement = cleanupLegacyCommands
-				? {
-						...input,
-						command: "/bin/bash",
-						args: [
-							"-lc",
-							'marker_count=$1; shift; for ((i=0; i<marker_count; i++)); do marker=$1; shift; for proc in /proc/[0-9]*; do pid=$(basename -- "$proc"); if [ "$pid" = "$$" ] || [ "$pid" = "$PPID" ]; then continue; fi; command=$(tr "\\0" " " < "$proc/cmdline" 2>/dev/null) || continue; if [[ "$command" == *"$marker"* ]]; then kill -KILL "$pid" 2>/dev/null || true; fi; done; done; exec "$@"',
-							"zuse-runtime-legacy-cleanup",
-							String(legacyMarkers.length),
-							...legacyMarkers,
-							input.command,
-							...(input.args ?? []),
-						],
+
+			if (!response.ok) return yield* errorForStatus(response.status);
+			return yield* Effect.tryPromise({
+				try: async () => {
+					if (response.body === null)
+						throw new Error("Process.Start returned no stream");
+					const reader = response.body.getReader();
+					let started = false;
+					let stdout = "";
+					try {
+						for await (const value of readConnectJsonEvents(reader)) {
+							if (!started) {
+								if (!isProcessStartEvent(value))
+									throw new Error("Process.Start missing start event");
+								started = true;
+								if (!waitForExit) return { exitCode: 0, stdout };
+							}
+							const { event } = Schema.decodeUnknownSync(ProcessEvent)(value);
+							if (event.data?.stdout !== undefined) {
+								stdout += atob(event.data.stdout);
+								if (stdout.length > 65_536)
+									throw new Error("Process output exceeded limit");
+							}
+							if (event.end !== undefined) {
+								if (!event.end.exited) throw new Error("Process did not exit");
+								return { exitCode: event.end.exitCode ?? 0, stdout };
+							}
+						}
+						throw new Error("Process missing exit receipt");
+					} finally {
+						await reader.cancel();
 					}
-				: input;
-			yield* startProcess(providerSandboxId, {
-				...replacement,
-				tag: selector.tag,
+				},
+				catch: () => providerError("transient"),
 			});
 		},
 	);
+
+	const guestCommand = (providerSandboxId: string, command: string) =>
+		executeProcess(
+			providerSandboxId,
+			{
+				command: "/bin/bash",
+				args: ["-c", command],
+				user: "root",
+			},
+			true,
+		);
+	const managedProcess = Effect.fn("E2bSandboxProvider.managedProcess")(
+		function* (
+			providerSandboxId: string,
+			input: SandboxProcessInput,
+			selector?: SandboxProcessSelector,
+		) {
+			yield* validatedEnv(input.env ?? {});
+			const result = yield* guestCommand(
+				providerSandboxId,
+				processGroupCommand(input, selector),
+			);
+			if (result.exitCode !== 0) return yield* providerError("transient");
+		},
+	);
+	const startProcess: SandboxProviderAdapter["startProcess"] = (id, input) =>
+		input.tag === undefined
+			? executeProcess(id, input).pipe(Effect.asVoid)
+			: managedProcess(id, input);
+	const replaceProcess: SandboxProviderAdapter["replaceProcess"] = (
+		id,
+		selector,
+		input,
+	) => managedProcess(id, input, selector);
+	const inspectProcess: NonNullable<
+		SandboxProviderAdapter["inspectProcess"]
+	> = (id, selector, user = "user") =>
+		guestCommand(id, processGroupInspectionCommand(selector, user)).pipe(
+			Effect.map((result) =>
+				result.exitCode === 0 &&
+				(result.stdout === "active" || result.stdout === "inactive")
+					? result.stdout
+					: "unknown",
+			),
+		);
 
 	const pathExists = Effect.fn("E2bSandboxProvider.pathExists")(function* (
 		providerSandboxId: string,
@@ -663,6 +642,7 @@ export const makeE2bSandboxProvider = (
 		displayName: "E2B",
 		templateVersion: config.templateVersion ?? config.templateId,
 		preservesProcessesOnResume: true,
+		supportsFencedProcessReplacement: true,
 		resources,
 		// The template pins one compute profile; sizeId inputs are ignored.
 		sizes: [{ sizeId: "standard", displayName: "Standard", ...resources }],
@@ -709,6 +689,7 @@ export const makeE2bSandboxProvider = (
 			),
 		startProcess,
 		replaceProcess,
+		inspectProcess,
 		pathExists,
 		readTextFile,
 		writeTextFile,
@@ -739,7 +720,10 @@ export const makeE2bSandboxProvider = (
 					},
 				);
 				const detail = yield* sandboxDetail(providerSandboxId);
-				return toProviderSandbox(detail);
+				return {
+					...toProviderSandbox(detail),
+					processContinuity: "unknown" as const,
+				};
 			},
 		),
 		extendTimeout: (providerSandboxId, timeoutSeconds) =>

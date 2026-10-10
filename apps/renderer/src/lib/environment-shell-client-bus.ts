@@ -686,6 +686,58 @@ export const retainEnvironmentShell = (
 	};
 };
 
+/** Await an authenticated runtime client, independently of repository setup. */
+export const waitForEnvironmentGateway = (
+	environmentId: EnvironmentId,
+	key: EnvironmentShellResourceKey,
+	timeoutMs = 30_000,
+): Promise<void> => {
+	const bus = getRendererClientBus();
+	if (bus.client(environmentId) !== null) return Promise.resolve();
+	return new Promise((resolve, reject) => {
+		let settled = false;
+		let unsubscribe: () => void = () => undefined;
+		const finish = (cause?: Error): void => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeout);
+			unsubscribe();
+			if (cause === undefined) resolve();
+			else reject(cause);
+		};
+		const check = (): void => {
+			if (bus.client(environmentId) !== null) {
+				finish();
+				return;
+			}
+			const connection = bus.connection(environmentId);
+			if (
+				connection.phase === "failed" ||
+				connection.phase === "blocked-auth" ||
+				connection.phase === "update-required" ||
+				connection.phase === "revoked"
+			) {
+				finish(
+					new Error(
+						connection.error ?? "The cloud workspace gateway is not available.",
+					),
+				);
+			}
+		};
+		const timeout = setTimeout(() => {
+			const connection = bus.connection(environmentId);
+			finish(
+				new Error(
+					connection.error ??
+						"Timed out waiting for the cloud workspace gateway.",
+				),
+			);
+		}, timeoutMs);
+		unsubscribe = bus.subscribe(key, check);
+		check();
+	});
+};
+
 /**
  * Public reads are scoped to the selected workspace. The driver, overlays and
  * persistence keep the full cell, so switching workspace never refetches.

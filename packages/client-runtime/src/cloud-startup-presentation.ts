@@ -66,7 +66,18 @@ export const cloudPhaseLabel = (
 		case "authenticating-runtime":
 			return "Starting secure cloud runtime…";
 		case "syncing-repository":
-			return "Preparing repository…";
+			switch (statusCode) {
+				case "preparing-credentials":
+					return "Preparing connected accounts…";
+				case "checking-repository":
+					return "Checking repository…";
+				case "switching-branch":
+					return "Switching branch…";
+				case "fetching-repository":
+					return "Fetching repository…";
+				default:
+					return "Preparing repository…";
+			}
 		case "starting-agent":
 		case "running":
 			return "Cloud workspace ready";

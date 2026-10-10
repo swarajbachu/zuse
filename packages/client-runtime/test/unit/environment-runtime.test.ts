@@ -631,4 +631,150 @@ describe("EnvironmentRuntimeRegistry", () => {
 		sidebar.release();
 		await registry.dispose();
 	});
+	it("consumes wake once while transport retries and online rearm remain passive", async () => {
+		const activations: string[] = [];
+		const scheduled: Array<() => void> = [];
+		const registry = new EnvironmentRuntimeRegistry(
+			{
+				resolve: (_id, activation, wakeIntent) => {
+					activations.push(activation);
+					wakeIntent?.acknowledge();
+					return Effect.fail({
+						phase: "failed" as const,
+						message: "gateway unavailable",
+					});
+				},
+			},
+			{
+				schedule: (_delay, task) => {
+					scheduled.push(task);
+					return () => undefined;
+				},
+			},
+		);
+		const runtime = registry.get(EnvironmentId.make("one-wake"));
+		const lease = runtime.retain("wake");
+		await waitUntil(() => scheduled.length === 1);
+		scheduled[0]?.();
+		await waitUntil(() => scheduled.length === 2);
+		await runtime.retryNow().catch(() => undefined);
+		registry.setOnline(false);
+		registry.setOnline(true);
+		await waitUntil(() => scheduled.length === 4);
+		for (let tick = 0; tick < 10; tick++) await Promise.resolve();
+		expect(activations).toEqual(["wake", "connect", "connect", "connect"]);
+		const nextDemand = runtime.retain("wake");
+		await waitUntil(() => activations.length === 5);
+		expect(activations[4]).toBe("wake");
+		nextDemand.release();
+		lease.release();
+		await registry.dispose();
+	});
+
+	it("does not replay a fulfilled wake when its retained connection drops", async () => {
+		const activations: string[] = [];
+		const registry = new EnvironmentRuntimeRegistry({
+			resolve: (_id, activation) => {
+				activations.push(activation);
+				return Effect.succeed({ client: {}, dispose: async () => undefined });
+			},
+		});
+		const runtime = registry.get(EnvironmentId.make("sleep-after-work"));
+		const lease = runtime.retain("wake");
+		await lease.activate("wake");
+		runtime.reportFault(
+			{ phase: "failed", message: "gateway closed" },
+			runtime.snapshot().generation,
+		);
+		await runtime.retryNow();
+		expect(activations).toEqual(["wake", "connect"]);
+		expect(runtime.snapshot().phase).toBe("connected");
+		lease.release();
+		await registry.dispose();
+	});
+	it("retries unacknowledged wake with the same command and stops after acknowledgment", async () => {
+		const activations: string[] = [];
+		const commands: string[] = [];
+		const scheduled: Array<() => void> = [];
+		const registry = new EnvironmentRuntimeRegistry(
+			{
+				resolve: (_id, activation, wakeIntent) => {
+					activations.push(activation);
+					if (wakeIntent !== undefined) commands.push(wakeIntent.commandId);
+					if (activations.length === 2) wakeIntent?.acknowledge();
+					return Effect.fail({
+						phase: "failed" as const,
+						message:
+							activations.length === 1
+								? "resume response lost"
+								: "ticket unavailable",
+					});
+				},
+			},
+			{
+				schedule: (_delay, task) => {
+					scheduled.push(task);
+					return () => undefined;
+				},
+			},
+		);
+		const runtime = registry.get(EnvironmentId.make("wake-response-loss"));
+		const lease = runtime.retain("wake");
+		await waitUntil(() => scheduled.length === 1);
+		scheduled[0]?.();
+		await waitUntil(() => scheduled.length === 2);
+		scheduled[1]?.();
+		await waitUntil(() => scheduled.length === 3);
+		expect(activations).toEqual(["wake", "wake", "connect"]);
+		expect(commands).toHaveLength(2);
+		expect(commands[0]).toBe(commands[1]);
+		lease.release();
+		await registry.dispose();
+	});
+
+	it("does not lose pending wake intent while the device is offline", async () => {
+		const activations: string[] = [];
+		const registry = new EnvironmentRuntimeRegistry(
+			{
+				resolve: (_id, activation) => {
+					activations.push(activation);
+					return Effect.succeed({ client: {}, dispose: async () => undefined });
+				},
+			},
+			{ isOnline: () => false, schedule: () => () => undefined },
+		);
+		const runtime = registry.get(EnvironmentId.make("offline-wake"));
+		const lease = runtime.retain("wake");
+		expect(activations).toEqual([]);
+		registry.setOnline(true);
+		await waitUntil(() => runtime.snapshot().phase === "connected");
+		expect(activations).toEqual(["wake"]);
+		lease.release();
+		await registry.dispose();
+	});
+	it.each([
+		"blocked-auth",
+		"revoked",
+		"update-required",
+	] as const)("surfaces %s without automatic attachment or wake retry", async (phase) => {
+		let scheduled = 0;
+		const registry = new EnvironmentRuntimeRegistry(
+			{
+				resolve: () => Effect.fail({ phase, message: "authoritative failure" }),
+			},
+			{
+				schedule: () => {
+					scheduled++;
+					return () => undefined;
+				},
+			},
+		);
+		const runtime = registry.get(EnvironmentId.make("terminal-fault"));
+		const lease = runtime.retain("wake");
+		await waitUntil(() => runtime.snapshot().phase === phase);
+		expect(runtime.snapshot().error).toBe("authoritative failure");
+		expect(scheduled).toBe(0);
+		lease.release();
+		await registry.dispose();
+	});
 });

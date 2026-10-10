@@ -54,6 +54,7 @@
 		"node-pty": "^1.1.0",
 		"strip-ansi": "^7.2.0",
 		"tar": "^7.5.22",
+		"undici": "7.28.0",
 		"tree-sitter": "^0.21.1",
 		"tree-sitter-javascript": "^0.23.0",
 		"tree-sitter-json": "^0.24.0",

@@ -1,9 +1,7 @@
 import "@zuse/i18n/english/shell";
 import {
-	defaultModelFor,
 	EnvironmentId,
 	type FolderId,
-	PROVIDER_IDS,
 	type Session,
 	type SessionId,
 } from "@zuse/contracts";
@@ -11,14 +9,11 @@ import { message as uiMessage } from "@zuse/i18n";
 
 import { toastManager } from "../components/ui/toast.tsx";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
-import { currentModelCatalog } from "../store/model-catalog.ts";
-import { useProvidersStore } from "../store/providers.ts";
 import { useSessionsStore } from "../store/sessions.ts";
-import { resolveChatRuntimeMode } from "./auto-worktree.ts";
 import { cloudSummaryForChat } from "./cloud-workspace-catalog.ts";
 import { activeSessionsByProject } from "./environment-entities.ts";
-import { selectAuthenticatedProvider } from "./model-picker-availability.ts";
-import { useSettingsStore } from "./settings-client-bus.ts";
+
+import { prepareChatTab } from "./prepare-chat-tab.ts";
 
 const EMPTY_SESSIONS: ReadonlyArray<Session> = [];
 
@@ -86,17 +81,8 @@ export const closeChatTab = async (
 		return;
 	}
 
-	const settings = useSettingsStore.getState();
-	await useProvidersStore.getState().loadFor(environmentId);
-	const providerId = selectAuthenticatedProvider({
-		preferredProviderId: settings.defaultProviderId,
-		providerIds: PROVIDER_IDS,
-		availability:
-			useProvidersStore.getState().availabilityByEnvironment[environmentId]
-				?.availability ?? [],
-		providerEnabled: settings.providerEnabled ?? {},
-	});
-	if (providerId === null) {
+	const prepared = await prepareChatTab(environmentId, projectId);
+	if (prepared === null) {
 		toastManager.add({
 			type: "error",
 			title: uiMessage("shell:close_chat_tab_no_authenticated_agent"),
@@ -106,10 +92,7 @@ export const closeChatTab = async (
 		});
 		return;
 	}
-	const model =
-		settings.defaultModelByProvider[providerId] ??
-		defaultModelFor(currentModelCatalog(), providerId);
-	const runtimeMode = await resolveChatRuntimeMode(environmentId, projectId);
+	const { providerId, model, runtimeMode } = prepared;
 	const replacementId = await sessions.create(
 		currentSession.chatId,
 		providerId,

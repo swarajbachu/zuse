@@ -139,7 +139,20 @@ describe("chat landing progress", () => {
 		);
 		expect(chatLandingSource).toContain("await sendSessionMessage(");
 		expect(cloudChatsSource).toContain("Compatibility only:");
-		expect(chatLandingSource).toContain("ensureCloudWorkspaceAttached(");
+		// The staged chat opens before the gateway connects, so the live chat
+		// surface (not a bare landing) carries the startup status.
+		const staged = chatLandingSource.indexOf("stageCloudChat(\n");
+		const opened = chatLandingSource.indexOf(
+			"useChatsStore.getState().select(summary.chatId)",
+			staged,
+		);
+		const connected = chatLandingSource.indexOf(
+			"await connectCloudWorkspaceForLaunch(summary)",
+			staged,
+		);
+		expect(staged).toBeGreaterThan(-1);
+		expect(opened).toBeGreaterThan(staged);
+		expect(connected).toBeGreaterThan(opened);
 		expect(chatLandingSource).not.toContain(
 			'control["cloud.workspaces.connect"]',
 		);

@@ -89,6 +89,7 @@ import {
 	PluginResponse,
 	WIRE_PROTOCOL_VERSION,
 	WORKSPACE_API_PREFIX,
+	WORKSPACE_GATEWAY_PENDING_PROTOCOL,
 	WORKSPACE_SCOPE_HEADER,
 	WorkspaceSettings,
 	type WorkspaceSettingsUpdate,
@@ -299,8 +300,15 @@ export interface MachineControlServiceShape {
 	) => Effect.Effect<CloudChatList, MachineControlError>;
 	readonly cloudWorkspaceAction: (
 		workspaceId: string,
-		action: "pause" | "resume" | "restart" | "archive" | "unarchive" | "delete",
-		options?: Readonly<{ recoverRuntime?: boolean; commandId?: string }>,
+		action:
+			| "pause"
+			| "resume"
+			| "restart"
+			| "update"
+			| "archive"
+			| "unarchive"
+			| "delete",
+		options?: Readonly<{ commandId?: string }>,
 	) => Effect.Effect<CloudWorkspace, MachineControlError>;
 	readonly cloudWorkspaceSshAccess: (
 		workspaceId: string,
@@ -774,7 +782,7 @@ export const MachineControlServiceLive: Layer.Layer<
 					ApiPaths.cloudWorkspaceConnectionTicket(workspaceId),
 					CloudWorkspaceConnection,
 					"POST",
-					{},
+					{ protocol: WORKSPACE_GATEWAY_PENDING_PROTOCOL },
 				),
 			watchCloudChats: (cursor) =>
 				streamCloudCatalogChanges(

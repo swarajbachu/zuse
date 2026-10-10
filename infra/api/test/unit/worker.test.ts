@@ -13,6 +13,119 @@ import {
 	attachCloudMailboxCommandDirective,
 } from "../../src/cloud-mailbox-directive.ts";
 import { hyperdrivePoolConfig } from "../../src/hyperdrive.ts";
+import {
+	applyResponseEffects,
+	type ResponseEffectsApi,
+} from "../../src/response-effects.ts";
+
+const responseEffectsApi = (
+	overrides: Partial<ResponseEffectsApi> = {},
+): ResponseEffectsApi => ({
+	dispose: async () => undefined,
+	reconcileMachine: async () => ({ claimed: 0, processed: 0 }),
+	reconcileCloudBuild: async () => undefined,
+	reconcileCloudWorkspaceStartup: async () => ({ kind: "complete" }),
+	deliverApiWebhooks: async () => 0,
+	...overrides,
+});
+
+describe("public workspace response scheduling", () => {
+	test("waits for durable startup scheduling before acknowledging a response", async () => {
+		let complete!: () => void;
+		let entered!: () => void;
+		const scheduled = new Promise<void>((resolve) => {
+			complete = resolve;
+		});
+		const scheduling = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		const dispose = vi.fn(async () => {});
+		const waitUntil = vi.fn();
+		let acknowledged = false;
+		const response = applyResponseEffects(
+			new Response("accepted", {
+				status: 202,
+				headers: { "x-zuse-reconcile-cloud-workspace": "workspace-1" },
+			}),
+			responseEffectsApi({
+				dispose,
+				reconcileCloudWorkspaceStartup: async () => {
+					entered();
+					await scheduled;
+					return { kind: "complete" };
+				},
+			}),
+			async () => undefined,
+			{ waitUntil },
+		).then((response) => {
+			acknowledged = true;
+			return response;
+		});
+		await scheduling;
+		expect(acknowledged).toBe(false);
+		expect(dispose).not.toHaveBeenCalled();
+		expect(waitUntil).not.toHaveBeenCalled();
+		complete();
+		const result = await response;
+		expect(result.status).toBe(202);
+		expect(result.headers.has("x-zuse-reconcile-cloud-workspace")).toBe(false);
+		expect(dispose).toHaveBeenCalledOnce();
+	});
+	test("propagates enqueue failure and disposes the request instead of acknowledging", async () => {
+		const dispose = vi.fn(async () => {});
+		const waitUntil = vi.fn();
+		await expect(
+			applyResponseEffects(
+				new Response(null, {
+					status: 202,
+					headers: { "x-zuse-reconcile-cloud-workspace": "workspace-1" },
+				}),
+				responseEffectsApi({
+					dispose,
+					reconcileCloudWorkspaceStartup: async () => {
+						throw new Error("durable queue unavailable");
+					},
+				}),
+				async () => undefined,
+				{ waitUntil },
+			),
+		).rejects.toThrow("durable queue unavailable");
+		expect(dispose).toHaveBeenCalledOnce();
+		expect(waitUntil).not.toHaveBeenCalled();
+	});
+	test("retains background ownership for unrelated build work after durable workspace enqueue", async () => {
+		let completeBuild!: () => void;
+		const build = new Promise<void>((resolve) => {
+			completeBuild = resolve;
+		});
+		const dispose = vi.fn(async () => {});
+		const background: Promise<unknown>[] = [];
+		const schedule = vi.fn(async () => ({ kind: "complete" as const }));
+		const response = await applyResponseEffects(
+			new Response(null, {
+				status: 202,
+				headers: {
+					"x-zuse-reconcile-cloud-workspace": "workspace-1",
+					"x-zuse-reconcile-cloud-build": "build-1",
+				},
+			}),
+			responseEffectsApi({
+				dispose,
+				reconcileCloudWorkspaceStartup: schedule,
+				reconcileCloudBuild: () => build,
+			}),
+			async () => undefined,
+			{ waitUntil: (work) => background.push(work) },
+		);
+		expect(response.status).toBe(202);
+		expect(schedule).toHaveBeenCalledExactlyOnceWith("workspace-1");
+		expect(dispose).not.toHaveBeenCalled();
+		expect(background).toHaveLength(1);
+		completeBuild();
+		await Promise.all(background);
+		expect(dispose).toHaveBeenCalledOnce();
+	});
+});
 
 describe("api worker database lifecycle", () => {
 	test("fails connection acquisition instead of leaving requests suspended", () => {
@@ -91,7 +204,7 @@ const coordinatorApi = (
 ): CloudMailboxCoordinatorApi => ({
 	dispose: async () => undefined,
 	requestCloudMailboxWake: async () => "ready",
-	reconcileCloudWorkspaceStartup: async () => undefined,
+	reconcileCloudWorkspaceStartup: async () => ({ kind: "complete" }),
 	completeCloudMailboxDrain: async () => true,
 	recordCloudMailboxRuntimeProgress: async () => true,
 	acknowledgeCloudMailboxLifecycle: async () => true,
@@ -99,6 +212,158 @@ const coordinatorApi = (
 });
 
 describe("api worker mailbox saga", () => {
+	test.each([
+		"enqueue",
+		"unblock",
+		"fence",
+	] as const)("waits for durable startup before acknowledging mailbox %s", async (path) => {
+		let complete!: () => void;
+		let entered!: () => void;
+		const scheduled = new Promise<void>((resolve) => {
+			complete = resolve;
+		});
+		const scheduling = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		const response = new Response(JSON.stringify({ commandId: "command-1" }), {
+			status: 202,
+		});
+		attachCloudMailboxCommandDirective(
+			response,
+			path === "enqueue"
+				? {
+						action: "enqueue",
+						workspaceId: "workspace-1",
+						accountId: "account-1",
+					}
+				: path === "unblock"
+					? { action: "status", workspaceId: "workspace-1" }
+					: {
+							action: "lease",
+							workspaceId: "workspace-1",
+							runtimeGeneration: 2,
+							wakeRevision: 3,
+						},
+		);
+		if (path !== "enqueue")
+			attachCloudMailboxBillingDirective(response, {
+				policy: "available",
+				accountId: "account-1",
+			});
+		const dispose = vi.fn(async () => {});
+		const waitUntil = vi.fn();
+		let acknowledged = false;
+		const result = coordinateCloudMailboxResponse({
+			response,
+			mailboxes: {
+				idFromName: (name) => name,
+				get: () => ({
+					fetch: async (request) =>
+						new Response(
+							JSON.stringify(
+								new URL(request.url).pathname === "/unblock"
+									? { unblocked: 1 }
+									: {
+											nonterminalCount: 1,
+											mailboxRevision: 4,
+											fenceRequired: true,
+										},
+							),
+							{ status: 200 },
+						),
+				}),
+			},
+			mailboxEnabled: true,
+			api: coordinatorApi({
+				dispose,
+				reconcileCloudWorkspaceStartup: async () => {
+					entered();
+					await scheduled;
+					return { kind: "complete" };
+				},
+			}),
+			context: { waitUntil },
+		}).then((response) => {
+			acknowledged = true;
+			return response;
+		});
+		await scheduling;
+		expect(acknowledged).toBe(false);
+		expect(dispose).not.toHaveBeenCalled();
+		expect(waitUntil).not.toHaveBeenCalled();
+		complete();
+		expect((await result)?.status).toBe(200);
+		expect(dispose).toHaveBeenCalledOnce();
+	});
+	test.each([
+		"enqueue",
+		"unblock",
+		"fence",
+	] as const)("reports durable scheduling failure on mailbox %s without losing command identity", async (path) => {
+		const response = new Response(JSON.stringify({ commandId: "command-1" }), {
+			status: 202,
+		});
+		attachCloudMailboxCommandDirective(
+			response,
+			path === "enqueue"
+				? {
+						action: "enqueue",
+						workspaceId: "workspace-1",
+						accountId: "account-1",
+					}
+				: path === "unblock"
+					? { action: "status", workspaceId: "workspace-1" }
+					: {
+							action: "lease",
+							workspaceId: "workspace-1",
+							runtimeGeneration: 2,
+							wakeRevision: 3,
+						},
+		);
+		if (path !== "enqueue")
+			attachCloudMailboxBillingDirective(response, {
+				policy: "available",
+				accountId: "account-1",
+			});
+		const accepted: string[] = [];
+		const dispose = vi.fn(async () => {});
+		const result = await coordinateCloudMailboxResponse({
+			response,
+			mailboxes: {
+				idFromName: (name) => name,
+				get: () => ({
+					fetch: async (request) => {
+						if (new URL(request.url).pathname === "/commit")
+							accepted.push(
+								((await request.json()) as { commandId: string }).commandId,
+							);
+						return new Response(
+							JSON.stringify(
+								new URL(request.url).pathname === "/unblock"
+									? { unblocked: 1 }
+									: {
+											nonterminalCount: 1,
+											mailboxRevision: 4,
+											fenceRequired: true,
+										},
+							),
+						);
+					},
+				}),
+			},
+			mailboxEnabled: true,
+			api: coordinatorApi({
+				dispose,
+				reconcileCloudWorkspaceStartup: async () => {
+					throw new Error("durable queue unavailable");
+				},
+			}),
+			context: { waitUntil: () => undefined },
+		});
+		expect(result?.status).toBe(503);
+		expect(accepted).toEqual(path === "enqueue" ? ["command-1"] : []);
+		expect(dispose).toHaveBeenCalledOnce();
+	});
 	test.each([
 		false,
 		true,
@@ -239,9 +504,9 @@ describe("api worker mailbox saga", () => {
 		expect(result).toBe(committed);
 		expect(internalRequests).toEqual(["POST /reserve", "POST /commit"]);
 		expect(wake).toHaveBeenNthCalledWith(1, "workspace-1", "account-1");
-		expect(wake).toHaveBeenNthCalledWith(2, "workspace-1", "account-1");
+		expect(wake).toHaveBeenCalledTimes(1);
 		expect(reconcile).toHaveBeenCalledOnce();
-		expect(waitUntil).toHaveLength(1);
+		expect(waitUntil).toHaveLength(0);
 		await Promise.all(waitUntil);
 		expect(dispose).toHaveBeenCalledOnce();
 	});

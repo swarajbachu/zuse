@@ -634,14 +634,18 @@ const commandExecutor: ClientCommandExecutor<MemoizeClient> = {
 const makeBus = () =>
 	new ClientBus<MemoizeClient>({
 		resolver: {
-			resolve: (environmentId, activation) => {
+			resolve: (environmentId, activation, wakeIntent) => {
 				const binding = bindings.get(environmentId);
 				if (binding === undefined) {
 					return Effect.fail(
 						environmentFault("failed", "Unknown mobile environment"),
 					);
 				}
-				return getConnectionClient(binding.options, activation === "wake").pipe(
+				return getConnectionClient(
+					binding.options,
+					activation === "wake",
+					wakeIntent,
+				).pipe(
 					Effect.map((client) => ({
 						client,
 						dispose: async () => undefined,

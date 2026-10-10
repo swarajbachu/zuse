@@ -13,6 +13,7 @@ export interface SandboxOfferConfig {
 	readonly keepAliveTimeoutSeconds: number;
 	readonly runtimeManifestUrl?: string;
 	readonly runtimeSigningPublicJwk?: string;
+	readonly runtimeInstallerSource?: string;
 }
 
 export class SandboxOfferConfiguration extends Context.Service<

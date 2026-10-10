@@ -16,14 +16,10 @@ test("snapshot setup offers discovery, explicit paths and separate agent/Git aut
 	expect(markup).toContain("npx zusehq snapshot install");
 	expect(markup).toContain('placeholder="Snapshot name or ID"');
 	expect(markup).toContain("Repository paths: found automatically");
-	expect(markup).toContain("Use logins from snapshot");
-	expect(markup).toContain("Use credentials from snapshot");
-	// On means "use what is already in the snapshot", the default for both.
-	expect(markup.match(/role="switch"[^>]*aria-checked="true"/g)).toHaveLength(
-		2,
-	);
-	expect(markup).toContain("On: Claude Code and Codex use the logins");
-	expect(markup).toContain("On: Git and gh use the credentials");
+	expect(markup).toContain("Agent login source");
+	expect(markup).toContain("Connected through Zuse");
+	expect(markup.match(/<option value="native" selected=""/g)).toHaveLength(2);
+	expect(markup).not.toContain('role="switch"');
 	expect(markup).not.toContain("--repo");
 	expect(markup).not.toContain("Subscribe");
 	for (const control of markup.match(/<(?:input|button)[^>]*>/g) ?? [])
@@ -70,7 +66,7 @@ test("snapshot settings translate labels while preserving the installation comma
 				onChanged={async () => {}}
 			/>,
 		);
-		expect(markup).toContain("Connexions des agents");
+		expect(markup).toContain("Source de connexion des agents");
 		expect(markup).toContain("Chemins des dépôts");
 		expect(markup).toContain("npx zusehq snapshot install");
 		expect(markup).not.toContain("settings:snapshot_");
@@ -107,10 +103,24 @@ test("opens the editor with locally cached snapshot fields before any request", 
 	expect(markup).toContain('value="snap_cached"');
 	expect(markup).toContain('value="developer"');
 	expect(markup).toContain("Repository paths (1)");
-	expect(markup.match(/role="switch"[^>]*aria-checked="false"/g)).toHaveLength(
-		1,
+	expect(markup.match(/<option value="zuse" selected=""/g)).toHaveLength(1);
+	expect(markup.match(/<option value="native" selected=""/g)).toHaveLength(1);
+});
+
+test("login-source editor hides snapshot installation and repository fields", () => {
+	const markup = renderToStaticMarkup(
+		<CloudSnapshotSettings
+			connectionId="own-key"
+			authenticationOnly
+			onChanged={async () => {}}
+		/>,
 	);
-	expect(markup.match(/role="switch"[^>]*aria-checked="true"/g)).toHaveLength(
-		1,
-	);
+	expect(markup).toContain("Sign in with");
+	expect(markup).toContain("Snapshot logins");
+	expect(markup).not.toContain("Continue");
+	expect(markup).not.toContain(">Switch<");
+	expect(markup).not.toContain("npx zusehq snapshot install");
+	expect(markup).not.toContain('placeholder="Snapshot name or ID"');
+	expect(markup).not.toContain("Repository paths");
+	expect(markup).not.toContain("Saved for new workspaces");
 });

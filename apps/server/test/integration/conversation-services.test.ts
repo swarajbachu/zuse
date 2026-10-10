@@ -700,6 +700,7 @@ const runAllMigrations = Effect.all(
 
 let queueAuthorAllowed = true;
 let queueAuthorWait: Effect.Effect<void> = Effect.void;
+let workspacePreparation: Effect.Effect<void> = Effect.void;
 const makeRuntime = (dbPath: string, migrate = true) => {
 	const SqlLive = sqliteLayer({ filename: dbPath });
 	// Run migrations during layer build, and re-export SqlClient downstream.
@@ -720,6 +721,11 @@ const makeRuntime = (dbPath: string, migrate = true) => {
 	const ConversationLayer = ConversationServicesLive.pipe(
 		Layer.provide(
 			Layer.succeed(WorkspaceExecutionPolicy, {
+				get isReady() {
+					return workspacePreparation === Effect.void;
+				},
+				awaitReady: Effect.suspend(() => workspacePreparation),
+				markReady: Effect.void,
 				authorize: () =>
 					queueAuthorWait.pipe(
 						Effect.andThen(Effect.sync(() => queueAuthorAllowed)),
@@ -817,6 +823,7 @@ const store = TestConversation;
 beforeEach(() => {
 	queueAuthorAllowed = true;
 	queueAuthorWait = Effect.void;
+	workspacePreparation = Effect.void;
 	providerGoals.clear();
 	testCommandSequence = 0;
 	providerStartInputs = [];
@@ -988,6 +995,122 @@ describe("ConversationServices migrations", () => {
 });
 
 describe("ConversationServices — chat & session lifecycle", () => {
+	it("never delivers a prompt stopped while repository preparation is pending", async () => {
+		const ready = await Effect.runPromise(Deferred.make<void>());
+		const waiting = await Effect.runPromise(Deferred.make<void>());
+		workspacePreparation = Deferred.succeed(waiting, undefined).pipe(
+			Effect.andThen(Deferred.await(ready)),
+		);
+		await withRuntime(async (run) => {
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.sendMessageWithInput({
+						commandId: "cancel-preparation-prompt",
+						sessionId: created.initialSession.id,
+						text: "this must never reach the agent",
+					}),
+				),
+			);
+			await Effect.runPromise(Deferred.await(waiting));
+			const stopped = run(
+				Effect.flatMap(store, (service) =>
+					service.interruptSession(
+						testCommandId("messages.interrupt"),
+						created.initialSession.id,
+					),
+				).pipe(Effect.timeout("1 second")),
+			);
+			await expect
+				.poll(
+					async () =>
+						(
+							await run(
+								Effect.gen(function* () {
+									const sql = yield* SqlClient.SqlClient;
+									return yield* sql`SELECT type FROM events WHERE stream_id = ${created.initialSession.id} AND type = 'TurnInterruptRequested'`;
+								}),
+							)
+						).length,
+				)
+				.toBe(1);
+			await stopped;
+			expect(providerStartInputs).toHaveLength(0);
+			expect(providerSentTexts).toEqual([]);
+			workspacePreparation = Effect.void;
+			await Effect.runPromise(Deferred.succeed(ready, undefined));
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.interruptSession(
+						testCommandId("messages.interrupt"),
+						created.initialSession.id,
+					),
+				),
+			);
+			expect(providerStartInputs).toHaveLength(0);
+			expect(providerSentTexts).toEqual([]);
+		});
+	});
+
+	it("returns the chat and durably accepts a direct prompt while repository preparation blocks execution", async () => {
+		const ready = await Effect.runPromise(Deferred.make<void>());
+		workspacePreparation = Deferred.await(ready);
+		await withRuntime(async (run) => {
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.sendMessageWithInput({
+						commandId: "preparation-prompt",
+						sessionId: created.initialSession.id,
+						text: "wait for the correct checkout",
+					}),
+				),
+			);
+			const messages = await run(
+				Effect.flatMap(store, (service) =>
+					service.listMessages(created.initialSession.id),
+				),
+			);
+			expect(
+				messages.some(
+					(message) =>
+						message.content._tag === "user" &&
+						message.content.text === "wait for the correct checkout",
+				),
+			).toBe(true);
+			expect(providerStartInputs).toHaveLength(0);
+			const attempts = await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					return yield* sql`SELECT effect_id FROM reactor_effect_receipts WHERE effect_id LIKE 'reactor:provider-turn:%'`;
+				}),
+			);
+			expect(attempts).toHaveLength(0);
+			workspacePreparation = Effect.void;
+			await Effect.runPromise(Deferred.succeed(ready, undefined));
+			await expect.poll(() => providerStartInputs.length).toBe(1);
+			await expect
+				.poll(() => providerSentTexts)
+				.toEqual(["wait for the correct checkout"]);
+		});
+	});
+
 	it("keeps an empty session dormant even when provider startup would fail", async () => {
 		await withRuntime(async (run) => {
 			failProviderStart = true;

@@ -1,4 +1,5 @@
 import type { ComponentProps } from "react";
+import { ProviderIcon } from "../provider-icons.tsx";
 import { SettingsGroup, SettingsRow } from "../ui/settings-panel.tsx";
 
 export const COMPACT_CLOUD_ACTION =
@@ -12,4 +13,17 @@ export function CloudSettingsGroup(
 
 export function CloudSettingsRow(props: ComponentProps<typeof SettingsRow>) {
 	return <SettingsRow {...props} />;
+}
+
+/** Provider identity shown before a settings row title. */
+export function CloudProviderTile({
+	providerId,
+}: {
+	readonly providerId: ComponentProps<typeof ProviderIcon>["providerId"];
+}) {
+	return (
+		<span className="flex size-6 items-center justify-center rounded-md bg-muted">
+			<ProviderIcon providerId={providerId} />
+		</span>
+	);
 }

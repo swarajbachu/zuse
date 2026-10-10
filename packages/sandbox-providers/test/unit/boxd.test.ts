@@ -143,6 +143,12 @@ class FakeBoxd implements BoxdSandboxClient {
 					...source,
 					id: `vm_${this.nextId++}`,
 					name: params.name ?? "fork",
+					source: {
+						kind: "fork",
+						id: source.id,
+						name: source.name,
+						version: null,
+					},
 					egressAllow: [...source.egressAllow],
 				}),
 			);
@@ -159,6 +165,11 @@ class FakeBoxd implements BoxdSandboxClient {
 			this.record("machines.create", [params]);
 			const id = `vm_${this.nextId++}`;
 			const routes = params.fromSnapshot === undefined ? [] : [47_837];
+			const source = [...this.snapshotStore.values()].find(
+				(snapshot) =>
+					snapshot.name === params.fromSnapshot ||
+					snapshot.id === params.fromSnapshot,
+			);
 			const machine = this.set(
 				machineOf({
 					id,
@@ -170,8 +181,8 @@ class FakeBoxd implements BoxdSandboxClient {
 							: {
 									kind: "snapshot",
 									name: params.fromSnapshot,
-									version: 1,
-									id: null,
+									version: source?.version ?? 1,
+									id: source?.id ?? null,
 								},
 				}),
 			);
@@ -278,6 +289,10 @@ class FakeBoxd implements BoxdSandboxClient {
 		},
 	};
 	readonly snapshots = {
+		list: async (params?: { org?: string }): Promise<Snapshot[]> => {
+			this.record("snapshots.list", [params]);
+			return [...this.snapshotStore.values()];
+		},
 		create: async (machine: string, name: string) => {
 			this.record("snapshots.create", [machine, name]);
 			this.byIdOrName(machine);
@@ -461,6 +476,10 @@ describe("boxd sandbox provider", () => {
 				63,
 			);
 		}
+		client.set({
+			...client.byIdOrName(created.providerSandboxId),
+			status: "running",
+		});
 		await expect(
 			run(adapter.recoverByLabel(providerLabel)),
 		).resolves.toMatchObject({
@@ -564,24 +583,11 @@ describe("boxd sandbox provider", () => {
 		expect(client.calls.map((call) => call.method)).toEqual([
 			"machines.create",
 			"machines.setAutoHibernateTimeout",
-			"machines.waitUntilReady",
-			"machines.exec",
-			"machines.exec",
 		]);
 		expect(client.methods("machines.setAutoHibernateTimeout")[0]?.args).toEqual(
 			["vm_1", 600],
 		);
-		const prepare = client.execs[0]?.params.command;
-		expect(prepare).toContain("systemctl is-system-running --wait");
-		expect(prepare).toContain(
-			`install -d -m 0700 -o 'zuse' -g "$(id -gn 'zuse')" /run/zuse-secrets`,
-		);
-		const prime = client.execs[1]?.params.command as string;
-		expect(prime).toContain("sudo -n -u 'zuse' -H bash -c");
-		expect(prime).toContain("zuse --version");
-		expect(prime).toContain(
-			"systemd-run --quiet --collect --wait --uid='zuse' -- /bin/true",
-		);
+		expect(client.execs).toHaveLength(0);
 	});
 
 	test("allocates even when priming the runtime fails", async () => {
@@ -687,7 +693,7 @@ describe("boxd sandbox provider", () => {
 		]);
 	});
 
-	test("replaces a failed machine that still holds the label", async () => {
+	test("preserves a failed machine that still holds the label", async () => {
 		const client = new FakeBoxd();
 		client.set(
 			machineOf({
@@ -700,27 +706,23 @@ describe("boxd sandbox provider", () => {
 			"machines.create",
 			new ConflictError("name is already taken", 6),
 		);
-		const created = await run(makeAdapter(client).create(createInput));
-		expect(created.providerSandboxId).toBe("vm_1");
-		expect(client.calls.map((call) => call.method).slice(0, 4)).toEqual([
-			"machines.create",
-			"machines.get",
-			"machines.delete",
-			"machines.create",
-		]);
-		expect(client.store.has("vm_failed")).toBe(false);
+		await expect(
+			run(makeAdapter(client).create(createInput)),
+		).rejects.toMatchObject({ code: "transient" });
+		expect(client.methods("machines.delete")).toHaveLength(0);
+		expect(client.store.has("vm_failed")).toBe(true);
 	});
 
-	test("deletes a failed machine during label recovery so a replacement can be allocated", async () => {
+	test("preserves failed machines during label recovery", async () => {
 		const client = new FakeBoxd();
 		client.set(
 			machineOf({ id: "vm_failed", name: "recover-me", status: "failed" }),
 		);
 		await expect(
 			run(makeAdapter(client).recoverByLabel("recover-me")),
-		).resolves.toBeNull();
-		expect(client.methods("machines.delete")[0]?.args).toEqual(["vm_failed"]);
-		expect(client.store.has("vm_failed")).toBe(false);
+		).rejects.toMatchObject({ code: "transient" });
+		expect(client.methods("machines.delete")).toHaveLength(0);
+		expect(client.store.has("vm_failed")).toBe(true);
 	});
 
 	test("does not mask a missing template snapshot as a name conflict", async () => {
@@ -732,20 +734,19 @@ describe("boxd sandbox provider", () => {
 		expect(client.methods("machines.get")).toHaveLength(0);
 	});
 
-	test("deletes a machine that never becomes usable so the retry starts fresh", async () => {
+	test("defers guest readiness to the guarded launch without deleting the machine", async () => {
 		const client = new FakeBoxd();
 		client.fail(
 			"machines.waitUntilReady",
 			new BoxdError("machine vm_1 did not become ready within 10ms"),
 		);
-		await expect(
-			run(makeAdapter(client).create(createInput)),
-		).rejects.toMatchObject({ code: "transient" });
-		expect(client.methods("machines.delete")[0]?.args).toEqual(["vm_1"]);
-		expect(client.store.has("vm_1")).toBe(false);
+		await run(makeAdapter(client).create(createInput));
+		expect(client.methods("machines.waitUntilReady")).toHaveLength(0);
+		expect(client.methods("machines.delete")).toHaveLength(0);
+		expect(client.store.has("vm_1")).toBe(true);
 	});
 
-	test("deletes a running machine whose readiness probe failed instead of adopting it again", async () => {
+	test("does not probe or delete an adopted running machine", async () => {
 		const client = new FakeBoxd();
 		client.fail(
 			"machines.waitUntilReady",
@@ -757,18 +758,10 @@ describe("boxd sandbox provider", () => {
 				machineOf({ id: "vm_1", name: params.name, status: "running" }),
 			);
 		};
-		await expect(
-			run(makeAdapter(client).create(createInput)),
-		).rejects.toMatchObject({ code: "transient" });
-		// The idle timer was armed before the wait, so even a machine that
-		// outlives a lost delete is not left on the organization default.
-		expect(client.calls.map((call) => call.method)).toEqual([
-			"machines.create",
-			"machines.setAutoHibernateTimeout",
-			"machines.waitUntilReady",
-			"machines.delete",
-		]);
-		expect(client.store.has("vm_1")).toBe(false);
+		await run(makeAdapter(client).create(createInput));
+		expect(client.methods("machines.waitUntilReady")).toHaveLength(0);
+		expect(client.methods("machines.delete")).toHaveLength(0);
+		expect(client.store.has("vm_1")).toBe(true);
 	});
 
 	test("does not retry a create the provider rejected outright", async () => {
@@ -843,6 +836,10 @@ describe("boxd sandbox provider", () => {
 
 	test("preserves Boxd integrations when launching a custom snapshot", async () => {
 		const client = new FakeBoxd();
+		client.set(machineOf({ id: "source-vm" }));
+		await client.snapshots.create("source-vm", "customer-snapshot");
+		const snapshot = await client.snapshots.get("customer-snapshot");
+		client.snapshotStore.set(snapshot.name, { ...snapshot, status: "ready" });
 		await run(
 			makeAdapter(client).fork({
 				...createInput,
@@ -854,6 +851,101 @@ describe("boxd sandbox provider", () => {
 			fromSnapshot: "customer-snapshot",
 			isolated: false,
 		});
+	});
+
+	test("restores a persisted custom source ID directly and retains its immutable pin", async () => {
+		const client = new FakeBoxd();
+		client.set(machineOf({ id: "source-vm" }));
+		await client.snapshots.create("source-vm", "customer-snapshot");
+		const snapshot = await client.snapshots.get("customer-snapshot");
+		client.snapshotStore.set(snapshot.name, { ...snapshot, status: "ready" });
+		client.calls.length = 0;
+		const provider = makeAdapter(client);
+		if (provider.resolveSnapshotSource === undefined)
+			throw new Error("missing source resolver");
+		await expect(
+			run(provider.resolveSnapshotSource(snapshot.id)),
+		).resolves.toEqual({ snapshotId: snapshot.id, version: 1 });
+		client.calls.length = 0;
+		await run(
+			provider.fork({
+				...createInput,
+				snapshotId: snapshot.id,
+				snapshotVersion: 1,
+				snapshotSource: "custom-snapshot",
+			}),
+		);
+		expect(client.methods("machines.create")[0]?.args[0]).toMatchObject({
+			fromSnapshot: snapshot.id,
+			isolated: false,
+		});
+		expect(client.methods("snapshots.get")).toHaveLength(0);
+		expect(client.methods("snapshots.list")).toHaveLength(0);
+	});
+
+	test("propagates a provider restore rejection without preflight snapshot lookups", async () => {
+		const client = new FakeBoxd();
+		client.fail("machines.create", new NotFoundError("snapshot not found", 5));
+		await expect(
+			run(
+				makeAdapter(client).fork({
+					...createInput,
+					snapshotId: "missing-source-id",
+					snapshotVersion: 1,
+					snapshotSource: "custom-snapshot",
+				}),
+			),
+		).rejects.toMatchObject({ code: "not-found" });
+		expect(client.methods("machines.create")).toHaveLength(1);
+		expect(client.methods("snapshots.get")).toHaveLength(0);
+		expect(client.methods("snapshots.list")).toHaveLength(0);
+	});
+
+	test("does not fall back to a snapshot list after a transient lookup failure", async () => {
+		const client = new FakeBoxd();
+		client.snapshots.get = async () => {
+			throw new Error("connection lost");
+		};
+		const provider = makeAdapter(client);
+		if (provider.resolveSnapshotSource === undefined)
+			throw new Error("missing source resolver");
+		await expect(
+			run(provider.resolveSnapshotSource("customer-snapshot")),
+		).rejects.toMatchObject({ code: "transient" });
+		expect(client.methods("snapshots.list")).toHaveLength(0);
+		expect(client.methods("machines.create")).toHaveLength(0);
+	});
+
+	test("rejects a restored machine whose source differs from the immutable pin", async () => {
+		const client = new FakeBoxd();
+		client.set(machineOf({ id: "source-vm" }));
+		await client.snapshots.create("source-vm", "customer-snapshot");
+		const snapshot = await client.snapshots.get("customer-snapshot");
+		client.snapshotStore.set(snapshot.name, { ...snapshot, status: "ready" });
+		const create = client.machines.create;
+		client.machines.create = async (params) => {
+			const restored = await create(params);
+			return {
+				...restored,
+				source: {
+					kind: "snapshot",
+					name: snapshot.name,
+					id: "replacement-source",
+					version: snapshot.version,
+				},
+			};
+		};
+		await expect(
+			run(
+				makeAdapter(client).fork({
+					...createInput,
+					snapshotId: snapshot.id,
+					snapshotVersion: 1,
+					snapshotSource: "custom-snapshot",
+				}),
+			),
+		).rejects.toMatchObject({ code: "rejected" });
+		expect(client.methods("machines.exec")).toHaveLength(0);
 	});
 
 	test.each([
@@ -888,13 +980,15 @@ describe("boxd sandbox provider", () => {
 		).rejects.toMatchObject({ code: "transient" });
 	});
 
-	test("treats missing, failed, and destroyed machines as absent", async () => {
+	test("distinguishes failed retained machines from confirmed absence", async () => {
 		const client = new FakeBoxd();
 		client.set(machineOf({ id: "vm_failed", status: "failed" }));
 		client.set(machineOf({ id: "vm_gone", status: "destroyed" }));
 		const adapter = makeAdapter(client);
 		await expect(run(adapter.inspect("missing"))).resolves.toBeNull();
-		await expect(run(adapter.inspect("vm_failed"))).resolves.toBeNull();
+		await expect(run(adapter.inspect("vm_failed"))).rejects.toMatchObject({
+			code: "transient",
+		});
 		await expect(run(adapter.inspect("vm_gone"))).resolves.toBeNull();
 		await expect(run(adapter.recoverByLabel("nope"))).resolves.toBeNull();
 	});
@@ -964,7 +1058,6 @@ describe("boxd sandbox provider", () => {
 				{
 					tag: "zuse-runtime",
 					legacyCommandMarkers: ["zuse-workspace-bootstrap"],
-					legacyCleanup: "matching-command",
 				},
 				{ command: "/opt/zuse/current/bin.mjs", args: ["serve"], user: "zuse" },
 			),
@@ -991,6 +1084,55 @@ describe("boxd sandbox provider", () => {
 				}),
 			),
 		).rejects.toMatchObject({ code: "transient" });
+	});
+
+	test("keeps bounded launch evidence without supplied credentials", async () => {
+		const client = new FakeBoxd();
+		client.set(machineOf({ id: "vm_1" }));
+		client.execResults = [exit(1, "", "service rejected secret-boot-value")];
+		await expect(
+			run(
+				makeAdapter(client).startProcess("vm_1", {
+					command: "/bin/true",
+					tag: "zuse-runtime",
+					env: { ZUSE_BOOT_TOKEN: "secret-boot-value" },
+				}),
+			),
+		).rejects.toMatchObject({
+			code: "transient",
+			diagnostic: "service rejected [redacted]\n",
+		});
+	});
+
+	test.each([
+		{ results: [exit(0, "active\n")], expected: "active" },
+		{ results: [exit(0, "active\n")], expected: "active" },
+		{ results: [exit(0, "inactive\n")], expected: "inactive" },
+		{ results: [exit(2, "")], expected: "unknown" },
+		{ results: [exit(0, "unknown\n")], expected: "unknown" },
+	])("guest process evidence is $expected", async ({ results, expected }) => {
+		const client = new FakeBoxd();
+		client.set(machineOf({ id: "vm_1" }));
+		client.execResults = results;
+		const adapter = makeAdapter(client);
+		expect(adapter.inspectProcess).toBeDefined();
+		if (!adapter.inspectProcess) throw new Error("Missing process inspection");
+		await expect(
+			run(
+				adapter.inspectProcess(
+					"vm_1",
+					{ tag: "zuse-runtime", legacyCommandMarkers: ["bin.mjs serve"] },
+					"zuse",
+				),
+			),
+		).resolves.toBe(expected);
+		expect(
+			client.execs.every(
+				({ params }) =>
+					!params.command.includes("systemctl stop") &&
+					!params.command.includes("pkill"),
+			),
+		).toBe(true);
 	});
 
 	test("rejects invalid environment variable names and oversized tags before calling the API", async () => {
@@ -1097,6 +1239,51 @@ describe("boxd sandbox provider", () => {
 		expect(install).toContain("'/run/zuse-secrets/boot-token'");
 		expect(install).toContain("sudo -n rm -f");
 		expect(install).not.toContain("install -D");
+	});
+
+	test("installs a launch asset batch with one guest command", async () => {
+		const client = new FakeBoxd();
+		client.set(machineOf({ id: "vm_1" }));
+		const adapter = makeAdapter(client);
+		if (!adapter.writeTextFiles) throw new Error("batch unsupported");
+		await run(
+			adapter.writeTextFiles(
+				"vm_1",
+				[
+					{
+						path: "/var/lib/zuse/project-build/bootstrap.sh",
+						contents: "bootstrap",
+					},
+					{
+						path: "/var/lib/zuse/project-build/repository.sh",
+						contents: "repository",
+					},
+				],
+				"zuse",
+			),
+		);
+		expect(client.uploads).toHaveLength(2);
+		expect(client.execs).toHaveLength(1);
+		const command = client.execs[0]?.params.command;
+		expect(command).toContain("bootstrap.sh");
+		expect(command).toContain("repository.sh");
+		expect(command).toContain("trap");
+		expect(command).toContain("EXIT");
+	});
+
+	test("validates all batch paths before the first upload", async () => {
+		const client = new FakeBoxd();
+		const adapter = makeAdapter(client);
+		if (!adapter.writeTextFiles) throw new Error("batch unsupported");
+		await expect(
+			run(
+				adapter.writeTextFiles("vm_1", [
+					{ path: "/tmp/valid", contents: "ok" },
+					{ path: "relative", contents: "invalid" },
+				]),
+			),
+		).rejects.toMatchObject({ code: "rejected" });
+		expect(client.calls).toHaveLength(0);
 	});
 
 	test("rejects writes that exceed the text file cap", async () => {
@@ -1361,7 +1548,7 @@ describe("boxd sandbox provider", () => {
 		["hibernated", "machines.wake"],
 		["suspended", "machines.resume"],
 		["stopped", "machines.start"],
-	] as const)("resumes a %s machine with %s and re-arms the pause timer", async (status, method) => {
+	] as const)("resumes a %s machine with %s and reports process continuity", async (status, method) => {
 		const client = new FakeBoxd();
 		client.set(machineOf({ id: "vm_1", status }));
 		const resumed = await run(makeAdapter(client).resume("vm_1", 600, "pause"));
@@ -1369,31 +1556,29 @@ describe("boxd sandbox provider", () => {
 		expect(client.calls.map((call) => call.method)).toEqual([
 			"machines.get",
 			method,
-			"machines.waitUntilReady",
-			"machines.setAutoHibernateTimeout",
-			"machines.exec",
-			...(status === "stopped" ? ["machines.exec"] : []),
+			...(status === "stopped"
+				? ["machines.waitUntilReady", "machines.exec"]
+				: []),
 		]);
-		expect(client.methods("machines.setAutoHibernateTimeout")[0]?.args).toEqual(
-			["vm_1", 600],
+		expect(resumed.processContinuity).toBe(
+			status === "stopped" ? "lost" : "preserved",
 		);
+		expect(client.methods("machines.setAutoHibernateTimeout")).toHaveLength(0);
 	});
 
-	test("primes the runtime only after a cold boot", async () => {
+	test("prepares cold-boot tmpfs without probing or priming retained wakes", async () => {
 		const woken = new FakeBoxd();
 		woken.set(machineOf({ id: "vm_1", status: "hibernated" }));
 		await run(makeAdapter(woken).resume("vm_1", 600, "pause"));
-		expect(woken.execs).toHaveLength(1);
-		expect(woken.execs[0]?.params.command).not.toContain("zuse --version");
+		expect(woken.execs).toHaveLength(0);
 
 		const started = new FakeBoxd();
 		started.set(machineOf({ id: "vm_1", status: "stopped" }));
 		await run(makeAdapter(started).resume("vm_1", 600, "pause"));
-		expect(started.execs).toHaveLength(2);
+		expect(started.execs).toHaveLength(1);
 		expect(started.execs[0]?.params.command).toContain(
 			"systemctl is-system-running --wait",
 		);
-		expect(started.execs[1]?.params.command).toContain("zuse --version");
 	});
 
 	test("resumes a machine that woke on its own without a wake call", async () => {
@@ -1431,17 +1616,16 @@ describe("boxd sandbox provider", () => {
 			expect.stringContaining("boot_id"),
 			expect.stringContaining("boot_id"),
 			expect.stringContaining("systemctl is-system-running --wait"),
-			expect.stringContaining("zuse --version"),
 		]);
 	});
 
-	test("reports resuming a failed or missing machine as not found", async () => {
+	test("retains failed resume state and only reports missing machines absent", async () => {
 		const client = new FakeBoxd();
 		client.set(machineOf({ id: "vm_failed", status: "failed" }));
 		const adapter = makeAdapter(client);
 		await expect(
 			run(adapter.resume("vm_failed", 600, "pause")),
-		).rejects.toMatchObject({ code: "not-found" });
+		).rejects.toMatchObject({ code: "transient" });
 		await expect(
 			run(adapter.resume("vm_missing", 600, "pause")),
 		).rejects.toMatchObject({ code: "not-found" });
@@ -1625,6 +1809,119 @@ describe("native boxd machine forks", () => {
 		expect(methods.indexOf("machines.setEgressAllow")).toBeLessThan(
 			methods.indexOf("machines.fork"),
 		);
+		expect(client.execs).toHaveLength(1);
+		expect(client.execs[0]?.id).toBe(child.providerSandboxId);
+	});
+	test("adopts a prepared child without resetting its own active runtime or touching the source", async () => {
+		const client = new FakeBoxd();
+		client.set(
+			machineOf({
+				id: "child",
+				name: boxdMachineName("child"),
+				source: { kind: "fork", id: "parent", name: "parent", version: null },
+			}),
+		);
+		const child = await run(
+			makeAdapter(client).forkMachine({
+				sourceSandboxId: "parent",
+				providerLabel: "child",
+				timeoutSeconds: 600,
+			}),
+		);
+		expect(child.providerSandboxId).toBe("child");
+		expect(client.methods("machines.fork")).toHaveLength(0);
+		expect(client.methods("machines.setEgressAllow")).toHaveLength(0);
+		expect(client.execs).toHaveLength(1);
+		expect(client.execs[0]?.params.command).toContain("sudo -n test -f");
+	});
+	test("resumes preparation only on an unprepared quarantined child", async () => {
+		const client = new FakeBoxd();
+		client.set(
+			machineOf({
+				id: "child",
+				name: boxdMachineName("child"),
+				egressAllow: ["zuse-fork-quarantine.invalid"],
+				source: { kind: "fork", id: "parent", name: "parent", version: null },
+			}),
+		);
+		client.execResults = [exit(1), exit(0)];
+		await run(
+			makeAdapter(client).forkMachine({
+				sourceSandboxId: "parent",
+				providerLabel: "child",
+				timeoutSeconds: 600,
+			}),
+		);
+		expect(client.methods("machines.fork")).toHaveLength(0);
+		expect(client.methods("machines.setEgressAllow")).toHaveLength(0);
+		expect(client.execs).toHaveLength(2);
+		expect(client.execs.every(({ id }) => id === "child")).toBe(true);
+	});
+	test("does not reset an open child without a preparation marker", async () => {
+		const client = new FakeBoxd();
+		client.set(
+			machineOf({
+				id: "child",
+				name: boxdMachineName("child"),
+				source: { kind: "fork", id: "parent", name: "parent", version: null },
+			}),
+		);
+		client.execResults = [exit(1)];
+		await expect(
+			run(
+				makeAdapter(client).forkMachine({
+					sourceSandboxId: "parent",
+					providerLabel: "child",
+					timeoutSeconds: 600,
+				}),
+			),
+		).rejects.toMatchObject({ code: "rejected" });
+		expect(client.execs).toHaveLength(1);
+	});
+	test("does not adopt another source's machine under a matching child name", async () => {
+		const client = new FakeBoxd();
+		client.set(
+			machineOf({
+				id: "child",
+				name: boxdMachineName("child"),
+				source: {
+					kind: "fork",
+					id: "unrelated",
+					name: "unrelated",
+					version: null,
+				},
+			}),
+		);
+		await expect(
+			run(
+				makeAdapter(client).forkMachine({
+					sourceSandboxId: "parent",
+					providerLabel: "child",
+					timeoutSeconds: 600,
+				}),
+			),
+		).rejects.toMatchObject({ code: "rejected" });
+		expect(client.execs).toHaveLength(0);
+		expect(client.methods("machines.setEgressAllow")).toHaveLength(0);
+	});
+	test("failed child reset preserves quarantine and restores the parent", async () => {
+		const client = new FakeBoxd();
+		client.set(machineOf({ id: "parent" }));
+		client.execResults = [exit(1)];
+		await expect(
+			run(
+				makeAdapter(client).forkMachine({
+					sourceSandboxId: "parent",
+					providerLabel: "child",
+					timeoutSeconds: 600,
+				}),
+			),
+		).rejects.toMatchObject({ code: "transient" });
+		expect(client.store.get("parent")?.egressAllow).toEqual([]);
+		expect(client.store.get("vm_1")?.egressAllow).toEqual([
+			"zuse-fork-quarantine.invalid",
+		]);
+		expect(client.methods("machines.delete")).toHaveLength(0);
 	});
 	test("restores the parent's egress policy when fork fails", async () => {
 		const client = new FakeBoxd();
@@ -1674,7 +1971,7 @@ test("custom snapshot version mismatch is rejected before runtime preparation", 
 		}),
 	);
 	expect(result.code).toBe("rejected");
-	expect(client.methods("machines.delete")).toHaveLength(1);
+	expect(client.methods("machines.delete")).toHaveLength(0);
 	expect(
 		client.execs.some((call) =>
 			call.params.command.includes("/run/zuse-secrets"),

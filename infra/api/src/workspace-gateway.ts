@@ -5,6 +5,7 @@ import type {
 import {
 	decodeWorkspaceGatewayFrame,
 	encodeWorkspaceGatewayFrame,
+	WORKSPACE_GATEWAY_PENDING_PROTOCOL,
 } from "@zuse/contracts";
 import {
 	decodeGatewayMessage,
@@ -31,6 +32,8 @@ type GatewaySocketAttachment =
 	  } & GatewayFence)
 	| ({
 			readonly role: "client";
+			readonly wasReady?: boolean;
+			readonly pendingUntil?: number;
 			readonly connectionId: string;
 			readonly actorId?: string;
 			readonly permission?: "view" | "edit";
@@ -170,6 +173,11 @@ const attachment = (
 				? { actorId: candidate.actorId }
 				: {}),
 			protocol: negotiatedProtocol,
+			wasReady: candidate.wasReady === true,
+			...(typeof candidate.pendingUntil === "number" &&
+			Number.isFinite(candidate.pendingUntil)
+				? { pendingUntil: candidate.pendingUntil }
+				: {}),
 			...fence,
 		};
 	return null;
@@ -193,9 +201,11 @@ const sameFence = (left: GatewayFence, right: GatewayFence): boolean =>
 	left.generation === right.generation &&
 	left.gatewayEpoch === right.gatewayEpoch;
 
-const sameGateway = (left: GatewayFence, right: GatewayFence): boolean =>
+const newerFence = (left: GatewayFence, right: GatewayFence): boolean =>
 	left.workspaceId === right.workspaceId &&
-	left.gatewayEpoch === right.gatewayEpoch;
+	(left.gatewayEpoch > right.gatewayEpoch ||
+		(left.gatewayEpoch === right.gatewayEpoch &&
+			left.generation > right.generation));
 
 const detachSocket = (socket: CloudflareWebSocket): void => {
 	try {
@@ -226,8 +236,69 @@ const websocketResponse = (
 export class WorkspaceGateway {
 	constructor(private readonly state: DurableObjectState) {}
 
+	private async pending(
+		socket: CloudflareWebSocket,
+		metadata: Extract<GatewaySocketAttachment, { role: "client" }>,
+	): Promise<void> {
+		if (metadata.protocol !== WORKSPACE_GATEWAY_PENDING_PROTOCOL) {
+			closeSocket(
+				socket,
+				WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code,
+				WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.reason,
+			);
+			return;
+		}
+		const pendingUntil = metadata.pendingUntil ?? Date.now() + 30_000;
+		socket.serializeAttachment({ ...metadata, pendingUntil });
+		sendControl(
+			socket,
+			JSON.stringify({ _zuseGateway: "availability", state: "pending" }),
+		);
+		const current = await this.state.storage.getAlarm();
+		if (current === null || pendingUntil < current)
+			await this.state.storage.setAlarm(pendingUntil);
+	}
+
+	private available(
+		socket: CloudflareWebSocket,
+		metadata: Extract<GatewaySocketAttachment, { role: "client" }>,
+	): boolean {
+		if (metadata.protocol !== WORKSPACE_GATEWAY_PENDING_PROTOCOL) return true;
+		const { pendingUntil: _deadline, ...current } = metadata;
+		socket.serializeAttachment({ ...current, wasReady: true });
+		return sendControl(
+			socket,
+			JSON.stringify({
+				_zuseGateway: "availability",
+				state: "available",
+				reset: metadata.wasReady === true,
+			}),
+		);
+	}
+
+	async alarm(): Promise<void> {
+		let next: number | undefined;
+		for (const socket of this.clientSockets()) {
+			const metadata = attachment(socket);
+			if (metadata?.role !== "client" || metadata.pendingUntil === undefined)
+				continue;
+			if (metadata.pendingUntil <= Date.now()) {
+				detachSocket(socket);
+				closeSocket(
+					socket,
+					WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code,
+					WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.reason,
+				);
+			} else
+				next = Math.min(next ?? metadata.pendingUntil, metadata.pendingUntil);
+		}
+		if (next !== undefined) await this.state.storage.setAlarm(next);
+	}
+
 	private runtimeSockets(): ReadonlyArray<CloudflareWebSocket> {
-		return this.state.getWebSockets("runtime");
+		return this.state
+			.getWebSockets("runtime")
+			.filter((socket) => attachment(socket)?.role === "runtime");
 	}
 
 	private clientSockets(): ReadonlyArray<CloudflareWebSocket> {
@@ -277,11 +348,7 @@ export class WorkspaceGateway {
 			const existingRuntimes = this.runtimeSockets();
 			const newerRuntimeExists = existingRuntimes.some((existing) => {
 				const metadata = attachment(existing);
-				return (
-					metadata?.role === "runtime" &&
-					sameGateway(metadata, fence) &&
-					metadata.generation > fence.generation
-				);
+				return metadata?.role === "runtime" && newerFence(metadata, fence);
 			});
 			server.serializeAttachment({
 				role: "runtime",
@@ -315,10 +382,46 @@ export class WorkspaceGateway {
 				const metadata = attachment(socket);
 				if (metadata?.role !== "client") continue;
 				if (!sameFence(metadata, fence)) {
+					detachSocket(socket);
 					closeSocket(
 						socket,
 						WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE.code,
 						WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE.reason,
+					);
+					continue;
+				}
+				// Alarm dispatch can lag behind the persisted deadline.
+				if (
+					metadata.pendingUntil !== undefined &&
+					metadata.pendingUntil <= Date.now()
+				) {
+					detachSocket(socket);
+					closeSocket(
+						socket,
+						WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code,
+						WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.reason,
+					);
+					continue;
+				}
+				if (
+					metadata.protocol === WORKSPACE_GATEWAY_PENDING_PROTOCOL &&
+					metadata.wasReady === true
+				) {
+					this.available(socket, metadata);
+					// A reconnect needs a new RPC peer; delayed frames and close
+					// callbacks from this socket cannot target the replacement.
+					detachSocket(socket);
+					continue;
+				}
+				if (
+					metadata.protocol !== WORKSPACE_GATEWAY_PENDING_PROTOCOL &&
+					existingRuntimes.length > 0
+				) {
+					detachSocket(socket);
+					closeSocket(
+						socket,
+						WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code,
+						WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.reason,
 					);
 					continue;
 				}
@@ -342,7 +445,7 @@ export class WorkspaceGateway {
 						WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE.code,
 						WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE.reason,
 					);
-				}
+				} else this.available(socket, metadata);
 			}
 			return websocketResponse(client, protocol);
 		}
@@ -360,6 +463,7 @@ export class WorkspaceGateway {
 			return new Response("missing connection identity", { status: 400 });
 		server.serializeAttachment({
 			role: "client",
+			wasReady: false,
 			connectionId,
 			...(permission === undefined ? {} : { permission }),
 			...(actorId === undefined ? {} : { actorId }),
@@ -369,11 +473,8 @@ export class WorkspaceGateway {
 		this.state.acceptWebSocket(server, ["client"]);
 		const runtimes = this.runtimeSockets();
 		if (runtimes.length === 0) {
-			closeSocket(
-				server,
-				WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code,
-				WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.reason,
-			);
+			const metadata = attachment(server);
+			if (metadata?.role === "client") await this.pending(server, metadata);
 			return websocketResponse(client, protocol);
 		}
 		const currentRuntime = runtimes.find((runtime) => {
@@ -404,6 +505,10 @@ export class WorkspaceGateway {
 				WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE.code,
 				WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE.reason,
 			);
+		else {
+			const metadata = attachment(server);
+			if (metadata?.role === "client") this.available(server, metadata);
+		}
 		return websocketResponse(client, protocol);
 	}
 
@@ -415,6 +520,7 @@ export class WorkspaceGateway {
 		if (metadata?.role === "client") {
 			const runtimes = this.runtimeSockets();
 			if (runtimes.length === 0) {
+				detachSocket(socket);
 				closeSocket(
 					socket,
 					WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code,
@@ -430,6 +536,7 @@ export class WorkspaceGateway {
 				);
 			});
 			if (runtime === undefined) {
+				detachSocket(socket);
 				closeSocket(
 					socket,
 					WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE.code,
@@ -559,6 +666,7 @@ export class WorkspaceGateway {
 			return;
 		}
 		if (metadata?.role === "runtime") {
+			detachSocket(socket);
 			const replacementExists = this.runtimeSockets().some((runtime) => {
 				const runtimeMetadata = attachment(runtime);
 				return (
@@ -573,11 +681,7 @@ export class WorkspaceGateway {
 					clientMetadata?.role === "client" &&
 					sameFence(clientMetadata, metadata)
 				)
-					closeSocket(
-						client,
-						WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code,
-						WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.reason,
-					);
+					await this.pending(client, clientMetadata);
 			}
 		}
 	}

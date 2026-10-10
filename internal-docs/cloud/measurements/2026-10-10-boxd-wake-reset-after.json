@@ -1,0 +1,302 @@
+{
+	"scenario": "resume-to-guest-response",
+	"startWallMs": 1791631901039,
+	"workspaceId": "workspace_33YmxwGmqg2wps--",
+	"resumeHttpStatus": 200,
+	"resumeReceiptMs": 1652,
+	"controlReadyObservedMs": 5240,
+	"startupTimings": {
+		"requestedAt": 1791630833598,
+		"forkedAt": 1791630842488,
+		"allocatedAt": 1791631803937,
+		"enrolledAt": 1791631806675,
+		"runtimeReadyAt": 1791631806675,
+		"enrollmentDurationMs": 2738,
+		"repositoryReadyAt": 1791630850623,
+		"connectedAt": 1791630850623,
+		"agentStartedAt": 1791630851062,
+		"messageAcceptedAt": 1791630851062,
+		"launchDurationMs": 17464
+	},
+	"ticketHttpStatus": 200,
+	"ticketReceiptMs": 6740,
+	"trace": [
+		{
+			"atMs": 8295,
+			"event": "open"
+		},
+		{
+			"atMs": 8296,
+			"direction": "in",
+			"frameTag": "gateway.availability",
+			"availabilityState": "available",
+			"availabilityReset": false,
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 8298,
+			"direction": "out",
+			"frameTag": "Request",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 8733,
+			"direction": "in",
+			"frameTag": "Exit",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 11597,
+			"direction": "in",
+			"frameTag": "gateway.availability",
+			"availabilityState": "available",
+			"availabilityReset": true,
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 11597,
+			"event": "close-called",
+			"code": 4100,
+			"reason": "workspace runtime unavailable",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 11597,
+			"event": "close-returned",
+			"rawReadyState": 2
+		},
+		{
+			"atMs": 11598,
+			"event": "logical-close",
+			"code": 4100,
+			"reason": "workspace runtime unavailable"
+		},
+		{
+			"atMs": 11598,
+			"event": "close-called",
+			"code": 1000,
+			"rawReadyState": 2
+		},
+		{
+			"atMs": 11598,
+			"event": "close-returned",
+			"rawReadyState": 2
+		},
+		{
+			"atMs": 11699,
+			"event": "post-close-100ms",
+			"rawReadyState": 2
+		},
+		{
+			"atMs": 11699,
+			"event": "post-close-100ms",
+			"rawReadyState": 2
+		},
+		{
+			"atMs": 13966,
+			"event": "open"
+		},
+		{
+			"atMs": 13967,
+			"direction": "in",
+			"frameTag": "gateway.availability",
+			"availabilityState": "available",
+			"availabilityReset": false,
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 13968,
+			"direction": "out",
+			"frameTag": "Ping",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 14233,
+			"direction": "in",
+			"frameTag": "Pong",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 15748,
+			"direction": "out",
+			"frameTag": "Request",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 16027,
+			"direction": "in",
+			"frameTag": "Exit",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 16029,
+			"event": "close-called",
+			"code": 1000,
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 16029,
+			"event": "close-returned",
+			"rawReadyState": 2
+		},
+		{
+			"atMs": 16130,
+			"event": "post-close-100ms",
+			"rawReadyState": 2
+		},
+		{
+			"atMs": 21093,
+			"event": "open"
+		},
+		{
+			"atMs": 21094,
+			"direction": "in",
+			"frameTag": "gateway.availability",
+			"availabilityState": "available",
+			"availabilityReset": false,
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 21095,
+			"direction": "out",
+			"frameTag": "Request",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 21441,
+			"direction": "in",
+			"frameTag": "Exit",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 21444,
+			"direction": "out",
+			"frameTag": "Request",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 21751,
+			"direction": "in",
+			"frameTag": "Exit",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 21868,
+			"direction": "out",
+			"frameTag": "Ping",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 22180,
+			"direction": "in",
+			"frameTag": "Pong",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 26871,
+			"direction": "out",
+			"frameTag": "Ping",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 27171,
+			"direction": "in",
+			"frameTag": "Pong",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 31875,
+			"direction": "out",
+			"frameTag": "Ping",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 32178,
+			"direction": "in",
+			"frameTag": "Pong",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 33758,
+			"direction": "out",
+			"frameTag": "Request",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 36377,
+			"direction": "in",
+			"frameTag": "Exit",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 36378,
+			"event": "close-called",
+			"code": 1000,
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 36378,
+			"event": "close-returned",
+			"rawReadyState": 2
+		},
+		{
+			"atMs": 36481,
+			"event": "post-close-100ms",
+			"rawReadyState": 2
+		},
+		{
+			"atMs": 46487,
+			"event": "error"
+		},
+		{
+			"atMs": 46488,
+			"event": "close",
+			"code": 1006,
+			"reason": "",
+			"wasClean": false
+		},
+		{
+			"atMs": 46488,
+			"event": "logical-close",
+			"code": 1006,
+			"reason": ""
+		},
+		{
+			"atMs": 46489,
+			"event": "error"
+		},
+		{
+			"atMs": 46489,
+			"event": "close",
+			"code": 1006,
+			"reason": "",
+			"wasClean": false
+		},
+		{
+			"atMs": 46546,
+			"event": "error"
+		},
+		{
+			"atMs": 46547,
+			"event": "close",
+			"code": 1006,
+			"reason": "",
+			"wasClean": false
+		},
+		{
+			"atMs": 46547,
+			"event": "logical-close",
+			"code": 1006,
+			"reason": ""
+		}
+	],
+	"guestHandshakeReceiptMs": 8741,
+	"newTabRpcMs": 286,
+	"sessionId": "s_1558db31-4dd8-4b62-b000-5a778d70b9f3",
+	"recoveryHandshakeMs": 5112,
+	"recoveredNewTabMs": 311,
+	"recoveredSessionId": "s_f9dbdd97-9537-4cf2-a6fe-35c87e220766",
+	"recoveredMessageDomainReceiptMs": 2623,
+	"heartbeatHeld12Seconds": true,
+	"recoverySuccess": true
+}

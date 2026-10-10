@@ -11,7 +11,7 @@ import {
 } from "@zuse/sandbox-providers";
 import { SandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
-import { exportJWK, exportPKCS8, generateKeyPair } from "jose";
+import { exportJWK, exportPKCS8, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, test, vi } from "vitest";
 import {
 	AccountIdentity,
@@ -40,6 +40,7 @@ import {
 } from "../../src/config.ts";
 import {
 	parseJwk,
+	runtimeSigningKeyThumbprint,
 	sha256Hex,
 	signWorkspaceClientTicket,
 } from "../../src/crypto.ts";
@@ -132,6 +133,236 @@ const makeRuntime = async (organizationWorkspacesEnabled = false) => {
 };
 
 describe("cloud workspace runtime bootstrap", () => {
+	test.each([
+		"delete-queued",
+		"delete-rejected",
+	])("removes deletion intent from full and incremental chat catalogs before provider cleanup (%s)", async (statusCode) => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			const now = Date.now();
+			await runtime.runPromise(
+				store.connectProject({
+					projectId: "project",
+					accountId: "account-1",
+					repositoryIdentity: "github.com/acme/app",
+					repositoryUrl: "https://github.com/acme/app.git",
+					displayName: "App",
+					defaultBranch: "main",
+					visibility: "private",
+					gitConnectionKind: "github-app",
+					cloudEnvironment: {},
+					secretBindings: [],
+					configurationDigest: "digest",
+					state: "ready",
+					idempotencyKey: "project",
+					createdAtMs: now,
+					updatedAtMs: now,
+				}),
+			);
+			const workspace = {
+				workspaceId: "workspace-delete",
+				accountId: "account-1",
+				projectId: "project",
+				buildId: "build",
+				provider: "fake",
+				runtimeState: "offline" as const,
+				chatId: "chat-delete",
+				initialSessionId: "session-delete",
+				branch: "task/delete",
+				baseRef: "main",
+				state: "failed" as const,
+				desiredState: "ready" as const,
+				statusCode: "provider-unavailable",
+				idempotencyKey: "delete-test",
+				requestConfig: {},
+				nextActionAtMs: Number.MAX_SAFE_INTEGER,
+				revision: 1,
+				createdAtMs: now,
+				updatedAtMs: now,
+				lastActivityAtMs: now,
+			};
+			await runtime.runPromise(
+				store.createWorkspace(workspace, {
+					workspaceId: workspace.workspaceId,
+					accountId: workspace.accountId,
+					chatId: workspace.chatId,
+					sessionId: workspace.initialSessionId,
+					turnId: "turn",
+					commandId: "command",
+					ciphertext: "sealed",
+					expiresAtMs: now + 60_000,
+					createdAtMs: now,
+				}),
+			);
+			const read = (path: string) =>
+				runtime.runPromise(
+					handleRequest(
+						new Request(`${ISSUER}${path}`, {
+							headers: { authorization: "Bearer test-token:account-1" },
+						}),
+					),
+				);
+			expect(await (await read(ApiPaths.cloudChats)).json()).toMatchObject({
+				chats: [{ workspaceId: workspace.workspaceId }],
+			});
+			const head = await (
+				await read(`${ApiPaths.cloudChatChanges}?cursor=0`)
+			).json();
+			await runtime.runPromise(
+				store.saveWorkspace({
+					...workspace,
+					desiredState: "deleted",
+					statusCode,
+					revision: 2,
+					updatedAtMs: now + 1,
+				}),
+			);
+			for (const scope of ["active", "all", "archived"]) {
+				expect(
+					await (await read(`${ApiPaths.cloudChats}?scope=${scope}`)).json(),
+				).toEqual({ chats: [] });
+			}
+			expect(
+				await (
+					await read(`${ApiPaths.cloudChatChanges}?cursor=${head.cursor}`)
+				).json(),
+			).toMatchObject({
+				chats: [],
+				deletedWorkspaceIds: [workspace.workspaceId],
+			});
+			expect(
+				await runtime.runPromise(store.getWorkspace(workspace.workspaceId)),
+			).toMatchObject({ desiredState: "deleted", statusCode });
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
+	test("signed renewal survives two days asleep and rejects wrong identity, stale proof and revoked receipt replay", async () => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			const keys = await generateKeyPair("EdDSA", { extractable: true });
+			const publicJwk = await exportJWK(keys.publicKey);
+			const signingThumbprint = await runtime.runPromise(
+				runtimeSigningKeyThumbprint(publicJwk),
+			);
+			const now = Date.now();
+			const workspace = {
+				workspaceId: "workspace-sleep-renew",
+				accountId: "account-1",
+				projectId: "project-1",
+				buildId: "build-1",
+				provider: "fake",
+				providerSandboxId: "same-sandbox",
+				runtimeCredentialHash: await runtime.runPromise(
+					sha256Hex("expired-bearer"),
+				),
+				runtimeState: "connecting" as const,
+				chatId: "same-chat",
+				initialSessionId: "same-session",
+				branch: "task/sleep",
+				baseRef: "main",
+				state: "resuming" as const,
+				desiredState: "ready" as const,
+				statusCode: "resume-runtime-waking",
+				idempotencyKey: "sleep-renew",
+				requestConfig: {
+					runtimeGeneration: 4,
+					gatewayEpoch: 8,
+					runtimeCredentialExpiresAtMs: now - 2 * 24 * 60 * 60_000,
+					runtimeSigningPublicJwk: JSON.stringify(publicJwk),
+					runtimeSigningKeyThumbprint: signingThumbprint,
+				},
+				nextActionAtMs: now + 12_000,
+				revision: 1,
+				createdAtMs: now,
+				updatedAtMs: now,
+				lastActivityAtMs: now,
+			};
+			await runtime.runPromise(
+				store.createWorkspace(workspace, {
+					workspaceId: workspace.workspaceId,
+					accountId: workspace.accountId,
+					chatId: workspace.chatId,
+					sessionId: workspace.initialSessionId,
+					turnId: "turn",
+					commandId: "command",
+					ciphertext: "sealed",
+					expiresAtMs: now + 60_000,
+					createdAtMs: now,
+				}),
+			);
+			const proof = (privateKey = keys.privateKey, expired = false) =>
+				new SignJWT({
+					workspaceId: workspace.workspaceId,
+					requestId: "renew-after-sleep",
+					generation: 4,
+					gatewayEpoch: 8,
+				})
+					.setProtectedHeader({
+						alg: "EdDSA",
+						typ: "workspace-runtime-renewal+jwt",
+					})
+					.setAudience(ISSUER)
+					.setIssuedAt(Math.floor(now / 1000) - (expired ? 300 : 0))
+					.setExpirationTime(Math.floor(now / 1000) + (expired ? -60 : 120))
+					.sign(privateKey);
+			const renew = async (signedProof: string) =>
+				runtime.runPromise(
+					handleRequest(
+						new Request(
+							`${ISSUER}${ApiPaths.cloudWorkspaceRuntimeCredentialsRenew(workspace.workspaceId)}`,
+							{
+								method: "POST",
+								headers: {
+									authorization: "Bearer expired-bearer",
+									"content-type": "application/json",
+								},
+								body: JSON.stringify({
+									requestId: "renew-after-sleep",
+									proof: signedProof,
+								}),
+							},
+						),
+					),
+				);
+			expect(
+				(await renew(await proof((await generateKeyPair("EdDSA")).privateKey)))
+					.status,
+			).toBe(401);
+			expect((await renew(await proof(keys.privateKey, true))).status).toBe(
+				401,
+			);
+			const valid = await proof();
+			const first = await renew(valid);
+			expect(first.status).toBe(200);
+			const receipt = await first.json();
+			expect(receipt).toMatchObject({ generation: 4, gatewayEpoch: 8 });
+			expect(receipt.expiresAt).toBeGreaterThan(now);
+			expect(await (await renew(valid)).json()).toEqual(receipt);
+			expect(
+				await runtime.runPromise(store.getWorkspace(workspace.workspaceId)),
+			).toMatchObject({
+				providerSandboxId: "same-sandbox",
+				chatId: "same-chat",
+				initialSessionId: "same-session",
+			});
+			await runtime.runPromise(
+				store.saveWorkspace({
+					...workspace,
+					desiredState: "deleted",
+					revision: 2,
+					updatedAtMs: now + 1,
+				}),
+			);
+			expect((await renew(valid)).status).toBe(401);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
 	test("workspace settings require admin writes, exclude device preferences and reject stale revisions", async () => {
 		const runtime = await makeRuntime(true);
 		let role = "admin";
@@ -609,9 +840,15 @@ describe("cloud workspace runtime bootstrap", () => {
 				["data-key", "GET"],
 				["commands", "POST"],
 				["commands/command", "DELETE"],
-				...["pause", "resume", "restart", "archive", "unarchive", "delete"].map(
-					(action) => [action, "POST"],
-				),
+				...[
+					"pause",
+					"resume",
+					"restart",
+					"update",
+					"archive",
+					"unarchive",
+					"delete",
+				].map((action) => [action, "POST"]),
 			] as const) {
 				const denied = await userRequest(suffix, method);
 				expect(denied.status).toBe(403);
@@ -960,6 +1197,45 @@ describe("cloud workspace runtime bootstrap", () => {
 			generation: 4,
 			gatewayEpoch: 8,
 		});
+
+		const beforeTicket = await runtime.runPromise(
+			store.getWorkspace(workspaceId),
+		);
+		const pendingTicketResponse = await runtime.runPromise(
+			handleRequest(
+				new Request(
+					`${ISSUER}${ApiPaths.cloudWorkspaceConnectionTicket(workspaceId)}`,
+					{
+						method: "POST",
+						headers: {
+							authorization: "Bearer test-token:account-1",
+							"content-type": "application/json",
+						},
+						body: JSON.stringify({ protocol: "zuse-workspace-v3" }),
+					},
+				),
+			),
+		);
+		expect(pendingTicketResponse.status).toBe(200);
+		const pendingTicket = await pendingTicketResponse.json();
+		expect(pendingTicket.protocol).toBe("zuse-workspace-v3");
+		expect(await runtime.runPromise(store.getWorkspace(workspaceId))).toEqual(
+			beforeTicket,
+		);
+		const pendingUpgrade = await runtime.runPromise(
+			handleRequest(
+				new Request(`${ISSUER}${ApiPaths.cloudWorkspaceGateway(workspaceId)}`, {
+					headers: {
+						upgrade: "websocket",
+						"sec-websocket-protocol": `zuse-workspace-v3, ${pendingTicket.credential}`,
+					},
+				}),
+			),
+		);
+		expect(pendingUpgrade.status).toBe(204);
+		expect(await runtime.runPromise(store.getWorkspace(workspaceId))).toEqual(
+			beforeTicket,
+		);
 
 		const credentialKey = await generateKeyPair("RSA-OAEP-256", {
 			extractable: true,
@@ -1770,6 +2046,166 @@ describe("cloud runtime orchestration", () => {
 			expect(
 				(await call("/v1/cloud/workspaces", "GET", "organization")).status,
 			).toBe(403);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+});
+
+describe("explicit cloud runtime release updates", () => {
+	test.each([
+		true,
+		false,
+	])("update requires configured artifacts and preserves the serving authority (configured: %s)", async (configured) => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			const machines = await runtime.runPromise(MachineStore);
+			const billing = await runtime.runPromise(CloudBillingStore);
+			const now = Date.now();
+			await runtime.runPromise(
+				machines.upsertEntitlement({
+					entitlementId: "update-entitlement",
+					accountId: "account-1",
+					kind: "cloud-workspace",
+					offerId: "cloud-workspace-standard-v1",
+					provider: "manual",
+					status: "active",
+					createdAtMs: now,
+					updatedAtMs: now,
+				}),
+			);
+			await runtime.runPromise(
+				billing.ensurePeriod({
+					periodId: "update-period",
+					accountId: "account-1",
+					status: "manual",
+					periodStartMs: now - 1000,
+					periodEndMs: now + 86400000,
+					nowMs: now,
+				}),
+			);
+			const original = {
+				workspaceId: "update-workspace",
+				accountId: "account-1",
+				projectId: "project",
+				buildId: "build",
+				provider: "fake",
+				providerSandboxId: "existing-sandbox",
+				chatId: "chat",
+				initialSessionId: "session",
+				branch: "work",
+				baseRef: "main",
+				state: "ready" as const,
+				desiredState: "ready" as const,
+				runtimeState: "online" as const,
+				statusCode: "agent-running",
+				runtimeCredentialHash: "serving-credential",
+				idempotencyKey: "update-workspace",
+				requestConfig: {
+					runtimeGeneration: 7,
+					gatewayEpoch: 7,
+					runtimeBootstrapReceipt: {
+						generation: 7,
+						gatewayEpoch: 7,
+						acknowledgedAtMs: now - 1,
+					},
+				},
+				nextActionAtMs: now + 60000,
+				revision: 1,
+				createdAtMs: now,
+				updatedAtMs: now,
+				lastActivityAtMs: now,
+			};
+			await runtime.runPromise(
+				store.createWorkspace(original, {
+					commandId: "create-update-workspace",
+					workspaceId: original.workspaceId,
+					accountId: original.accountId,
+					chatId: original.chatId,
+					sessionId: original.initialSessionId,
+					turnId: "turn-update",
+					ciphertext: "sealed-launch",
+					expiresAtMs: now + 60000,
+					createdAtMs: now,
+				}),
+			);
+			const call = (
+				action: "update" | "restart",
+				commandId: string,
+				account = "account-1",
+			) =>
+				runtime.runPromise(
+					handleRequest(
+						new Request(
+							`${ISSUER}${ApiPaths.cloudWorkspaceAction(original.workspaceId, action)}`,
+							{
+								method: "POST",
+								headers: {
+									authorization: `Bearer test-token:${account}`,
+									"content-type": "application/json",
+								},
+								body: JSON.stringify({
+									workspaceId: original.workspaceId,
+									commandId,
+								}),
+							},
+						),
+					).pipe(
+						Effect.provideService(SandboxOfferConfiguration, {
+							port: 47837,
+							createTimeoutSeconds: 86400,
+							keepAliveTimeoutSeconds: 86400,
+							...(configured
+								? {
+										runtimeInstallerSource: "signed installer",
+										runtimeManifestUrl:
+											"https://releases.test/stable-manifest.json",
+									}
+								: {}),
+						}),
+					),
+				);
+			expect(
+				(await call("update", "foreign-update", "account-other")).status,
+			).toBe(404);
+			const response = await call("update", "update-1");
+			expect(response.status, await response.clone().text()).toBe(
+				configured ? 200 : 409,
+			);
+			const queued = await runtime.runPromise(
+				store.getWorkspace(original.workspaceId),
+			);
+			if (!configured) {
+				expect(await response.json()).toMatchObject({
+					error: "runtime_update_unavailable",
+				});
+				expect(queued).toEqual(original);
+				const restart = await call("restart", "restart-1");
+				expect(restart.status, await restart.clone().text()).toBe(200);
+				expect(
+					(await runtime.runPromise(store.getWorkspace(original.workspaceId)))
+						?.requestConfig.runtimeReleaseChangeRequested,
+				).toBeUndefined();
+				return;
+			}
+			expect(response.headers.get("x-zuse-reconcile-cloud-workspace")).toBe(
+				original.workspaceId,
+			);
+			expect(queued).toMatchObject({
+				state: "ready",
+				desiredState: "ready",
+				runtimeState: "online",
+				runtimeCredentialHash: "serving-credential",
+				requestConfig: {
+					...original.requestConfig,
+					runtimeReleaseChangeRequested: true,
+				},
+			});
+			expect((await call("update", "update-1")).status).toBe(200);
+			expect(
+				await runtime.runPromise(store.getWorkspace(original.workspaceId)),
+			).toEqual(queued);
 		} finally {
 			await runtime.dispose();
 		}

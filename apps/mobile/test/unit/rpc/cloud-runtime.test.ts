@@ -10,18 +10,22 @@ const api = vi.hoisted(() => ({
 vi.mock("~/rpc/api-client", () => ({
 	cloudControlClient: {
 		"cloud.workspaces.get": (input: unknown) =>
-			Effect.tryPromise(() => api.get(input)),
+			Effect.tryPromise({ try: () => api.get(input), catch: (cause) => cause }),
 		"cloud.workspaces.resume": (input: unknown) =>
-			Effect.tryPromise(() => api.resume(input)),
+			Effect.tryPromise({
+				try: () => api.resume(input),
+				catch: (cause) => cause,
+			}),
 		"cloud.workspaces.connect": (input: unknown) =>
-			Effect.tryPromise(() => api.connect(input)),
+			Effect.tryPromise({
+				try: () => api.connect(input),
+				catch: (cause) => cause,
+			}),
 	},
 }));
 
 import {
 	connectCloudRuntime,
-	markCloudGatewayHealthy,
-	recordCloudGatewayClose,
 	requestCloudRuntimeWake,
 	resetCloudRuntime,
 } from "../../../src/rpc/cloud-runtime";
@@ -83,26 +87,17 @@ describe("mobile direct cloud gateway lifecycle", () => {
 		await expect(connectCloudRuntime("workspace-1")).rejects.toThrow();
 		expect(api.resume).not.toHaveBeenCalled();
 	});
-	test("reuses the same recovery command after a lost response", async () => {
-		api.get.mockResolvedValue(
-			workspace({
-				desiredState: "ready",
-				state: "ready",
-				runtimeState: "online",
-			}),
-		);
-		recordCloudGatewayClose("workspace-1", 4100);
+	test("reuses the explicit wake command after a lost response", async () => {
+		requestCloudRuntimeWake("workspace-1");
 		api.resume.mockRejectedValueOnce(new Error("lost response"));
 		await expect(connectCloudRuntime("workspace-1")).rejects.toThrow();
 		await connectCloudRuntime("workspace-1");
 		expect(api.resume.mock.calls[0]?.[0]).toEqual(
 			api.resume.mock.calls[1]?.[0],
 		);
-		expect(api.resume.mock.calls[0]?.[0]).toMatchObject({
-			recoverRuntime: true,
-		});
+		expect(api.resume.mock.calls[0]?.[0]).not.toHaveProperty("recoverRuntime");
 	});
-	test("one network flap after a healthy handshake does not restart the runtime", async () => {
+	test("repeated attachment failures never request runtime recovery", async () => {
 		api.get.mockResolvedValue(
 			workspace({
 				desiredState: "ready",
@@ -110,13 +105,38 @@ describe("mobile direct cloud gateway lifecycle", () => {
 				runtimeState: "online",
 			}),
 		);
-		markCloudGatewayHealthy("workspace-1");
-		recordCloudGatewayClose("workspace-1", 1006);
-		await connectCloudRuntime("workspace-1");
+		api.connect.mockRejectedValue(new Error("gateway unavailable"));
+		for (let attempt = 0; attempt < 8; attempt++) {
+			await expect(connectCloudRuntime("workspace-1")).rejects.toThrow(
+				"gateway unavailable",
+			);
+		}
 		expect(api.resume).not.toHaveBeenCalled();
-		recordCloudGatewayClose("workspace-1", 1006);
-		await connectCloudRuntime("workspace-1");
+		expect(api.connect).toHaveBeenCalledTimes(8);
+	});
+	test("a failed ticket after wake cannot wake sleeping compute again", async () => {
+		requestCloudRuntimeWake("workspace-1");
+		api.connect.mockRejectedValue(new Error("gateway unavailable"));
+		await expect(connectCloudRuntime("workspace-1")).rejects.toThrow(
+			"gateway unavailable",
+		);
+		await expect(connectCloudRuntime("workspace-1")).rejects.toThrow(
+			"sleeping",
+		);
 		expect(api.resume).toHaveBeenCalledTimes(1);
+	});
+	test("passive attachment preserves lifecycle failure without resuming", async () => {
+		api.get.mockResolvedValue(
+			workspace({
+				desiredState: "ready",
+				state: "failed",
+				statusCode: "runtime-connection-timeout",
+				runtimeState: "offline",
+			}),
+		);
+		await expect(connectCloudRuntime("workspace-1")).rejects.toThrow();
+		expect(api.resume).not.toHaveBeenCalled();
+		expect(api.connect).not.toHaveBeenCalled();
 	});
 	test("revoking an account fences a ticket request already in flight", async () => {
 		let finish!: (value: unknown) => void;
@@ -135,5 +155,60 @@ describe("mobile direct cloud gateway lifecycle", () => {
 		await rejected;
 		expect(api.resume).not.toHaveBeenCalled();
 		expect(api.connect).not.toHaveBeenCalled();
+	});
+	test("acknowledges shared compute intent before gateway ticket failure", async () => {
+		const acknowledge = vi.fn();
+		requestCloudRuntimeWake("workspace-1", {
+			commandId: "shared-wake",
+			acknowledge,
+		});
+		api.connect.mockRejectedValue(new Error("ticket unavailable"));
+		await expect(connectCloudRuntime("workspace-1")).rejects.toThrow(
+			"ticket unavailable",
+		);
+		expect(acknowledge).toHaveBeenCalledOnce();
+		expect(api.resume).toHaveBeenCalledExactlyOnceWith({
+			workspaceId: "workspace-1",
+			commandId: "shared-wake",
+		});
+	});
+	test("joins a shared wake intent to an in-flight explicit wake", async () => {
+		const acknowledged = vi.fn();
+		let finish!: (value: unknown) => void;
+		api.resume.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					finish = resolve;
+				}),
+		);
+		requestCloudRuntimeWake("workspace-1");
+		const connecting = connectCloudRuntime("workspace-1");
+		await vi.waitFor(() => expect(api.resume).toHaveBeenCalledOnce());
+		requestCloudRuntimeWake("workspace-1", {
+			commandId: "joined-intent",
+			acknowledge: acknowledged,
+		});
+		finish(
+			workspace({
+				state: "ready",
+				desiredState: "ready",
+				runtimeState: "online",
+			}),
+		);
+		await connecting;
+		expect(acknowledged).toHaveBeenCalledOnce();
+		expect(api.resume).toHaveBeenCalledOnce();
+	});
+	test("explicit demand cancels an idle pause before the runtime goes offline", async () => {
+		api.get.mockResolvedValue(
+			workspace({
+				state: "ready",
+				desiredState: "paused",
+				runtimeState: "online",
+			}),
+		);
+		requestCloudRuntimeWake("workspace-1");
+		await connectCloudRuntime("workspace-1");
+		expect(api.resume).toHaveBeenCalledOnce();
 	});
 });

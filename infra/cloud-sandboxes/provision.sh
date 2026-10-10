@@ -33,6 +33,8 @@ stage_packages() {
 		jq \
 		openssh-client \
 		openssh-server \
+		procps \
+		sudo \
 		python3 \
 		python3-pip \
 		python3-venv \
@@ -82,6 +84,7 @@ stage_layout() {
 		useradd --create-home --shell /bin/bash zuse
 	fi
 	mkdir -p /home/zuse/.zuse-data /home/zuse/.ssh /home/repos
+	install -d -m 0700 -o zuse -g zuse /run/zuse-secrets
 	chmod 700 /home/zuse/.ssh
 
 	# Single-connection sshd config used by the runtime's WebSocket SSH bridge
@@ -91,13 +94,14 @@ stage_layout() {
 
 	install -m 0755 "$provision_dir/project-builder.sh" /usr/local/bin/zuse-project-builder
 	install -m 0755 "$provision_dir/workspace-bootstrap.sh" /usr/local/bin/zuse-workspace-bootstrap
+	install -D -m 0644 "$provision_dir/workspace-runtime.sh" /usr/local/lib/zuse/workspace-runtime.sh
 	install -m 0755 "$provision_dir/git-askpass.sh" /usr/local/bin/zuse-git-askpass
 	install -m 0755 "$provision_dir/github-auth.sh" /usr/local/bin/zuse-github-auth
 	ln -sf /usr/local/bin/zuse-github-auth /usr/local/bin/gh
 	install -D -m 0644 "$provision_dir/repository-script.ts" /usr/local/lib/zuse/repository-script.ts
 	install -D -m 0644 "$provision_dir/artifacts/runtime-updater.mjs" /usr/local/lib/zuse/runtime-updater.mjs
 
-	mkdir -p /var/lib/zuse/project-build /var/lib/zuse/workspace /opt/zuse/releases
+	mkdir -p /var/lib/zuse/project-build /var/lib/zuse/workspace /opt/zuse/releases /opt/zuse/node-compile-cache
 	chown -R zuse:zuse /home/zuse /home/repos /var/lib/zuse /opt/zuse
 	runuser -u zuse -- /usr/local/bin/zuse-github-auth install
 }

@@ -68,6 +68,7 @@ import { seedHostedProjects } from "../../src/lib/hosted-workspace.ts";
 import { useOrganizationWorkspaces } from "../../src/lib/organization-workspaces.ts";
 import { observeRendererAccount } from "../../src/lib/renderer-account.ts";
 import { selectRendererWorkspace } from "../../src/lib/renderer-workspace.ts";
+import { acquireRendererRpcSession } from "../../src/lib/rpc-client.ts";
 import { getRendererClientBus } from "../../src/lib/session-timeline-client-bus.ts";
 import { useChatsStore } from "../../src/store/chats.ts";
 import { useSessionsStore } from "../../src/store/sessions.ts";
@@ -473,4 +474,259 @@ it("keeps an unbound workspace link selected while hosted projects load", async 
 		summary.initialSessionId,
 	);
 	expect(useWorkspaceStore.getState().selectedFolderId).toBeNull();
+});
+
+it("reuses an authenticated live workspace connection without a control-plane lookup", async () => {
+	observeRendererAccount("live-tab-owner");
+	stageCloudChat(summary, FolderId.make("project"));
+	vi.spyOn(getRendererClientBus(), "connection").mockReturnValue({
+		environmentId: EnvironmentId.make(summary.workspaceId),
+		phase: "connected",
+		generation: 1,
+		error: null,
+	});
+	try {
+		await expect(
+			ensureCloudWorkspaceAttached(summary),
+		).resolves.toBeUndefined();
+		expect(mocks.get).not.toHaveBeenCalled();
+		expect(mocks.connect).not.toHaveBeenCalled();
+		expect(mocks.resume).not.toHaveBeenCalled();
+	} finally {
+		vi.restoreAllMocks();
+	}
+});
+
+it("does not reuse a live workspace from a signed-out account", async () => {
+	observeRendererAccount("previous-tab-owner");
+	stageCloudChat(summary, FolderId.make("project"));
+	vi.spyOn(getRendererClientBus(), "connection").mockReturnValue({
+		environmentId: EnvironmentId.make(summary.workspaceId),
+		phase: "connected",
+		generation: 1,
+		error: null,
+	});
+	observeRendererAccount("different-tab-owner");
+	mocks.get.mockReturnValue(Effect.fail(new Error("check new owner")));
+	try {
+		await expect(ensureCloudWorkspaceAttached(summary)).rejects.toThrow(
+			"check new owner",
+		);
+		expect(mocks.get).toHaveBeenCalledOnce();
+	} finally {
+		vi.restoreAllMocks();
+	}
+});
+
+it.each([
+	"dormant",
+	"reconnecting",
+	"blocked-auth",
+	"revoked",
+	"update-required",
+] as const)("keeps the normal attachment path for a %s connection", async (phase) => {
+	observeRendererAccount("unattached-tab-owner");
+	stageCloudChat(summary, FolderId.make("project"));
+	vi.spyOn(getRendererClientBus(), "connection").mockReturnValue({
+		environmentId: EnvironmentId.make(summary.workspaceId),
+		phase,
+		generation: 1,
+		error: null,
+	});
+	mocks.get.mockReturnValue(Effect.fail(new Error("normal attachment")));
+	try {
+		await expect(ensureCloudWorkspaceAttached(summary)).rejects.toThrow(
+			"normal attachment",
+		);
+		expect(mocks.get).toHaveBeenCalledOnce();
+	} finally {
+		vi.restoreAllMocks();
+	}
+});
+
+it("does not reuse a connected transport when the catalog says compute is paused", async () => {
+	observeRendererAccount("paused-tab-owner");
+	stageCloudChat(
+		{ ...summary, state: "paused", desiredState: "paused" },
+		FolderId.make("project"),
+	);
+	vi.spyOn(getRendererClientBus(), "connection").mockReturnValue({
+		environmentId: EnvironmentId.make(summary.workspaceId),
+		phase: "connected",
+		generation: 1,
+		error: null,
+	});
+	mocks.get.mockReturnValue(Effect.fail(new Error("check paused compute")));
+	try {
+		await expect(ensureCloudWorkspaceAttached(summary)).rejects.toThrow(
+			"check paused compute",
+		);
+		expect(mocks.get).toHaveBeenCalledOnce();
+	} finally {
+		vi.restoreAllMocks();
+	}
+});
+
+it.each([
+	1006, 4100,
+])("reattaches after repeated gateway close %s without replacing execution", async (code) => {
+	observeRendererAccount("transport-owner");
+	mocks.get.mockReturnValue(Effect.succeed(summary));
+	mocks.resume.mockReturnValue(Effect.succeed(summary));
+	mocks.connect.mockReturnValue(
+		Effect.succeed({
+			workspaceId: summary.workspaceId,
+			wsUrl: "wss://example.test/cloud",
+			protocol: "zuse-workspace-v2",
+			role: "client",
+			generation: 29,
+			gatewayEpoch: 29,
+			credential: "fresh-ticket",
+			expiresAt: Date.now() + 60_000,
+		}),
+	);
+	let close: (event: {
+		code: number;
+		reason: string;
+		wasClean: boolean;
+	}) => void = () => undefined;
+	const session = await acquireRendererRpcSession(summary.workspaceId, {
+		hooks: {
+			prepare: async () => ({
+				key: `workspace:${summary.workspaceId}`,
+				create: async (onClose) => {
+					close = onClose;
+					return { client: {} as never, dispose: async () => undefined };
+				},
+			}),
+			invalidateCloudTicket: () => undefined,
+		},
+	});
+	try {
+		for (let attempt = 0; attempt < 8; attempt++) {
+			close({ code, reason: "workspace runtime unavailable", wasClean: false });
+			await ensureCloudWorkspaceAttached(summary, "connect");
+		}
+		expect(mocks.get).toHaveBeenCalledTimes(8);
+		expect(mocks.connect).toHaveBeenCalledTimes(8);
+		expect(mocks.resume).not.toHaveBeenCalled();
+	} finally {
+		await session.dispose();
+	}
+});
+
+it("preserves an authoritative startup failure during passive attachment", async () => {
+	observeRendererAccount("failed-workspace-owner");
+	mocks.get.mockReturnValue(
+		Effect.succeed({
+			...summary,
+			state: "failed",
+			runtimeState: "offline",
+			statusCode: "runtime-storage-replaced",
+		}),
+	);
+	await expect(
+		ensureCloudWorkspaceAttached(summary, "connect"),
+	).rejects.toThrow("runtime-storage-replaced");
+	expect(mocks.resume).not.toHaveBeenCalled();
+	expect(mocks.connect).not.toHaveBeenCalled();
+});
+
+it.each([
+	"paused",
+	"pausing",
+])("wakes %s compute once for concurrent explicit work demand", async (state) => {
+	observeRendererAccount("wake-owner");
+	mocks.get.mockReturnValue(
+		Effect.succeed({
+			...summary,
+			state,
+			desiredState: "paused",
+			runtimeState: "offline",
+		}),
+	);
+	mocks.resume.mockReturnValue(Effect.succeed(summary));
+	mocks.connect.mockReturnValue(Effect.fail(new Error("gateway unavailable")));
+	const first = ensureCloudWorkspaceAttached(summary, "wake");
+	const second = ensureCloudWorkspaceAttached(summary, "wake");
+	expect(second).toBe(first);
+	await expect(first).rejects.toThrow("gateway unavailable");
+	expect(mocks.resume).toHaveBeenCalledExactlyOnceWith({
+		workspaceId: summary.workspaceId,
+	});
+});
+
+it("acknowledges wake before a failed ticket and reuses the intent after a lost resume response", async () => {
+	observeRendererAccount("wake-ack-owner");
+	mocks.get.mockReturnValue(
+		Effect.succeed({ ...summary, state: "paused", runtimeState: "offline" }),
+	);
+	mocks.resume
+		.mockReturnValueOnce(Effect.fail(new Error("resume response lost")))
+		.mockReturnValue(Effect.succeed(summary));
+	mocks.connect.mockReturnValue(Effect.fail(new Error("ticket unavailable")));
+	const acknowledge = vi.fn();
+	const intent = { commandId: "stable-wake-intent", acknowledge };
+	await expect(
+		ensureCloudWorkspaceAttached(summary, "wake", intent),
+	).rejects.toThrow("resume response lost");
+	expect(acknowledge).not.toHaveBeenCalled();
+	await expect(
+		ensureCloudWorkspaceAttached(summary, "wake", intent),
+	).rejects.toThrow("ticket unavailable");
+	expect(acknowledge).toHaveBeenCalledOnce();
+	expect(mocks.resume.mock.calls.map(([request]) => request)).toEqual([
+		{ workspaceId: summary.workspaceId, commandId: intent.commandId },
+		{ workspaceId: summary.workspaceId, commandId: intent.commandId },
+	]);
+});
+
+it("acknowledges a joined wake intent even if the shared attachment fails", async () => {
+	observeRendererAccount("joined-wake-owner");
+	mocks.get.mockReturnValue(
+		Effect.succeed({ ...summary, state: "paused", runtimeState: "offline" }),
+	);
+	const resume = Promise.withResolvers<typeof summary>();
+	mocks.resume.mockReturnValue(Effect.promise(() => resume.promise));
+	mocks.connect.mockReturnValue(Effect.fail(new Error("ticket unavailable")));
+	const first = ensureCloudWorkspaceAttached(summary, "wake");
+	const rejected = expect(first).rejects.toThrow("ticket unavailable");
+	await vi.waitFor(() => expect(mocks.resume).toHaveBeenCalledOnce());
+	const acknowledge = vi.fn();
+	const joined = ensureCloudWorkspaceAttached(summary, "wake", {
+		commandId: "joined-intent",
+		acknowledge,
+	});
+	expect(joined).toBe(first);
+	resume.resolve(summary);
+	await rejected;
+	expect(acknowledge).toHaveBeenCalledOnce();
+	expect(mocks.resume).toHaveBeenCalledOnce();
+});
+
+it("passively attaches the online runtime before repository setup finishes", async () => {
+	observeRendererAccount("preparing-workspace-owner");
+	const preparing = {
+		...summary,
+		state: "setup" as const,
+		startupPhase: "syncing-repository" as const,
+		statusCode: "syncing-repository",
+	};
+	mocks.get.mockReturnValue(Effect.succeed(preparing));
+	mocks.connect.mockReturnValue(
+		Effect.succeed({
+			workspaceId: summary.workspaceId,
+			wsUrl: "wss://example.test/cloud",
+			protocol: "zuse-workspace-v2",
+			role: "client",
+			generation: 1,
+			gatewayEpoch: 1,
+			credential: "ticket",
+			expiresAt: Date.now() + 60_000,
+		}),
+	);
+	await ensureCloudWorkspaceAttached(preparing, "connect");
+	expect(mocks.connect).toHaveBeenCalledOnce();
+	expect(mocks.resume).not.toHaveBeenCalled();
+	expect(mocks.watch).not.toHaveBeenCalled();
 });

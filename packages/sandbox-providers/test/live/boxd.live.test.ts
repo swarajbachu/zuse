@@ -257,7 +257,6 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 						{
 							tag: "zuse-live-http",
 							legacyCommandMarkers: ["ws-echo.js"],
-							legacyCleanup: "matching-command",
 						},
 						{
 							command: "/bin/bash",

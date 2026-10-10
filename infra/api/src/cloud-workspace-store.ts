@@ -14,10 +14,15 @@ import {
 } from "@zuse/contracts";
 import { Context, Effect, Layer, Ref, Schema, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import type { Fragment } from "effect/unstable/sql/Statement";
 import {
 	cloudWorkspaceGatewayEpoch,
 	cloudWorkspaceRuntimeGeneration,
 } from "./cloud-workspace-runtime-fence.ts";
+import {
+	ACTIVE_RUNTIME_ACTIVATION_PHASES,
+	preserveRuntimeOperationDeadline,
+} from "./cloud-workspace-runtime-scheduling.ts";
 import { workspaceScopeForOwner } from "./workspace-scope.ts";
 
 export interface CloudCatalogRead {
@@ -164,6 +169,7 @@ export type CloudWorkspaceLifecycleAction =
 	| "pause"
 	| "resume"
 	| "restart"
+	| "update"
 	| "archive"
 	| "unarchive"
 	| "delete";
@@ -344,6 +350,90 @@ export interface RuntimeBootstrapAcknowledgementInput {
 	readonly gatewayEpoch: number;
 	readonly nowMs: number;
 }
+
+/** Renewal changes the bearer, not the bootstrap receipt's generation binding. */
+const canAcknowledgeRuntimeBoot = (
+	workspace: CloudWorkspaceRecord,
+	receipt: RuntimeBootstrapReceipt | null,
+	input: RuntimeBootstrapAcknowledgementInput,
+): receipt is RuntimeBootstrapReceipt =>
+	receipt !== null &&
+	workspace.runtimeCredentialHash === input.currentCredentialHash &&
+	receipt.generation === input.generation &&
+	receipt.gatewayEpoch === input.gatewayEpoch &&
+	cloudWorkspaceRuntimeGeneration(workspace) === input.generation &&
+	cloudWorkspaceGatewayEpoch(workspace) === input.gatewayEpoch &&
+	workspace.state !== "deleted" &&
+	workspace.state !== "deleting" &&
+	workspace.state !== "archived" &&
+	workspace.state !== "archiving" &&
+	workspace.desiredState !== "deleted" &&
+	workspace.desiredState !== "archived";
+
+export interface RuntimeCredentialRenewalInput {
+	readonly workspaceId: string;
+	readonly currentCredentialHash: string;
+	readonly requestId: string;
+	readonly nextCredentialHash: string;
+	readonly expiresAtMs: number;
+	readonly generation: number;
+	readonly gatewayEpoch: number;
+	readonly nowMs: number;
+	/** Supplied only after verifying a fresh proof with the registered signing key. */
+	readonly verifiedSigningKeyThumbprint?: string;
+}
+
+/** The memory and SQL stores apply the same identity fence, including receipt replay. */
+const runtimeCredentialRenewalDecision = (
+	workspace:
+		| Pick<
+				CloudWorkspaceRecord,
+				"state" | "desiredState" | "runtimeCredentialHash" | "requestConfig"
+		  >
+		| undefined,
+	input: RuntimeCredentialRenewalInput,
+	prior: RuntimeCredentialRenewalReceipt | undefined,
+): "reject" | "replay" | "renew" => {
+	if (
+		workspace === undefined ||
+		workspace.state === "deleted" ||
+		workspace.state === "deleting" ||
+		workspace.state === "archived" ||
+		workspace.state === "archiving" ||
+		workspace.desiredState === "deleted" ||
+		workspace.desiredState === "archived" ||
+		cloudWorkspaceRuntimeGeneration(workspace) !== input.generation ||
+		cloudWorkspaceGatewayEpoch(workspace) !== input.gatewayEpoch
+	)
+		return "reject";
+	const signingKey = workspace.requestConfig.runtimeSigningKeyThumbprint;
+	const proofVerified =
+		typeof signingKey === "string" &&
+		signingKey.length > 0 &&
+		input.verifiedSigningKeyThumbprint === signingKey;
+	if (input.verifiedSigningKeyThumbprint !== undefined && !proofVerified)
+		return "reject";
+	if (prior?.requestId === input.requestId) {
+		if (
+			prior.previousCredentialHash !== input.currentCredentialHash ||
+			prior.credentialHash !== workspace.runtimeCredentialHash ||
+			prior.generation !== input.generation ||
+			prior.gatewayEpoch !== input.gatewayEpoch
+		)
+			return "reject";
+		return prior.expiresAtMs > input.nowMs
+			? "replay"
+			: proofVerified
+				? "renew"
+				: "reject";
+	}
+	if (workspace.runtimeCredentialHash !== input.currentCredentialHash)
+		return "reject";
+	return Number(workspace.requestConfig.runtimeCredentialExpiresAtMs) >
+		input.nowMs || proofVerified
+		? "renew"
+		: "reject";
+};
 
 const renewalReceiptFromConfig = (
 	workspaceId: string,
@@ -747,22 +837,21 @@ export interface CloudWorkspaceStoreApi {
 		readonly currentCredentialHash: string;
 		readonly commandProtocolVersion?: number;
 		readonly deviceBridgeVersion?: number;
+		readonly repositoryReady?: boolean;
+		readonly preparationPhase?:
+			| "checking-repository"
+			| "switching-branch"
+			| "fetching-repository"
+			| "preparing-credentials";
 		readonly nowMs: number;
 		readonly nextIdleAtMs: number;
 	}) => Effect.Effect<CloudWorkspaceRecord | null>;
 	readonly acknowledgeRuntimeBoot: (
 		input: RuntimeBootstrapAcknowledgementInput,
 	) => Effect.Effect<boolean>;
-	readonly renewRuntimeCredential: (input: {
-		readonly workspaceId: string;
-		readonly currentCredentialHash: string;
-		readonly requestId: string;
-		readonly nextCredentialHash: string;
-		readonly expiresAtMs: number;
-		readonly generation: number;
-		readonly gatewayEpoch: number;
-		readonly nowMs: number;
-	}) => Effect.Effect<RuntimeCredentialRenewalReceipt | null>;
+	readonly renewRuntimeCredential: (
+		input: RuntimeCredentialRenewalInput,
+	) => Effect.Effect<RuntimeCredentialRenewalReceipt | null>;
 	readonly listDueWorkspaces: (
 		nowMs: number,
 		limit: number,
@@ -1489,7 +1578,8 @@ const prepareWorkspaceLifecycleTransition = (
 	if (
 		(input.action === "pause" ||
 			input.action === "resume" ||
-			input.action === "restart") &&
+			input.action === "restart" ||
+			input.action === "update") &&
 		lifecycle === "archive"
 	)
 		return { kind: "rejected", reason: "workspace-archived" };
@@ -1504,6 +1594,12 @@ const prepareWorkspaceLifecycleTransition = (
 		return { kind: "rejected", reason: "mailbox-wake-pending" };
 	if (input.action === "unarchive" && lifecycle !== "archive")
 		return { kind: "rejected", reason: "workspace-not-archived" };
+	if (
+		input.action === "update" &&
+		(current.providerSandboxId === undefined ||
+			!["ready", "paused", "failed"].includes(current.state))
+	)
+		return { kind: "rejected", reason: "workspace-not-running" };
 	if (
 		input.action === "restart" &&
 		(current.state !== "ready" || current.providerSandboxId === undefined)
@@ -1666,10 +1762,12 @@ const completeLaunchWorkspace = (
 						}),
 			},
 		},
-		nextActionAtMs:
+		nextActionAtMs: preserveRuntimeOperationDeadline(
+			workspace,
 			workspace.requestConfig.cloudMailboxWakePending === true
 				? Math.min(workspace.nextActionAtMs, input.nowMs)
 				: input.nextActionAtMs,
+		),
 		runningSinceMs: workspace.runningSinceMs ?? input.nowMs,
 		revision: workspace.revision + 1,
 		updatedAtMs: input.nowMs,
@@ -2392,7 +2490,10 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 											: input.nowMs - timings.allocatedAt,
 								},
 							},
-							nextActionAtMs: input.nowMs + 30_000,
+							nextActionAtMs: preserveRuntimeOperationDeadline(
+								workspace,
+								input.nowMs + 30_000,
+							),
 							revision: workspace.revision + 1,
 							updatedAtMs: input.nowMs,
 						};
@@ -2434,6 +2535,13 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						workspace.requestConfig.cloudMailboxFenceRequired === true
 					)
 						return [null, current] as const;
+					// A delayed connection acknowledgement must not downgrade preparation.
+					const connectionOnly =
+						input.repositoryReady === false &&
+						!(
+							workspace.runtimeState === "online" &&
+							["agent-starting", "agent-running"].includes(workspace.statusCode)
+						);
 					const timings =
 						(workspace.requestConfig.startupTimings as
 							| Readonly<Record<string, number>>
@@ -2449,12 +2557,22 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					const updated: CloudWorkspaceRecord = {
 						...workspace,
 						runtimeState: "online",
-						state: launchPending ? "setup" : "ready",
-						statusCode: launchPending ? "agent-starting" : "agent-running",
+						state: connectionOnly || launchPending ? "setup" : "ready",
+						statusCode: connectionOnly
+							? (input.preparationPhase ?? "syncing-repository")
+							: launchPending
+								? "agent-starting"
+								: "agent-running",
 						requestConfig: {
-							...runtimeConfig,
+							...(input.repositoryReady === false
+								? workspace.requestConfig
+								: runtimeConfig),
 							runtimeProcessManaged: true,
-							deviceBridgeVersion: input.deviceBridgeVersion ?? null,
+							deviceBridgeVersion:
+								input.deviceBridgeVersion ??
+								(input.repositoryReady === false
+									? workspace.requestConfig.deviceBridgeVersion
+									: null),
 							...(typeof input.commandProtocolVersion === "number"
 								? {
 										cloudCommandProtocolVersion: input.commandProtocolVersion,
@@ -2465,15 +2583,22 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							startupTimings: {
 								...timings,
 								connectedAt: timings.connectedAt ?? input.nowMs,
-								repositoryReadyAt: timings.repositoryReadyAt ?? input.nowMs,
+								...(connectionOnly
+									? {}
+									: {
+											repositoryReadyAt:
+												timings.repositoryReadyAt ?? input.nowMs,
+										}),
 							},
 						},
-						nextActionAtMs:
+						nextActionAtMs: preserveRuntimeOperationDeadline(
+							workspace,
 							workspace.requestConfig.cloudMailboxWakePending === true
 								? Math.min(workspace.nextActionAtMs, input.nowMs)
 								: launchPending
 									? Math.min(workspace.nextActionAtMs, input.nowMs + 30_000)
 									: input.nextIdleAtMs,
+						),
 						runningSinceMs: workspace.runningSinceMs ?? input.nowMs,
 						revision: workspace.revision + 1,
 						updatedAtMs: input.nowMs,
@@ -2497,16 +2622,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					const receipt = runtimeBootstrapReceiptFromConfig(
 						workspace.requestConfig,
 					);
-					if (
-						workspace.runtimeCredentialHash !== input.currentCredentialHash ||
-						receipt === null ||
-						receipt.runtimeCredentialHash !== input.currentCredentialHash ||
-						receipt.generation !== input.generation ||
-						receipt.gatewayEpoch !== input.gatewayEpoch ||
-						cloudWorkspaceRuntimeGeneration(workspace) !== input.generation ||
-						workspace.requestConfig.gatewayEpoch !== input.gatewayEpoch ||
-						workspace.state === "deleted"
-					)
+					if (!canAcknowledgeRuntimeBoot(workspace, receipt, input))
 						return [false, current] as const;
 					if (receipt.acknowledgedAtMs !== undefined)
 						return [true, current] as const;
@@ -2540,25 +2656,16 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 				Ref.modify(state, (current) => {
 					const receiptKey = `${input.workspaceId}:${input.requestId}`;
 					const existing = current.runtimeRenewals.get(receiptKey);
-					if (existing !== undefined)
-						return [
-							existing.expiresAtMs > input.nowMs &&
-							existing.previousCredentialHash === input.currentCredentialHash
-								? existing
-								: null,
-							current,
-						] as const;
 					const workspace = current.workspaces.get(input.workspaceId);
-					if (
-						workspace === undefined ||
-						workspace.runtimeCredentialHash !== input.currentCredentialHash ||
-						typeof workspace.requestConfig.runtimeCredentialExpiresAtMs !==
-							"number" ||
-						workspace.requestConfig.runtimeCredentialExpiresAtMs <=
-							input.nowMs ||
-						workspace.state === "deleted"
-					)
+					const decision = runtimeCredentialRenewalDecision(
+						workspace,
+						input,
+						existing,
+					);
+					if (decision === "reject" || workspace === undefined)
 						return [null, current] as const;
+					if (decision === "replay")
+						return [existing ?? null, current] as const;
 					const receipt: RuntimeCredentialRenewalReceipt = {
 						workspaceId: input.workspaceId,
 						requestId: input.requestId,
@@ -2893,12 +3000,14 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 										},
 									}
 								: workspace.requestConfig,
-						nextActionAtMs:
+						nextActionAtMs: preserveRuntimeOperationDeadline(
+							workspace,
 							workspace.requestConfig.cloudMailboxWakePending === true
 								? workspace.nextActionAtMs
 								: workspace.state === "paused"
 									? nowMs
 									: nextIdleAtMs,
+						),
 						lastActivityAtMs: nowMs,
 						revision: workspace.revision + 1,
 						updatedAtMs: nowMs,
@@ -3026,7 +3135,10 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							cloudMailboxWakeRevision: wakeRevision,
 							cloudMailboxRuntimeSeenAt: nowMs,
 						},
-						nextActionAtMs: nextCheckAtMs,
+						nextActionAtMs: preserveRuntimeOperationDeadline(
+							workspace,
+							nextCheckAtMs,
+						),
 						revision: workspace.revision + 1,
 						updatedAtMs: nowMs,
 					};
@@ -3094,7 +3206,10 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 								: {}),
 							...(fenceRequired ? { cloudMailboxFenceRequired: true } : {}),
 						},
-						nextActionAtMs: fenceRequired ? nowMs : nextCheckAtMs,
+						nextActionAtMs: preserveRuntimeOperationDeadline(
+							workspace,
+							fenceRequired ? nowMs : nextCheckAtMs,
+						),
 						revision: workspace.revision + 1,
 						updatedAtMs: nowMs,
 					};
@@ -3138,7 +3253,10 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					const updated: CloudWorkspaceRecord = {
 						...workspace,
 						requestConfig,
-						nextActionAtMs: nextIdleAtMs,
+						nextActionAtMs: preserveRuntimeOperationDeadline(
+							workspace,
+							nextIdleAtMs,
+						),
 						revision: workspace.revision + 1,
 						updatedAtMs: nowMs,
 					};
@@ -4228,6 +4346,14 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 	CloudWorkspaceStore,
 	Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient;
+		// Keep the phase vocabulary shared with the memory store while evaluating
+		// the deadline atomically against the row being updated.
+		const preserveRuntimeOperationDeadlineSql = (
+			candidate: Fragment,
+			qualifier: "" | "current." = "",
+		) =>
+			sql`CASE WHEN ${sql.literal(`${qualifier}request_config #>> '{runtimeActivation,phase}'`)} IN ${sql.in(ACTIVE_RUNTIME_ACTIVATION_PHASES)} THEN LEAST(${sql.literal(`${qualifier}next_action_at`)}, ${candidate}) ELSE ${candidate} END`;
+
 		const orDie = <A>(effect: Effect.Effect<A, unknown>): Effect.Effect<A> =>
 			effect.pipe(Effect.orDie);
 		const getWorkspaceSettings = (ownerId: string) =>
@@ -5011,7 +5137,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 										END
 									))
 								),
-								next_action_at=${input.nowMs + 30_000},
+								next_action_at=${preserveRuntimeOperationDeadlineSql(sql`${input.nowMs + 30_000}::bigint`, "current.")},
 								revision=current.revision+1,
 								updated_at=${input.nowMs}
 							FROM current
@@ -5073,20 +5199,19 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				orDie(
 					sql`UPDATE api_cloud_workspaces
 					SET runtime_state='online',
-						state=CASE WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN 'ready' ELSE 'setup' END,
-						status_code=CASE WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN 'agent-running' ELSE 'agent-starting' END,
-						request_config=(request_config - 'cloudCommandProtocolVersion' - 'cloudCommandRuntimeGeneration') || jsonb_build_object(
+						state=CASE WHEN runtime_state='online' AND status_code IN ('agent-starting', 'agent-running') THEN state WHEN ${input.repositoryReady !== false}::boolean AND jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN 'ready' ELSE 'setup' END,
+						status_code=CASE WHEN runtime_state='online' AND status_code IN ('agent-starting', 'agent-running') THEN status_code WHEN ${input.repositoryReady === false}::boolean THEN ${input.preparationPhase ?? "syncing-repository"} WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN 'agent-running' ELSE 'agent-starting' END,
+						request_config=(CASE WHEN ${input.repositoryReady === false}::boolean THEN request_config ELSE request_config - 'cloudCommandProtocolVersion' - 'cloudCommandRuntimeGeneration' END) || jsonb_build_object(
 							'runtimeProcessManaged', true,
- 'deviceBridgeVersion', ${input.deviceBridgeVersion ?? null}::integer,
+ 'deviceBridgeVersion', COALESCE(to_jsonb(${input.deviceBridgeVersion ?? null}::integer), CASE WHEN ${input.repositoryReady === false}::boolean THEN request_config->'deviceBridgeVersion' ELSE 'null'::jsonb END),
 							'startupTimings', COALESCE(request_config->'startupTimings', '{}'::jsonb) || jsonb_build_object(
-								'connectedAt', COALESCE(request_config #> '{startupTimings,connectedAt}', to_jsonb(${input.nowMs}::bigint)),
-								'repositoryReadyAt', COALESCE(request_config #> '{startupTimings,repositoryReadyAt}', to_jsonb(${input.nowMs}::bigint))
-							)
+								'connectedAt', COALESCE(request_config #> '{startupTimings,connectedAt}', to_jsonb(${input.nowMs}::bigint))
+							) || CASE WHEN ${input.repositoryReady === false}::boolean THEN '{}'::jsonb ELSE jsonb_build_object('repositoryReadyAt', COALESCE(request_config #> '{startupTimings,repositoryReadyAt}', to_jsonb(${input.nowMs}::bigint))) END
 						) || CASE WHEN ${input.commandProtocolVersion ?? null}::integer IS NULL THEN '{}'::jsonb ELSE jsonb_build_object(
 							'cloudCommandProtocolVersion', ${input.commandProtocolVersion ?? null}::integer,
 							'cloudCommandRuntimeGeneration', COALESCE((request_config->>'runtimeGeneration')::bigint, 1)
 						) END,
-						next_action_at=CASE WHEN COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true THEN LEAST(next_action_at, ${input.nowMs}::bigint) WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN ${input.nextIdleAtMs}::bigint ELSE LEAST(next_action_at, ${input.nowMs + 30_000}::bigint) END,
+						next_action_at=${preserveRuntimeOperationDeadlineSql(sql`CASE WHEN COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true THEN LEAST(next_action_at, ${input.nowMs}::bigint) WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN ${input.nextIdleAtMs}::bigint ELSE LEAST(next_action_at, ${input.nowMs + 30_000}::bigint) END`)},
 						running_since=COALESCE(running_since, ${input.nowMs}),
 						revision=revision+1,
 						updated_at=${input.nowMs},
@@ -5116,16 +5241,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						const receipt = runtimeBootstrapReceiptFromConfig(
 							workspace.requestConfig,
 						);
-						if (
-							workspace.runtimeCredentialHash !== input.currentCredentialHash ||
-							receipt === null ||
-							receipt.runtimeCredentialHash !== input.currentCredentialHash ||
-							receipt.generation !== input.generation ||
-							receipt.gatewayEpoch !== input.gatewayEpoch ||
-							cloudWorkspaceRuntimeGeneration(workspace) !== input.generation ||
-							workspace.requestConfig.gatewayEpoch !== input.gatewayEpoch ||
-							workspace.state === "deleted"
-						)
+						if (!canAcknowledgeRuntimeBoot(workspace, receipt, input))
 							return false;
 						if (receipt.acknowledgedAtMs !== undefined) return true;
 						const nextConfig = {
@@ -5145,31 +5261,39 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 					Effect.gen(function* () {
 						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`runtime-renew:${input.workspaceId}`}, 0))`;
 						const rows =
-							yield* sql`SELECT request_config, runtime_credential_hash, state FROM api_cloud_workspaces WHERE workspace_id=${input.workspaceId} FOR UPDATE`;
+							yield* sql`SELECT request_config, runtime_credential_hash, state, desired_state FROM api_cloud_workspaces WHERE workspace_id=${input.workspaceId} FOR UPDATE`;
 						const row = rows[0] as
 							| {
-									readonly request_config?: Record<string, unknown>;
-									readonly runtime_credential_hash?: string | null;
-									readonly state?: string;
+									readonly request_config: Record<string, unknown>;
+									readonly runtime_credential_hash: string | null;
+									readonly state: CloudWorkspaceState;
+									readonly desired_state: CloudWorkspaceDesiredState;
 							  }
 							| undefined;
-						const config = row?.request_config;
-						const prior = config?.runtimeCredentialRenewal as
+						const priorConfig = row?.request_config.runtimeCredentialRenewal as
 							| Record<string, unknown>
 							| undefined;
-						if (
-							prior?.requestId === input.requestId &&
-							Number(prior.expiresAtMs) > input.nowMs &&
-							prior.previousCredentialHash === input.currentCredentialHash
-						)
-							return renewalReceiptFromConfig(input.workspaceId, prior);
-						if (
-							row === undefined ||
-							row.runtime_credential_hash !== input.currentCredentialHash ||
-							row.state === "deleted" ||
-							Number(config?.runtimeCredentialExpiresAtMs) <= input.nowMs
-						)
-							return null;
+						const prior =
+							priorConfig === undefined
+								? undefined
+								: renewalReceiptFromConfig(input.workspaceId, priorConfig);
+						const workspace =
+							row === undefined
+								? undefined
+								: {
+										requestConfig: row.request_config,
+										runtimeCredentialHash:
+											row.runtime_credential_hash ?? undefined,
+										state: row.state,
+										desiredState: row.desired_state,
+									};
+						const decision = runtimeCredentialRenewalDecision(
+							workspace,
+							input,
+							prior,
+						);
+						if (decision === "reject") return null;
+						if (decision === "replay") return prior ?? null;
 						const updated =
 							yield* sql`UPDATE api_cloud_workspaces SET runtime_credential_hash=${input.nextCredentialHash}, request_config=jsonb_set(jsonb_set(request_config, '{runtimeCredentialExpiresAtMs}', to_jsonb(${input.expiresAtMs}::bigint), true), '{runtimeCredentialRenewal}', jsonb_build_object('requestId', ${input.requestId}::text, 'credentialHash', ${input.nextCredentialHash}::text, 'previousCredentialHash', ${input.currentCredentialHash}::text, 'expiresAtMs', ${input.expiresAtMs}::bigint, 'generation', ${input.generation}::bigint, 'gatewayEpoch', ${input.gatewayEpoch}::bigint), true) WHERE workspace_id=${input.workspaceId} RETURNING request_config`;
 						const updatedConfig = updated[0]?.request_config as
@@ -5199,7 +5323,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				runtimeOnly = false,
 			) =>
 				orDie(
-					sql`UPDATE api_cloud_workspaces SET desired_state=CASE WHEN state='paused' THEN 'ready' ELSE desired_state END, status_code=CASE WHEN state='paused' THEN 'resume-queued' ELSE status_code END, request_config=CASE WHEN state='paused' THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}::bigint, 'resumeRequestedAt', ${nowMs}::bigint), true) ELSE request_config END, next_action_at=CASE WHEN COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true THEN next_action_at WHEN state='paused' THEN ${nowMs} WHEN state='ready' THEN ${nextIdleAtMs} ELSE next_action_at END, last_activity_at=${nowMs}, revision=revision+1, updated_at=${nowMs} WHERE workspace_id=${workspaceId} AND account_id=${accountId} AND (${runtimeOnly}::boolean = false OR (desired_state='ready' AND state NOT IN ('paused','pausing','archived','failed'))) AND state <> 'deleted' AND desired_state <> 'deleted' AND (request_config #>> '{cloudMailboxLifecyclePending,action}') IS DISTINCT FROM 'delete' AND (request_config #>> '{cloudMailboxLifecycleDelivered,action}') IS DISTINCT FROM 'delete' RETURNING *`.pipe(
+					sql`UPDATE api_cloud_workspaces SET desired_state=CASE WHEN state='paused' THEN 'ready' ELSE desired_state END, status_code=CASE WHEN state='paused' THEN 'resume-queued' ELSE status_code END, request_config=CASE WHEN state='paused' THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}::bigint, 'resumeRequestedAt', ${nowMs}::bigint), true) ELSE request_config END, next_action_at=${preserveRuntimeOperationDeadlineSql(sql`CASE WHEN COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true THEN next_action_at WHEN state='paused' THEN ${nowMs} WHEN state='ready' THEN ${nextIdleAtMs} ELSE next_action_at END`)}, last_activity_at=${nowMs}, revision=revision+1, updated_at=${nowMs} WHERE workspace_id=${workspaceId} AND account_id=${accountId} AND (${runtimeOnly}::boolean = false OR (desired_state='ready' AND state NOT IN ('paused','pausing','archived','failed'))) AND state <> 'deleted' AND desired_state <> 'deleted' AND (request_config #>> '{cloudMailboxLifecyclePending,action}') IS DISTINCT FROM 'delete' AND (request_config #>> '{cloudMailboxLifecycleDelivered,action}') IS DISTINCT FROM 'delete' RETURNING *`.pipe(
 						Effect.map((rows) =>
 							rows[0] ? workspaceFromRow(rows[0] as Row) : null,
 						),
@@ -5244,7 +5368,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 					Effect.gen(function* () {
 						const observed = yield* sql`UPDATE api_cloud_workspaces SET
 								request_config=jsonb_set(jsonb_set(request_config, '{cloudMailboxWakeRevision}', to_jsonb(CASE WHEN jsonb_typeof(request_config->'cloudMailboxWakeRevision')='number' THEN (request_config->>'cloudMailboxWakeRevision')::bigint ELSE 1 END), true), '{cloudMailboxRuntimeSeenAt}', to_jsonb(${nowMs}::bigint), true),
-								next_action_at=${nextCheckAtMs}, revision=revision+1, updated_at=${nowMs}
+								next_action_at=${preserveRuntimeOperationDeadlineSql(sql`${nextCheckAtMs}::bigint`)}, revision=revision+1, updated_at=${nowMs}
 							 WHERE workspace_id=${workspaceId} AND account_id=${accountId}
 								AND COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true
 								AND state='ready' AND desired_state='ready' AND runtime_state='online'
@@ -5292,7 +5416,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							 RETURNING workspace_id`
 						: sql`UPDATE api_cloud_workspaces SET
 								request_config=request_config || jsonb_build_object('cloudMailboxProgressRevision', ${mailboxRevision}::bigint, 'cloudMailboxProgressAt', ${nowMs}::bigint),
-								next_action_at=${nextCheckAtMs}, revision=revision+1, updated_at=${nowMs}
+								next_action_at=${preserveRuntimeOperationDeadlineSql(sql`${nextCheckAtMs}::bigint`)}, revision=revision+1, updated_at=${nowMs}
 							 WHERE workspace_id=${workspaceId} AND account_id=${accountId}
 								AND COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true
 								AND (request_config->>'cloudMailboxWakeRevision')::bigint=${wakeRevision}
@@ -5314,7 +5438,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				orDie(
 					sql`UPDATE api_cloud_workspaces SET
 						request_config=request_config - 'cloudMailboxWakePending' - 'cloudMailboxWakeRequestedAt' - 'cloudMailboxRuntimeSeenAt' - 'cloudMailboxProgressAt' - 'cloudMailboxProgressRevision' - 'cloudMailboxFenceRequired',
-						next_action_at=${nextIdleAtMs}, revision=revision+1, updated_at=${nowMs}
+						next_action_at=${preserveRuntimeOperationDeadlineSql(sql`${nextIdleAtMs}::bigint`)}, revision=revision+1, updated_at=${nowMs}
 					 WHERE workspace_id=${workspaceId} AND account_id=${accountId}
 						AND COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true
 						AND (request_config->>'cloudMailboxWakeRevision')::bigint=${wakeRevision}

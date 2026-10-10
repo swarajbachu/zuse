@@ -22,7 +22,7 @@ API Worker ---- Postgres (catalog, lifecycle, receipts, billing metadata)
 	+---- WorkspaceGateway Durable Object (opaque live WebSocket routing)
                          |
                          v
-                 workspace runtime in E2B
+                 workspace runtime in Boxd / Boat / E2B
                          |
                          +---- SQLite (session authority)
                          +---- repository and worktree
@@ -76,7 +76,7 @@ monitor those compact tables as automation volume grows.
 | WorkspaceMailbox Durable Object | Encrypted command envelopes, ordering, leases, lifecycle status, encrypted terminal results | Command plaintext, transcript projection, provider state |
 | Workspace runtime | Provider process, `SessionDomain`, SQLite, repository, Git, PTYs, checkpoint production | Account policy or billing decisions |
 | R2 | Encrypted immutable transcript checkpoints and older pages | Commands, files, Git, terminal state, plaintext keys |
-| E2B | Isolated compute and paused workspace storage | Zuse identity or transcript semantics |
+| Sandbox provider | Isolated compute and retained workspace storage | Zuse identity or transcript semantics |
 
 ## One session path
 
@@ -137,7 +137,7 @@ untrusted repository setup.
 A new workspace forks a compatible prepared snapshot when possible. Otherwise
 it starts from the current reviewed base template and performs the normal
 authenticated clone. Snapshot failure affects startup speed, not workspace
-availability. Provider-specific template identifiers stay inside the E2B
+availability. Provider-specific template identifiers stay inside each provider
 adapter; the user-facing sandbox offer remains provider-neutral.
 
 ## Version compatibility

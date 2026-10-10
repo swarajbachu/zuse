@@ -2,8 +2,13 @@
 set -euo pipefail
 
 status_dir=/var/lib/zuse/workspace
+runtime_launcher=/var/lib/zuse/project-build/workspace-runtime.sh
+[[ -f "$runtime_launcher" ]] || runtime_launcher=/usr/local/lib/zuse/workspace-runtime.sh
+source "$runtime_launcher"
+if [[ "${ZUSE_SNAPSHOT_NATIVE:-}" == 1 ]]; then source /etc/zuse/snapshot.env; fi
+initialize_workspace_runtime_attempt
+acquire_workspace_runtime_lock
 workspace="${ZUSE_CLOUD_WORKSPACE_ROOT:?}"
-mkdir -p "$status_dir"
 rm -f \
   "$status_dir/ready" \
   "$status_dir/failed" \
@@ -12,17 +17,8 @@ rm -f \
   "$status_dir/rekeyed" \
   "$status_dir/failure-phase"
 phase=initializing
-fail() {
-  code=$?
-  trap - ERR
-  printf '%s\n' "$phase" >"$status_dir/failure-phase"
-  touch "$status_dir/failed"
-  exit "$code"
-}
-trap fail ERR
 
 if [[ "${ZUSE_SNAPSHOT_NATIVE:-}" == 1 ]]; then
-  source /etc/zuse/snapshot.env
   phase=snapshot-runtime-incompatible
   "$ZUSE_RUNTIME_NODE" --input-type=module - <<'JS'
 import { readFileSync } from 'node:fs';
@@ -35,13 +31,13 @@ JS
   owner_file="$status_dir/owner"
   if [[ -f "$owner_file" ]]; then
     [[ "$(cat "$owner_file")" == "$ZUSE_CLOUD_WORKSPACE_ID" ]] || { phase=snapshot-inherited-runtime-state; false; }
-  elif [[ -e /var/lib/zuse/user-data/zuse.sqlite ]]; then
+  elif [[ -e "$ZUSE_USER_DATA/zuse.sqlite" ]]; then
     phase=snapshot-inherited-runtime-state
     false
   fi
   printf '%s\n' "$ZUSE_CLOUD_WORKSPACE_ID" >"$owner_file"
-  mkdir -p /var/lib/zuse/user-data "${ZUSE_SSH_DIRECTORY:?}"
-  chmod 700 /var/lib/zuse/user-data "$ZUSE_SSH_DIRECTORY"
+  mkdir -p "$ZUSE_USER_DATA" "${ZUSE_SSH_DIRECTORY:?}"
+  chmod 700 "$ZUSE_USER_DATA" "$ZUSE_SSH_DIRECTORY"
   if [[ ! -f "$ZUSE_SSH_DIRECTORY/host_ed25519_key" ]]; then
     ssh-keygen -q -t ed25519 -N "" -f "$ZUSE_SSH_DIRECTORY/host_ed25519_key"
   fi
@@ -50,10 +46,10 @@ JS
 else
 # Runtime and GitHub identity must never survive a fork. Provider-owned agent
 # authentication intentionally belongs to the private account image.
-rm -rf /home/zuse/.zuse-data /home/zuse/.config/gh
-mkdir -p /var/lib/zuse/user-data
-chown zuse:zuse /var/lib/zuse/user-data
-chmod 700 /var/lib/zuse/user-data
+rm -rf /home/zuse/.config/gh
+mkdir -p "$ZUSE_USER_DATA"
+chown zuse:zuse "$ZUSE_USER_DATA"
+chmod 700 "$ZUSE_USER_DATA"
 
 # GitHub access inside a cloud workspace is the Zuse GitHub App installation
 # token, minted per call by `zuse-github-auth`: `gh` is a shim that resolves a
@@ -109,7 +105,8 @@ export ZUSE_AUTH_POLICY=protected
 export ZUSE_ENABLE_PAIRING=0
 export ZUSE_MACHINE_RUNTIME_ROLE=cloud-environment
 export ZUSE_SERVER_READY_STDOUT=1
-export ZUSE_USER_DATA=/var/lib/zuse/user-data
+# The lifetime-lock helper selected the existing canonical storage before any
+# runtime or enrollment work. Keep that path through exec.
 credentials_event="$status_dir/credentials-ready-event"
 rm -f "$credentials_event"
 mkfifo -m 600 "$credentials_event"
@@ -117,14 +114,7 @@ runtime_command=("${ZUSE_RUNTIME_NODE:-node}" /opt/zuse/current/bin.mjs serve)
 [[ -f /opt/zuse/current/bin.mjs ]] || runtime_command=(zuse serve --foreground)
 phase=starting-runtime
 (
-  set +e
-  "${runtime_command[@]}" >"$status_dir/runtime.log" 2>&1
-  code=$?
-  if [[ ! -f "$status_dir/credentials-ready" ]]; then
-    printf '%s\n' "$phase" >"$status_dir/failure-phase"
-    touch "$status_dir/failed"
-  fi
-  exit "$code"
+  exec_workspace_runtime "${runtime_command[@]}" >"$status_dir/runtime.log" 2>&1
 ) &
 runtime_pid=$!
 (IFS= read -r _ <"$credentials_event") &

@@ -20,17 +20,27 @@ afterEach(() => {
 const fixture = () => {
 	const root = mkdtempSync(join(tmpdir(), "zuse-fork-prepare-"));
 	roots.push(root);
-	// Relocate every absolute sandbox path before executing the real script.
-	const script = readFileSync(
-		new URL(
-			"../../../cloud-sandboxes/workspace-fork-prepare.sh",
-			import.meta.url,
-		),
+	// Embed the same shared resolver as the production API fork command.
+	const helper = readFileSync(
+		new URL("../../../cloud-sandboxes/workspace-runtime.sh", import.meta.url),
 		"utf8",
+	);
+	// Relocate every absolute sandbox path before executing the real script.
+	const script = (
+		helper +
+		"\n" +
+		readFileSync(
+			new URL(
+				"../../../cloud-sandboxes/workspace-fork-prepare.sh",
+				import.meta.url,
+			),
+			"utf8",
+		)
 	)
 		.replaceAll("/var/lib/zuse", join(root, "data"))
 		.replaceAll("/run/zuse-secrets", join(root, "secrets"))
-		.replaceAll("/home/zuse", join(root, "home"));
+		.replaceAll("/home/zuse", join(root, "home"))
+		.replaceAll("/srv/zuse/home", join(root, "srv"));
 	const data = join(root, "data/user-data");
 	mkdirSync(join(data, "attachments"), { recursive: true });
 	writeFileSync(join(data, "attachments/file"), "attachment");
@@ -44,6 +54,8 @@ const fixture = () => {
 			env: {
 				...process.env,
 				ZUSE_CLOUD_WORKSPACE_ID: "child",
+				ZUSE_USER_DATA: data,
+				ZUSE_RUNTIME_NODE: process.execPath,
 				ZUSE_FORK_CHAT_ID: "chat",
 				ZUSE_FORK_SESSION_ID: "session",
 				ZUSE_FORK_MESSAGE_ID: message,

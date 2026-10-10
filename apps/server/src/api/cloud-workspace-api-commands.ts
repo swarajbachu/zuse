@@ -10,6 +10,7 @@ import { cloudRuntimeCommandTurnId } from "@zuse/utils/cloud-api";
 import {
 	Cause,
 	Effect,
+	Option,
 	Result,
 	Schedule,
 	Schema,
@@ -47,6 +48,7 @@ export const makeCloudApiCommandPump = Effect.fn(
 	) => Effect.Effect<unknown, unknown>;
 }) {
 	const lock = yield* Semaphore.make(1);
+	let nudgeRevision = 0;
 	const drainOne = Effect.gen(function* () {
 		const list = yield* input.fetchCommands;
 		const command = list.commands.reduce<CloudRuntimeCommand | undefined>(
@@ -54,7 +56,7 @@ export const makeCloudApiCommandPump = Effect.fn(
 				oldest === undefined || candidate.seq < oldest.seq ? candidate : oldest,
 			undefined,
 		);
-		if (command === undefined) return null;
+		if (command === undefined) return { kind: "empty" } as const;
 		const normalizedCommand = {
 			...command,
 			turnId: command.turnId ?? cloudRuntimeCommandTurnId(command.messageId),
@@ -69,7 +71,7 @@ export const makeCloudApiCommandPump = Effect.fn(
 				turnId: normalizedCommand.turnId,
 				cause: String(delivered.cause),
 			});
-			return null;
+			return { kind: "blocked" } as const;
 		}
 		const acknowledged = yield* Effect.exit(
 			input.ack(command.messageId, delivered.value, normalizedCommand.turnId),
@@ -80,9 +82,9 @@ export const makeCloudApiCommandPump = Effect.fn(
 				turnId: delivered.value,
 				cause: String(acknowledged.cause),
 			});
-			return null;
+			return { kind: "blocked" } as const;
 		}
-		return delivered.value;
+		return { kind: "delivered", turnId: delivered.value } as const;
 	});
 	const runDrain = drainOne.pipe(
 		Effect.retry(Schedule.recurs(3)),
@@ -91,24 +93,57 @@ export const makeCloudApiCommandPump = Effect.fn(
 				? Effect.interrupt
 				: Effect.logWarning("cloud api command fetch failed", {
 						cause: String(cause),
-					}),
+					}).pipe(Effect.as({ kind: "blocked" } as const)),
 		),
 	);
-	const drain: Effect.Effect<void> = lock
-		.withPermitsIfAvailable(1)(runDrain)
-		.pipe(Effect.asVoid);
+	const runNotifiedDrain = Effect.gen(function* () {
+		while (true) {
+			const beforeFetch = nudgeRevision;
+			const outcome = yield* runDrain;
+			// An empty response may have been selected before a concurrent command
+			// committed. Retain that command's nudge while the fetch is in flight.
+			// A delivered or blocked turn must still wait for its settlement signal.
+			if (outcome.kind !== "empty" || beforeFetch === nudgeRevision)
+				return { ...outcome, nudgeRevision: beforeFetch };
+		}
+	});
+	const drain: Effect.Effect<void> = Effect.gen(function* () {
+		nudgeRevision += 1;
+		while (true) {
+			const result = yield* lock.withPermitsIfAvailable(1)(runNotifiedDrain);
+			// Check again after releasing the permit: a notification can arrive
+			// between the last empty-page check and the permit finalizer.
+			if (
+				Option.isNone(result) ||
+				result.value.kind !== "empty" ||
+				result.value.nudgeRevision === nudgeRevision
+			)
+				return;
+		}
+	});
 	const drainAfterSettlement = (settledTurnId: string): Effect.Effect<void> =>
 		lock
 			.withPermits(1)(
 				Effect.gen(function* () {
-					const acknowledgedTurnId = yield* runDrain;
+					const acknowledged = yield* runNotifiedDrain;
 					// If the turn event raced an earlier lost ACK, the first pass only
 					// repairs that same settled row. The permit remains held while one
 					// more pass advances to the next FIFO command.
-					if (acknowledgedTurnId === settledTurnId) yield* runDrain;
+					if (
+						acknowledged.kind === "delivered" &&
+						acknowledged.turnId === settledTurnId
+					)
+						return yield* runNotifiedDrain;
+					return acknowledged;
 				}),
 			)
-			.pipe(Effect.asVoid);
+			.pipe(
+				Effect.flatMap((outcome) =>
+					outcome.kind === "empty" && outcome.nudgeRevision !== nudgeRevision
+						? drain
+						: Effect.void,
+				),
+			);
 	return {
 		drain,
 		drainAfterSettlement,

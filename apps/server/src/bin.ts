@@ -21,6 +21,8 @@ import { NodeRuntime } from "@effect/platform-node";
 import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
 import { firstReachableIpv4 } from "@zuse/utils/network-address";
 import { Effect, Layer, Redacted } from "effect";
+import { CLOUD_RUNTIME_IDENTITY_FILE } from "./api/cloud-runtime-identity.ts";
+import { assertCloudRuntimeDataLock } from "./api/cloud-runtime-lock.ts";
 import type { LanAuthPolicy } from "./lan-auth/policy.ts";
 import { resolveAuthPolicy } from "./lan-auth/policy.ts";
 import { makeFileCredentialsService } from "./provider/layers/file-credentials-service.ts";
@@ -168,6 +170,8 @@ export const runHeadlessServer = (
 			: readFileSync(enrollmentTokenFile, "utf8").trim());
 	const workspaceId = process.env.ZUSE_CLOUD_WORKSPACE_ID;
 	if (workspaceId) {
+		assertCloudRuntimeDataLock(userData);
+		process.env.ZUSE_USER_DATA = realpathSync(userData);
 		process.env.ZUSE_CLI_ACCESS_FILE = join(userData, "cli-access.json");
 		const bundledCliDirectory = join(
 			dirname(fileURLToPath(import.meta.url)),
@@ -199,24 +203,34 @@ export const runHeadlessServer = (
 	const runtimeBootTokenFile = process.env.ZUSE_RUNTIME_BOOT_TOKEN_FILE;
 	const runtimeBootToken =
 		process.env.ZUSE_RUNTIME_BOOT_TOKEN ??
-		(runtimeBootTokenFile === undefined
+		(runtimeBootTokenFile === undefined || !existsSync(runtimeBootTokenFile)
 			? undefined
 			: readFileSync(runtimeBootTokenFile, "utf8").trim());
 	const cloudWorkspaceRoot = process.env.ZUSE_CLOUD_WORKSPACE_ROOT;
 	const cloudWorkspaceRuntime =
 		workspaceId !== undefined &&
 		apiUrl !== undefined &&
-		runtimeBootToken !== undefined &&
+		(runtimeBootToken !== undefined ||
+			existsSync(join(userData, CLOUD_RUNTIME_IDENTITY_FILE))) &&
 		cloudWorkspaceRoot !== undefined
 			? {
 					workspaceId,
 					apiUrl,
-					bootToken: Redacted.make(runtimeBootToken),
+					bootToken:
+						runtimeBootToken === undefined
+							? undefined
+							: Redacted.make(runtimeBootToken),
+					expectedGeneration:
+						process.env.ZUSE_RUNTIME_GENERATION === undefined
+							? undefined
+							: Number(process.env.ZUSE_RUNTIME_GENERATION),
 					bootTokenFile: runtimeBootTokenFile,
 					localPort: port,
 					workspaceRoot: cloudWorkspaceRoot,
 				}
 			: undefined;
+	if (workspaceId !== undefined && cloudWorkspaceRuntime === undefined)
+		throw new Error("workspace_runtime_bootstrap_required");
 	delete process.env.ZUSE_ENROLLMENT_TOKEN;
 	delete process.env.ZUSE_RUNTIME_BOOT_TOKEN;
 

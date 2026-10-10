@@ -6,12 +6,13 @@ import {
 	decodeWorkspaceGatewayFrame,
 	encodeWorkspaceGatewayFrame,
 } from "@zuse/contracts";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { WorkspaceGateway } from "../../src/workspace-gateway.ts";
 import {
 	decodeGatewayMessage,
 	LEGACY_WORKSPACE_GATEWAY_PROTOCOL,
 	WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE,
+	WORKSPACE_GATEWAY_PENDING_PROTOCOL,
 	WORKSPACE_GATEWAY_PROTOCOL,
 	WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE,
 	WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE,
@@ -25,10 +26,13 @@ type Attachment =
 			readonly gatewayEpoch: number;
 			readonly protocol?:
 				| typeof WORKSPACE_GATEWAY_PROTOCOL
+				| typeof WORKSPACE_GATEWAY_PENDING_PROTOCOL
 				| typeof LEGACY_WORKSPACE_GATEWAY_PROTOCOL;
 	  }
 	| {
 			readonly role: "client";
+			readonly wasReady?: boolean;
+			readonly pendingUntil?: number;
 			readonly connectionId: string;
 			readonly actorId?: string;
 			readonly permission?: "view" | "edit";
@@ -37,6 +41,7 @@ type Attachment =
 			readonly gatewayEpoch: number;
 			readonly protocol?:
 				| typeof WORKSPACE_GATEWAY_PROTOCOL
+				| typeof WORKSPACE_GATEWAY_PENDING_PROTOCOL
 				| typeof LEGACY_WORKSPACE_GATEWAY_PROTOCOL;
 	  };
 
@@ -60,7 +65,7 @@ class FakeSocket {
 		return this.metadata;
 	}
 
-	serializeAttachment(value: { readonly role: "detached" }): void {
+	serializeAttachment(value: Attachment | { readonly role: "detached" }): void {
 		this.metadata = value;
 	}
 
@@ -83,15 +88,27 @@ const makeGateway = (input?: {
 }) => {
 	let runtimes = input?.runtimes ?? [];
 	let clients = input?.clients ?? [];
+	let alarmAt: number | null = null;
 	const state = {
 		getWebSockets: (tag?: string) =>
 			(tag === "runtime" ? runtimes : tag === "client" ? clients : []).map(
 				asCloudflareSocket,
 			),
-		acceptWebSocket: () => undefined,
+		acceptWebSocket: (socket: FakeSocket, tags: string[]) => {
+			if (tags.includes("runtime")) runtimes = [...runtimes, socket];
+			if (tags.includes("client")) clients = [...clients, socket];
+		},
+		storage: {
+			getAlarm: async () => alarmAt,
+			setAlarm: async (time: number) => {
+				alarmAt = time;
+			},
+		},
 	} as unknown as DurableObjectState;
 	return {
 		gateway: new WorkspaceGateway(state),
+		reconstruct: () => new WorkspaceGateway(state),
+		alarmAt: () => alarmAt,
 		setRuntimes: (next: ReadonlyArray<FakeSocket>) => {
 			runtimes = next;
 		},
@@ -100,6 +117,83 @@ const makeGateway = (input?: {
 		},
 	};
 };
+
+const upgrade = async (
+	gateway: WorkspaceGateway,
+	metadata: Attachment,
+): Promise<FakeSocket> => {
+	const server = new FakeSocket(metadata);
+	const peer = new FakeSocket(metadata);
+	vi.stubGlobal(
+		"WebSocketPair",
+		class {
+			readonly 0 = peer;
+			readonly 1 = server;
+		},
+	);
+	vi.stubGlobal(
+		"Response",
+		class {
+			readonly status: number;
+			constructor(_body: unknown, init: ResponseInit = {}) {
+				this.status = init.status ?? 200;
+			}
+		},
+	);
+	try {
+		const response = await gateway.fetch(
+			new Request("https://gateway.internal/attach", {
+				headers: {
+					upgrade: "websocket",
+					"x-zuse-gateway-role": metadata.role,
+					"x-zuse-gateway-protocol":
+						metadata.protocol ?? WORKSPACE_GATEWAY_PROTOCOL,
+					"x-zuse-gateway-workspace": metadata.workspaceId,
+					"x-zuse-gateway-generation": String(metadata.generation),
+					"x-zuse-gateway-epoch": String(metadata.gatewayEpoch),
+					...(metadata.role === "client"
+						? {
+								"x-zuse-gateway-connection": metadata.connectionId,
+								...(metadata.actorId
+									? { "x-zuse-gateway-actor": metadata.actorId }
+									: {}),
+								...(metadata.permission
+									? { "x-zuse-gateway-permission": metadata.permission }
+									: {}),
+							}
+						: {}),
+				},
+			}),
+		);
+		expect(response.status).toBe(101);
+		return server;
+	} finally {
+		vi.unstubAllGlobals();
+	}
+};
+
+const v3Client = {
+	role: "client",
+	connectionId: "waiting-client",
+	actorId: "member-1",
+	permission: "edit",
+	protocol: WORKSPACE_GATEWAY_PENDING_PROTOCOL,
+	...fence,
+} as const;
+const availability = (
+	state: "pending" | "available",
+	reset?: boolean,
+): string =>
+	JSON.stringify({
+		_zuseGateway: "availability",
+		state,
+		...(reset === undefined ? {} : { reset }),
+	});
+
+afterEach(() => {
+	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
+});
 
 describe("workspace gateway", () => {
 	test("delivers a command nudge to the connected runtime", async () => {
@@ -441,15 +535,15 @@ describe("workspace gateway", () => {
 		expect(staleClient.closes).toEqual([
 			WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE,
 		]);
-		expect(decodeGatewayMessage(acceptedServer.sent[0] as string)).toEqual({
-			type: "client.open",
-			connectionId: "current",
-			actorId: "member-1",
-			permission: "view",
-		});
+		expect(acceptedServer.sent).toEqual([]);
+		expect(currentClient.closes).toEqual([
+			WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE,
+		]);
 
 		await gateway.webSocketClose(asCloudflareSocket(oldRuntime));
-		expect(currentClient.closes).toEqual([]);
+		expect(currentClient.closes).toEqual([
+			WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE,
+		]);
 	});
 
 	test("does not evict clients when a replaced runtime finishes closing", async () => {
@@ -500,5 +594,160 @@ describe("workspace gateway", () => {
 			WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE,
 		]);
 		expect(newerClient.closes).toEqual([]);
+	});
+});
+
+describe("pending gateway attachments", () => {
+	test("a premature RPC is rejected and cannot be replayed when the runtime arrives", async () => {
+		const owner = makeGateway();
+		const client = await upgrade(owner.gateway, v3Client);
+		await owner.gateway.webSocketMessage(
+			asCloudflareSocket(client),
+			"premature-write",
+		);
+		expect(client.closes).toEqual([
+			WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE,
+		]);
+		const runtime = await upgrade(owner.reconstruct(), {
+			role: "runtime",
+			...fence,
+		});
+		expect(runtime.sent).toEqual([]);
+		expect(client.sent).toEqual([availability("pending")]);
+	});
+
+	test("persists the first wait and opens RPC only after a matching runtime attaches", async () => {
+		vi.spyOn(Date, "now").mockReturnValue(1_000);
+		const owner = makeGateway();
+		const client = await upgrade(owner.gateway, v3Client);
+		expect(client.closes).toEqual([]);
+		expect(client.sent).toEqual([availability("pending")]);
+		expect(client.deserializeAttachment()).toMatchObject({
+			wasReady: false,
+			pendingUntil: 31_000,
+		});
+		expect(owner.alarmAt()).toBe(31_000);
+		const restored = owner.reconstruct();
+		const runtime = await upgrade(restored, { role: "runtime", ...fence });
+		expect(
+			runtime.sent.map((value) => decodeGatewayMessage(String(value))),
+		).toEqual([
+			{
+				type: "client.open",
+				connectionId: v3Client.connectionId,
+				actorId: v3Client.actorId,
+				permission: "edit",
+			},
+		]);
+		expect(client.sent).toEqual([
+			availability("pending"),
+			availability("available", false),
+		]);
+		expect(client.deserializeAttachment()).toMatchObject({ wasReady: true });
+		expect(client.deserializeAttachment()).not.toHaveProperty("pendingUntil");
+		await restored.webSocketMessage(asCloudflareSocket(client), "first-rpc");
+		expect(decodeWorkspaceGatewayFrame(runtime.sent[1] as ArrayBuffer)).toEqual(
+			{
+				direction: "client",
+				connectionId: v3Client.connectionId,
+				payload: "first-rpc",
+			},
+		);
+	});
+
+	test("reconstruction preserves deadlines and expires each client without extending its wait", async () => {
+		const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+		const owner = makeGateway();
+		const first = await upgrade(owner.gateway, v3Client);
+		now.mockReturnValue(2_000);
+		const second = await upgrade(owner.gateway, {
+			...v3Client,
+			connectionId: "second",
+		});
+		expect(owner.alarmAt()).toBe(31_000);
+		const restored = owner.reconstruct();
+		now.mockReturnValue(31_000);
+		await restored.alarm();
+		expect(first.closes).toEqual([WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE]);
+		expect(first.deserializeAttachment()).toEqual({ role: "detached" });
+		expect(second.closes).toEqual([]);
+		expect(owner.alarmAt()).toBe(32_000);
+		now.mockReturnValue(32_000);
+		await owner.reconstruct().alarm();
+		expect(second.closes).toEqual([
+			WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE,
+		]);
+	});
+
+	test("a late runtime cannot revive an expired pending client before the alarm runs", async () => {
+		const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+		const owner = makeGateway();
+		const client = await upgrade(owner.gateway, v3Client);
+		now.mockReturnValue(31_001);
+		const runtime = await upgrade(owner.reconstruct(), {
+			role: "runtime",
+			...fence,
+		});
+		expect(client.closes).toEqual([
+			WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE,
+		]);
+		expect(runtime.sent).toEqual([]);
+		expect(client.sent).toEqual([availability("pending")]);
+	});
+
+	test("reattachment resets an old RPC stream and fences racing old client frames", async () => {
+		vi.spyOn(Date, "now").mockReturnValue(1_000);
+		const oldRuntime = new FakeSocket({ role: "runtime", ...fence });
+		const owner = makeGateway({ runtimes: [oldRuntime] });
+		const client = await upgrade(owner.gateway, v3Client);
+		await owner.gateway.webSocketClose(asCloudflareSocket(oldRuntime));
+		expect(client.sent).toEqual([
+			availability("available", false),
+			availability("pending"),
+		]);
+		const restored = owner.reconstruct();
+		const runtime = await upgrade(restored, { role: "runtime", ...fence });
+		expect(client.sent.at(-1)).toBe(availability("available", true));
+		expect(runtime.sent).toEqual([]);
+		await restored.webSocketMessage(asCloudflareSocket(client), "late-old-rpc");
+		await restored.webSocketClose(asCloudflareSocket(client));
+		expect(runtime.sent).toEqual([]);
+		const fresh = await upgrade(restored, {
+			...v3Client,
+			connectionId: "fresh-rpc",
+		});
+		expect(fresh.sent).toEqual([availability("available", false)]);
+		expect(decodeGatewayMessage(runtime.sent[0] as string)).toMatchObject({
+			type: "client.open",
+			connectionId: "fresh-rpc",
+		});
+	});
+
+	test("a different runtime generation evicts pending clients without opening them", async () => {
+		const owner = makeGateway();
+		const client = await upgrade(owner.gateway, v3Client);
+		const runtime = await upgrade(owner.reconstruct(), {
+			role: "runtime",
+			...fence,
+			generation: fence.generation + 1,
+		});
+		expect(client.closes).toEqual([WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE]);
+		expect(runtime.sent).toEqual([]);
+	});
+
+	test("a delayed older gateway epoch cannot evict the current runtime or clients", async () => {
+		const current = { ...fence, gatewayEpoch: fence.gatewayEpoch + 1 };
+		const runtime = new FakeSocket({ role: "runtime", ...current });
+		const client = new FakeSocket({ ...v3Client, ...current, wasReady: true });
+		const owner = makeGateway({ runtimes: [runtime], clients: [client] });
+		const delayed = await upgrade(owner.gateway, {
+			role: "runtime",
+			...fence,
+			generation: fence.generation + 1,
+		});
+		expect(delayed.closes).toEqual([WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE]);
+		expect(runtime.closes).toEqual([]);
+		expect(client.sent).toEqual([]);
+		expect(client.closes).toEqual([]);
 	});
 });

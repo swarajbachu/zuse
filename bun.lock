@@ -275,6 +275,7 @@
         "tree-sitter-javascript": "^0.23.0",
         "tree-sitter-json": "^0.24.0",
         "tree-sitter-typescript": "^0.23.0",
+        "undici": "7.28.0",
       },
       "devDependencies": {
         "@anthropic-ai/claude-agent-sdk": "0.3.276",

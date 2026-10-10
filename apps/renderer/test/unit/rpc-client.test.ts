@@ -26,17 +26,11 @@ Object.defineProperty(globalThis, "location", {
 const {
 	acquireRendererRpcSession,
 	canReuseCloudWorkspaceTicket,
-	clearCloudWorkspaceRuntimeRecovery,
 	connectionRequiresNetwork,
 	environmentRequiresNetwork,
-	cloudWorkspaceRequiresRuntimeRecovery,
-	cloudWorkspaceRuntimeRecoveryCommandId,
-	requestCloudWorkspaceRuntimeRecovery,
 	isAuthCodedConnectionError,
 	isIgnorableRendererFailure,
 	isRpcClientTransportError,
-	markCloudWorkspaceConnectionHealthy,
-	refreshCloudWorkspaceConnectionWithRecovery,
 	RENDERER_WEBSOCKET_OPEN_TIMEOUT,
 	rendererWebSocketOpenTimeout,
 	registerLocalEnvironment,
@@ -308,167 +302,36 @@ describe("renderer RPC transport selection", () => {
 		expect(events).toEqual(["create-rejected", "invalidate:workspace-expired"]);
 	});
 
-	it("queues one recovery command for an explicit missing provider runtime", () => {
-		const workspaceId = "workspace-provider-missing";
-		requestCloudWorkspaceRuntimeRecovery(workspaceId);
-		const commandId = cloudWorkspaceRuntimeRecoveryCommandId(workspaceId);
-		expect(commandId).toBeTypeOf("string");
-		requestCloudWorkspaceRuntimeRecovery(workspaceId);
-		expect(cloudWorkspaceRuntimeRecoveryCommandId(workspaceId)).toBe(commandId);
-		clearCloudWorkspaceRuntimeRecovery(workspaceId);
-	});
-
-	it("marks a cloud runtime for recovery after the gateway proves it is absent", async () => {
+	it.each([
+		1006, 4100, 4001, 4009,
+	])("invalidates disposable tickets and surfaces gateway close %s", async (code) => {
 		let close: (event: {
 			code: number;
 			reason: string;
 			wasClean: boolean;
 		}) => void = () => undefined;
-		const hooks = {
-			prepare: async (environmentId: string) => ({
-				key: `workspace:${environmentId}`,
-				create: async (onClose: typeof close) => {
-					close = onClose;
-					return { client: {} as never, dispose: async () => undefined };
-				},
-			}),
-			invalidateCloudTicket: () => undefined,
-		};
+		const invalidations: string[] = [];
 		const failures: string[] = [];
-		const session = await acquireRendererRpcSession("workspace-recover", {
-			hooks,
-			onClose: (cause) => failures.push(cause.message),
-		});
-
-		close({
-			code: 4100,
-			reason: "workspace runtime unavailable",
-			wasClean: true,
-		});
-
-		expect(cloudWorkspaceRequiresRuntimeRecovery("workspace-recover")).toBe(
-			true,
-		);
-		const commandId =
-			cloudWorkspaceRuntimeRecoveryCommandId("workspace-recover");
-		expect(commandId).toBeTypeOf("string");
-		close({
-			code: 4100,
-			reason: "workspace runtime unavailable",
-			wasClean: true,
-		});
-		expect(cloudWorkspaceRuntimeRecoveryCommandId("workspace-recover")).toBe(
-			commandId,
-		);
-		expect(failures).toEqual([
-			"WebSocket closed (4100: workspace runtime unavailable).",
-			"WebSocket closed (4100: workspace runtime unavailable).",
-		]);
-		const events: string[] = [];
-		const ticket = await refreshCloudWorkspaceConnectionWithRecovery(
-			"workspace-recover",
-			async (recoveryId) => {
-				events.push(`recover:${recoveryId}`);
-			},
-			async () => {
-				events.push("connect");
-				return {
-					workspaceId: "workspace-recover",
-					wsUrl: "wss://cloud.example/workspaces/workspace-recover",
-					protocol: "zuse-workspace-v2",
-					role: "client" as const,
-					generation: 2,
-					gatewayEpoch: 2,
-					credential: "new-ticket",
-					expiresAt: Date.now() + 60_000,
-				};
-			},
-		);
-		expect(events).toEqual([`recover:${commandId}`, "connect"]);
-		expect(ticket.generation).toBe(2);
-		expect(cloudWorkspaceRuntimeRecoveryCommandId("workspace-recover")).toBe(
-			undefined,
-		);
-		await session.dispose();
-	});
-
-	it("allows a fresh command after a terminal runtime recovery failure", async () => {
-		let close: (event: {
-			code: number;
-			reason: string;
-			wasClean: boolean;
-		}) => void = () => undefined;
-		const workspaceId = "workspace-recovery-retry";
-		const session = await acquireRendererRpcSession(workspaceId, {
+		const session = await acquireRendererRpcSession("workspace-detached", {
 			hooks: {
 				prepare: async () => ({
-					key: `workspace:${workspaceId}`,
-					create: async (onClose: typeof close) => {
+					key: "workspace:workspace-detached",
+					create: async (onClose) => {
 						close = onClose;
 						return { client: {} as never, dispose: async () => undefined };
 					},
 				}),
-				invalidateCloudTicket: () => undefined,
+				invalidateCloudTicket: (workspaceId) => invalidations.push(workspaceId),
 			},
-			onClose: () => undefined,
+			onClose: (cause) => failures.push(cause.message),
 		});
-		close({
-			code: 4100,
-			reason: "workspace runtime unavailable",
-			wasClean: true,
-		});
-		const failedCommand = cloudWorkspaceRuntimeRecoveryCommandId(workspaceId);
-		expect(failedCommand).toBeTypeOf("string");
-		await expect(
-			refreshCloudWorkspaceConnectionWithRecovery(
-				workspaceId,
-				async () => {
-					throw new Error("runtime-connection-timeout");
-				},
-				async () => {
-					throw new Error("connect should not run");
-				},
-			),
-		).rejects.toThrow("runtime-connection-timeout");
-		expect(cloudWorkspaceRuntimeRecoveryCommandId(workspaceId)).toBeUndefined();
-
-		close({
-			code: 4100,
-			reason: "workspace runtime unavailable",
-			wasClean: true,
-		});
-		expect(cloudWorkspaceRuntimeRecoveryCommandId(workspaceId)).not.toBe(
-			failedCommand,
-		);
+		close({ code, reason: "gateway unavailable", wasClean: false });
+		expect(invalidations).toEqual(["workspace-detached"]);
+		expect(failures).toEqual([
+			`WebSocket closed (${code}: gateway unavailable).`,
+		]);
 		await session.dispose();
-	});
-
-	it("recovers the first pre-handshake browser-abnormal gateway close", async () => {
-		let close: (event: {
-			code: number;
-			reason: string;
-			wasClean: boolean;
-		}) => void = () => undefined;
-		const workspaceId = "workspace-abnormal-close";
-		const hooks = {
-			prepare: async () => ({
-				key: `workspace:${workspaceId}`,
-				create: async (onClose: typeof close) => {
-					close = onClose;
-					return { client: {} as never, dispose: async () => undefined };
-				},
-			}),
-			invalidateCloudTicket: () => undefined,
-		};
-		const first = await acquireRendererRpcSession(workspaceId, { hooks });
-		close({ code: 1006, reason: "", wasClean: false });
-		expect(cloudWorkspaceRequiresRuntimeRecovery(workspaceId)).toBe(true);
-		clearCloudWorkspaceRuntimeRecovery(workspaceId);
-		markCloudWorkspaceConnectionHealthy(workspaceId);
-		close({ code: 1006, reason: "", wasClean: false });
-		expect(cloudWorkspaceRequiresRuntimeRecovery(workspaceId)).toBe(false);
-		close({ code: 1006, reason: "", wasClean: false });
-		expect(cloudWorkspaceRequiresRuntimeRecovery(workspaceId)).toBe(true);
-		await first.dispose();
+		close({ code, reason: "late close", wasClean: false });
+		expect(invalidations).toHaveLength(1);
 	});
 });
