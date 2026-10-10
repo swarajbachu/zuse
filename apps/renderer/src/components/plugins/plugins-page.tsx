@@ -24,7 +24,11 @@ import {
 	useState,
 } from "react";
 import { useAuth } from "~/hooks/use-auth.ts";
-import { hasPluginConnectionLabel } from "~/lib/connected-plugins.ts";
+import {
+	hasPluginConnectionLabel,
+	usePluginAccount,
+	usePluginTenant,
+} from "~/lib/connected-plugins.ts";
 import {
 	openExternal,
 	rendererPlatformCapabilities,
@@ -55,7 +59,7 @@ async function openAuthorization(url: string) {
 function usePlugins() {
 	const { user, isSignedIn } = useAuth();
 	const account = isSignedIn ? (user?.id ?? null) : null;
-	const [tenant, setTenant] = useState<string>();
+	const tenant = usePluginTenant();
 	const [attempt, setAttempt] = useState<
 		(PluginAttempt & { pluginId: string }) | null
 	>(null);
@@ -137,12 +141,17 @@ function usePlugins() {
 		failed,
 		isSignedIn,
 		load,
-		setTenant,
 	};
 }
 
-/** Browse plugins and manage private account connections through the shared control plane. */
+/** Browse plugins and manage the selected workspace’s connections through the shared control plane. */
 export function PluginsPage() {
+	const tenant = usePluginTenant();
+	const account = usePluginAccount();
+	return <WorkspacePluginsPage key={`${account}:${tenant}`} />;
+}
+
+function WorkspacePluginsPage() {
 	const { message: m } = useUiMessages(["plugins"]);
 	const { isSignedIn, isLoading } = useAuth();
 	// Plugins belong to an account: leave the page on sign-out.
@@ -288,7 +297,11 @@ export function PluginsPage() {
 			key={plugin.id}
 			plugin={plugin}
 			status={statusOf(plugin)}
-			locked={attempt !== null || (busy !== null && busy !== plugin.id)}
+			locked={
+				snapshot?.canManage === false ||
+				attempt !== null ||
+				(busy !== null && busy !== plugin.id)
+			}
 			onOpen={() => setSelected(plugin.id)}
 			onConnect={() => void connect(plugin)}
 		/>
@@ -318,7 +331,11 @@ export function PluginsPage() {
 							status={statusOf(detail)}
 							connections={connectedById.get(detail.id) ?? []}
 							allConnections={snapshot?.connections ?? []}
-							locked={attempt !== null || busy !== null}
+							locked={
+								snapshot?.canManage === false ||
+								attempt !== null ||
+								busy !== null
+							}
 							onBack={() => setSelected(null)}
 							onConnect={(label) => void connect(detail, label)}
 							onDisconnect={(id) => void disconnect(detail, id)}
@@ -381,24 +398,6 @@ export function PluginsPage() {
 										},
 									]}
 								/>
-								{snapshot && snapshot.tenants.length > 1 && (
-									<select
-										aria-label={m("plugins:plugins_account")}
-										className="h-7 max-w-48 rounded-md bg-muted/55 px-2"
-										value={snapshot.tenantId}
-										disabled={attempt !== null || busy !== null}
-										onChange={(event) => {
-											state.setTenant(event.target.value);
-											setSelected(null);
-										}}
-									>
-										{snapshot.tenants.map((tenant) => (
-											<option key={tenant.id} value={tenant.id}>
-												{tenant.name}
-											</option>
-										))}
-									</select>
-								)}
 							</div>
 							{!state.isSignedIn ? (
 								<p className="py-8 text-muted-foreground">

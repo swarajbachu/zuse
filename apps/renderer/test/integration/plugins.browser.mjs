@@ -102,31 +102,32 @@ const catalog=[
 let connections=location.pathname.startsWith('/__plugins-settings')?[{id:'c-linear',pluginId:'linear',label:'Linear',owner:'user',state:'connected',createdAt:1,enabled:true},{id:'c-personal',pluginId:'linear',label:'Personal',owner:'user',state:'connected',createdAt:1,enabled:true}]:[];
 import {useCallback,useEffect,useState} from 'react';
 const listeners=new Set();
-const snapshot=()=>({kind:'snapshot',tenantId:'personal:fixture',tenants:[{id:'personal:fixture',kind:'personal',name:'Personal'}],catalog,connections,endpoint:''});
+window.setPluginReadOnly=()=>{window.pluginAdmin=false;notifyPluginsChanged();};
+const snapshot=(tenantId='personal:fixture')=>({kind:'snapshot',canManage:window.pluginAdmin!==false,tenantId,tenants:[{id:tenantId,kind:tenantId.startsWith('organization:')?'organization':'personal',name:'Workspace'}],catalog,connections:connections.filter(c=>(c.tenantId??'personal:fixture')===tenantId),endpoint:''});
 export const notifyPluginsChanged=()=>{for(const l of listeners)l();};
-export function usePluginSnapshot(account){
+export function usePluginSnapshot(account,tenantId){
  const [value,setValue]=useState(null);
- const refresh=useCallback(async()=>{setValue(snapshot());for(const l of listeners)if(l!==refresh)l();},[]);
- useEffect(()=>{if(account===null)return;setValue(snapshot());const l=()=>setValue(snapshot());listeners.add(l);return()=>listeners.delete(l);},[account]);
+ const refresh=useCallback(async()=>{setValue(snapshot(tenantId));for(const l of listeners)if(l!==refresh)l();},[tenantId]);
+ useEffect(()=>{if(account===null)return;setValue(snapshot(tenantId));const l=()=>setValue(snapshot(tenantId));listeners.add(l);return()=>listeners.delete(l);},[account,tenantId]);
  return {snapshot:account===null?null:value,failed:false,refresh};
 }
 export const pluginReturnTo=async()=>({kind:'desktop',port:8976});
 export async function pluginRequest(input){
  if(input.action==='setEnabled'){window.lastPluginToggle=input;connections=connections.map(c=>c.id===input.connectionId?{...c,enabled:input.enabled}:c);return {kind:'ok'};}
  if(input.action==='complete'){connections.push({id:'c-linear',pluginId:'linear',label:'Linear',owner:'user',state:'connected',createdAt:Date.now(),enabled:true});return {kind:'attempt',id:'a',connectionId:'c-linear',state:'connected',authorizationUrl:null,expiresAt:Date.now()};}
- if(input.action==='list')return snapshot();
+ if(input.action==='list')return snapshot(input.tenantId);
  if(input.action==='disconnect'){connections=connections.filter(c=>c.id!==input.connectionId);return {kind:'ok'};}
  if(input.action==='poll')return {kind:'attempt',id:input.attemptId,connectionId:input.attemptId,state:'pending',authorizationUrl:'https://mcp.notion.com/authorize',expiresAt:Date.now()+60000};
  if(input.action==='cancel'){connections=connections.filter(c=>c.id!==input.attemptId);return {kind:'attempt',id:input.attemptId,connectionId:input.attemptId,state:'cancelled',authorizationUrl:null,expiresAt:Date.now()};}
  if(input.action==='connect'){
-  window.lastReturnTo=input.returnTo;
+  window.lastReturnTo=input.returnTo;window.lastPluginTenant=input.tenantId;
   const id=input.requestId;
   if(input.pluginId==='notion'){connections.push({id,pluginId:'notion',label:'Notion',owner:'user',state:'connecting',createdAt:Date.now()});return {kind:'attempt',id,connectionId:id,state:'pending',authorizationUrl:'https://mcp.notion.com/authorize',expiresAt:Date.now()+60000};}
-  connections.push({id,pluginId:input.pluginId,label:input.label,owner:'user',state:'connected',createdAt:Date.now(),enabled:true});return {kind:'attempt',id,connectionId:id,state:'connected',authorizationUrl:null,expiresAt:Date.now()+60000};}
+  connections.push({id,tenantId:input.tenantId,pluginId:input.pluginId,label:input.label,owner:input.tenantId?.startsWith('organization:')?'organization':'user',state:'connected',createdAt:Date.now(),enabled:true});return {kind:'attempt',id,connectionId:id,state:'connected',authorizationUrl:null,expiresAt:Date.now()+60000};}
 }
 `;
 				if (id === "\0plugins-probe")
-					return `import React from 'react';import{createRoot}from'react-dom/client';import{PluginsPage}from'/src/components/plugins/plugins-page.tsx';import{PluginReturnHandler}from'/src/components/plugin-return-handler.tsx';import{ToastProvider}from'/src/components/ui/toast.tsx';import '/src/styles.css';createRoot(document.getElementById('root')).render(React.createElement(ToastProvider,null,React.createElement('main',{className:'flex h-screen flex-col bg-background text-foreground'},React.createElement(PluginReturnHandler),React.createElement(PluginsPage))));`;
+					return `import React from 'react';import{createRoot}from'react-dom/client';import{observeRendererAccount}from'/src/lib/renderer-account.ts';import{selectRendererWorkspace}from'/src/lib/renderer-workspace.ts';observeRendererAccount('fixture');window.selectPluginWorkspace=selectRendererWorkspace;import{PluginsPage}from'/src/components/plugins/plugins-page.tsx';import{PluginReturnHandler}from'/src/components/plugin-return-handler.tsx';import{ToastProvider}from'/src/components/ui/toast.tsx';import '/src/styles.css';createRoot(document.getElementById('root')).render(React.createElement(ToastProvider,null,React.createElement('main',{className:'flex h-screen flex-col bg-background text-foreground'},React.createElement(PluginReturnHandler),React.createElement(PluginsPage))));`;
 			},
 		},
 	],
@@ -177,7 +178,10 @@ try {
 	await page
 		.getByRole("button", { name: "Connect Cloudflare Docs", exact: true })
 		.click();
-	await page.getByText("Cloudflare Docs connected", { exact: true }).waitFor();
+	await page
+		.getByText("Cloudflare Docs connected", { exact: true })
+		.first()
+		.waitFor();
 	await page
 		.getByRole("button", { name: "Manage Cloudflare Docs", exact: true })
 		.click();
@@ -265,6 +269,61 @@ try {
 		.getByRole("button", { name: "Manage Linear", exact: true })
 		.waitFor();
 	await shot("plugins-connected");
+	// Workspace switching isolates Personal connections and scopes new connections.
+	await page.evaluate(() =>
+		window.selectPluginWorkspace({
+			kind: "organization",
+			organizationId: "team",
+		}),
+	);
+	await expect(
+		page.getByRole("button", { name: "Manage Linear", exact: true }),
+	).toHaveCount(0);
+	await page
+		.getByRole("button", { name: "Connect Cloudflare Docs", exact: true })
+		.first()
+		.click();
+	await page
+		.getByText("Cloudflare Docs connected", { exact: true })
+		.first()
+		.waitFor();
+	assert.equal(
+		await page.evaluate(() => window.lastPluginTenant),
+		"organization:team",
+	);
+	await shot("plugins-organization");
+	await page.evaluate(() => window.selectPluginWorkspace({ kind: "personal" }));
+	await page
+		.getByRole("button", { name: "Manage Linear", exact: true })
+		.first()
+		.waitFor();
+	await expect(
+		page.getByRole("button", { name: "Manage Cloudflare Docs", exact: true }),
+	).toHaveCount(0);
+	await page.evaluate(() =>
+		window.selectPluginWorkspace({
+			kind: "organization",
+			organizationId: "team",
+		}),
+	);
+	await page
+		.getByRole("button", { name: "Manage Cloudflare Docs", exact: true })
+		.first()
+		.waitFor();
+	await expect(
+		page.getByRole("button", { name: "Manage Linear", exact: true }),
+	).toHaveCount(0);
+	await page
+		.getByRole("button", { name: "Manage Cloudflare Docs", exact: true })
+		.first()
+		.click();
+	await page.evaluate(() => window.setPluginReadOnly());
+	await expect(
+		page.getByRole("button", { name: "Disconnect", exact: true }),
+	).toBeDisabled();
+	await expect(
+		page.getByRole("button", { name: "Connect another account", exact: true }),
+	).toBeDisabled();
 	// Settings → Plugins: manage what agents can use.
 	const settings = await browser.newPage({
 		viewport: { width: 1000, height: 760 },
@@ -309,7 +368,7 @@ try {
 		await settings.screenshot({ path: `${shots}/settings-skills.png` });
 	assert.deepEqual(errors, []);
 	console.log(
-		"PASS: automatic return, browse, show more, connect, details, disconnect, OAuth pending, connected tab, and settings toggles",
+		"PASS: automatic return, browse, show more, connect, details, disconnect, OAuth pending, connected tab, organization isolation, read-only member controls, and settings toggles",
 	);
 } finally {
 	await browser?.close();

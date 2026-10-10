@@ -40,20 +40,29 @@ unreadable. Back up the key alongside the Durable Object data.
 
 ## Ownership and access
 
-The API derives `personal:<accountId>` and, when present in a verified WorkOS
-session, `organization:<orgId>`. Body fields cannot grant tenant membership.
-Within either tenant, connections belong to the verified subject. Organization
-sharing and administrator roles are deliberately not exposed: that requires an
-organization membership/role service and organization-bound cloud workspaces.
-The namespace and subject separation are already present for that extension.
+Plugins follow the selected workspace: `personal:<accountId>` or
+`organization:<orgId>`. The API verifies current organization membership through
+its existing workspace authorization service; a token organization claim alone
+cannot grant access. Organization members can discover and invoke shared
+connections; admins connect, toggle, disconnect and finish OAuth attempts.
+Personal connections remain private and are never copied or used by an
+organization machine. Connect the service separately in the organization.
 
-Local and cloud agent sessions currently use personal connections. The cloud
-endpoint reuses the workspace's current runtime credential and deletion fence;
-local sessions bind to the account active when the agent handle is created.
-Changing accounts invalidates that handle's plugin access. Start a new chat
-session to use another account. The organization catalog API is available only
-with a matching organization claim; organization connections are not currently
-injected into personal cloud sessions.
+New organization connections are marked organization-owned. The vault retains
+the connecting subject's existing SDK owner and reference keys while exposing
+those connections within that tenant, so another member or its runtime can use
+them without relocating credentials. Legacy organization connections marked
+user-owned remain private to their original subject; reconnect explicitly to
+create an organization-owned connection. Personal keys, ciphertexts, pending
+attempt ownership and storage namespaces remain unchanged.
+
+Cloud agent tool routes derive the tenant from the authenticated workspace's
+persisted owner, never from a caller's supplied tenant or creator identity. They
+retain runtime expiry and deletion fences. Personal local sessions remain bound
+to the account active when their agent handle is created; changing accounts
+invalidates that handle's plugin access. The Plugins page, settings toggles and
+composer mentions use the same workspace tenant and tenant-keyed cache; delayed
+responses cannot replace the selected workspace's snapshot.
 
 Provider secrets are encrypted with v2's AES-GCM adapter in Durable Object SQLite.
 HKDF derives a per-object credential key from the configured secret; authenticated
@@ -145,15 +154,16 @@ address prefix; queued-message editing preserves that connection ID. Legacy
 plugin-wide mentions remain readable. OAuth
 returns are redeemed automatically (no confirmation click) and reported with a
 toast. Linear is provided only as a managed plugin; the former per-computer
-Linear integration (Settings → Integrations) has been removed. Account data is
-loaded through the control-plane RPC, not through the currently selected
-workspace.
+Linear integration (Settings → Integrations) has been removed. Connection data is loaded through the selected workspace’s control-plane RPC,
+independently of the active runtime connection.
 
 The shared session gateway exposes `plugins_search`, `plugins_schema`, and
 `plugins_call`. Invocation follows Zuse's permission policy; plan mode blocks
 calls conservatively. Provider elicitation and additional engine approval are
 not automatically accepted. No v2 management or automation tools enter the agent
-catalog.
+catalog. Search matches catalog service names as well as IDs and account labels,
+including spacing/punctuation variants; an empty search means no matching tools,
+so agents should use `plugins_list` before concluding no connections exist.
 
 Each connection owns an SDK app/profile and, when authenticated, an account.
 The SDK owner derives from both the tenant and subject. Every tool operation

@@ -821,3 +821,83 @@ test("rejects unregistered desktop ports and redirects provider errors", async (
 	).toBe("cancelled");
 	expect((await a.request({ action: "list" })).body.connections).toEqual([]);
 }, 60_000);
+
+test("organization connections are shared with organization machines and members, never Personal or another organization", async () => {
+	const mf = create(undefined);
+	const admin = await client(mf, "organization:team", "alice");
+	const member = await client(mf, "organization:team", "bob");
+	const machine = await client(mf, "organization:team", "organization:team");
+	const personal = await client(mf);
+	const other = await client(mf, "organization:other", "alice");
+	const requestId = crypto.randomUUID();
+	const connected = await admin.request({
+		action: "connect",
+		pluginId: "cloudflare",
+		label: "Team docs",
+		requestId,
+	});
+	expect(connected.status).toBe(200);
+	const duplicate = await member.request({
+		action: "connect",
+		pluginId: "cloudflare",
+		label: "Other",
+		requestId,
+	});
+	expect(duplicate.status).toBe(400);
+	const snapshot = await member.request({ action: "list" });
+	expect(snapshot.body.connections).toMatchObject([
+		{ owner: "organization", label: "Team docs" },
+	]);
+	const search = await machine.request(undefined, {
+		action: "search",
+		query: "Cloudflare",
+	});
+	// Discovery matches the catalog service name even when the account label differs.
+	const byName = await machine.request(undefined, {
+		action: "search",
+		query: "cloudflaredocs",
+	});
+	expect(byName.body).toEqual(search.body);
+	const address = firstAddress(search.body);
+	expect(
+		(await machine.request(undefined, { action: "schema", address })).status,
+	).toBe(200);
+	expect(
+		(
+			await machine.request(undefined, {
+				action: "call",
+				address,
+				arguments: { text: "organization" },
+			})
+		).status,
+	).toBe(200);
+	for (const outsider of [personal, other]) {
+		expect(
+			(await outsider.request(undefined, { action: "list" })).body,
+		).toEqual([]);
+		expect(
+			(
+				await outsider.request(undefined, {
+					action: "call",
+					address,
+					arguments: {},
+				})
+			).status,
+		).toBe(400);
+	}
+	await member.request({
+		action: "setEnabled",
+		connectionId: connected.body.connectionId,
+		enabled: false,
+	});
+	expect((await machine.request(undefined, { action: "list" })).body).toEqual(
+		[],
+	);
+	await member.request({
+		action: "disconnect",
+		connectionId: connected.body.connectionId,
+	});
+	expect((await admin.request({ action: "list" })).body.connections).toEqual(
+		[],
+	);
+});

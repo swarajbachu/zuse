@@ -1406,7 +1406,7 @@ function SidebarActions() {
 	const pluginsOpen = useUiStore(
 		(state) => state.view === "chat" && state.activeMainTab === "plugins",
 	);
-	// Plugins belong to a Zuse account; the app itself works signed out.
+	// Plugins follow the selected workspace and require a signed-in account.
 	const { isSignedIn } = useAuth();
 
 	return (

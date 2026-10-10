@@ -1,31 +1,58 @@
 import {
 	PluginRequest,
-	type PluginTenant,
 	PluginToolRequest,
+	WORKSPACE_SCOPE_HEADER,
 } from "@zuse/contracts";
 import { Clock, Effect, Option, Schema } from "effect";
-import { requireWorkos } from "./auth.ts";
+import { authenticateWorkos } from "./auth.ts";
 import { requireRuntime } from "./cloud-workspace-routes.ts";
 import { ApiConfiguration } from "./config.ts";
 import { badRequest, forbidden, serviceUnavailable } from "./errors.ts";
 import { readLimitedJsonBody } from "./http.ts";
 import { PluginHost, PluginOperationError } from "./plugin-host.ts";
+import { resolveWorkspaceActorAccess } from "./workspace-authorization.ts";
+import { requestWorkspaceScope } from "./workspace-scope.ts";
 
-export const pluginTenants = (
-	accountId: string,
-	orgId?: string,
-): PluginTenant[] => [
-	{ id: `personal:${accountId}`, kind: "personal", name: "Personal" },
-	...(orgId
-		? [
-				{
-					id: `organization:${orgId}`,
-					kind: "organization" as const,
-					name: "Organization",
-				},
-			]
-		: []),
-];
+const pluginAccess = (
+	request: Request,
+	tenant: string | undefined,
+	access: "content" | "administration",
+) =>
+	Effect.gen(function* () {
+		const actor = yield* authenticateWorkos(request);
+		const selected = yield* requestWorkspaceScope(request);
+		const scope = tenant?.startsWith("organization:")
+			? { kind: "organization" as const, organizationId: tenant.slice(13) }
+			: selected;
+		if (
+			request.headers.has(WORKSPACE_SCOPE_HEADER) &&
+			tenant !== undefined &&
+			tenant !==
+				(selected.kind === "organization"
+					? `organization:${selected.organizationId}`
+					: `personal:${actor.accountId}`)
+		)
+			return yield* forbidden("plugin_tenant_rejected");
+		const resolved = yield* resolveWorkspaceActorAccess(actor, scope, access);
+		const id =
+			scope.kind === "organization"
+				? resolved.ownerId
+				: `personal:${actor.accountId}`;
+		if (tenant !== undefined && tenant !== id)
+			return yield* forbidden("plugin_tenant_rejected");
+		return {
+			identity: { tenant: id, subject: actor.accountId },
+			canManage:
+				resolved.membership === null ||
+				resolved.membership.role.slug === "admin",
+			tenant: {
+				id,
+				kind: scope.kind,
+				name: scope.kind === "organization" ? "Organization" : "Personal",
+			},
+		};
+	});
+
 export const routePluginRequest = (request: Request) =>
 	Effect.gen(function* () {
 		const url = new URL(request.url);
@@ -50,22 +77,12 @@ export const routePluginRequest = (request: Request) =>
 			return yield* attempt(() => host.value.callback(request));
 		const mcp = /^\/v1\/plugins\/([^/]+)\/mcp$/.exec(url.pathname);
 		if (mcp) {
-			const principal = yield* requireWorkos(request);
 			const tenant = decodeURIComponent(mcp[1] ?? "");
-			if (
-				!pluginTenants(principal.accountId, principal.orgId).some(
-					(t) => t.id === tenant,
-				)
-			)
-				return yield* Effect.fail(forbidden("plugin_tenant_rejected"));
+			const { identity } = yield* pluginAccess(request, tenant, "content");
 			// The MCP SDK loads on first use to keep Worker startup within limits.
 			return yield* attempt(async () => {
 				const { servePluginMcp } = await import("./plugin-mcp.ts");
-				return servePluginMcp(
-					request,
-					{ tenant, subject: principal.accountId },
-					host.value,
-				);
+				return servePluginMcp(request, identity, host.value);
 			});
 		}
 		if (request.method !== "POST")
@@ -81,45 +98,43 @@ export const routePluginRequest = (request: Request) =>
 		);
 		if (runtime || url.pathname === "/v1/plugins/tools") {
 			const identity = runtime
-				? {
-						accountId: (yield* requireRuntime(
+				? yield* Effect.gen(function* () {
+						const workspace = yield* requireRuntime(
 							request,
 							runtime[1] ?? "",
 							yield* Clock.currentTimeMillis,
-						)).accountId,
-					}
-				: yield* requireWorkos(request);
+						);
+						return {
+							tenant: workspace.accountId.startsWith("organization:")
+								? workspace.accountId
+								: `personal:${workspace.accountId}`,
+							subject: workspace.accountId,
+						};
+					})
+				: (yield* pluginAccess(request, undefined, "content")).identity;
 			const input = yield* Schema.decodeUnknownEffect(PluginToolRequest)(
 				raw,
 			).pipe(Effect.mapError(() => badRequest("invalid_plugin_tool")));
 			return Response.json(
-				yield* attempt(() =>
-					host.value.tools(
-						{
-							tenant: `personal:${identity.accountId}`,
-							subject: identity.accountId,
-						},
-						input,
-					),
-				),
+				yield* attempt(() => host.value.tools(identity, input)),
 				{ headers: { "cache-control": "no-store" } },
 			);
 		}
 		if (url.pathname !== "/v1/plugins")
 			return yield* Effect.fail(badRequest("invalid_plugin_path"));
-		const principal = yield* requireWorkos(request);
-		const tenants = pluginTenants(principal.accountId, principal.orgId);
 		const input = yield* Schema.decodeUnknownEffect(PluginRequest)(raw).pipe(
 			Effect.mapError(() => badRequest("invalid_plugin_request")),
 		);
-		const tenant = input.tenantId ?? `personal:${principal.accountId}`;
-		if (!tenants.some((t) => t.id === tenant))
-			return yield* Effect.fail(forbidden("plugin_tenant_rejected"));
-		const result = yield* attempt(() =>
-			host.value.request({ tenant, subject: principal.accountId }, input),
+		const { identity, tenant, canManage } = yield* pluginAccess(
+			request,
+			input.tenantId,
+			input.action === "list" ? "content" : "administration",
 		);
+		const result = yield* attempt(() => host.value.request(identity, input));
 		return Response.json(
-			result.kind === "snapshot" ? { ...result, tenants } : result,
+			result.kind === "snapshot"
+				? { ...result, tenants: [tenant], canManage }
+				: result,
 			{ headers: { "cache-control": "no-store" } },
 		);
 	});
