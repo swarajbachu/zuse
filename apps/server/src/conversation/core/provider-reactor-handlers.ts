@@ -185,6 +185,10 @@ export const makeProviderReactorHandlers = (
 			// intent pending so a runtime interrupted here can safely resume it.
 			yield* options.awaitWorkspaceReady ??
 				Effect.flatMap(WorkspaceExecutionPolicy, (policy) => policy.awaitReady);
+			if ((yield* resolveActiveTurn(sessionId)) !== activeTurnId) {
+				yield* reactorEffects.complete(reactorInput.commandId);
+				return;
+			}
 			const effect = yield* reactorEffects.begin(reactorInput.commandId);
 			if (effect === "completed" || effect === "outcome-unknown") return;
 			if (effect === "already-started") {
@@ -251,6 +255,10 @@ export const makeProviderReactorHandlers = (
 			}
 			yield* options.awaitWorkspaceReady ??
 				Effect.flatMap(WorkspaceExecutionPolicy, (policy) => policy.awaitReady);
+			if ((yield* resolveActiveTurn(sessionId)) !== resolvedTurnId) {
+				yield* reactorEffects.complete(reactorInput.commandId);
+				return;
+			}
 			const effect = yield* reactorEffects.begin(reactorInput.commandId);
 			if (effect === "completed" || effect === "outcome-unknown") return;
 			if (effect === "already-started") {

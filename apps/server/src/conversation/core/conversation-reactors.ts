@@ -36,6 +36,7 @@ import {
 } from "@zuse/domain/reactors/conversation";
 import { Effect, Schema, type Scope, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { WorkspaceExecutionPolicy } from "../services/workspace-execution-policy.ts";
 
 export type ChatArchiveReactorError =
 	| ChatNotFoundError
@@ -152,6 +153,7 @@ export const makeConversationReactorRuntime = Effect.fn(
 	serviceScope: Scope.Scope,
 ): Effect.fn.Return<ConversationReactorRuntime, never, SqlClient.SqlClient> {
 	const sql = yield* SqlClient.SqlClient;
+	const executionPolicy = yield* WorkspaceExecutionPolicy;
 	const sessionStorage = makeSqlConsumerStorage(sql);
 	const chatStorage = () =>
 		makeSqlConsumerStorage(sql, {
@@ -238,6 +240,9 @@ export const makeConversationReactorRuntime = Effect.fn(
 	const runProviderStop = yield* serialize(
 		providerStop.catchUp().pipe(Effect.asVoid, Effect.orDie),
 	);
+	const runProviderInterrupt = yield* serialize(
+		providerInterrupt.catchUp().pipe(Effect.asVoid, Effect.orDie),
+	);
 	const runSessionLifecycle = yield* serialize(
 		Effect.gen(function* () {
 			yield* providerInterrupt.catchUp().pipe(Effect.orDie);
@@ -248,7 +253,27 @@ export const makeConversationReactorRuntime = Effect.fn(
 		}),
 	);
 	const runAutoName = yield* serialize(autoName.catchUp().pipe(Effect.orDie));
-	const runSession = Effect.gen(function* () {
+	let preparationCatchupPending = false;
+	const runSession: Effect.Effect<void> = Effect.gen(function* () {
+		// Stop remains available while a prompt waits for repository preparation.
+		// Waiting inside the serialized provider-turn lane would prevent its
+		// interrupt from settling until after the prompt had already been sent.
+		if (!executionPolicy.isReady) {
+			yield* runProviderInterrupt;
+			if (!preparationCatchupPending) {
+				preparationCatchupPending = true;
+				yield* executionPolicy.awaitReady.pipe(
+					Effect.andThen(Effect.suspend(() => runSession)),
+					Effect.ensuring(
+						Effect.sync(() => {
+							preparationCatchupPending = false;
+						}),
+					),
+					Effect.forkIn(serviceScope, { startImmediately: true }),
+				);
+			}
+			return;
+		}
 		// Generated chat and branch names can take tens of seconds. They are
 		// durable, but they must not hold the provider-turn lane and delay the
 		// user's next message. Keep their own serialized worker in the service

@@ -995,6 +995,71 @@ describe("ConversationServices migrations", () => {
 });
 
 describe("ConversationServices — chat & session lifecycle", () => {
+	it("never delivers a prompt stopped while repository preparation is pending", async () => {
+		const ready = await Effect.runPromise(Deferred.make<void>());
+		const waiting = await Effect.runPromise(Deferred.make<void>());
+		workspacePreparation = Deferred.succeed(waiting, undefined).pipe(
+			Effect.andThen(Deferred.await(ready)),
+		);
+		await withRuntime(async (run) => {
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.sendMessageWithInput({
+						commandId: "cancel-preparation-prompt",
+						sessionId: created.initialSession.id,
+						text: "this must never reach the agent",
+					}),
+				),
+			);
+			await Effect.runPromise(Deferred.await(waiting));
+			const stopped = run(
+				Effect.flatMap(store, (service) =>
+					service.interruptSession(
+						testCommandId("messages.interrupt"),
+						created.initialSession.id,
+					),
+				).pipe(Effect.timeout("1 second")),
+			);
+			await expect
+				.poll(
+					async () =>
+						(
+							await run(
+								Effect.gen(function* () {
+									const sql = yield* SqlClient.SqlClient;
+									return yield* sql`SELECT type FROM events WHERE stream_id = ${created.initialSession.id} AND type = 'TurnInterruptRequested'`;
+								}),
+							)
+						).length,
+				)
+				.toBe(1);
+			await stopped;
+			expect(providerStartInputs).toHaveLength(0);
+			expect(providerSentTexts).toEqual([]);
+			workspacePreparation = Effect.void;
+			await Effect.runPromise(Deferred.succeed(ready, undefined));
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.interruptSession(
+						testCommandId("messages.interrupt"),
+						created.initialSession.id,
+					),
+				),
+			);
+			expect(providerStartInputs).toHaveLength(0);
+			expect(providerSentTexts).toEqual([]);
+		});
+	});
+
 	it("returns the chat and durably accepts a direct prompt while repository preparation blocks execution", async () => {
 		const ready = await Effect.runPromise(Deferred.make<void>());
 		workspacePreparation = Deferred.await(ready);
