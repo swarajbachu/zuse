@@ -398,6 +398,34 @@ describe("right terminal catalog gate", () => {
 		});
 	});
 
+	it("reconnects before restoring terminals even when a canonical root is cached", async () => {
+		let attached = false;
+		let rootPath = "/cloud/old-root";
+		const ensureAttached = vi.fn(async () => {
+			attached = true;
+			rootPath = "/cloud/root";
+		});
+		const waitForCanonicalRootPath = vi.fn(async () => "/cloud/root");
+		catalog.loadTerminalCatalog.mockImplementation(async () => {
+			if (!attached) throw new Error("Cloud workspace is disconnected");
+		});
+
+		await expect(
+			wakeAndRestoreCloudRightTerminal({
+				ref: chatRef,
+				title: "Cloud",
+				getCanonicalRootPath: () => rootPath,
+				waitForCanonicalRootPath,
+				ensureAttached,
+			}),
+		).resolves.toMatchObject({ status: "ready" });
+		expect(ensureAttached).toHaveBeenCalledOnce();
+		expect(waitForCanonicalRootPath).not.toHaveBeenCalled();
+		expect(
+			useTerminalsStore.getState().byKey[terminalsKey(chatRef)]?.[0]?.cwd,
+		).toBe("/cloud/root");
+	});
+
 	it("reports an attachment failure and can retry the full authoritative path", async () => {
 		const attachFailure = new Error("resume failed");
 		const ensureAttached = vi

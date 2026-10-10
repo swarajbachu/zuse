@@ -129,13 +129,16 @@ export const wakeAndRestoreCloudRightTerminal = async (input: {
 	readonly isCurrent?: () => boolean;
 }): Promise<OpenRightTerminalResult> => {
 	if (!actionIsCurrent(input)) return { status: "cancelled" };
-	let cwd = input.getCanonicalRootPath();
+	let cwd: string | null;
 	try {
+		// A cached root survives disconnects and pauses; it does not establish
+		// that the terminal catalog can reach the runtime. The shared attachment
+		// gate reuses healthy connections and recovers unavailable ones.
+		await input.ensureAttached();
+		if (!actionIsCurrent(input)) return { status: "cancelled" };
+		cwd = input.getCanonicalRootPath();
 		if (cwd === null) {
-			await input.ensureAttached();
-			if (!actionIsCurrent(input)) return { status: "cancelled" };
-			cwd = input.getCanonicalRootPath();
-			if (cwd === null) cwd = await input.waitForCanonicalRootPath();
+			cwd = await input.waitForCanonicalRootPath();
 		}
 	} catch (cause) {
 		return actionIsCurrent(input)

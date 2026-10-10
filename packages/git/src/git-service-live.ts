@@ -561,10 +561,11 @@ export const GitServiceLive = Layer.effect(
 				),
 			);
 
-		const runUnlocked = (
+		const runCommandUnlocked = (
 			folderId: FolderId,
 			cwd: string,
 			args: ReadonlyArray<string>,
+			acceptedExitCodes: ReadonlyArray<number> = [0],
 		) =>
 			Effect.scoped(
 				Effect.gen(function* () {
@@ -593,7 +594,7 @@ export const GitServiceLive = Layer.effect(
 					const stdout = yield* collectText(proc.stdout);
 					const stderr = yield* collectText(proc.stderr);
 					const exitCode = yield* proc.exitCode;
-					if (exitCode === 0) return stdout;
+					if (acceptedExitCodes.includes(exitCode)) return { stdout, exitCode };
 					const lower = stderr.toLowerCase();
 					if (
 						lower.includes("not a git repository") ||
@@ -618,11 +619,35 @@ export const GitServiceLive = Layer.effect(
 				),
 			);
 
+		const runUnlocked = (
+			folderId: FolderId,
+			cwd: string,
+			args: ReadonlyArray<string>,
+		) =>
+			runCommandUnlocked(folderId, cwd, args).pipe(
+				Effect.map((result) => result.stdout),
+			);
+
 		const run = (
 			folderId: FolderId,
 			cwd: string,
 			args: ReadonlyArray<string>,
 		) => commandLock(cwd).withPermits(1)(runUnlocked(folderId, cwd, args));
+
+		const hasDiff = (
+			folderId: FolderId,
+			cwd: string,
+			args: ReadonlyArray<string>,
+			paths: ReadonlyArray<string>,
+		) =>
+			commandLock(cwd).withPermits(1)(
+				runCommandUnlocked(
+					folderId,
+					cwd,
+					["--literal-pathspecs", "diff", "--quiet", ...args, "--", ...paths],
+					[0, 1],
+				).pipe(Effect.map((result) => result.exitCode === 1)),
+			);
 
 		const log: GitService["Service"]["log"] = (folderId, limit) =>
 			Effect.flatMap(resolvePath(folderId), (cwd) =>
@@ -1796,27 +1821,107 @@ export const GitServiceLive = Layer.effect(
 						if (change.oldPath !== null)
 							pendingByPath.set(change.oldPath, change);
 					}
+					// Binary numstat entries can also be caused by stale file stats.
+					// Status validates pending changes; a tree-to-tree diff validates
+					// committed changes without trusting working-tree timestamps.
+					const binaryNames = names.filter(
+						(entry) =>
+							stats.get(entry.path)?.binary && entry.kind !== "unmerged",
+					);
+					const committedBinaryPaths = new Set<string>();
+					if (
+						scope === "branch" &&
+						comparison.baseSha !== comparison.headSha &&
+						binaryNames.some((entry) => !pendingByPath.has(entry.path))
+					) {
+						const committedNames = parseReviewNames(
+							yield* run(folderId, cwd, [
+								"diff",
+								"--name-status",
+								"-z",
+								"--find-renames",
+								comparison.baseSha,
+								comparison.headSha,
+								"--",
+							]),
+						);
+						for (const entry of committedNames)
+							committedBinaryPaths.add(entry.path);
+					}
+					const changedBinaryPaths = new Set(
+						binaryNames
+							.filter(
+								(entry) =>
+									scope === "staged" ||
+									(scope === "branch" &&
+										(pendingByPath.has(entry.path) ||
+											committedBinaryPaths.has(entry.path))),
+							)
+							.map((entry) => entry.path),
+					);
+					// Unstaged scope needs to distinguish staged-only files. Quiet
+					// diffs verify those candidates without materializing patches.
+					const unstagedBinaryNames =
+						scope === "unstaged"
+							? binaryNames.filter((entry) => pendingByPath.has(entry.path))
+							: [];
+					const binaryGroups: ReviewNameEntry[][] = [];
+					for (
+						let index = 0;
+						index < unstagedBinaryNames.length;
+						index += 128
+					) {
+						binaryGroups.push(unstagedBinaryNames.slice(index, index + 128));
+					}
+					while (binaryGroups.length > 0) {
+						const group = binaryGroups.pop();
+						if (group === undefined) break;
+						const changed = yield* hasDiff(
+							folderId,
+							cwd,
+							comparison.args,
+							group.map((entry) => entry.path),
+						);
+						if (!changed) continue;
+						if (group.length === 1) {
+							for (const entry of group) changedBinaryPaths.add(entry.path);
+						} else {
+							const middle = Math.floor(group.length / 2);
+							binaryGroups.push(group.slice(0, middle), group.slice(middle));
+						}
+					}
 
-					const files: GitReviewFile[] = names.map((entry) => {
-						const stat = stats.get(entry.path) ?? {
-							additions: 0,
-							deletions: 0,
-							binary: false,
-						};
-						const pending =
-							pendingByPath.get(entry.path) ??
-							(entry.oldPath === null
-								? undefined
-								: pendingByPath.get(entry.oldPath));
-						return GitReviewFile.make({
-							...entry,
-							...stat,
-							conflict:
-								entry.kind === "unmerged" || pending?.kind === "unmerged",
-							hasUncommittedChanges:
-								scope === "branch" ? pending !== undefined : true,
+					// With index refresh disabled, --name-status can report stale
+					// file stats as modifications even when the contents match.
+					// Keep real zero-line changes, including modes and renames.
+					const files: GitReviewFile[] = names
+						.filter(
+							(entry) =>
+								entry.kind === "unmerged" ||
+								(stats.get(entry.path)?.binary
+									? changedBinaryPaths.has(entry.path)
+									: stats.has(entry.path)),
+						)
+						.map((entry) => {
+							const stat = stats.get(entry.path) ?? {
+								additions: 0,
+								deletions: 0,
+								binary: false,
+							};
+							const pending =
+								pendingByPath.get(entry.path) ??
+								(entry.oldPath === null
+									? undefined
+									: pendingByPath.get(entry.oldPath));
+							return GitReviewFile.make({
+								...entry,
+								...stat,
+								conflict:
+									entry.kind === "unmerged" || pending?.kind === "unmerged",
+								hasUncommittedChanges:
+									scope === "branch" ? pending !== undefined : true,
+							});
 						});
-					});
 					const seen = new Set(
 						files.flatMap((file) => [file.path, file.oldPath ?? ""]),
 					);
