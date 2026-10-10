@@ -147,6 +147,53 @@ describe("cloud api command pump", () => {
 		);
 	});
 
+	it("retains a nudge that arrives while an empty fetch response is in flight", async () => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const pending = yield* Ref.make<
+					ReadonlyArray<ReturnType<typeof command>>
+				>([]);
+				const fetches = yield* Ref.make(0);
+				const delivered = yield* Ref.make<ReadonlyArray<string>>([]);
+				const emptyFetchSelected = yield* Deferred.make<void>();
+				const releaseEmptyResponse = yield* Deferred.make<void>();
+				const pump = yield* makeCloudApiCommandPump({
+					fetchCommands: Effect.gen(function* () {
+						const commands = yield* Ref.get(pending);
+						const count = yield* Ref.updateAndGet(fetches, (n) => n + 1);
+						if (count === 1) {
+							yield* Deferred.succeed(emptyFetchSelected, undefined);
+							yield* Deferred.await(releaseEmptyResponse);
+						}
+						return { commands };
+					}),
+					deliver: (item) =>
+						Ref.update(delivered, (items) => [...items, item.messageId]).pipe(
+							Effect.as(item.turnId),
+						),
+					ack: (messageId) =>
+						Ref.update(pending, (items) =>
+							items.filter((item) => item.messageId !== messageId),
+						),
+				});
+				const emptyFetch = yield* Effect.forkChild(pump.drain, {
+					startImmediately: true,
+				});
+				yield* Deferred.await(emptyFetchSelected);
+				// The new command commits after the first fetch chose an empty page,
+				// and its gateway notification arrives before that response returns.
+				yield* Ref.set(pending, [command("m1", "arrived during empty fetch")]);
+				for (let i = 0; i < 5; i += 1) yield* pump.drain;
+				yield* Deferred.succeed(releaseEmptyResponse, undefined);
+				yield* Fiber.join(emptyFetch);
+				// No active turn exists, so settlement cannot rescue a discarded nudge.
+				expect(yield* Ref.get(delivered)).toEqual(["m1"]);
+				expect(yield* Ref.get(pending)).toEqual([]);
+				expect(yield* Ref.get(fetches)).toBe(2);
+			}),
+		);
+	});
+
 	it("coalesces overlapping drains and waits for a later signal before the next command", async () => {
 		await Effect.runPromise(
 			Effect.gen(function* () {
