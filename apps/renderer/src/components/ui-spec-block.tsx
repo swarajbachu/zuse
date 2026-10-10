@@ -1,3 +1,5 @@
+// Must evaluate before @openuidev/react-lang (see module comment).
+import "~/lib/openui-devtools";
 import {
 	type ActionEvent,
 	BuiltinActionType,

@@ -65,6 +65,8 @@ literal data or named references. Short answers should remain ordinary text.
   never as model-provided HTML.
 - The renderer is lazy-loaded. Ordinary messages do not load its chart code.
   OpenUI observability publishing is disabled for message contents.
+  `apps/renderer/src/lib/openui-devtools.ts` suppresses the Inspect widget
+  that `@openuidev/react-lang` otherwise auto-mounts in development builds.
 
 This implementation publishes complete snapshots. It does not stream partial
 tool arguments, refresh live data, accept form submissions, send messages, or
