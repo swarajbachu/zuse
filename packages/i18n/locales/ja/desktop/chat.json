@@ -702,5 +702,17 @@
 	"delegation_status_stopped": "停止",
 	"delegation_row_starting": "開始中…",
 	"delegation_row_open": "{{title}} を開く",
-	"delegation_group_running": "{{total}} 件中 {{working}} 件実行中"
+	"delegation_group_running": "{{total}} 件中 {{working}} 件実行中",
+	"message_row_ui_spec_generated": "生成されたUI",
+	"message_row_ui_spec_could_not_render": "このUIブロックをレンダリングできませんでした — 生のspecを表示します",
+	"message_row_ui_spec_submit": "送信",
+	"message_row_ui_spec_sent": "送信済み",
+	"message_row_ui_spec_yes": "はい",
+	"message_row_ui_spec_no": "いいえ",
+	"message_row_ui_spec_send_failed": "回答を送信できませんでした",
+	"message_row_ui_spec_send_open_chat": "このチャットを開いて送信してください。",
+	"selection_menu_label": "選択範囲の操作",
+	"selection_menu_annotate": "注釈",
+	"selection_menu_copy": "コピー",
+	"selection_menu_copied": "コピーしました"
 }

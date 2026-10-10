@@ -1701,3 +1701,8 @@ html[data-sidebar-dragging] * {
 	border-radius: 0 0 var(--workspace-radius) var(--workspace-radius);
 	overflow: hidden;
 }
+
+/* Text being annotated in a chat stays painted while the note has focus. */
+::highlight(chat-annotation) {
+	background-color: color-mix(in oklch, var(--primary) 32%, transparent);
+}

@@ -156,6 +156,8 @@ const MessageRowContent = ({
 					context={ctx}
 				/>
 			);
+		case "ui_spec":
+			return <UiSpecSource spec={content.spec} />;
 		case "thinking":
 			return <ThinkingRow content={content} shimmer={shimmerActive} />;
 		case "tool_use": {
@@ -826,6 +828,24 @@ const AnswerBubble = ({
 		</View>
 	);
 };
+
+/** Native clients preserve the complete source until native OpenUI rendering is available. */
+function UiSpecSource({ spec }: { spec: string }) {
+	const { message } = useMessages(["chat"]);
+	return (
+		<View className="px-2 py-2">
+			<Text className="mb-1 font-sans-medium text-xs text-muted-foreground">
+				{message("chat:message_row_ui_spec_generated")}
+			</Text>
+			<Text
+				selectable
+				className="font-mono text-xs leading-5 text-muted-foreground"
+			>
+				{spec}
+			</Text>
+		</View>
+	);
+}
 
 const FallbackRow = ({ content }: { content: MessageContent }) => (
 	<View className="px-2 py-2">

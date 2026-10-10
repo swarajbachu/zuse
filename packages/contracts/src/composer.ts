@@ -152,10 +152,35 @@ export const ContextAnnotation = Schema.Struct({
 });
 export type ContextAnnotation = typeof ContextAnnotation.Type;
 
+/** Where a chat annotation's quote was selected. */
+export const ChatAnnotationSource = Schema.Literals([
+	"assistant",
+	"user",
+	"ui",
+]);
+export type ChatAnnotationSource = typeof ChatAnnotationSource.Type;
+
+/**
+ * A note pinned to text the user selected in the transcript — an assistant
+ * reply, their own message, or a generated UI block. The quote is the visible
+ * selected text, so the agent can find what the note refers to.
+ */
+export const ChatAnnotation = Schema.Struct({
+	_tag: Schema.Literal("chat"),
+	id: Schema.String,
+	/** Message the selection started in. */
+	messageId: Schema.String,
+	source: ChatAnnotationSource,
+	quote: Schema.String,
+	comment: Schema.String,
+});
+export type ChatAnnotation = typeof ChatAnnotation.Type;
+
 export const ComposerAnnotation = Schema.Union([
 	ContextAnnotation,
 	CodeAnnotation,
 	BrowserAnnotation,
+	ChatAnnotation,
 ]);
 export type ComposerAnnotation = typeof ComposerAnnotation.Type;
 

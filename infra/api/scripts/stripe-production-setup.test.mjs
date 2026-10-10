@@ -188,7 +188,7 @@ test("an existing webhook without its private journal requires reconciliation", 
 	assert.equal(resources.endpoints.length, 1);
 });
 
-test("Stripe checkout cannot deploy with exports or cap enforcement disabled", () => {
+test("metered Stripe checkout cannot deploy with exports or cap enforcement disabled", () => {
 	assertStripeProductionBillingGates({ BILLING_DEFAULT_PROVIDER: "polar" });
 	for (const gate of [
 		"CLOUD_BILLING_EXPORT_ENABLED",
@@ -210,6 +210,36 @@ test("Stripe checkout cannot deploy with exports or cap enforcement disabled", (
 		CLOUD_BILLING_EXPORT_ENABLED: "true",
 		CLOUD_BILLING_ENFORCEMENT_ENABLED: "true",
 	});
+});
+test("subscription-only checkout requires both usage billing gates explicitly disabled", () => {
+	const vars = {
+		BILLING_DEFAULT_PROVIDER: "stripe",
+		STRIPE_CLOUD_BILLING_MODE: "subscription-only",
+		CLOUD_BILLING_EXPORT_ENABLED: "false",
+		CLOUD_BILLING_ENFORCEMENT_ENABLED: "false",
+	};
+	assertStripeProductionBillingGates(vars);
+	for (const gate of [
+		"CLOUD_BILLING_EXPORT_ENABLED",
+		"CLOUD_BILLING_ENFORCEMENT_ENABLED",
+	]) {
+		assert.throws(
+			() => assertStripeProductionBillingGates({ ...vars, [gate]: "true" }),
+			/stay explicitly disabled/,
+		);
+		assert.throws(
+			() => assertStripeProductionBillingGates({ ...vars, [gate]: undefined }),
+			/stay explicitly disabled/,
+		);
+	}
+	assert.throws(
+		() =>
+			assertStripeProductionBillingGates({
+				...vars,
+				STRIPE_CLOUD_BILLING_MODE: "unknown",
+			}),
+		/invalid_stripe_cloud_billing_mode/,
+	);
 });
 
 test("catalogue can be prepared with tax configuration explicitly pending", async () => {

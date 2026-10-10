@@ -1,6 +1,7 @@
 import { Effect, Redacted } from "effect";
 import Stripe from "stripe";
 import { type BillingProviderAdapter, BillingProviderError } from "./index.ts";
+import type { StripeCloudBillingMode } from "./stripe-billing-mode.ts";
 import {
 	makeStripeCreditClient,
 	makeStripeCredits,
@@ -16,6 +17,8 @@ export interface StripeBillingConfig {
 	readonly prepaidCreditPriceId?: string;
 	readonly portalReturnUrl: string;
 	readonly portalConfigurationId?: string;
+	readonly automaticTaxEnabled?: boolean;
+	readonly cloudBillingMode?: StripeCloudBillingMode;
 }
 
 /** Stable identity for one remote creation attempt; generation zero preserves legacy keys. */
@@ -454,13 +457,14 @@ export const makeStripeBillingProvider = (
 						line_items: [
 							{ price, quantity: 1 },
 							...(input.offerId === "cloud-workspace-standard-v1" &&
+							config.cloudBillingMode !== "subscription-only" &&
 							config.cloudOveragePriceId
 								? [{ price: config.cloudOveragePriceId }]
 								: []),
 						],
 						metadata,
 						subscription_data: { metadata },
-						automatic_tax: { enabled: true },
+						automatic_tax: { enabled: config.automaticTaxEnabled ?? true },
 						billing_address_collection: "required",
 						tax_id_collection: { enabled: true },
 						customer_update: { address: "auto", name: "auto" },

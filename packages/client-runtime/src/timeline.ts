@@ -1,4 +1,5 @@
 import type { Message } from "@zuse/contracts";
+import { isEmitUiTool } from "./generative-ui.ts";
 
 export type TimelineTurn = {
 	readonly id: string;
@@ -126,7 +127,35 @@ export const normalizeTimelineMessages = (
 			normalized[index] = message;
 		}
 	}
-	return normalized;
+	return withoutRenderedUiCalls(normalized);
+};
+
+const itemKey = (message: Message): string | null =>
+	message.content._tag === "tool_use" || message.content._tag === "tool_result"
+		? `${message.sessionId}:${message.content.itemId}`
+		: null;
+
+/** A successful emit_ui call is shown by its `ui_spec` row alone; failed
+ * calls keep their tool rows so the error stays visible. */
+const withoutRenderedUiCalls = (messages: Message[]): Message[] => {
+	const calls = new Set<string>();
+	const failed = new Set<string>();
+	for (const message of messages) {
+		const key = itemKey(message);
+		if (key === null) continue;
+		if (
+			message.content._tag === "tool_use" &&
+			isEmitUiTool(message.content.tool)
+		)
+			calls.add(key);
+		if (message.content._tag === "tool_result" && message.content.isError)
+			failed.add(key);
+	}
+	if (calls.size === 0) return messages;
+	return messages.filter((message) => {
+		const key = itemKey(message);
+		return key === null || !calls.has(key) || failed.has(key);
+	});
 };
 
 export const groupTimelineTurns = (

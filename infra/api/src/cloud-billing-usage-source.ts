@@ -68,15 +68,22 @@ export const billingApiBaseUrl = (value: string): string => {
 };
 
 /** Bound both response headers and body reads, and never forward credentials on redirects. */
-export const billingPollRequest = (
+export const billingPollRequest = async (
 	url: string,
 	headers: HeadersInit,
-): Promise<Response> =>
-	fetch(url, {
+): Promise<Response> => {
+	const response = await fetch(url, {
 		headers,
-		redirect: "error",
+		// Workers supports manual redirects; never forward provider credentials.
+		redirect: "manual",
 		signal: AbortSignal.timeout(30_000),
 	});
+	if (response.status >= 300 && response.status < 400) {
+		await response.body?.cancel();
+		throw new Error("Billing API redirects are not allowed");
+	}
+	return response;
+};
 
 /** A failed execution must stay retryable without starving the rest of a poll. */
 export const ingestPolledBillingEvents = Effect.fn("ingestPolledBillingEvents")(

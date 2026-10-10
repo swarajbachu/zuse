@@ -357,6 +357,14 @@
 	"message_row_reconnecting": "⟦Rëëcôônnëëctïïng⟧",
 	"message_row_provider_error": "⟦Prôôvïïdëër ëërrôôr⟧",
 	"message_row_open_provider_settings": "⟦ÔÔpëën Prôôvïïdëër Sëëttïïngs⟧",
+	"message_row_ui_spec_generated": "⟦Gëënëërààtëëd ÜÜÏÏ⟧",
+	"message_row_ui_spec_could_not_render": "⟦Côôüüld nôôt rëëndëër thïïs ÜÜÏÏ blôôck — shôôwïïng thëë rààw spëëc⟧",
+	"message_row_ui_spec_submit": "⟦Süübmïït⟧",
+	"message_row_ui_spec_sent": "⟦Sëënt⟧",
+	"message_row_ui_spec_yes": "⟦Yëës⟧",
+	"message_row_ui_spec_no": "⟦Nôô⟧",
+	"message_row_ui_spec_send_failed": "⟦Côôüüldn't sëënd yôôüür rëëspôônsëë⟧",
+	"message_row_ui_spec_send_open_chat": "⟦ÔÔpëën thïïs chààt tôô sëënd ïït.⟧",
 	"nearby_pairing_approval_is_this_you_trying_to_connect": "⟦ÏÏs thïïs yôôüü tryïïng tôô côônnëëct?⟧",
 	"nearby_pairing_approval_confirm_these_words_match_the_ones_shown_on_your_phone": "⟦Côônfïïrm thëësëë wôôrds mààtch thëë ôônëës shôôwn ôôn yôôüür phôônëë.⟧",
 	"nearby_pairing_approval_block_device": "⟦Blôôck dëëvïïcëë⟧",
@@ -702,5 +710,9 @@
 	"delegation_status_stopped": "⟦Stôôppëëd⟧",
 	"delegation_row_starting": "⟦Stààrtïïng…⟧",
 	"delegation_row_open": "⟦ÔÔpëën {{title}}⟧",
-	"delegation_group_running": "⟦{{working}} ôôf {{total}} rüünnïïng⟧"
+	"delegation_group_running": "⟦{{working}} ôôf {{total}} rüünnïïng⟧",
+	"selection_menu_label": "⟦Sëëlëëctïïôôn ààctïïôôns⟧",
+	"selection_menu_annotate": "⟦ÀÀnnôôtààtëë⟧",
+	"selection_menu_copy": "⟦Côôpy⟧",
+	"selection_menu_copied": "⟦Côôpïïëëd⟧"
 }

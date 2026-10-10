@@ -38,3 +38,32 @@ test("native plan feedback includes staged PR context and code annotations", () 
 		composerFeedbackText(ComposerInput.make({ ...input, annotations: [] })),
 	).toBe(input.text);
 });
+
+test("chat annotations tell the agent which text each note refers to", () => {
+	expect(
+		serializeAnnotations([
+			{
+				_tag: "chat",
+				id: "a",
+				messageId: "m1",
+				source: "assistant",
+				quote: "Use a canary\n  rollout",
+				comment: "Why not blue/green?",
+			},
+			{
+				_tag: "chat",
+				id: "b",
+				messageId: "m2",
+				source: "ui",
+				quote: "p99 latency 184 ms",
+				comment: "Too high for checkout",
+			},
+		]),
+	).toBe(
+		[
+			"Notes on the conversation:",
+			'1. On your reply: "Use a canary rollout" — Why not blue/green?',
+			'2. On the UI you rendered: "p99 latency 184 ms" — Too high for checkout',
+		].join("\n"),
+	);
+});

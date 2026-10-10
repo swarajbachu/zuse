@@ -1286,6 +1286,123 @@ describe("@zuse/api", () => {
 		}
 	});
 
+	test("new subscriptions use Stripe while existing Polar subscriptions retain their portal and block duplicate checkout", async () => {
+		const stripeBalance = vi.fn(() =>
+			Effect.succeed({
+				available: true,
+				creditCents: 0,
+				debitCents: 0,
+				currency: "usd" as const,
+			}),
+		);
+		const stripeCredits = vi.fn(() =>
+			Effect.succeed("https://stripe.test/credits"),
+		);
+		const checkout = vi.fn(() =>
+			Effect.succeed("https://stripe.test/checkout"),
+		);
+		const polarPortal = vi.fn(() =>
+			Effect.succeed("https://polar.test/portal"),
+		);
+		const polar: BillingProviderAdapter = {
+			providerId: "polar",
+			checkout: () => Effect.die("new checkout must use Stripe"),
+			getCheckout: () => Effect.succeed(null),
+			cancel: () => Effect.void,
+			customerPortal: polarPortal,
+			verifyEvent: () =>
+				Effect.succeed({ eventId: "polar-event", subscriptionId: "polar-sub" }),
+			reconcileSubscription: () =>
+				Effect.succeed({
+					accountId: "user_b",
+					providerSubscriptionId: "polar-sub",
+					status: "active",
+					offerId: CLOUD_WORKSPACE_OFFER_ID,
+					periodStart: Date.now() - 60_000,
+					paidThrough: Date.now() + 86_400_000,
+				}),
+		};
+		const stripe: BillingProviderAdapter = {
+			...polar,
+			providerId: "stripe",
+			checkout,
+			prepaidBalance: stripeBalance,
+			prepaidCheckout: stripeCredits,
+			customerPortal: () => Effect.die("legacy portal must use Polar"),
+		};
+		const billingApi = makeApi(
+			await makeLayer(
+				undefined,
+				BillingProviders.layer({
+					adapters: [polar, stripe],
+					defaultProviderId: "stripe",
+				}).pipe(Layer.orDie),
+				true,
+			),
+		);
+		const requestCheckout = (account: string) =>
+			billingApi.fetch(
+				new Request(`${API_ISSUER}${ApiPaths.billingCheckout}`, {
+					method: "POST",
+					headers: {
+						authorization: `Bearer test-token:${account}`,
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({ offerId: CLOUD_WORKSPACE_OFFER_ID }),
+				}),
+			);
+		try {
+			const delivery = await billingApi.fetch(
+				new Request(`${API_ISSUER}/v1/billing/webhook/polar`, {
+					method: "POST",
+					body: "{}",
+				}),
+			);
+			expect(delivery.status).toBe(200);
+			const purchase = await requestCheckout("user_a");
+			expect(purchase.status).toBe(200);
+			expect(await purchase.json()).toEqual({
+				checkoutUrl: "https://stripe.test/checkout",
+			});
+			expect(checkout).toHaveBeenCalledTimes(1);
+			const portal = await billingApi.fetch(
+				new Request(`${API_ISSUER}${ApiPaths.billingPortal}`, {
+					method: "POST",
+					headers: { authorization: "Bearer test-token:user_b" },
+				}),
+			);
+			expect(portal.status).toBe(200);
+			expect(await portal.json()).toEqual({
+				portalUrl: "https://polar.test/portal",
+			});
+			expect(polarPortal).toHaveBeenCalledWith("user_b");
+			const balance = await billingApi.fetch(
+				new Request(`${API_ISSUER}${ApiPaths.billingPrepaid}`, {
+					headers: { authorization: "Bearer test-token:user_b" },
+				}),
+			);
+			expect(balance.status).toBe(200);
+			expect(await balance.json()).toMatchObject({ available: false });
+			expect(stripeBalance).not.toHaveBeenCalled();
+			const credits = await billingApi.fetch(
+				new Request(`${API_ISSUER}${ApiPaths.billingPrepaidCheckout}`, {
+					method: "POST",
+					headers: {
+						authorization: "Bearer test-token:user_b",
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({ amountCents: 2500 }),
+				}),
+			);
+			expect(credits.status).toBe(503);
+			expect(stripeCredits).not.toHaveBeenCalled();
+			expect((await requestCheckout("user_b")).status).toBe(409);
+			expect(checkout).toHaveBeenCalledTimes(1);
+		} finally {
+			await billingApi.dispose();
+		}
+	});
+
 	test("creates cloud workspace entitlement checkout without provider placement", async () => {
 		let checkoutInput:
 			| Parameters<BillingProviderAdapter["checkout"]>[0]

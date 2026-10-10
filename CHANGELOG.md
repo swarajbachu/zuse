@@ -8,9 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Use Stripe for new cloud subscriptions while preserving existing Polar subscriptions, with verified usage charging after the included allowance and enforcement of spending caps.
 - Enable organization beta access for selected users and their teams, with automatic access for approved creators' members and optional access for existing teams.
 
 ### Fixed
+- Keep cloud billing recovery polls compatible with Cloudflare Workers while rejecting redirects that could expose provider credentials.
+- Preserve organization access when deploying the production API.
 - Restore reliable provider usage limits with CLI-backed Claude readings, isolated provider failures, automatic retries, accurate percentages, and visible stale readings.
 - Connect cloud workspaces to GitHub with repository-scoped user credentials so commits, pushes, and pull requests use the connected account.
 - Let idle cloud workspaces pause even when connected clients send RPC heartbeats, poll status, or receive subscription updates, while preserving activity from user actions and active agent turns.

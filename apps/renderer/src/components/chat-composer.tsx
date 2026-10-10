@@ -523,6 +523,9 @@ export function ChatComposer({
 	// time, always sees the current sessionId / send / inFlight without
 	// recreating the editor on every render.
 	const submitRef = useRef<() => boolean>(() => false);
+	const sendTextRef = useRef<(text: string) => Promise<boolean>>(
+		async () => false,
+	);
 	// Same indirection for file drops — the editor extension is bound once
 	// and we want it to call the latest closure with the current sessionId.
 	const filesDroppedRef = useRef<(files: ReadonlyArray<File>) => void>(
@@ -695,6 +698,7 @@ export function ChatComposer({
 		bridge.setFocus(() => {
 			editorViewRef.current?.focus();
 		});
+		bridge.setSendText((text) => sendTextRef.current(text));
 		bridge.setEditQueuedMessage((item) => {
 			const v = editorViewRef.current;
 			if (v === null || pickingQueuedItemRef.current) return;
@@ -801,6 +805,7 @@ export function ChatComposer({
 			const b = useComposerBridge.getState();
 			b.setAttachFile(null);
 			b.setInsertText(null);
+			b.setSendText(null);
 			b.setFocus(null);
 			b.setEditQueuedMessage(null);
 			usePaneFocus.getState().unregister("composer");
@@ -1180,6 +1185,16 @@ export function ChatComposer({
 		if (files.length > 0) attachFiles(files);
 	};
 
+	const shouldQueueNow = () =>
+		shouldQueueComposerMessage({
+			isCloudSession,
+			turnInFlight: inFlight,
+			hasQueuedMessage: hasQueued,
+			runtimeStarting: !isCloudSession && runtimeState === "starting",
+			timelineLive: timeline.view.sync === "live",
+			platformOffline: !platformOnline,
+		});
+
 	const submit = (): boolean => {
 		if (
 			submitDisabled ||
@@ -1237,14 +1252,7 @@ export function ChatComposer({
 				? chooseComposerSubmitRoute({
 						sendPlanFeedbackNow,
 						goalSendMode,
-						shouldQueue: shouldQueueComposerMessage({
-							isCloudSession,
-							turnInFlight: inFlight,
-							hasQueuedMessage: hasQueued,
-							runtimeStarting: !isCloudSession && runtimeState === "starting",
-							timelineLive: timeline.view.sync === "live",
-							platformOffline: !platformOnline,
-						}),
+						shouldQueue: shouldQueueNow(),
 					})
 				: null;
 		const commitComposerSubmission = () => {
@@ -1363,6 +1371,43 @@ export function ChatComposer({
 	// Keep the keymap-bound submit pointing at the latest closure so it sees
 	// the current sessionId after a session switch / re-render.
 	submitRef.current = submit;
+	// Messages raised by generated UI (form answers, follow-ups) take the same
+	// send-or-queue path as typed text, but never touch the user's draft.
+	sendTextRef.current = async (text) => {
+		if (
+			onDraftSubmit !== undefined ||
+			submitDisabled ||
+			directoryUnavailable ||
+			durableCloudSendPending ||
+			text.trim().length === 0
+		)
+			return false;
+		// Notes pinned to the transcript (often to this very UI) belong with the
+		// response, exactly as with a typed submit.
+		const annotations = annotationsForSession(sessionId);
+		const input = ComposerInput.make({
+			text,
+			attachments: attachmentsWithBrowserAnnotations([], annotations),
+			fileRefs: [],
+			skillRefs: [],
+			annotations,
+		});
+		// Drain only what was sent; notes added meanwhile stay in the tray.
+		const drainSent = () => {
+			const store = useAnnotationsStore.getState();
+			for (const annotation of annotations)
+				store.remove(sessionId, annotation.id);
+		};
+		// A queued message has no delivery promise; queueing is the acceptance.
+		if (shouldQueueNow()) {
+			queue(input);
+			drainSent();
+			return true;
+		}
+		const accepted = await send(input).catch(() => false);
+		if (accepted) drainSent();
+		return accepted;
+	};
 	togglePlanModeRef.current = () => {
 		if (session.providerId === "pi") return;
 		void setPermissionMode(

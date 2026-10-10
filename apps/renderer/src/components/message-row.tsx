@@ -32,13 +32,26 @@ import {
 	ChevronRight,
 	RefreshCw as RefreshIcon,
 } from "lucide-react";
-import { memo, type ReactNode, useEffect, useRef, useState } from "react";
+import {
+	lazy,
+	memo,
+	type ReactNode,
+	Suspense,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { FileIcon } from "~/components/file-icon";
 import {
 	attachmentDataUrl,
 	downloadAttachment,
 	useAttachmentUrl,
 } from "~/lib/attachments";
+import {
+	CHAT_MESSAGE_ATTRIBUTE,
+	CHAT_SOURCE_ATTRIBUTE,
+	chatSelectionSource,
+} from "~/lib/chat-selection";
 import { spawnDelegationMember } from "~/lib/delegation-display";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { formatError } from "~/lib/format-error";
@@ -57,6 +70,7 @@ import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
 import { useUiStore } from "~/store/ui";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
+import { ChatAnnotationChip } from "./annotation/chat-annotation-chip.tsx";
 import {
 	AssistantMessageActions,
 	MessageActions,
@@ -73,7 +87,15 @@ import {
 	CollapsiblePanel,
 	CollapsibleTrigger,
 } from "./ui/collapsible.tsx";
+import { ErrorBoundary } from "./ui/error-boundary.tsx";
+import { UiSpecFallback } from "./ui-spec-fallback.tsx";
 import { UserMessageText } from "./user-message-text.tsx";
+
+const UiSpecBlock = lazy(() =>
+	import("./ui-spec-block.tsx").then((module) => ({
+		default: module.UiSpecBlock,
+	})),
+);
 
 const _isBrowserAnnotation = (
 	annotation: ComposerAnnotation,
@@ -168,6 +190,7 @@ function MessageRowImpl({
 	smoothStreaming = false,
 	forkDestination,
 	sourceProjectId,
+	interactive = false,
 }: {
 	message: Message;
 	sessionId?: SessionId;
@@ -178,6 +201,8 @@ function MessageRowImpl({
 	smoothStreaming?: boolean;
 	forkDestination?: ForkDestination;
 	sourceProjectId?: FolderId;
+	/** Generated UI in the latest turn may send messages. */
+	interactive?: boolean;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 
@@ -272,6 +297,34 @@ function MessageRowImpl({
 					status={message.content.status ?? "completed"}
 				/>
 			);
+		case "ui_spec":
+			return (
+				<div className="px-[var(--chat-assistant-gutter,0.75rem)] py-1.5">
+					<ErrorBoundary
+						resetKey={message.content.spec}
+						fallback={<UiSpecFallback spec={message.content.spec} reason="" />}
+					>
+						<Suspense
+							fallback={
+								<div
+									className="h-24 animate-pulse rounded-lg bg-muted/40"
+									aria-busy="true"
+								/>
+							}
+						>
+							<UiSpecBlock
+								spec={message.content.spec}
+								messageId={message.id}
+								sessionRef={
+									interactive && !readOnly && environmentId !== undefined
+										? { environmentId, sessionId: message.sessionId }
+										: undefined
+								}
+							/>
+						</Suspense>
+					</ErrorBoundary>
+				</div>
+			);
 		case "usage":
 		case "context_usage":
 		case "usage_limit":
@@ -303,7 +356,25 @@ function MessageRowImpl({
 	}
 }
 
-export const MessageRow = memo(MessageRowImpl);
+/** Tags selectable rows so text in them can be annotated. */
+function SelectableMessageRow(props: Parameters<typeof MessageRowImpl>[0]) {
+	const source = chatSelectionSource(props.message.content);
+	const row = <MessageRowImpl {...props} />;
+	if (source === null) return row;
+	return (
+		<div
+			className="contents"
+			{...{
+				[CHAT_MESSAGE_ATTRIBUTE]: props.message.id,
+				[CHAT_SOURCE_ATTRIBUTE]: source,
+			}}
+		>
+			{row}
+		</div>
+	);
+}
+
+export const MessageRow = memo(SelectableMessageRow);
 MessageRow.displayName = "MessageRow";
 
 function ThinkingMessageRow({
@@ -593,7 +664,9 @@ export function UserBubble({
 										.filter((a) => !("_tag" in a) || a._tag !== "context")
 										.map((a) => (
 											<div key={a.id} className="space-y-1 p-2">
-												{"_tag" in a ? (
+												{"_tag" in a && a._tag === "chat" ? (
+													<ChatAnnotationChip annotation={a} />
+												) : "_tag" in a ? (
 													<span className="text-muted-foreground">
 														{a._tag === "browser"
 															? browserAnnotationMeta(a)

@@ -59,6 +59,7 @@ const callTool = async (
 	});
 
 const baseDeps = {
+	emitUi: async () => ({ ok: true as const, messageId: "ui-message" }),
 	createWorktree: async () => ({
 		ok: false as const,
 		error: "unused",
@@ -422,6 +423,41 @@ describe("MCP gateway", () => {
 		await callTool(second.endpoint, second.token, "browser_snapshot", {});
 		await callTool(first.endpoint, first.token, "browser_snapshot", {});
 		expect(calls).toEqual(["b:Snapshot", "a:Snapshot"]);
+	});
+
+	test("emit_ui is available through the gateway without a mutation approval", async () => {
+		const emitUi = vi.fn(async () => ({
+			ok: true as const,
+			messageId: "ui-message",
+		}));
+		const permission = vi.fn(async () => ({ _tag: "Deny" as const }));
+		const issued = await issueMcpGatewaySession({
+			sessionId: "emit-ui",
+			scopes: { browser: false, orchestration: true },
+			ctx: {
+				orchestration: {
+					deps: { ...baseDeps, emitUi },
+					requestPermission: permission,
+					getRuntimeMode: () => "approval-required",
+					getPermissionMode: () => "default",
+				},
+			},
+		});
+		try {
+			const spec = 'root = Text("Gateway UI")';
+			expect((await listTools(issued.endpoint, issued.token)).raw).toContain(
+				"emit_ui",
+			);
+			const result = await callTool(issued.endpoint, issued.token, "emit_ui", {
+				spec,
+			});
+			expect(result.status).toBe(200);
+			expect(result.raw).toContain("ui-message");
+			expect(emitUi).toHaveBeenCalledExactlyOnceWith({ spec });
+			expect(permission).not.toHaveBeenCalled();
+		} finally {
+			await issued.close();
+		}
 	});
 
 	test("permission denial for mutating orchestration tools returns an MCP error result", async () => {

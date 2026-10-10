@@ -11,7 +11,8 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "../hooks/use-auth.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
 import type { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
@@ -24,6 +25,19 @@ export type AnnotationAuthor = {
 	readonly avatarUrl: string | null;
 	readonly initial: string;
 };
+
+/** The signed-in user as shown on annotation drafts. */
+export function useAnnotationAuthor(): AnnotationAuthor {
+	const { user, name: authName } = useAuth();
+	return useMemo(() => {
+		const name = authName.trim() || "You";
+		return {
+			name,
+			avatarUrl: user?.profilePictureUrl ?? null,
+			initial: (name || user?.email || "?").charAt(0).toUpperCase(),
+		};
+	}, [authName, user?.email, user?.profilePictureUrl]);
+}
 
 export function DraftReviewAnnotation({
 	author,

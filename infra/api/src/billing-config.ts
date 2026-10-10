@@ -10,6 +10,7 @@ import {
 	makeStripeBillingProvider,
 	type StripeBillingStore,
 } from "@zuse/billing-providers/stripe";
+import { resolveStripeCloudBillingMode } from "@zuse/billing-providers/stripe-billing-mode";
 import { stripeKeyEnvironment } from "@zuse/billing-providers/stripe-key";
 import { Layer, Redacted } from "effect";
 import { isConfigured } from "./environment.ts";
@@ -25,6 +26,8 @@ export interface BillingEnvironment {
 	readonly STRIPE_CLOUD_OVERAGE_METER_ID?: string;
 	readonly STRIPE_PORTAL_CONFIGURATION_ID?: string;
 	readonly STRIPE_PREPAID_CREDIT_PRICE_ID?: string;
+	readonly STRIPE_AUTOMATIC_TAX_ENABLED?: string;
+	readonly STRIPE_CLOUD_BILLING_MODE?: string;
 	readonly API_ISSUER?: string;
 	readonly MACHINE_LIVE_CHECKOUT_ENABLED?: string;
 	readonly MACHINE_SALES_APPROVED?: string;
@@ -118,6 +121,9 @@ export const resolveBillingRuntime = (
 	env: BillingEnvironment,
 	stripeStore: StripeBillingStore = unavailableStore,
 ): BillingRuntime => {
+	const cloudBillingMode = resolveStripeCloudBillingMode(
+		env.STRIPE_CLOUD_BILLING_MODE,
+	);
 	const config = polarConfig(env);
 	const stripeConfigured =
 		isConfigured(env.STRIPE_SECRET_KEY) &&
@@ -160,6 +166,8 @@ export const resolveBillingRuntime = (
 					portalReturnUrl: env.API_ISSUER ?? "https://api.zuse.sh",
 					portalConfigurationId: env.STRIPE_PORTAL_CONFIGURATION_ID,
 					prepaidCreditPriceId: env.STRIPE_PREPAID_CREDIT_PRICE_ID,
+					automaticTaxEnabled: env.STRIPE_AUTOMATIC_TAX_ENABLED !== "false",
+					cloudBillingMode,
 				},
 				{ store: stripeStore },
 			),
@@ -175,6 +183,7 @@ export const resolveBillingRuntime = (
 		defaultProviderId !== "manual" &&
 		!(
 			defaultProviderId === "stripe" &&
+			cloudBillingMode === "metered" &&
 			isConfigured(env.STRIPE_PRICE_CLOUD_WORKSPACE_STANDARD_V1) &&
 			(!isConfigured(env.STRIPE_CLOUD_OVERAGE_PRICE_ID) ||
 				!isConfigured(env.STRIPE_CLOUD_OVERAGE_METER_ID))

@@ -6,17 +6,23 @@ import {
 	BillingProviders,
 } from "@zuse/billing-providers";
 import { makeStripeBillingProvider } from "@zuse/billing-providers/stripe";
+import { SandboxProviders } from "@zuse/sandbox-providers";
+import { makeBoxdSandboxProvider } from "@zuse/sandbox-providers/boxd";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { Client, Pool } from "pg";
 import Stripe from "stripe";
 import { flushCloudBillingOutbox } from "../src/cloud-billing-outbox.ts";
+import { ensureCloudBillingPeriod } from "../src/cloud-billing-period.ts";
 import {
 	CloudBillingStore,
 	CloudBillingStorePg,
 } from "../src/cloud-billing-store.ts";
+import { BoxdBillingUsageSourceModule } from "../src/cloud-billing-usage-sources/boxd.ts";
+import { CloudWorkspaceStorePg } from "../src/cloud-workspace-store.ts";
+import { ApiConfiguration } from "../src/config.ts";
 import { routeMachineRequest } from "../src/machine-routes.ts";
-import { MachineStorePg } from "../src/machine-store.ts";
+import { MachineStore, MachineStorePg } from "../src/machine-store.ts";
 import { makeStripeBillingStorePg } from "../src/stripe-billing-store.ts";
 import { migrationScheduleParams } from "./stripe-migration.mjs";
 import { acquireRunnerLock } from "./stripe-sandbox-lock.mjs";
@@ -230,6 +236,7 @@ const runtime = ManagedRuntime.make(
 		dbLayer,
 		CloudBillingStorePg.pipe(Layer.provide(dbLayer)),
 		MachineStorePg.pipe(Layer.provide(dbLayer)),
+		CloudWorkspaceStorePg.pipe(Layer.provide(dbLayer)),
 	),
 );
 const db = new Client({
@@ -368,6 +375,296 @@ try {
 			automaticTax: sessions.data[0].automatic_tax.enabled,
 		});
 		console.log(JSON.stringify({ checkoutUrl: url }));
+	} else if (command === "provider-evidence") {
+		// Replay captured, authenticated provider evidence through the actual
+		// adapter, ingestion, PostgreSQL ledger and Stripe test-mode exporter.
+		// Seed the included allowance so even a small real cost exercises billing.
+		const path = process.env.STRIPE_TEST_PROVIDER_EVIDENCE_FILE;
+		assert(path, "STRIPE_TEST_PROVIDER_EVIDENCE_FILE is required");
+		const evidence = JSON.parse(await readFile(path, "utf8"));
+		const captured = evidence.report.productionMachine;
+		assert(captured.complete && captured.currency === "usd");
+		assert(Number.isSafeInteger(captured.costMicro) && captured.costMicro > 0);
+		const start = Date.parse(captured.period.start);
+		const end = Date.parse(captured.period.end);
+		assert(
+			Number.isSafeInteger(start) && Number.isSafeInteger(end) && end > start,
+		);
+		assert(end < Date.now() - 30 * 60_000, "Use a completed provider window");
+		const accountId = `${state.runId}_provider_${crypto.randomUUID()}`;
+		const clock = await stripe.testHelpers.testClocks.create({
+			frozen_time: Math.floor(start / 1000),
+			name: accountId,
+		});
+		state.clocks.push(clock.id);
+		await save();
+		const customer = await stripe.customers.create({
+			test_clock: clock.id,
+			payment_method: "pm_card_visa",
+			invoice_settings: { default_payment_method: "pm_card_visa" },
+			metadata: { account_id: accountId, zuse_test_run: state.runId },
+		});
+		state.customers.push(customer.id);
+		await save();
+		await persistence.reserveCustomer(accountId);
+		await persistence.linkCustomer(accountId, customer.id);
+		const sub = await stripe.subscriptions.create({
+			customer: customer.id,
+			items: [
+				{ price: state.basePriceId, quantity: 1 },
+				{ price: state.overagePriceId },
+			],
+			automatic_tax: { enabled: false },
+			metadata: {
+				account_id: accountId,
+				offer_id: "cloud-workspace-standard-v1",
+				zuse_test_run: state.runId,
+			},
+		});
+		state.subscriptions.push(sub.id);
+		await save();
+		try {
+			assert.equal(sub.status, "active");
+			const remote = await Effect.runPromise(
+				adapter.reconcileSubscription(sub.id),
+			);
+			const machineStore = await runtime.runPromise(MachineStore);
+			await run(
+				machineStore.upsertEntitlement({
+					entitlementId: `stripe:${sub.id}`,
+					accountId,
+					provider: "stripe",
+					kind: "cloud-workspace",
+					offerId: remote.offerId,
+					providerSubscriptionId: sub.id,
+					status: remote.status,
+					periodStartMs: remote.periodStart,
+					paidThroughMs: remote.paidThrough,
+					createdAtMs: start,
+					updatedAtMs: Date.now(),
+				}),
+			);
+			const period = await run(
+				ensureCloudBillingPeriod({
+					accountId,
+					provider: "stripe",
+					providerSubscriptionId: sub.id,
+					subscriptionStatus: remote.status,
+					periodStartMs: remote.periodStart,
+					periodEndMs: remote.paidThrough,
+					nowMs: end,
+				}),
+			);
+			await run(
+				billing.recordProviderEvent({
+					provider: "sandbox-fixture",
+					eventId: `${accountId}_allowance`,
+					type: "allowance-fixture",
+					payload: {},
+					receivedAtMs: end,
+					expiresAtMs: end + 86400000,
+				}),
+			);
+			await run(
+				billing.recordProviderExecutionBatch({
+					provider: "sandbox-fixture",
+					eventId: `${accountId}_allowance`,
+					providerExecutionId: `${accountId}_allowance`,
+					finalizedAtMs: end,
+					usage: [
+						{
+							entryId: `${accountId}_allowance`,
+							accountId,
+							periodId: period.periodId,
+							resourceKind: "workspace",
+							resourceId: accountId,
+							provider: "sandbox-fixture",
+							providerExecutionId: `${accountId}_allowance`,
+							startedAt: start,
+							endedAt: start + 1000,
+							vcpuCount: 2,
+							memoryMib: 8192,
+							providerCostMicros: 35000000,
+							status: "confirmed",
+							nowMs: end,
+						},
+					],
+				}),
+			);
+			await db.query(
+				`INSERT INTO api_cloud_projects
+				 (project_id,account_id,repository_identity,repository_url,display_name,
+				 default_branch,visibility,git_connection_kind,configuration_digest,state,
+				 idempotency_key,created_at,updated_at)
+				 VALUES ($1,$1,$1,'https://example.invalid/verification','Verification',
+				 'main','private','github','verification','ready',$1,$2,$2)`,
+				[accountId, start],
+			);
+			await db.query(
+				`INSERT INTO api_cloud_project_builds
+				 (build_id,project_id,account_id,provider,template_version,configuration_digest,
+				 state,idempotency_key,next_action_at,created_at,updated_at)
+				 VALUES ($1,$1,$1,'boxd','verification','verification','ready',$1,$2,$2,$2)`,
+				[accountId, start],
+			);
+			// This runner is restricted to its isolated local test schema. Release
+			// a previous canceled fixture's machine mapping before repeating it.
+			await db.query(
+				"DELETE FROM api_cloud_workspaces WHERE provider='boxd' AND provider_sandbox_id=$1 AND account_id LIKE $2",
+				[captured.machineId, `${state.runId}_provider_%`],
+			);
+			await db.query(
+				`INSERT INTO api_cloud_workspaces
+			 (workspace_id,account_id,project_id,build_id,provider,provider_sandbox_id,chat_id,
+			 initial_session_id,branch,base_ref,state,desired_state,status_code,idempotency_key,
+			 next_action_at,created_at,updated_at,last_activity_at)
+			 VALUES ($1,$1,$1,$1,'boxd',$2,$1,$1,'main','main','paused','paused','ready',$1,$3,$3,$3,$3)`,
+				[accountId, captured.machineId, start],
+			);
+			const boxd = makeBoxdSandboxProvider(
+				{
+					apiKey: Redacted.make("captured-evidence-only"),
+					org: "zuse",
+					templateSnapshot: "unused",
+					templateVersion: "unused",
+					billingUsageEnabled: true,
+				},
+				{
+					machines: {
+						usage: async (id, window) => {
+							assert.equal(id, captured.machineId);
+							assert.equal(window.since * 1000, start);
+							assert.equal(window.until * 1000, end);
+							return {
+								...captured,
+								period: { start: new Date(start), end: new Date(end) },
+							};
+						},
+					},
+				},
+			);
+			const sandboxLayer = SandboxProviders.layer({
+				registrations: [{ adapter: boxd }],
+				defaultProviderId: "boxd",
+			}).pipe(Layer.orDie);
+			const ingest = () =>
+				run(
+					BoxdBillingUsageSourceModule.ingestPolled(
+						[
+							{
+								id: `${accountId}_window`,
+								machineId: captured.machineId,
+								startedAtMs: start,
+								endedAtMs: end,
+							},
+						],
+						end + 3600000,
+					).pipe(
+						Effect.provide(sandboxLayer),
+						Effect.provideService(ApiConfiguration, {
+							cloudBillingCutoverAtMs: start,
+							cloudBillingProviderCutoverAtMs: new Map([["boxd", start]]),
+						}),
+					),
+				);
+			assert.equal(await ingest(), 1);
+			assert.equal(
+				await ingest(),
+				0,
+				"Duplicate evidence must not charge twice",
+			);
+			const summary = await run(billing.summary(period));
+			const expectedMicros = Number((BigInt(captured.costMicro) * 105n) / 100n);
+			const expectedCents = Number((BigInt(expectedMicros) + 5000n) / 10000n);
+			assert.equal(summary.providerCostMicros, 35000000 + captured.costMicro);
+			assert.equal(summary.includedUsedMicros, 35000000);
+			assert.equal(summary.overageChargeMicros, expectedMicros);
+			const rows = await db.query(
+				"SELECT provider_cost_micros FROM api_cloud_billing_usage WHERE provider='boxd' AND account_id=$1",
+				[accountId],
+			);
+			assert.equal(rows.rows.length, 1);
+			assert.equal(
+				Number(rows.rows[0].provider_cost_micros),
+				captured.costMicro,
+			);
+			// Meter timestamps must not be in this customer's simulated future.
+			await stripe.testHelpers.testClocks.advance(clock.id, {
+				frozen_time: Math.floor(end / 1000),
+			});
+			await waitFor(
+				"provider evidence clock reaches usage window",
+				async () =>
+					(await stripe.testHelpers.testClocks.retrieve(clock.id)).status ===
+					"ready",
+			);
+			await run(flushCloudBillingOutbox(Date.now(), 25));
+			assert(
+				!(await run(billing.pendingOutbox(Date.now(), 25))).some(
+					(item) => item.accountId === accountId,
+				),
+			);
+			await waitFor(
+				"captured-provider-cost meter aggregation",
+				async () =>
+					(await Effect.runPromise(
+						adapter.reconcileMeter({
+							accountId,
+							meterId: state.meterId,
+							periodStartMs: period.periodStartMs,
+							periodEndMs: period.periodEndMs,
+						}),
+					)) === expectedCents,
+			);
+			await stripe.testHelpers.testClocks.advance(clock.id, {
+				frozen_time: period.periodEndMs / 1000,
+			});
+			await waitFor(
+				"provider evidence clock",
+				async () =>
+					(await stripe.testHelpers.testClocks.retrieve(clock.id)).status ===
+					"ready",
+			);
+			let invoice = await waitFor(
+				"provider evidence renewal invoice",
+				async () =>
+					(
+						await stripe.invoices.list({
+							customer: customer.id,
+							subscription: sub.id,
+							limit: 10,
+						})
+					).data.find((i) => i.billing_reason === "subscription_cycle"),
+			);
+			if (invoice.status === "draft")
+				invoice = await stripe.invoices.finalizeInvoice(invoice.id);
+			if (invoice.status === "open")
+				invoice = await stripe.invoices.pay(invoice.id);
+			assert.equal(invoice.status, "paid");
+			assert.equal(invoice.total, 4000 + expectedCents);
+			await record(
+				"captured Boxd evidence agrees with ledger, Stripe meter and paid test invoice",
+				{
+					provider: "boxd",
+					providerMachineId: captured.machineId,
+					windowStart: captured.period.start,
+					windowEnd: captured.period.end,
+					providerCostMicros: captured.costMicro,
+					seededAllowanceMicros: 35000000,
+					ledgerOverageMicros: summary.overageChargeMicros,
+					stripeMeterCents: expectedCents,
+					invoiceCents: invoice.total,
+					invoiceId: invoice.id,
+					duplicateSettlement: "no additional charge",
+					mode: "test",
+				},
+			);
+		} finally {
+			await stripe.subscriptions.cancel(sub.id, {
+				invoice_now: false,
+				prorate: false,
+			});
+		}
 	} else if (command === "run") {
 		// Past anchors keep all usage timestamps inside Stripe's wall-clock window.
 		const anchor =

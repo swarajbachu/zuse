@@ -67,6 +67,7 @@ import { MarkdownBody } from "./markdown-body.tsx";
 import {
 	DraftReviewAnnotation,
 	SavedReviewAnnotation,
+	useAnnotationAuthor,
 } from "./review-annotation.tsx";
 
 type EditorState =
@@ -372,7 +373,7 @@ function PierreEditBody({
 	);
 	const revealedAnnotation = useUiStore((s) => s.revealedAnnotation);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
-	const { user: authUser, name: authName } = useAuth();
+	const { user: authUser } = useAuth();
 	const workspace = useSyncExternalStore(
 		subscribeRendererWorkspace,
 		rendererWorkspaceSnapshot,
@@ -383,14 +384,7 @@ function PierreEditBody({
 		workspace: workspace.key,
 		localEnvironmentId: getLocalEnvironmentId(),
 	});
-	const annotationAuthor = useMemo(() => {
-		const name = authName.trim() || "You";
-		return {
-			name,
-			avatarUrl: authUser?.profilePictureUrl ?? null,
-			initial: (name || authUser?.email || "?").charAt(0).toUpperCase(),
-		};
-	}, [authName, authUser?.email, authUser?.profilePictureUrl, uiMessage]);
+	const annotationAuthor = useAnnotationAuthor();
 	const draftAnnotations = useAnnotationsStore((s) =>
 		selectedSessionId === null
 			? EMPTY_ANNOTATIONS

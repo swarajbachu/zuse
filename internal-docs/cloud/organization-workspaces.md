@@ -71,7 +71,9 @@ work.
 ## Rollout flags
 
 - API: `ORGANIZATION_WORKSPACES_ENABLED=true` is the global kill switch.
-  Staging enables it; production keeps it disabled until a compatible deployment.
+  Staging and production enable it. Production access remains restricted by the
+  targeted rollout below. Keep this setting in the production deployment config
+  so a redeploy does not hide existing organizations.
 - API: `ORGANIZATION_ROLLOUT_ENABLED=true` restricts access using server-side
   PostHog flags. Production configuration enables targeted rollout; staging
   retains unrestricted organization testing. Missing keys or failed evaluations
@@ -120,8 +122,11 @@ Flag changes can take about 30 seconds to reach backend checks and one further
 client refresh to reach the visible catalog. Existing accepted runtime turns retain
 their current lifecycle semantics; this does not forcibly terminate running work.
 
-Deploy the compatible API and desktop/browser before enabling the production
-kill switch. Code changes do not update an already-published runtime. Keep
+Before first production activation, verify compatible API behavior on staging
+and release compatible desktop/browser clients. The guarded production API
+deployment enables the global switch through `wrangler.production.jsonc`; there
+is no separate flag-activation step. Code changes do not update an already-published
+runtime. Keep
 existing sandbox data, databases and session IDs intact. Older clients retain
 their build-time UI gate; backend access checks still restrict them.
 

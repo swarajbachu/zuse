@@ -1,6 +1,8 @@
 import {
 	type AgentTurnId,
 	type AttachmentRef,
+	type MessageContent,
+	type MessageId,
 	type ProviderId,
 	type Session,
 	type SessionId,
@@ -22,6 +24,7 @@ import { WorkspaceExecutionPolicy } from "../services/workspace-execution-policy
 import { formatProviderFailure } from "./conversation-input.ts";
 import { makeConversationOrchestration } from "./conversation-orchestration.ts";
 import type { ConversationStateApi } from "./conversation-state.ts";
+import type { PersistedMessage } from "./conversation-store-types.ts";
 
 export interface OpenProviderSessionOptions {
 	readonly initialPrompt?: string;
@@ -66,6 +69,17 @@ export interface ProviderSessionRuntimeOptions {
 	readonly listMessages: ConversationOperations["listMessages"];
 	readonly listChats: ConversationOperations["listChats"];
 	readonly listSessions: ConversationOperations["listSessions"];
+	/**
+	 * Timeline append used by display tools — `emit_ui` persists its
+	 * validated `ui_spec` block here so it streams to the transcript
+	 * like any other message.
+	 */
+	readonly persistMessage: (
+		sessionId: SessionId,
+		content: MessageContent,
+		idOverride?: MessageId,
+		turnIdOverride?: AgentTurnId,
+	) => Effect.Effect<PersistedMessage>;
 	readonly provider: ProviderServiceShape;
 	readonly attachProvider: (
 		sessionId: SessionId,
@@ -100,6 +114,7 @@ export const makeProviderSessionRuntime = (
 		listMessages,
 		listChats,
 		listSessions,
+		persistMessage,
 		provider,
 		attachProvider,
 		setStatus,
@@ -172,6 +187,7 @@ export const makeProviderSessionRuntime = (
 					listMessages,
 					listChats,
 					listSessions,
+					persistMessage,
 				},
 				{
 					sessionId: session.id,

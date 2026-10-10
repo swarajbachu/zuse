@@ -1,5 +1,6 @@
 import type {
 	BrowserAnnotation,
+	ChatAnnotation,
 	CodeAnnotation,
 	ComposerAnnotation,
 	SessionId,
@@ -94,6 +95,10 @@ type AnnotationsState = {
 		sessionId: SessionId,
 		annotation: Omit<BrowserAnnotation, "id" | "_tag" | "createdAt">,
 	) => BrowserAnnotation;
+	readonly addChat: (
+		sessionId: SessionId,
+		annotation: Omit<ChatAnnotation, "id" | "_tag">,
+	) => ChatAnnotation;
 	readonly remove: (sessionId: SessionId, id: string) => void;
 	readonly removeById: (id: string) => void;
 	readonly updateComment: (
@@ -126,6 +131,14 @@ export const useAnnotationsStore = create<AnnotationsState>((set, get) => ({
 			id: newId(),
 			createdAt: new Date().toISOString(),
 		};
+		const current = get().bySession[sessionId] ?? [];
+		const bySession = { ...get().bySession, [sessionId]: [...current, entry] };
+		set({ bySession });
+		persist(bySession);
+		return entry;
+	},
+	addChat: (sessionId, annotation) => {
+		const entry: ChatAnnotation = { ...annotation, _tag: "chat", id: newId() };
 		const current = get().bySession[sessionId] ?? [];
 		const bySession = { ...get().bySession, [sessionId]: [...current, entry] };
 		set({ bySession });
