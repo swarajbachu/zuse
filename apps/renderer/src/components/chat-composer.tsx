@@ -1382,18 +1382,31 @@ export function ChatComposer({
 			text.trim().length === 0
 		)
 			return false;
+		// Notes pinned to the transcript (often to this very UI) belong with the
+		// response, exactly as with a typed submit.
+		const annotations = annotationsForSession(sessionId);
 		const input = ComposerInput.make({
 			text,
-			attachments: [],
+			attachments: attachmentsWithBrowserAnnotations([], annotations),
 			fileRefs: [],
 			skillRefs: [],
+			annotations,
 		});
+		// Drain only what was sent; notes added meanwhile stay in the tray.
+		const drainSent = () => {
+			const store = useAnnotationsStore.getState();
+			for (const annotation of annotations)
+				store.remove(sessionId, annotation.id);
+		};
 		// A queued message has no delivery promise; queueing is the acceptance.
 		if (shouldQueueNow()) {
 			queue(input);
+			drainSent();
 			return true;
 		}
-		return send(input).catch(() => false);
+		const accepted = await send(input).catch(() => false);
+		if (accepted) drainSent();
+		return accepted;
 	};
 	togglePlanModeRef.current = () => {
 		if (session.providerId === "pi") return;
