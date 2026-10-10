@@ -1,0 +1,215 @@
+{
+	"fixture": {
+		"disposableTestFixture": true,
+		"workspaceId": "workspace_iGKBZ4rrL3o9vZY8",
+		"createStartWallMs": 1791630712524,
+		"createHttpStatus": 201,
+		"createHttpReceiptMs": 4759,
+		"sendPrompt": true,
+		"chatId": "chat_a7feb4fe-802e-45e8-ac5a-f636b3bde48e",
+		"initialSessionId": "s_f297d06e-02eb-4b7f-b42c-6497ebff78a7",
+		"state": "ready",
+		"startupTimings": {
+			"requestedAt": 1791630713145,
+			"forkedAt": 1791630723935,
+			"allocatedAt": 1791630723935,
+			"enrolledAt": 1791630734753,
+			"runtimeReadyAt": 1791630734753,
+			"enrollmentDurationMs": 10818,
+			"repositoryReadyAt": 1791630735420,
+			"connectedAt": 1791630735420,
+			"agentStartedAt": 1791630735872,
+			"messageAcceptedAt": 1791630735872,
+			"launchDurationMs": 22727
+		}
+	},
+	"guestEvidence": {
+		"workspaceId": "workspace_iGKBZ4rrL3o9vZY8",
+		"sandboxId": "iv5kpl5nniy6jkxljjlue",
+		"runtimeVersion": "be5291de53fd4c46149b71283859c46ca2e565cc",
+		"offset": {
+			"min": -548,
+			"max": 958
+		},
+		"events": [
+			{
+				"stage": "runtime.initializing",
+				"atMs": 1791630734509,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.bootstrap",
+				"event": "start",
+				"atMs": 1791630734558,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.bootstrap",
+				"event": "end",
+				"atMs": 1791630735182,
+				"durationMs": 623.153264
+			},
+			{
+				"stage": "runtime.codex-auth",
+				"event": "start",
+				"atMs": 1791630735214,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.credentials-ready",
+				"atMs": 1791630735223,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.bootstrap-ack",
+				"event": "start",
+				"atMs": 1791630735616,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.bootstrap-ack",
+				"event": "end",
+				"atMs": 1791630736450,
+				"durationMs": 833.8601669999998
+			},
+			{
+				"stage": "runtime.mailbox-starting",
+				"atMs": 1791630736843,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.gateway-open",
+				"atMs": 1791630739479,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.codex-auth",
+				"event": "end",
+				"atMs": 1791630739534,
+				"durationMs": 4319.957408
+			},
+			{
+				"stage": "agent.turn-accepted",
+				"sessionId": "s_f297d06e-02eb-4b7f-b42c-6497ebff78a7",
+				"atMs": 1791630743764,
+				"durationMs": null
+			},
+			{
+				"stage": "agent.turn-accepted",
+				"sessionId": "s_a7597cee-b450-4a5c-af6c-a195dfd5056e",
+				"atMs": 1791630788092,
+				"durationMs": null
+			},
+			{
+				"stage": "agent.turn-accepted",
+				"sessionId": "s_4f12e324-9bea-497b-8820-e6e8f64b4cf9",
+				"atMs": 1791630826962,
+				"durationMs": null
+			},
+			{
+				"stage": "agent.turn-accepted",
+				"sessionId": "s_dcb6435a-5c11-46f1-afeb-0858f9f4dc69",
+				"atMs": 1791630845264,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.warm-readiness-restored",
+				"atMs": 1791630954157,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.gateway-open",
+				"atMs": 1791630955271,
+				"durationMs": null
+			},
+			{
+				"stage": "runtime.gateway-open",
+				"atMs": 1791630955734,
+				"durationMs": null
+			},
+			{
+				"stage": "agent.turn-accepted",
+				"sessionId": "s_b88c8c6c-9635-410e-b1e6-68c162c04fd7",
+				"atMs": 1791631013334,
+				"durationMs": null
+			}
+		]
+	},
+	"awake": [
+		{
+			"scenario": "desktop-rpc-new-tab",
+			"startWallMs": 1791630780545,
+			"workspaceId": "workspace_iGKBZ4rrL3o9vZY8",
+			"ticketHttpStatus": 200,
+			"ticketReceiptMs": 446,
+			"guestHandshakeReceiptMs": 4188,
+			"newTabRpcMs": 328,
+			"sessionId": "s_a7597cee-b450-4a5c-af6c-a195dfd5056e",
+			"messageStartWallMs": 1791630785064,
+			"commandId": "cmd_350d4367-2dc9-4d1f-86e5-3882ec657f9a",
+			"messageDomainReceiptMs": 3445,
+			"agentFromMessageLowerMs": 2070,
+			"agentFromMessageUpperMs": 3576
+		},
+		{
+			"scenario": "desktop-rpc-new-tab",
+			"startWallMs": 1791630820898,
+			"workspaceId": "workspace_iGKBZ4rrL3o9vZY8",
+			"ticketHttpStatus": 200,
+			"ticketReceiptMs": 424,
+			"guestHandshakeReceiptMs": 3098,
+			"newTabRpcMs": 272,
+			"sessionId": "s_4f12e324-9bea-497b-8820-e6e8f64b4cf9",
+			"messageStartWallMs": 1791630824268,
+			"commandId": "cmd_b9b5f402-f11b-4b47-bcac-fc6e990e2866",
+			"messageDomainReceiptMs": 2807,
+			"agentFromMessageLowerMs": 1736,
+			"agentFromMessageUpperMs": 3242
+		},
+		{
+			"scenario": "desktop-rpc-new-tab",
+			"startWallMs": 1791630837402,
+			"workspaceId": "workspace_iGKBZ4rrL3o9vZY8",
+			"ticketHttpStatus": 200,
+			"ticketReceiptMs": 421,
+			"guestHandshakeReceiptMs": 4572,
+			"newTabRpcMs": 246,
+			"sessionId": "s_dcb6435a-5c11-46f1-afeb-0858f9f4dc69",
+			"messageStartWallMs": 1791630842221,
+			"commandId": "cmd_6bd6f49a-6d1d-420e-8169-f4a52119e650",
+			"messageDomainReceiptMs": 3148,
+			"agentFromMessageLowerMs": 2085,
+			"agentFromMessageUpperMs": 3591
+		},
+		{
+			"scenario": "desktop-rpc-new-tab",
+			"startWallMs": 1791631007267,
+			"workspaceId": "workspace_iGKBZ4rrL3o9vZY8",
+			"ticketHttpStatus": 200,
+			"ticketReceiptMs": 416,
+			"guestHandshakeReceiptMs": 2972,
+			"newTabRpcMs": 362,
+			"sessionId": "s_b88c8c6c-9635-410e-b1e6-68c162c04fd7",
+			"messageStartWallMs": 1791631010601,
+			"commandId": "cmd_6157c025-dc8d-4498-9b16-7890611f14e6",
+			"messageDomainReceiptMs": 2789,
+			"agentFromMessageLowerMs": 1775,
+			"agentFromMessageUpperMs": 3281
+		}
+	],
+	"wake": {
+		"scenario": "desktop-rpc-new-tab",
+		"startWallMs": 1791630949325,
+		"workspaceId": "workspace_iGKBZ4rrL3o9vZY8",
+		"ticketHttpStatus": 200,
+		"ticketReceiptMs": 1601,
+		"guestHandshakeReceiptMs": 6135
+	},
+	"wakeOuter": {
+		"scenario": "desktop-resume-attach-new-tab",
+		"startWallMs": 1791630947660,
+		"resumeHttpStatus": 200,
+		"resumeHttpReceiptMs": 1387
+	},
+	"wakeError": "RpcClientError SocketOpenError ping timeout after handshake, during session.create; isolated shared transport harness without renderer supervisor; fresh reconnect succeeded"
+}

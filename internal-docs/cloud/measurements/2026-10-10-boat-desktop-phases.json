@@ -1,0 +1,428 @@
+{
+	"providerId": "box",
+	"runtimeVersion": "a9580bed6f08b54f64b6526bf1680f8535f66c82",
+	"boundary": "Mac request start to guest mailbox message.received; desktop RPC domain receipt separately",
+	"cold": {
+		"apiReceiptMs": 5208,
+		"observedCompletionMs": 41537,
+		"startupTimings": {
+			"requestedAt": 1791630233847,
+			"forkedAt": 1791630253019,
+			"allocatedAt": 1791630253019,
+			"enrolledAt": 1791630256404,
+			"runtimeReadyAt": 1791630256404,
+			"enrollmentDurationMs": 3385,
+			"repositoryReadyAt": 1791630264900,
+			"connectedAt": 1791630264900,
+			"agentStartedAt": 1791630265658,
+			"messageAcceptedAt": 1791630265658,
+			"launchDurationMs": 31811
+		},
+		"actualCliAcknowledgementMeasured": false
+	},
+	"warm": {
+		"workspaceId": "workspace_qjoAj5xVZAyRC5PS",
+		"sandboxId": "bx_qdj69ajb",
+		"offset": {
+			"min": -671,
+			"max": 520
+		},
+		"rows": [
+			{
+				"scenario": "awake",
+				"startWallMs": 1791630500355,
+				"apiReceiptMs": 1410,
+				"apiStatus": 200,
+				"machineReceiptLowerMs": 1853,
+				"machineReceiptUpperMs": 3044,
+				"ackObservedMs": 2661,
+				"events": [
+					{
+						"stage": "message.received",
+						"atMs": 1791630502728,
+						"durationMs": null
+					},
+					{
+						"stage": "message.session-accept",
+						"atMs": 1791630502728,
+						"event": "start",
+						"durationMs": null
+					},
+					{
+						"stage": "message.session-accept",
+						"atMs": 1791630502743,
+						"event": "end",
+						"durationMs": 15.177596999987145
+					},
+					{
+						"stage": "message.delivery-ack",
+						"atMs": 1791630502743,
+						"event": "start",
+						"durationMs": null
+					}
+				],
+				"completed": true,
+				"finalTimings": {
+					"requestedAt": 1791630233847,
+					"forkedAt": 1791630253019,
+					"allocatedAt": 1791630402911,
+					"enrolledAt": 1791630405553,
+					"runtimeReadyAt": 1791630405553,
+					"enrollmentDurationMs": 2642,
+					"repositoryReadyAt": 1791630264900,
+					"connectedAt": 1791630264900,
+					"agentStartedAt": 1791630265658,
+					"messageAcceptedAt": 1791630265658,
+					"launchDurationMs": 31811
+				}
+			},
+			{
+				"scenario": "awake",
+				"startWallMs": 1791630506192,
+				"apiReceiptMs": 1921,
+				"apiStatus": 200,
+				"machineReceiptLowerMs": 3310,
+				"machineReceiptUpperMs": 4501,
+				"ackObservedMs": 3956,
+				"events": [
+					{
+						"stage": "message.received",
+						"atMs": 1791630510022,
+						"durationMs": null
+					},
+					{
+						"stage": "message.session-accept",
+						"atMs": 1791630510022,
+						"event": "start",
+						"durationMs": null
+					},
+					{
+						"stage": "message.session-accept",
+						"atMs": 1791630510037,
+						"event": "end",
+						"durationMs": 15.206537999998545
+					},
+					{
+						"stage": "message.delivery-ack",
+						"atMs": 1791630510038,
+						"event": "start",
+						"durationMs": null
+					}
+				],
+				"completed": true,
+				"finalTimings": {
+					"requestedAt": 1791630233847,
+					"forkedAt": 1791630253019,
+					"allocatedAt": 1791630402911,
+					"enrolledAt": 1791630405553,
+					"runtimeReadyAt": 1791630405553,
+					"enrollmentDurationMs": 2642,
+					"repositoryReadyAt": 1791630264900,
+					"connectedAt": 1791630264900,
+					"agentStartedAt": 1791630265658,
+					"messageAcceptedAt": 1791630265658,
+					"launchDurationMs": 31811
+				}
+			},
+			{
+				"scenario": "awake",
+				"startWallMs": 1791630513482,
+				"apiReceiptMs": 1111,
+				"apiStatus": 200,
+				"machineReceiptLowerMs": 1470,
+				"machineReceiptUpperMs": 2661,
+				"ackObservedMs": 2135,
+				"events": [
+					{
+						"stage": "message.received",
+						"atMs": 1791630515472,
+						"durationMs": null
+					},
+					{
+						"stage": "message.session-accept",
+						"atMs": 1791630515472,
+						"event": "start",
+						"durationMs": null
+					},
+					{
+						"stage": "message.session-accept",
+						"atMs": 1791630515482,
+						"event": "end",
+						"durationMs": 10.323569999993197
+					},
+					{
+						"stage": "message.delivery-ack",
+						"atMs": 1791630515482,
+						"event": "start",
+						"durationMs": null
+					}
+				],
+				"completed": true,
+				"finalTimings": {
+					"requestedAt": 1791630233847,
+					"forkedAt": 1791630253019,
+					"allocatedAt": 1791630402911,
+					"enrolledAt": 1791630405553,
+					"runtimeReadyAt": 1791630405553,
+					"enrollmentDurationMs": 2642,
+					"repositoryReadyAt": 1791630264900,
+					"connectedAt": 1791630264900,
+					"agentStartedAt": 1791630265658,
+					"messageAcceptedAt": 1791630265658,
+					"launchDurationMs": 31811
+				}
+			}
+		]
+	},
+	"wake": {
+		"workspaceId": "workspace_qjoAj5xVZAyRC5PS",
+		"sandboxId": "bx_qdj69ajb",
+		"offset": {
+			"min": -559,
+			"max": 511
+		},
+		"rows": [
+			{
+				"scenario": "sleep-wake",
+				"startWallMs": 1791630555304,
+				"apiReceiptMs": 2565,
+				"apiStatus": 200,
+				"machineReceiptLowerMs": 8106,
+				"machineReceiptUpperMs": 9176,
+				"ackObservedMs": 8675,
+				"events": [
+					{
+						"stage": "runtime.warm-readiness-restored",
+						"atMs": 1791630560283,
+						"durationMs": null
+					},
+					{
+						"stage": "runtime.gateway-open",
+						"atMs": 1791630563026,
+						"durationMs": null
+					},
+					{
+						"stage": "message.received",
+						"atMs": 1791630563921,
+						"durationMs": null
+					},
+					{
+						"stage": "message.session-accept",
+						"atMs": 1791630563921,
+						"event": "start",
+						"durationMs": null
+					},
+					{
+						"stage": "message.session-accept",
+						"atMs": 1791630563930,
+						"event": "end",
+						"durationMs": 8.876338000001851
+					},
+					{
+						"stage": "message.delivery-ack",
+						"atMs": 1791630563930,
+						"event": "start",
+						"durationMs": null
+					}
+				],
+				"completed": true,
+				"finalTimings": {
+					"requestedAt": 1791630555647,
+					"resumeRequestedAt": 1791630555647,
+					"repositoryReadyAt": 1791630558360,
+					"connectedAt": 1791630558360
+				}
+			},
+			{
+				"scenario": "sleep-wake",
+				"startWallMs": 1791630573082,
+				"apiReceiptMs": 2151,
+				"apiStatus": 200,
+				"machineReceiptLowerMs": 42324,
+				"machineReceiptUpperMs": 43394,
+				"ackObservedMs": 44404,
+				"events": [
+					{
+						"stage": "runtime.initializing",
+						"atMs": 1791630609584,
+						"durationMs": null
+					},
+					{
+						"stage": "runtime.bootstrap",
+						"atMs": 1791630609633,
+						"event": "start",
+						"durationMs": null
+					},
+					{
+						"stage": "runtime.bootstrap",
+						"atMs": 1791630610392,
+						"event": "end",
+						"durationMs": 759.51818
+					},
+					{
+						"stage": "runtime.bootstrap-received",
+						"atMs": 1791630610393,
+						"durationMs": null
+					},
+					{
+						"stage": "runtime.credentials-ready",
+						"atMs": 1791630614726,
+						"durationMs": null
+					},
+					{
+						"stage": "runtime.bootstrap-ack",
+						"atMs": 1791630615056,
+						"event": "start",
+						"durationMs": null
+					},
+					{
+						"stage": "runtime.mailbox-starting",
+						"atMs": 1791630615100,
+						"durationMs": null
+					},
+					{
+						"stage": "message.received",
+						"atMs": 1791630615917,
+						"durationMs": null
+					},
+					{
+						"stage": "message.session-accept",
+						"atMs": 1791630615918,
+						"event": "start",
+						"durationMs": null
+					},
+					{
+						"stage": "runtime.bootstrap-ack",
+						"atMs": 1791630615970,
+						"event": "end",
+						"durationMs": 914.9323089999998
+					},
+					{
+						"stage": "runtime.gateway-open",
+						"atMs": 1791630617213,
+						"durationMs": null
+					}
+				],
+				"completed": true,
+				"finalTimings": {
+					"requestedAt": 1791630573433,
+					"resumeRequestedAt": 1791630573433,
+					"allocatedAt": 1791630607302,
+					"enrolledAt": 1791630609946,
+					"runtimeReadyAt": 1791630609946,
+					"enrollmentDurationMs": 2644,
+					"repositoryReadyAt": 1791630614843,
+					"connectedAt": 1791630614843,
+					"agentStartedAt": 1791630615211,
+					"messageAcceptedAt": 1791630615211,
+					"launchDurationMs": 41778
+				}
+			}
+		]
+	},
+	"desktopRpc": {
+		"scenario": "desktop-rpc-new-tab",
+		"startWallMs": 1791630707254,
+		"workspaceId": "workspace_qjoAj5xVZAyRC5PS",
+		"ticketHttpStatus": 200,
+		"ticketReceiptMs": 470,
+		"guestHandshakeReceiptMs": 4301,
+		"newTabRpcMs": 278,
+		"sessionId": "s_6bb0bf4b-5a6e-4d2d-8165-64a4bbd865c8",
+		"messageStartWallMs": 1791630711833,
+		"commandId": "cmd_772161cf-df9b-432e-a62b-dbb88c7826c5",
+		"messageDomainReceiptMs": 2524
+	},
+	"failures": [
+		{
+			"kind": "pause-prerequisite",
+			"httpStatus": 503,
+			"error": "cloud_workspace_transition_contended"
+		},
+		{
+			"kind": "third-wake-prerequisite-diagnostic-read",
+			"httpStatus": 409,
+			"adapterCode": "rejected",
+			"messageSendAttempted": false
+		}
+	],
+	"continuousCold": {
+		"scenario": "cold-create-to-guest-response",
+		"startWallMs": 1791630956018,
+		"workspaceId": "workspace_QaBJAMGZgxzJMtaK",
+		"createHttpStatus": 201,
+		"createReceiptMs": 4381,
+		"controlReadyObservedMs": 26390,
+		"startupTimings": {
+			"requestedAt": 1791630956686,
+			"forkedAt": 1791630974285,
+			"allocatedAt": 1791630974285,
+			"enrolledAt": 1791630977158,
+			"runtimeReadyAt": 1791630977158,
+			"enrollmentDurationMs": 2873,
+			"repositoryReadyAt": 1791630980878,
+			"connectedAt": 1791630980878,
+			"agentStartedAt": 1791630981293,
+			"messageAcceptedAt": 1791630981293,
+			"launchDurationMs": 24607
+		},
+		"ticketHttpStatus": 200,
+		"ticketReceiptMs": 26580,
+		"guestHandshakeReceiptMs": 28782,
+		"newTabRpcMs": 263,
+		"sessionId": "s_1565ab17-354b-4e4f-9e42-9b181afd654f"
+	},
+	"establishedSocketRpc": {
+		"scenario": "desktop-rpc-new-tab",
+		"startWallMs": 1791630829387,
+		"workspaceId": "workspace_qjoAj5xVZAyRC5PS",
+		"ticketHttpStatus": 200,
+		"ticketReceiptMs": 600,
+		"guestHandshakeReceiptMs": 3245,
+		"samples": [
+			{
+				"sample": 0,
+				"newTabRpcMs": 522,
+				"sessionId": "s_da1b024b-9260-4c1a-9e87-91307c851f69",
+				"messageStartWallMs": 1791630833154,
+				"commandId": "cmd_d8a3d07e-33c0-4699-9f31-02a63445532a",
+				"messageDomainReceiptMs": 2517
+			},
+			{
+				"sample": 1,
+				"newTabRpcMs": 234,
+				"sessionId": "s_691d71ee-5284-4df1-b196-89885ffacc7c",
+				"messageStartWallMs": 1791630835905,
+				"commandId": "cmd_7983f30f-73f6-4ca5-8602-fd99fb4d8e19",
+				"messageDomainReceiptMs": 2504
+			},
+			{
+				"sample": 2,
+				"newTabRpcMs": 378,
+				"sessionId": "s_be94c2f9-bb95-49fd-8baf-2ea72b5d82d3",
+				"messageStartWallMs": 1791630838787,
+				"commandId": "cmd_624cace1-26bc-43bb-8601-c2d21287a4bf",
+				"messageDomainReceiptMs": 2261
+			}
+		]
+	},
+	"secondColdWithInstrumentationHandoffGap": {
+		"startWallMs": 1791630851266,
+		"apiReceiptMs": 5117,
+		"createHttpStatus": 201,
+		"workspaceId": "workspace_Oe5Gs4R8k6Qz_F1a",
+		"marker": "ACK_BOAT_COLD2_1791630851266",
+		"readyObservedMs": 32203,
+		"desktopRpc": {
+			"scenario": "desktop-rpc-new-tab",
+			"startWallMs": 1791630894945,
+			"workspaceId": "workspace_Oe5Gs4R8k6Qz_F1a",
+			"ticketHttpStatus": 200,
+			"ticketReceiptMs": 403,
+			"guestHandshakeReceiptMs": 2520,
+			"newTabRpcMs": 319,
+			"sessionId": "s_5e46ebe6-0194-46e4-9217-3c0015ec3b45"
+		},
+		"coldRequestToVerifiedGuestResponseMs": 46199
+	}
+}

@@ -1,0 +1,92 @@
+{
+	"boxd-continuous-cold": {
+		"scenario": "cold-create-to-guest-response",
+		"startWallMs": 1791631093969,
+		"workspaceId": "workspace_EmGktnbJzeC6z9pU",
+		"createHttpStatus": 201,
+		"createReceiptMs": 4820,
+		"controlReadyObservedMs": 17913,
+		"startupTimings": {
+			"requestedAt": 1791631094551,
+			"forkedAt": 1791631101308,
+			"allocatedAt": 1791631101308,
+			"enrolledAt": 1791631105004,
+			"runtimeReadyAt": 1791631105004,
+			"enrollmentDurationMs": 3696,
+			"repositoryReadyAt": 1791631110553,
+			"connectedAt": 1791631110553,
+			"agentStartedAt": 1791631111047,
+			"messageAcceptedAt": 1791631111047,
+			"launchDurationMs": 16496
+		},
+		"ticketHttpStatus": 200,
+		"ticketReceiptMs": 18150,
+		"guestHandshakeReceiptMs": 20202,
+		"newTabRpcMs": 241,
+		"sessionId": "s_80946b62-2120-47c6-a705-f3e39713cc07"
+	},
+	"boxd-rpc-warm": {
+		"scenario": "desktop-rpc-new-tab",
+		"startWallMs": 1791630912670,
+		"workspaceId": "workspace_33YmxwGmqg2wps--",
+		"ticketHttpStatus": 200,
+		"ticketReceiptMs": 468,
+		"guestHandshakeReceiptMs": 4672,
+		"newTabRpcMs": 313,
+		"sessionId": "s_0f1cbf04-666e-4cf9-9c36-b287b1029625",
+		"messageStartWallMs": 1791630917654,
+		"commandId": "cmd_f27b5dab-839f-43af-ae3a-f543ccdfd516",
+		"messageDomainReceiptMs": 2556
+	},
+	"boxd-rpc-warm-2": {
+		"scenario": "desktop-rpc-new-tab",
+		"startWallMs": 1791630950292,
+		"workspaceId": "workspace_33YmxwGmqg2wps--",
+		"ticketHttpStatus": 200,
+		"ticketReceiptMs": 564,
+		"guestHandshakeReceiptMs": 4305,
+		"newTabRpcMs": 250,
+		"sessionId": "s_5b606096-cc4c-46fb-b650-2834c4578e54",
+		"messageStartWallMs": 1791630954846,
+		"commandId": "cmd_93a32613-37cb-48ea-995c-1e4bbd5cec28",
+		"messageDomainReceiptMs": 3076
+	},
+	"boxd-rpc-warm-3": {
+		"scenario": "desktop-rpc-new-tab",
+		"startWallMs": 1791630968249,
+		"workspaceId": "workspace_33YmxwGmqg2wps--",
+		"ticketHttpStatus": 200,
+		"ticketReceiptMs": 477,
+		"guestHandshakeReceiptMs": 2588,
+		"newTabRpcMs": 266,
+		"sessionId": "s_e93d2e0e-67aa-4553-9896-2c6184ca1de4",
+		"messageStartWallMs": 1791630971102,
+		"commandId": "cmd_8676526d-1e18-4ed5-b590-f7be6d9be69a",
+		"messageDomainReceiptMs": 2414
+	},
+	"boxd-continuous-wake": {
+		"scenario": "resume-to-guest-response",
+		"startWallMs": 1791631151193,
+		"workspaceId": "workspace_33YmxwGmqg2wps--",
+		"resumeHttpStatus": 200,
+		"resumeReceiptMs": 3384,
+		"controlReadyObservedMs": 8693,
+		"startupTimings": {
+			"requestedAt": 1791630833598,
+			"forkedAt": 1791630842488,
+			"allocatedAt": 1791630842488,
+			"enrolledAt": 1791630846282,
+			"runtimeReadyAt": 1791630846282,
+			"enrollmentDurationMs": 3794,
+			"repositoryReadyAt": 1791630850623,
+			"connectedAt": 1791630850623,
+			"agentStartedAt": 1791630851062,
+			"messageAcceptedAt": 1791630851062,
+			"launchDurationMs": 17464
+		},
+		"ticketHttpStatus": 200,
+		"ticketReceiptMs": 8913,
+		"guestHandshakeReceiptMs": 12441,
+		"postHandshakeSessionCreateFailure": "SocketOpenError: ping timeout"
+	}
+}
