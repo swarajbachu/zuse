@@ -95,6 +95,7 @@ it.each([
 			{ migration_id: 61, name: "harness_executions" },
 			{ migration_id: 62, name: "model_connections" },
 			{ migration_id: 63, name: "project_workspace_key" },
+			{ migration_id: 64, name: "provider_accounts" },
 		]);
 		expect(state.harness).toEqual([]);
 		expect(state.connections).toEqual([]);
