@@ -63,14 +63,16 @@ export class CloudRuntimeWake {
 	}
 
 	request(url: string, init: RequestInit): Promise<Response> {
-		const options = {
+		const options: RequestInit = {
 			...init,
 			signal: AbortSignal.any([
 				this.signalController.signal,
 				...(init.signal ? [init.signal] : []),
 			]),
-			dispatcher: this.agent as unknown as RequestInit["dispatcher"],
 		};
+		// Node's dispatcher extension is absent from the DOM RequestInit used by
+		// consumers without Bun types. Keep the extension on the actual request.
+		Object.assign(options, { dispatcher: this.agent });
 		return fetch(url, options);
 	}
 
