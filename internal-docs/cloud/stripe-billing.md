@@ -24,9 +24,10 @@ Install `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` using `secret:stripe` an
 - `BILLING_DEFAULT_PROVIDER`: `stripe` for new checkout, `polar` for checkout
   rollback. Both adapters remain registered when their credentials are supplied.
 
-The checked-in deployments keep `BILLING_DEFAULT_PROVIDER=polar`. Production's
+Staging keeps `BILLING_DEFAULT_PROVIDER=polar`; production uses Stripe for new
+subscriptions while retaining Polar for existing subscriptions. Production's
 live Stripe catalogue IDs are populated; staging's price IDs remain empty. Missing
-Stripe overage configuration disables Stripe Cloud checkout. Checkout, invoice
+Stripe overage configuration disables metered Stripe Cloud checkout. Checkout, invoice
 export, informational usage export and enforcement retain independent gates.
 
 Create unpriced informational meters for `zuse_cloud_runtime_observed_ms` and
@@ -45,7 +46,9 @@ Crypto, then the current subscription is fetched before updating an entitlement.
 Valid unrelated events are acknowledged without changing state. Persistent local
 webhook deduplication continues to be owned by the shared entitlement store.
 
-Checkout collects billing location and tax IDs and enables automatic tax. Configure
+Checkout collects billing location and tax IDs. Automatic tax defaults to enabled;
+set `STRIPE_AUTOMATIC_TAX_ENABLED=false` to launch without Stripe Tax while its
+business settings are pending. Configure
 Stripe Tax registrations before rollout and arrange filing/remittance separately;
 this integration does not make Stripe the merchant of record. Configure Stripe's
 payment retries, invoice emails and Customer Portal in the Dashboard. Do not
@@ -100,14 +103,61 @@ Customer Portal settings and invoice finalization grace period. Deploy initially
 with Polar as the default, then verify an actual live Stripe event reaches the
 Worker and its receipt is persisted. Changing the API key is not this verification.
 
-Production currently disables both financial export and admission enforcement,
-and boxd settlement is also disabled. Verify provider settlement and its cutover
-before enabling `CLOUD_BILLING_EXPORT_ENABLED` and
-`CLOUD_BILLING_ENFORCEMENT_ENABLED`. The production deploy script rejects Stripe
-as the checkout default unless both billing gates are enabled; its existing
-provider checks also reject unverified boxd settlement. Only then switch
-`BILLING_DEFAULT_PROVIDER` to `stripe` and deploy. Keep existing Polar subscribers
-on Polar until the coordinated transfer below is complete.
+`STRIPE_CLOUD_BILLING_MODE` defaults to `metered`. An explicit `subscription-only`
+launch sells only the base monthly Stripe price and requires both financial
+export and admission enforcement to remain explicitly disabled. It preserves
+existing Polar subscriptions, portals and period ownership. Prepaid credits
+follow an existing subscription's provider; Polar subscribers cannot buy Stripe
+credit for their Polar invoices. Automatic tax can be disabled independently.
+Enabling metered billing later requires attaching the overage price to existing
+subscription-only Stripe subscriptions as well as changing new checkout's mode;
+changing the deployment variable does not update existing Stripe subscriptions.
+
+Production launched new subscription-only Stripe checkout on October 10, 2026
+(Worker version `ae01759c-7c9e-4058-8b38-882a02e500cd`). An unpaid live Checkout
+session verified the $40 monthly base price, disabled automatic tax and absence
+of an overage item; it was expired and its verification customer deleted.
+All four existing active Polar entitlements remained on Polar. Authentication
+and webhook signature smoke checks passed, including acknowledgment of an
+unrelated signed event. This does not verify a paid live subscription delivery.
+
+Boxd's provider-cost comparison was verified after accounting for its October 9
+rate reduction. October 8's completed UTC window returned `3,874,645` micro-USD
+in estimates at the new current rates, while 96 actual historical charge buckets
+totaled `4,888,443` micro-USD. Applying the old USD rates supplied in the provider
+announcement ($0.059/vCPU-hour, $0.018/GiB-hour RAM, $0.00012/GiB-hour disk) to
+the same saved resource hours gives `4,888,406` micro-USD, only 37 micro-USD below
+the historical charges. The earlier 20.74% comparison mixed pricing periods.
+It did not establish a provider or application billing defect.
+
+A completed post-change window, October 10 from 00:00 to 12:00 UTC, returned
+`704,824` micro-USD in current-rate estimates versus `704,814` micro-USD in 48
+actual charge buckets: a 10 micro-USD difference consistent with different
+rounding scopes. The adapter consumes the provider's `costMicro`; these historical
+reconciliation calculations do not introduce a hardcoded application price table.
+
+The October 10 activation uses a prospective `2026-10-10T16:00:00Z` compute
+cutover, with financial export, admission enforcement and Boxd settlement enabled.
+New Stripe checkout includes both the $40 base price and metered overage price;
+a fresh unpaid live Checkout session verified both items and disabled automatic
+tax, then was expired and its customer deleted. A live catalogue audit found no
+existing Stripe subscriptions requiring an overage item. Existing Polar billing
+periods and subscriptions retain their provider. Saved-image storage still requires
+its independent opt-in and cutover.
+
+Captured authenticated Boxd evidence for one production machine over October 10,
+00:00–12:00 UTC reported `33,379` micro-USD. The opt-in `provider-evidence` runner
+replayed that response through the real Boxd adapter, ingestion, isolated local
+PostgreSQL ledger and Stripe test API. With an explicitly seeded $35 allowance,
+the ledger recorded `35,047` micro-USD after the 5% markup, Stripe aggregated four
+cents, and renewal produced a paid test invoice for $40.04. Duplicate evidence
+added no charge. This verifies captured provider evidence through the billing
+pipeline; it does not claim a paid live invoice or a deployed Worker end-to-end
+payment. The provider transport and rate reconciliation were verified separately.
+
+The production deploy script requires both billing gates in Stripe metered mode
+and rejects Boxd charging without an explicit provider cutover. Keep existing
+Polar subscribers on Polar until the coordinated transfer below is complete.
 
 ## Delivery and reconciliation
 
@@ -360,5 +410,21 @@ Run billing-provider and API unit tests, affected type checks, Biome, migration
 planner tests and PostgreSQL integration tests. Local PostgreSQL tests exercise
 concurrent delivery claims, restart receipts, legacy backfill, ledger rollback and
 provider routing; they do not establish live payment portability or Stripe invoice
-correctness. Record a staged provider-to-ledger-to-Stripe invoice example before
+correctness. Record a provider-to-ledger-to-Stripe test invoice example before
 switching live checkout or invoice export.
+
+
+To verify captured Boxd settlement evidence without creating a provider machine,
+run the prepared sandbox runner against its isolated local database:
+
+```sh
+STRIPE_TEST_PROVIDER_EVIDENCE_FILE=.context/boxd-cost-verification-current-rates.json \
+ZUSE_TEST_DATABASE_URL=postgres://localhost/billing_test \
+bun infra/api/scripts/stripe-sandbox-test.mjs provider-evidence
+```
+
+The evidence file contains `report.productionMachine`, a complete USD SDK usage
+response with its original machine identity, completed period and `costMicro`.
+The runner accepts only a Stripe test key and local database, seeds the included
+allowance explicitly, advances the customer's test clock to the evidence window,
+and cancels the test subscription after checking meter and invoice totals.

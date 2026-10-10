@@ -112,6 +112,26 @@ const stripeEnvironment = {
 	STRIPE_CLOUD_OVERAGE_METER_ID: "meter_overage",
 	MACHINE_LIVE_CHECKOUT_ENABLED: "true",
 };
+test("explicit subscription-only Stripe checkout does not require an overage price", () => {
+	const runtime = resolveBillingRuntime({
+		...configuredEnvironment,
+		...stripeEnvironment,
+		STRIPE_CLOUD_BILLING_MODE: "subscription-only",
+		STRIPE_CLOUD_OVERAGE_PRICE_ID: undefined,
+		STRIPE_CLOUD_OVERAGE_METER_ID: undefined,
+	});
+	expect(runtime.defaultProviderId).toBe("stripe");
+	expect(runtime.liveCheckoutEnabled).toBe(true);
+	expect(runtime.polarConfigured).toBe(true);
+});
+test("rejects an invalid Stripe cloud billing mode", () => {
+	expect(() =>
+		resolveBillingRuntime({
+			...stripeEnvironment,
+			STRIPE_CLOUD_BILLING_MODE: "unknown",
+		}),
+	).toThrow("invalid_stripe_cloud_billing_mode");
+});
 test("Stripe becomes checkout default while preserving Polar adapters", async () => {
 	const runtime = resolveBillingRuntime({
 		...configuredEnvironment,

@@ -7,6 +7,7 @@ import {
 	type StripeBillingStore,
 	type StripeSubscription,
 } from "../../src/stripe.ts";
+import type { StripeCloudBillingMode } from "../../src/stripe-billing-mode.ts";
 
 const now = 1_790_000_000_000;
 const config = {
@@ -39,7 +40,10 @@ const subscription = (): StripeSubscription => ({
 		},
 	],
 });
-const setup = () => {
+const setup = (
+	automaticTaxEnabled?: boolean,
+	cloudBillingMode?: StripeCloudBillingMode,
+) => {
 	let sub: StripeSubscription | null = subscription();
 	let linked: string | null = "cus_1";
 	let reservedAt = now;
@@ -137,11 +141,14 @@ const setup = () => {
 		reportMeter: vi.fn(async () => {}),
 		meterTotal: vi.fn(async () => 125),
 	};
-	const provider = makeStripeBillingProvider(config, {
-		client,
-		store,
-		now: () => now,
-	});
+	const provider = makeStripeBillingProvider(
+		{ ...config, automaticTaxEnabled, cloudBillingMode },
+		{
+			client,
+			store,
+			now: () => now,
+		},
+	);
 	if (
 		!provider.reportMeterEvent ||
 		!provider.reconcileMeter ||
@@ -185,6 +192,38 @@ const meter = {
 };
 
 describe("Stripe billing provider", () => {
+	test("subscription-only checkout includes just the base subscription price", async () => {
+		const { provider, client } = setup(false, "subscription-only");
+		await Effect.runPromise(
+			provider.checkout({
+				accountId: "account",
+				offerId: "cloud-workspace-standard-v1",
+				successUrl: "https://api.test",
+			}),
+		);
+		expect(client.createCheckout).toHaveBeenCalledWith(
+			expect.objectContaining({
+				line_items: [{ price: "price_base", quantity: 1 }],
+				automatic_tax: { enabled: false },
+			}),
+		);
+	});
+	test("can create subscription checkout before automatic tax is configured", async () => {
+		const { provider, client } = setup(false);
+		await Effect.runPromise(
+			provider.checkout({
+				accountId: "account",
+				offerId: "cloud-workspace-standard-v1",
+				successUrl: "https://api.test/complete?id={CHECKOUT_ID}",
+			}),
+		);
+		expect(client.createCheckout).toHaveBeenCalledWith(
+			expect.objectContaining({
+				automatic_tax: { enabled: false },
+				client_reference_id: "account",
+			}),
+		);
+	});
 	test("checkout includes base and overage prices, tax, ownership and receipt placeholder", async () => {
 		const { provider, client } = setup();
 		await Effect.runPromise(

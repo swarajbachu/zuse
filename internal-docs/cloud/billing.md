@@ -76,15 +76,14 @@ Boxd SDK 0.2.14 adds historical `orgs.usage`, `machines.usage`, and
 `BOXD_BILLING_ENABLED=true` explicitly opts into charging completed per-machine
 USD estimates against the same $35 allowance, 5% markup and overage cap. The
 checked-in staging configuration enables settlement from `2026-10-06T17:15:42Z`;
-production keeps settlement disabled and its cutover empty. Invoice export and
-enforcement remain disabled pending staging reconciliation. On October 6, 2026, the
+production enables settlement, invoice export and enforcement prospectively from
+`2026-10-10T16:00:00Z`, after provider-rate reconciliation and captured-evidence
+ledger-to-Stripe test invoice verification. On October 6, 2026, the
 product owner approved using completed per-machine costs at boxd's current rates,
 with the existing allowance, markup and cap. Fetch rates and costs from the
 provider for each settlement; no manually maintained boxd price table is needed.
 Billing-enforced placement requires this flag and an explicit
-`BOXD_BILLING_CUTOVER_AT` (whole-second ISO timestamp). Production keeps this opt-in
-disabled and its cutover empty until staging provider-to-ledger-to-Polar reconciliation
-is verified; select the production cutover when enabling it. An explicit cutover prevents
+`BOXD_BILLING_CUTOVER_AT` (whole-second ISO timestamp). Production uses the same prospective cutover for Boxd and shared compute usage. An explicit cutover prevents
 retroactive charges when Boat's shared cutover is older. The shared settlement
 path uses boxd's provider cutover independently of other providers' cutovers.
 EUR reports remain unbillable;
