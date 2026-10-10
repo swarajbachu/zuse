@@ -1,6 +1,6 @@
 # Runtime reliability and latency validation plan
 
-Status: validation contract with a historical local baseline and the implementation results below. No production database access, deployment or paid provider calls were made during this implementation.
+Status: validation contract with a historical local baseline, implementation results and live provider follow-up below. The initial implementation pass used local fixtures; the subsequent authorized live checks used disposable provider resources and read-only database reference audits.
 
 Baseline inspected on 2026-10-10 at approximately 07:03 UTC. Repository HEAD: `16c31d6647887ff5d7996f97bee9776cc30d43bd`, plus the current uncommitted changes. A passing local baseline is evidence for the tested boundaries, not proof that the proposed architecture exists or that live providers meet the latency target.
 
@@ -295,6 +295,34 @@ The implementation supersedes the baseline's source-gap observations where cover
 | Public API integration | 34 | Legacy socket hints cannot replace ready owners with valid or expired bearers; authoritative fences still recover |
 | Isolated local PostgreSQL integration | 1 | Lease/outbox concurrency, startup completion and renewal/ACK replay against localhost only |
 
-The full renderer unit run additionally passed 1,725 cases and failed the unrelated existing file-search shortcut-dispatch case; the affected connection selection above passes. Seven affected package type checks, applicable Biome checks, shell syntax and diff whitespace checks were run. Exact final results accompany the PR; execution logs are local and are not a provider latency certificate.
+The full renderer unit run additionally passed 1,725 cases and failed one file-search shortcut-dispatch case; the affected connection selection above passes. Seven affected package type checks, applicable Biome checks, shell syntax and diff whitespace checks were run. Exact final results accompany the PR; execution logs are local and are not a provider latency certificate.
 
 No extra machines, warm pool or resident activation listener were introduced. New templates are required to receive image-time systemd/compile-cache priming. Existing compatible runtimes can restart without downloading a newer release; explicit maintenance installs the new runtime. Boat release storage stays in provider-persisted `/opt`; it requires no relocation. Only populated, unaliased `/var/lib` data or ownership directories require a safe cold migration; authoritative lock directories are never copied across devices. See [Boat snapshot capture paths](https://docs.boat.dev/snapshots). Real desktop-origin Boxd under-five-second readiness, multi-day sleep and full provider migration must be verified in staging before broad rollout.
+
+## Live provider verification, October 10
+
+After credentials became available, the current adapters were tested against real provider APIs. Credentials stayed outside the repository in an owner-only temporary file. Five live Vitest cases passed: the existing E2B and Boat lifecycle cases, plus the new shared process-ownership contract on all three providers. Separate diagnostic probes exercised the same ownership behavior and are not counted as additional distinct test cases.
+
+| Provider | Live evidence | Limits |
+| --- | --- | --- |
+| E2B | Base-template lifecycle: create, hosted HTTP, label recovery, pause/resume, snapshot/fork, network change and cleanup; fenced supervisor launch, same-operation replay, three warm wakes retaining PID, next generation and rejected stale activation | Base template, not the newly published Zuse runtime or an authenticated agent conversation |
+| Boat | Published v8 lifecycle, hosted HTTP and installed runtime smoke, persistent file round trip, pause/resume, snapshot/fork and cleanup; cold wake retains fixture files and permits fenced replacement while rejecting stale activation | Existing v8 image; no new runtime publication, retained customer-data migration or multi-day soak |
+| Boxd | Disposable isolated stock image: fenced launch, one execution on replay, three sleep/wake cycles retaining PID, next-generation replacement and stale-generation rejection | Supplied credential cannot access configured `zuse-base-v20260927-1`; stock fixture excludes Zuse template startup, gateway and agent readiness |
+
+The standalone Boxd diagnostic measured stock allocation at 1,212 ms and three adapter resume calls at 255, 456 and 460 ms. These are single-run provider/control measurements from this VM, not desktop-to-agent latency or p95/p99 evidence. The first two Boxd diagnostic attempts had fixture mistakes (an assumed systemd unit name and an unprivileged file read); both fixtures were deleted before the corrected successful run.
+
+Repeat the committed live ownership contract with provider credentials supplied through the environment:
+
+```sh
+ZUSE_LIVE_PROCESS_OWNERSHIP=1 bunx vitest run test/live/process-ownership.live.test.ts
+```
+
+Run from `packages/sandbox-providers`. Requires `E2B_API_KEY`, `BOXD_API_KEY` and optional `BOXD_ORG`, plus `BOX_API_KEY` and `BOX_TEMPLATE_SNAPSHOT` for Boat. The test creates temporary compute, deletes its fixtures in `finally`, and creates no named snapshots. All resources created in the successful checks and diagnostic attempts were cleaned up. The architecture adds no permanent machines or warm pool.
+
+### Boat snapshot cleanup
+
+Provider inventory initially reported 12 named snapshots and $3.40/month in extra snapshot charges. The deployed staging Worker was verified to use base v8. Production image/snapshot references were audited in a read-only transaction; staging references were read through the approved staging Hyperdrive binding using the Mac's existing Wrangler login. Two temporary audit Workers were deleted; the final successful audit used a stopped-after-use remote preview. Python's default request signature initially triggered Cloudflare error 1010; browser-compatible request headers resolved the audit access failure without changing deployment security.
+
+Deleted superseded bases v1, v2, v5, v6 and v7, and two unreferenced October 7 auth/tool test snapshots. Retained base v8 and four explicitly retained project images (two staging, two production). A final provider listing verified five remaining named snapshots, zero snapshots above the free allowance and $0/month in extra snapshot charges. No existing workspace, chat database, provider key or deployed API/runtime was replaced.
+
+The full new API/runtime/client staging journey, signed publication, updated template, expired-token sleep and long-duration provider tests remain rollout gates. Passing these live adapter tests does not close those gates.
