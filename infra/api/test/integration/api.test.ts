@@ -849,11 +849,14 @@ describe("@zuse/api", () => {
 			new Request(`${API_ISSUER}/v1/cloud/github/callback?installation_id=123`),
 		);
 
-		expect(response.status).toBe(400);
+		expect(response.status).toBe(200);
 		expect(response.headers.get("content-type")).toContain("text/html");
-		expect(await response.text()).toContain(
-			"GitHub authorization is not configured on this deployment.",
-		);
+		const setupPage = await response.text();
+		expect(setupPage).toContain("Finish connecting GitHub");
+		expect(setupPage).toContain("Connect GitHub");
+		expect(setupPage).toContain("You do not need a Zuse account");
+		expect(setupPage).not.toContain('href="zuse://"');
+		expect(setupPage).not.toContain("expired");
 
 		const invalidState = await api.fetch(
 			new Request(
@@ -864,6 +867,20 @@ describe("@zuse/api", () => {
 		expect(await invalidState.text()).toContain(
 			"GitHub could not be connected",
 		);
+	});
+
+	test("explains a GitHub installation request without claiming it is connected", async () => {
+		const response = await api.fetch(
+			new Request(
+				`${API_ISSUER}/v1/cloud/github/callback?setup_action=request`,
+			),
+		);
+		expect(response.status).toBe(200);
+		const page = await response.text();
+		expect(page).toContain("Organization owner approval needed");
+		expect(page).toContain("After approving");
+		expect(page).toContain("Your owner only needs GitHub");
+		expect(page).not.toContain("GitHub connected");
 	});
 
 	test("offers each server-owned cloud machine and makes creation idempotent", async () => {

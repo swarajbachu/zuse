@@ -68,6 +68,8 @@ export interface CloudGithubInstallationRecord {
 	readonly accountType: "User" | "Organization";
 	readonly avatarUrl?: string;
 	readonly repositorySelection: "all" | "selected";
+	/** Undefined is an owner-authorized installation. Members grant only these repos. */
+	readonly allowedRepositories?: readonly string[];
 	readonly suspended: boolean;
 	readonly createdAtMs: number;
 	readonly updatedAtMs: number;
@@ -75,7 +77,11 @@ export interface CloudGithubInstallationRecord {
 
 export type CloudGithubInstallationRefresh = Omit<
 	CloudGithubInstallationRecord,
-	"accountId" | "installationId" | "createdAtMs" | "updatedAtMs"
+	| "accountId"
+	| "installationId"
+	| "createdAtMs"
+	| "updatedAtMs"
+	| "allowedRepositories"
 >;
 
 export interface CloudAuthAuthorityRecord {
@@ -4002,6 +4008,10 @@ const githubInstallationFromRow = (
 	accountType: row.account_type as "User" | "Organization",
 	avatarUrl: optionalString(row.avatar_url),
 	repositorySelection: row.repository_selection as "all" | "selected",
+	allowedRepositories:
+		row.allowed_repositories == null
+			? undefined
+			: (row.allowed_repositories as string[]),
 	suspended: row.suspended === true,
 	createdAtMs: numberValue(row.created_at),
 	updatedAtMs: numberValue(row.updated_at),
@@ -4529,7 +4539,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				),
 			saveGithubInstallation: (installation) =>
 				orDie(
-					sql`INSERT INTO api_cloud_github_installations (account_id, installation_id, github_account_id, account_login, account_type, avatar_url, repository_selection, suspended, created_at, updated_at) VALUES (${installation.accountId}, ${installation.installationId}, ${installation.githubAccountId}, ${installation.accountLogin}, ${installation.accountType}, ${installation.avatarUrl ?? null}, ${installation.repositorySelection}, ${installation.suspended}, ${installation.createdAtMs}, ${installation.updatedAtMs}) ON CONFLICT (account_id, installation_id) DO UPDATE SET github_account_id=EXCLUDED.github_account_id, account_login=EXCLUDED.account_login, account_type=EXCLUDED.account_type, avatar_url=EXCLUDED.avatar_url, repository_selection=EXCLUDED.repository_selection, suspended=EXCLUDED.suspended, updated_at=EXCLUDED.updated_at`.pipe(
+					sql`INSERT INTO api_cloud_github_installations (account_id, installation_id, github_account_id, account_login, account_type, avatar_url, repository_selection, allowed_repositories, suspended, created_at, updated_at) VALUES (${installation.accountId}, ${installation.installationId}, ${installation.githubAccountId}, ${installation.accountLogin}, ${installation.accountType}, ${installation.avatarUrl ?? null}, ${installation.repositorySelection}, ${installation.allowedRepositories === undefined ? null : JSON.stringify(installation.allowedRepositories)}::jsonb, ${installation.suspended}, ${installation.createdAtMs}, ${installation.updatedAtMs}) ON CONFLICT (account_id, installation_id) DO UPDATE SET github_account_id=EXCLUDED.github_account_id, account_login=EXCLUDED.account_login, account_type=EXCLUDED.account_type, avatar_url=EXCLUDED.avatar_url, repository_selection=EXCLUDED.repository_selection, allowed_repositories=EXCLUDED.allowed_repositories, suspended=EXCLUDED.suspended, updated_at=EXCLUDED.updated_at`.pipe(
 						Effect.asVoid,
 					),
 				),

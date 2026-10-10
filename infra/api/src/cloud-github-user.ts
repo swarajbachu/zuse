@@ -4,6 +4,7 @@ import { githubApiHeaders, githubRequest } from "./cloud-github-request.ts";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import { badRequest, serviceUnavailable } from "./errors.ts";
+import { githubLinkAllowsRepository } from "./github-link-access.ts";
 
 const Credentials = Schema.Struct({
 	accessToken: Schema.String,
@@ -101,6 +102,31 @@ export const GithubUserAuthorization = Schema.Struct({
 	name: Schema.NonEmptyString,
 	email: Schema.NonEmptyString,
 	sealedCredentials: Schema.NonEmptyString,
+});
+
+/** Read a chooser's account-bound credentials without persisting or rotating them. */
+export const githubAuthorizationCredentials = Effect.fn(
+	"githubAuthorizationCredentials",
+)(function* (
+	accountId: string,
+	authorization: typeof GithubUserAuthorization.Type,
+) {
+	const plaintext = yield* openApiString(
+		context(accountId),
+		authorization.sealedCredentials,
+	);
+	const decoded = yield* Effect.try({
+		try: (): unknown => JSON.parse(plaintext),
+		catch: () => serviceUnavailable("github_user_reconnect_required"),
+	});
+	const credentials = yield* Schema.decodeUnknownEffect(Credentials)(
+		decoded,
+	).pipe(
+		Effect.mapError(() => serviceUnavailable("github_user_reconnect_required")),
+	);
+	if (credentials.expiresAtMs <= (yield* Clock.currentTimeMillis))
+		return yield* badRequest("github_user_reconnect_required");
+	return credentials;
 });
 
 /** Prepare encrypted credentials for the signed chooser; persist only after selection. */
@@ -239,6 +265,10 @@ export const githubUserCredential = Effect.fn("githubUserCredential")(
 			!installations.some(
 				(installation) =>
 					!installation.suspended &&
+					githubLinkAllowsRepository(
+						installation.allowedRepositories,
+						repository,
+					) &&
 					installation.accountLogin.toLowerCase() === owner?.toLowerCase(),
 			)
 		)

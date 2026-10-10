@@ -1803,13 +1803,15 @@ const routeCloudWorkspaceRequestWithAccess = (
 				),
 				Effect.catch((error) =>
 					Effect.succeed(
-						githubCallbackPage({
-							title: "GitHub could not be connected",
-							message:
-								error.code === "github_app_oauth_not_configured"
-									? "GitHub authorization is not configured on this deployment. Ask the operator to configure the GitHub App client secret and callback URL."
-									: "Return to Zuse and try the GitHub button again. The link may have expired or your workspace access changed.",
-						}),
+						request.headers.get("x-zuse-github-approval") === "check"
+							? json({ error: error.code }, error.status)
+							: githubCallbackPage({
+									title: "GitHub could not be connected",
+									message:
+										error.code === "github_app_oauth_not_configured"
+											? "GitHub authorization is not configured on this deployment. Ask the operator to configure the GitHub App client secret and callback URL."
+											: "Return to Zuse and try the GitHub button again. The link may have expired or your workspace access changed.",
+								}),
 					),
 				),
 			);
