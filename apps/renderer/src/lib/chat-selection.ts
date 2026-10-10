@@ -27,7 +27,10 @@ export const chatSelectionSource = (
 export interface ChatSelection {
 	readonly messageId: string;
 	readonly source: ChatAnnotationSource;
+	/** Bounded copy of the text, stored on annotations. */
 	readonly quote: string;
+	/** The full selected text, for Copy. */
+	readonly text: string;
 	readonly range: Range;
 }
 
@@ -42,7 +45,9 @@ const rowOf = (node: Node | null): Element | null => {
 /**
  * The annotatable part of the current selection inside `root`, or null when
  * nothing usable is selected. A selection spanning several messages is
- * attributed to the message it starts in.
+ * attributed to the message where the user began selecting (the anchor, which
+ * is the later node for a backward selection). Selections that begin outside
+ * an annotatable row are ignored.
  */
 export const readChatSelection = (
 	selection: Selection | null,
@@ -52,7 +57,7 @@ export const readChatSelection = (
 		return null;
 	const range = selection.getRangeAt(0);
 	if (!root.contains(range.commonAncestorContainer)) return null;
-	const row = rowOf(range.startContainer) ?? rowOf(range.endContainer);
+	const row = rowOf(selection.anchorNode);
 	const messageId = row?.getAttribute(CHAT_MESSAGE_ATTRIBUTE);
 	const source = row?.getAttribute(CHAT_SOURCE_ATTRIBUTE);
 	if (!messageId || !source || !SOURCES.has(source)) return null;
@@ -65,6 +70,7 @@ export const readChatSelection = (
 			text.length > CHAT_QUOTE_MAX_CHARS
 				? `${text.slice(0, CHAT_QUOTE_MAX_CHARS - 1)}…`
 				: text,
+		text,
 		range: range.cloneRange(),
 	};
 };

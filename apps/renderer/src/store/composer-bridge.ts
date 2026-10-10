@@ -10,8 +10,11 @@ export type AttachableFile = {
 type AttachFile = (ref: AttachableFile) => void;
 type InsertText = (text: string) => void;
 type FocusComposer = () => void;
-/** Send text as the user's next message without touching the draft. */
-type SendText = (text: string) => boolean;
+/**
+ * Send text as the user's next message without touching the draft. Resolves
+ * true once the message is accepted or queued.
+ */
+type SendText = (text: string) => Promise<boolean>;
 type EditQueuedMessage = (item: QueuedMessage) => void;
 
 type Bridge = {

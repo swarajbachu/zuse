@@ -129,12 +129,12 @@ export const attachToCurrentComposer = (
 
 /** Send text as the next message through the CURRENTLY mounted composer's
  * send-or-queue routing. The user's draft is left untouched. */
-export const sendThroughCurrentComposer = (
+export const sendThroughCurrentComposer = async (
 	text: string,
 	target?: SessionRef,
-): boolean => {
+): Promise<boolean> => {
 	if (!composerMatches(target)) return false;
-	return useComposerBridge.getState().sendText?.(text) ?? false;
+	return (await useComposerBridge.getState().sendText?.(text)) ?? false;
 };
 
 /**

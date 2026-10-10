@@ -1,6 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import "@zuse/i18n/english/chat";
+import "@zuse/i18n/english/common";
 import { useMessages } from "@zuse/i18n/react";
 import {
 	CommentAdd01Icon,
@@ -25,6 +26,7 @@ import {
 } from "./review-annotation.tsx";
 import { Button } from "./ui/button.tsx";
 import { overlayPanelSurface } from "./ui/overlay-surface.ts";
+import { toastManager } from "./ui/toast.tsx";
 
 const HIGHLIGHT_NAME = "chat-annotation";
 /** Keep the floating menu this far from the viewport edges. */
@@ -55,7 +57,7 @@ export function ChatSelectionMenu({
 	readonly rootRef: RefObject<HTMLElement | null>;
 	readonly sessionRef: SessionRef;
 }) {
-	const { message: uiMessage } = useMessages(["chat"]);
+	const { message: uiMessage } = useMessages(["chat", "common"]);
 	const author = useAnnotationAuthor();
 	const [selection, setSelection] = useState<ChatSelection | null>(null);
 	const [rect, setRect] = useState<DOMRect | null>(null);
@@ -207,7 +209,14 @@ export function ChatSelectionMenu({
 					variant="ghost"
 					className="h-7 gap-1.5 px-2 font-normal text-muted-foreground hover:text-foreground"
 					onClick={() => {
-						void copyText(selection.quote).then(() => setCopied(true));
+						copyText(selection.text).then(
+							() => setCopied(true),
+							() =>
+								toastManager.add({
+									type: "error",
+									title: uiMessage("common:copy_failed"),
+								}),
+						);
 					}}
 				>
 					<HugeiconsIcon

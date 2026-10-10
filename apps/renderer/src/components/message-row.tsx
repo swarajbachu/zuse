@@ -314,6 +314,7 @@ function MessageRowImpl({
 						>
 							<UiSpecBlock
 								spec={message.content.spec}
+								messageId={message.id}
 								sessionRef={
 									interactive && !readOnly && environmentId !== undefined
 										? { environmentId, sessionId: message.sessionId }

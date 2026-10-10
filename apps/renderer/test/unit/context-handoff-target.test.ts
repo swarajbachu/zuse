@@ -39,12 +39,12 @@ test("never attaches delayed PR context to a different mounted session", () => {
 	expect(other).not.toHaveBeenCalled();
 });
 
-test("sends generated UI responses only through the source session's composer", () => {
+test("sends generated UI responses only through the source session's composer", async () => {
 	const target = {
 		environmentId: EnvironmentId.make("local"),
 		sessionId: SessionId.make("source"),
 	};
-	const send = vi.fn(() => true);
+	const send = vi.fn(async () => true);
 	useComposerBridge.getState().setSendText(send);
 	useComposerBridge
 		.getState()
@@ -52,13 +52,23 @@ test("sends generated UI responses only through the source session's composer", 
 			vi.fn(),
 			resourceRefKey({ ...target, sessionId: SessionId.make("other") }),
 		);
-	expect(sendThroughCurrentComposer("Run the tests", target)).toBe(false);
+	expect(await sendThroughCurrentComposer("Run the tests", target)).toBe(false);
 	expect(send).not.toHaveBeenCalled();
 
 	useComposerBridge.getState().setAttachFile(vi.fn(), resourceRefKey(target));
-	expect(sendThroughCurrentComposer("Run the tests", target)).toBe(true);
+	expect(await sendThroughCurrentComposer("Run the tests", target)).toBe(true);
 	expect(send).toHaveBeenCalledExactlyOnceWith("Run the tests");
 
 	useComposerBridge.getState().setSendText(null);
-	expect(sendThroughCurrentComposer("Run the tests", target)).toBe(false);
+	expect(await sendThroughCurrentComposer("Run the tests", target)).toBe(false);
+});
+
+test("reports a rejected generated UI response as not sent", async () => {
+	const target = {
+		environmentId: EnvironmentId.make("local"),
+		sessionId: SessionId.make("source"),
+	};
+	useComposerBridge.getState().setAttachFile(vi.fn(), resourceRefKey(target));
+	useComposerBridge.getState().setSendText(async () => false);
+	expect(await sendThroughCurrentComposer("Run the tests", target)).toBe(false);
 });

@@ -523,7 +523,9 @@ export function ChatComposer({
 	// time, always sees the current sessionId / send / inFlight without
 	// recreating the editor on every render.
 	const submitRef = useRef<() => boolean>(() => false);
-	const sendTextRef = useRef<(text: string) => boolean>(() => false);
+	const sendTextRef = useRef<(text: string) => Promise<boolean>>(
+		async () => false,
+	);
 	// Same indirection for file drops — the editor extension is bound once
 	// and we want it to call the latest closure with the current sessionId.
 	const filesDroppedRef = useRef<(files: ReadonlyArray<File>) => void>(
@@ -1371,7 +1373,7 @@ export function ChatComposer({
 	submitRef.current = submit;
 	// Messages raised by generated UI (form answers, follow-ups) take the same
 	// send-or-queue path as typed text, but never touch the user's draft.
-	sendTextRef.current = (text) => {
+	sendTextRef.current = async (text) => {
 		if (
 			onDraftSubmit !== undefined ||
 			submitDisabled ||
@@ -1386,9 +1388,12 @@ export function ChatComposer({
 			fileRefs: [],
 			skillRefs: [],
 		});
-		if (shouldQueueNow()) queue(input);
-		else void send(input).catch(() => undefined);
-		return true;
+		// A queued message has no delivery promise; queueing is the acceptance.
+		if (shouldQueueNow()) {
+			queue(input);
+			return true;
+		}
+		return send(input).catch(() => false);
 	};
 	togglePlanModeRef.current = () => {
 		if (session.providerId === "pi") return;
