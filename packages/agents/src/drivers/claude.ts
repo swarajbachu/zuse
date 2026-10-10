@@ -1359,6 +1359,9 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 	`mcp__${ZUSE_MCP_NAME}__list_threads`,
 	`mcp__${ZUSE_MCP_NAME}__list_models`,
 	`mcp__${ZUSE_MCP_NAME}__whoami`,
+	// emit_ui is display-only: it paints a validated UI spec into the
+	// transcript and exposes no callbacks, so it auto-allows with the reads.
+	`mcp__${ZUSE_MCP_NAME}__emit_ui`,
 ]);
 
 type ToolPolicy =

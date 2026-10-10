@@ -23,6 +23,7 @@ import { cn } from "~/lib/utils";
 
 import { useAnnotationsStore } from "../../store/annotations.ts";
 import { useRevealAnnotation } from "../annotation/annotation-navigation.ts";
+import { ChatAnnotationChip } from "../annotation/chat-annotation-chip.tsx";
 import { AnnotationFileChip } from "../file-chip.tsx";
 
 const EMPTY: ReadonlyArray<ComposerAnnotation> = [];
@@ -122,6 +123,8 @@ export function AnnotationTray({
 						>
 							{"_tag" in annotation && annotation._tag === "context" ? (
 								<span className="truncate text-xs">{annotation.label}</span>
+							) : "_tag" in annotation && annotation._tag === "chat" ? (
+								<ChatAnnotationChip annotation={annotation} />
 							) : browser ? (
 								<BrowserAnnotationChip
 									annotation={annotation}

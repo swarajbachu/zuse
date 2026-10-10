@@ -208,6 +208,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		listMessages,
 		listChats,
 		listSessions,
+		persistMessage,
 		provider,
 		attachProvider,
 		setStatus,

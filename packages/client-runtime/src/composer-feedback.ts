@@ -1,5 +1,6 @@
 import type {
 	BrowserAnnotation,
+	ChatAnnotation,
 	CodeAnnotation,
 	ComposerAnnotation,
 	ComposerInput,
@@ -55,6 +56,27 @@ const serializeBrowserAnnotations = (
 	return ["Browser annotations:", ...lines].join("\n");
 };
 
+const isChatAnnotation = (
+	annotation: ComposerAnnotation,
+): annotation is ChatAnnotation =>
+	"_tag" in annotation && annotation._tag === "chat";
+
+const CHAT_SOURCE_LABEL: Record<ChatAnnotation["source"], string> = {
+	assistant: "your reply",
+	user: "my message",
+	ui: "the UI you rendered",
+};
+
+const serializeChatAnnotations = (
+	annotations: ReadonlyArray<ChatAnnotation>,
+): string => {
+	const lines = annotations.map(
+		(annotation, index) =>
+			`${index + 1}. On ${CHAT_SOURCE_LABEL[annotation.source]}: "${annotation.quote.replace(/\s+/g, " ").trim()}" — ${annotation.comment}`,
+	);
+	return ["Notes on the conversation:", ...lines].join("\n");
+};
+
 export const serializeAnnotations = (
 	annotations: ReadonlyArray<ComposerAnnotation>,
 ): string => {
@@ -62,7 +84,9 @@ export const serializeAnnotations = (
 		(annotation): annotation is CodeAnnotation => !("_tag" in annotation),
 	);
 	const browser = annotations.filter(isBrowserAnnotation);
+	const chat = annotations.filter(isChatAnnotation);
 	return [
+		chat.length > 0 ? serializeChatAnnotations(chat) : "",
 		code.length > 0 ? serializeCodeAnnotations(code) : "",
 		browser.length > 0 ? serializeBrowserAnnotations(browser) : "",
 		...annotations

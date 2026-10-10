@@ -219,6 +219,19 @@ describe("translateAcpSessionUpdate — tool-call normalization", () => {
 		);
 		expect(titleEvent.tool).toBe("mcp__zuse-orchestration__send_to_thread");
 	});
+
+	it("keeps the emit_ui identity instead of a humanized label", () => {
+		for (const title of ["emit_ui", "mcp__zuse__emit_ui", "zuse__emit_ui"]) {
+			const event = only(
+				translateAcpSessionUpdate(
+					{ sessionUpdate: "tool_call", title, toolCallId: title },
+					"generic",
+				),
+				"ToolUse",
+			);
+			expect(event.tool).toBe("mcp__zuse__emit_ui");
+		}
+	});
 });
 
 describe("translateAcpSessionUpdate — result normalization", () => {

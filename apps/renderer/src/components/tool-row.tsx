@@ -3,6 +3,7 @@ import "@zuse/i18n/english/chat";
 import "@zuse/i18n/english/tools";
 import "@zuse/i18n/english/plugins";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { isEmitUiTool } from "@zuse/client-runtime/generative-ui";
 import {
 	type ChatId,
 	isRedundantShellDescription,
@@ -12,6 +13,7 @@ import {
 import { message as uiMessage } from "@zuse/i18n";
 import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
+	Analytics01Icon,
 	Brain01Icon,
 	BrowserIcon,
 	BubbleChatIcon,
@@ -103,6 +105,7 @@ const humanizeToolName = (tool: string): string =>
 export const iconForTool = (tool: string): IconHandle => {
 	const normalizedTool = normalizeToolName(tool);
 	if (pluginToolKind(normalizedTool) !== null) return PuzzleIcon;
+	if (isEmitUiTool(normalizedTool)) return Analytics01Icon;
 	switch (normalizedTool) {
 		case "local_command_execute":
 		case "Bash":
@@ -873,6 +876,22 @@ const buildToolView = (
 				),
 		};
 	}
+
+	// The rendered block is its own transcript row; this row keeps the source.
+	if (isEmitUiTool(normalizedTool))
+		return {
+			icon: Analytics01Icon,
+			label: uiMessage("chat:message_row_ui_spec_generated"),
+			fallbackBody: (
+				<CombinedPreBlock
+					input={asString(obj.spec) ?? stringifyJson(input)}
+					output={
+						result === undefined ? undefined : toResultText(result.output)
+					}
+					isError={result?.isError}
+				/>
+			),
+		};
 
 	const pluginKind = pluginToolKind(normalizedTool);
 	if (pluginKind !== null) {

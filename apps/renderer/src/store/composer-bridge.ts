@@ -10,6 +10,11 @@ export type AttachableFile = {
 type AttachFile = (ref: AttachableFile) => void;
 type InsertText = (text: string) => void;
 type FocusComposer = () => void;
+/**
+ * Send text as the user's next message without touching the draft. Resolves
+ * true once the message is accepted or queued.
+ */
+type SendText = (text: string) => Promise<boolean>;
 type EditQueuedMessage = (item: QueuedMessage) => void;
 
 type Bridge = {
@@ -17,10 +22,12 @@ type Bridge = {
 	readonly draftKey: string | null;
 	readonly insertText: InsertText | null;
 	readonly focus: FocusComposer | null;
+	readonly sendText: SendText | null;
 	readonly editQueuedMessage: EditQueuedMessage | null;
 	readonly setAttachFile: (fn: AttachFile | null, draftKey?: string) => void;
 	readonly setInsertText: (fn: InsertText | null) => void;
 	readonly setFocus: (fn: FocusComposer | null) => void;
+	readonly setSendText: (fn: SendText | null) => void;
 	readonly setEditQueuedMessage: (fn: EditQueuedMessage | null) => void;
 };
 
@@ -29,10 +36,12 @@ export const useComposerBridge = create<Bridge>((set) => ({
 	draftKey: null,
 	insertText: null,
 	focus: null,
+	sendText: null,
 	editQueuedMessage: null,
 	setAttachFile: (fn, draftKey) =>
 		set({ attachFile: fn, draftKey: fn === null ? null : (draftKey ?? null) }),
 	setInsertText: (fn) => set({ insertText: fn }),
 	setFocus: (fn) => set({ focus: fn }),
+	setSendText: (fn) => set({ sendText: fn }),
 	setEditQueuedMessage: (fn) => set({ editQueuedMessage: fn }),
 }));

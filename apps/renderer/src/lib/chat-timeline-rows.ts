@@ -25,6 +25,8 @@ export type ChatTimelineRow =
 			readonly message: Message;
 			readonly enterUser: boolean;
 			readonly showAssistantCommands: boolean;
+			/** Generated UI accepts input only in the latest turn. */
+			readonly interactive?: boolean;
 	  }
 	| {
 			readonly kind: "delegation";
@@ -138,16 +140,17 @@ export const isForkableAssistantMessage = (message: Message): boolean =>
 	(!("parentItemId" in message.content) ||
 		message.content.parentItemId === undefined);
 
-/** Rows drawn as branches of a tool tree, with the connector on the left. */
+/** Rich output remains visible when completed tool activity collapses. */
 export const isVisualMessage = (message: Message): boolean =>
-	message.content._tag === "tool_use" &&
-	isHtmlRenderTool(
-		normalizeToolCallEnvelope(
-			message.content.tool,
-			message.content.input,
-			undefined,
-		).tool,
-	);
+	message.content._tag === "ui_spec" ||
+	(message.content._tag === "tool_use" &&
+		isHtmlRenderTool(
+			normalizeToolCallEnvelope(
+				message.content.tool,
+				message.content.input,
+				undefined,
+			).tool,
+		));
 
 export const isToolTreeBranch = (message: Message): boolean =>
 	message.content._tag === "tool_use" || message.content._tag === "thinking";
@@ -291,6 +294,9 @@ export function deriveChatTimelineRows({
 					message: group.message,
 					enterUser: false,
 					showAssistantCommands: showAssistantCommands(group.message),
+					...(isLastTurn && group.message.content._tag === "ui_spec"
+						? { interactive: true }
+						: {}),
 				});
 			} else {
 				rows.push({ kind: "delegation", id: group.id, members: group.members });

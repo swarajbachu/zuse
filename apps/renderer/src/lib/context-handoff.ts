@@ -111,20 +111,30 @@ export const fetchTranscriptMarkdown = async (
 	}
 };
 
+/** The mounted composer belongs to `target` (or no target was requested). */
+const composerMatches = (target?: SessionRef): boolean =>
+	!target || useComposerBridge.getState().draftKey === resourceRefKey(target);
+
 /** Drop a file chip into the CURRENTLY mounted composer (bridge-backed). */
 export const attachToCurrentComposer = (
 	ref: ContextRef,
 	target?: SessionRef,
 ): boolean => {
-	if (
-		target &&
-		useComposerBridge.getState().draftKey !== resourceRefKey(target)
-	)
-		return false;
+	if (!composerMatches(target)) return false;
 	const attach = useComposerBridge.getState().attachFile;
 	if (attach === null) return false;
 	attach({ relPath: ref.relPath, absPath: ref.absPath, kind: "file" });
 	return true;
+};
+
+/** Send text as the next message through the CURRENTLY mounted composer's
+ * send-or-queue routing. The user's draft is left untouched. */
+export const sendThroughCurrentComposer = async (
+	text: string,
+	target?: SessionRef,
+): Promise<boolean> => {
+	if (!composerMatches(target)) return false;
+	return (await useComposerBridge.getState().sendText?.(text)) ?? false;
 };
 
 /**
