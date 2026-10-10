@@ -77,6 +77,34 @@ export type MachineRouteContext =
 	| ManagedTunnelProvider
 	| CloudBillingStore;
 
+/** Existing subscriptions keep their provider; unassigned workspaces use new checkout's default. */
+const billingProviderForAccount = (accountId: string) =>
+	Effect.gen(function* () {
+		const store = yield* MachineStore;
+		const entitlements = yield* store.listEntitlements(accountId);
+		const providerIds = [
+			...new Set(
+				entitlements
+					.filter(
+						(entitlement) =>
+							entitlement.providerSubscriptionId !== undefined &&
+							entitlement.status !== "ended",
+					)
+					.map((entitlement) => entitlement.provider),
+			),
+		];
+		if (providerIds.length > 1)
+			return yield* Effect.fail(conflict("billing_provider_ambiguous"));
+		const providers = yield* BillingProviders;
+		return yield* (
+			providerIds[0] === undefined
+				? providers.getDefault
+				: providers.get(providerIds[0])
+		).pipe(
+			Effect.mapError(() => serviceUnavailable("billing_provider_unavailable")),
+		);
+	});
+
 const persistentProviderId = Effect.fn("persistentProviderId")(function* () {
 	return (yield* (yield* MachineProviders).getDefault).providerId;
 });
@@ -1104,12 +1132,7 @@ export const routeMachineRequest = (
 			(method === "POST" && path === ApiPaths.billingPrepaidCheckout)
 		) {
 			const workspace = yield* requireWorkspaceAccess(request, "billing");
-			const providers = yield* BillingProviders;
-			const billing = yield* providers.getDefault.pipe(
-				Effect.mapError(() =>
-					serviceUnavailable("billing_provider_unavailable"),
-				),
-			);
+			const billing = yield* billingProviderForAccount(workspace.ownerId);
 			if (method === "GET") {
 				const balance = billing.prepaidBalance
 					? yield* billing
@@ -1251,31 +1274,7 @@ export const routeMachineRequest = (
 
 		if (method === "POST" && path === ApiPaths.billingPortal) {
 			const workspace = yield* requireWorkspaceAccess(request, "billing");
-			const entitlements = yield* store.listEntitlements(workspace.ownerId);
-			const portalProviderIds = [
-				...new Set(
-					entitlements
-						.filter(
-							(entitlement) =>
-								entitlement.providerSubscriptionId !== undefined &&
-								entitlement.status !== "ended",
-						)
-						.map((entitlement) => entitlement.provider),
-				),
-			];
-			if (portalProviderIds.length > 1) {
-				return yield* Effect.fail(conflict("billing_provider_ambiguous"));
-			}
-			const billingProviders = yield* BillingProviders;
-			const billing = yield* (
-				portalProviderIds[0] === undefined
-					? billingProviders.getDefault
-					: billingProviders.get(portalProviderIds[0])
-			).pipe(
-				Effect.mapError(() =>
-					serviceUnavailable("billing_provider_unavailable"),
-				),
-			);
+			const billing = yield* billingProviderForAccount(workspace.ownerId);
 			const portalUrl = yield* billing
 				.customerPortal(workspace.ownerId)
 				.pipe(

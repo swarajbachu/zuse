@@ -71,7 +71,9 @@ work.
 ## Rollout flags
 
 - API: `ORGANIZATION_WORKSPACES_ENABLED=true` is the global kill switch.
-  Staging enables it; production keeps it disabled until a compatible deployment.
+  Staging and production enable it. Production access remains restricted by the
+  targeted rollout below. Keep this setting in the production deployment config
+  so a redeploy does not hide existing organizations.
 - API: `ORGANIZATION_ROLLOUT_ENABLED=true` restricts access using server-side
   PostHog flags. Production configuration enables targeted rollout; staging
   retains unrestricted organization testing. Missing keys or failed evaluations

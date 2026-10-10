@@ -5,6 +5,7 @@ import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { applyEdits, modify, parse } from "jsonc-parser";
 import Stripe from "stripe";
+import { resolveStripeCloudBillingMode } from "../../../packages/billing-providers/src/stripe-billing-mode.ts";
 import { stripeKeyEnvironment } from "../../../packages/billing-providers/src/stripe-key.ts";
 
 export const webhookEvents = [
@@ -24,7 +25,16 @@ export const webhookEvents = [
 ];
 export const webhookUrl = "https://api.zuse.sh/v1/billing/webhook/stripe";
 export function assertStripeProductionBillingGates(vars) {
+	const mode = resolveStripeCloudBillingMode(vars.STRIPE_CLOUD_BILLING_MODE);
 	if (vars.BILLING_DEFAULT_PROVIDER !== "stripe") return;
+	if (mode === "subscription-only") {
+		assert(
+			vars.CLOUD_BILLING_EXPORT_ENABLED === "false" &&
+				vars.CLOUD_BILLING_ENFORCEMENT_ENABLED === "false",
+			"Subscription-only Stripe checkout requires usage charging and enforcement to stay explicitly disabled",
+		);
+		return;
+	}
 	assert(
 		vars.CLOUD_BILLING_EXPORT_ENABLED === "true" &&
 			vars.CLOUD_BILLING_ENFORCEMENT_ENABLED === "true",

@@ -42,7 +42,9 @@
 	},
 	"vars": {
 		"CLOUD_BOXD_CUSTOM_SNAPSHOTS_ENABLED": "true",
+		"ORGANIZATION_WORKSPACES_ENABLED": "true",
 		"ORGANIZATION_ROLLOUT_ENABLED": "true",
+		"ORGANIZATION_POSTHOG_HOST": "https://us.i.posthog.com",
 		"PLUGIN_APP_ORIGIN": "https://code.zuse.sh",
 		"SLACK_ENABLED": "true",
 		"SLACK_APP_ID": "A0C4UAJHRMX",
@@ -103,11 +105,12 @@
 		"CLOUD_USAGE_EXPORT_ENABLED": "true",
 		"CLOUD_BILLING_CUTOVER_AT": "2026-08-17T18:30:00.000Z",
 
-		// Keep legacy checkout until Stripe prices, taxes and migration are verified.
-		// Populate live Stripe IDs with billing:stripe:production prepare, then
-		// install-secrets. Test-mode IDs and signing secrets cannot be reused.
-		"BILLING_DEFAULT_PROVIDER": "polar",
+		// New subscriptions use Stripe. Existing subscriptions keep their provider.
+		// Usage charging stays off until provider settlement is verified.
+		"BILLING_DEFAULT_PROVIDER": "stripe",
+		"STRIPE_CLOUD_BILLING_MODE": "subscription-only",
 		"STRIPE_ENVIRONMENT": "production",
+		"STRIPE_AUTOMATIC_TAX_ENABLED": "false",
 		"STRIPE_PRICE_CLOUD_WORKSPACE_STANDARD_V1": "price_1UOcC1PTgFt61LRrMqCBHq3m",
 		"STRIPE_PRICE_PERSISTENT_STANDARD_V1": "",
 		"STRIPE_CLOUD_OVERAGE_PRICE_ID": "price_1UOcC2PTgFt61LRr4ltvoZI5",

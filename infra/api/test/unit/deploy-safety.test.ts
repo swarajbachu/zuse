@@ -55,7 +55,7 @@ interface WranglerTarget {
 }
 
 describe("api deployment safety", () => {
-	test("enables organizations only on staging", async () => {
+	test("keeps production organizations enabled behind targeted rollout", async () => {
 		const worker = await readFile(
 			new URL("../../src/worker.ts", import.meta.url),
 			"utf8",
@@ -70,8 +70,11 @@ describe("api deployment safety", () => {
 			await readFile(productionWranglerConfigUrl, "utf8"),
 		) as WranglerTarget;
 		expect(staging.vars.ORGANIZATION_WORKSPACES_ENABLED).toBe("true");
-		expect(production.vars.ORGANIZATION_WORKSPACES_ENABLED).not.toBe("true");
+		expect(production.vars.ORGANIZATION_WORKSPACES_ENABLED).toBe("true");
 		expect(production.vars.ORGANIZATION_ROLLOUT_ENABLED).toBe("true");
+		expect(production.vars.ORGANIZATION_POSTHOG_HOST).toBe(
+			"https://us.i.posthog.com",
+		);
 		expect(staging.vars.ORGANIZATION_ROLLOUT_ENABLED).not.toBe("true");
 	});
 
@@ -180,6 +183,8 @@ else process.exit(2);
 		const directory = await mkdtemp(join(tmpdir(), "zuse-deploy-test-"));
 		try {
 			const config = parse(await readFile(productionWranglerConfigUrl, "utf8"));
+			// Isolate sandbox prerequisites from Stripe's checkout rollout gates.
+			config.vars.BILLING_DEFAULT_PROVIDER = "polar";
 			config.vars.CLOUD_BILLING_ENFORCEMENT_ENABLED =
 				scenario === "billing" || scenario === "paid-billing-ready"
 					? "true"

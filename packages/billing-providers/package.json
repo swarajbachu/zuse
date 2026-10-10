@@ -21,6 +21,11 @@
 			"import": "./src/stripe-key.ts",
 			"require": "./src/stripe-key.ts"
 		},
+		"./stripe-billing-mode": {
+			"types": "./src/stripe-billing-mode.ts",
+			"import": "./src/stripe-billing-mode.ts",
+			"require": "./src/stripe-billing-mode.ts"
+		},
 		"./stripe": {
 			"types": "./src/stripe.ts",
 			"import": "./src/stripe.ts",

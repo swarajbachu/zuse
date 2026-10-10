@@ -24,9 +24,10 @@ Install `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` using `secret:stripe` an
 - `BILLING_DEFAULT_PROVIDER`: `stripe` for new checkout, `polar` for checkout
   rollback. Both adapters remain registered when their credentials are supplied.
 
-The checked-in deployments keep `BILLING_DEFAULT_PROVIDER=polar`. Production's
+Staging keeps `BILLING_DEFAULT_PROVIDER=polar`; production uses Stripe for new
+subscriptions while retaining Polar for existing subscriptions. Production's
 live Stripe catalogue IDs are populated; staging's price IDs remain empty. Missing
-Stripe overage configuration disables Stripe Cloud checkout. Checkout, invoice
+Stripe overage configuration disables metered Stripe Cloud checkout. Checkout, invoice
 export, informational usage export and enforcement retain independent gates.
 
 Create unpriced informational meters for `zuse_cloud_runtime_observed_ms` and
@@ -45,7 +46,9 @@ Crypto, then the current subscription is fetched before updating an entitlement.
 Valid unrelated events are acknowledged without changing state. Persistent local
 webhook deduplication continues to be owned by the shared entitlement store.
 
-Checkout collects billing location and tax IDs and enables automatic tax. Configure
+Checkout collects billing location and tax IDs. Automatic tax defaults to enabled;
+set `STRIPE_AUTOMATIC_TAX_ENABLED=false` to launch without Stripe Tax while its
+business settings are pending. Configure
 Stripe Tax registrations before rollout and arrange filing/remittance separately;
 this integration does not make Stripe the merchant of record. Configure Stripe's
 payment retries, invoice emails and Customer Portal in the Dashboard. Do not
@@ -100,13 +103,40 @@ Customer Portal settings and invoice finalization grace period. Deploy initially
 with Polar as the default, then verify an actual live Stripe event reaches the
 Worker and its receipt is persisted. Changing the API key is not this verification.
 
+`STRIPE_CLOUD_BILLING_MODE` defaults to `metered`. An explicit `subscription-only`
+launch sells only the base monthly Stripe price and requires both financial
+export and admission enforcement to remain explicitly disabled. It preserves
+existing Polar subscriptions, portals and period ownership. Prepaid credits
+follow an existing subscription's provider; Polar subscribers cannot buy Stripe
+credit for their Polar invoices. Automatic tax can be disabled independently.
+Enabling metered billing later requires attaching the overage price to existing
+subscription-only Stripe subscriptions as well as changing new checkout's mode;
+changing the deployment variable does not update existing Stripe subscriptions.
+
+Production launched new subscription-only Stripe checkout on October 10, 2026
+(Worker version `ae01759c-7c9e-4058-8b38-882a02e500cd`). An unpaid live Checkout
+session verified the $40 monthly base price, disabled automatic tax and absence
+of an overage item; it was expired and its verification customer deleted.
+All four existing active Polar entitlements remained on Polar. Authentication
+and webhook signature smoke checks passed, including acknowledgment of an
+unrelated signed event. This does not verify a paid live subscription delivery.
+
+Usage charging remains blocked on provider reconciliation. For October 8's
+completed UTC window, Boxd reported `3,874,645` micro-USD in machine estimates;
+96 actual organization charge buckets totaled `4,888,443` micro-USD after
+accounting for posting lag. The unexplained `1,013,798` micro-USD difference
+(20.74%) must be resolved before enabling financial export. The production
+ledger also has no imported provider statements. A read-only Boat usage request
+succeeded, but that alone does not establish provider-to-ledger-to-processor
+delivery. No usage charges or admission enforcement were enabled during launch.
+
 Production currently disables both financial export and admission enforcement,
 and boxd settlement is also disabled. Verify provider settlement and its cutover
 before enabling `CLOUD_BILLING_EXPORT_ENABLED` and
 `CLOUD_BILLING_ENFORCEMENT_ENABLED`. The production deploy script rejects Stripe
-as the checkout default unless both billing gates are enabled; its existing
-provider checks also reject unverified boxd settlement. Only then switch
-`BILLING_DEFAULT_PROVIDER` to `stripe` and deploy. Keep existing Polar subscribers
+in metered mode unless both billing gates are enabled; its existing
+provider checks also reject unverified boxd settlement. After verification, switch
+`STRIPE_CLOUD_BILLING_MODE` to `metered` and deploy. Keep existing Polar subscribers
 on Polar until the coordinated transfer below is complete.
 
 ## Delivery and reconciliation
