@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	readlink,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -21,6 +29,7 @@ const configSource = await readFile(
 	join(projectDir, "electron-builder.cjs"),
 	"utf8",
 );
+/** Load the build configuration for a platform without changing the host process. */
 function loadConfig(platform) {
 	const module = { exports: {} };
 	runInNewContext(configSource, {
@@ -40,6 +49,7 @@ test("macOS retains its product name and platform file filters", () => {
 	assert.equal(config.linux.files, undefined);
 });
 
+/** Generate the builder's actual Debian scripts inside a disposable fixture. */
 async function fixture(run) {
 	const root = await mkdtemp(join(tmpdir(), "zuse-linux-package-"));
 	try {
@@ -81,6 +91,7 @@ test("deb install directory and desktop launcher use a space-free path", async (
 	});
 });
 
+/** Run a generated hook with mocked mutations and filesystem probes confined to the fixture. */
 async function runScript(root, script, args = [], failure = "") {
 	const log = join(root, "commands");
 	await writeFile(log, "");
@@ -89,6 +100,7 @@ async function runScript(root, script, args = [], failure = "") {
 		"chown",
 		"chmod",
 		"ln",
+		"rm",
 		"update-mime-database",
 		"update-desktop-database",
 		"unshare",
@@ -99,8 +111,14 @@ async function runScript(root, script, args = [], failure = "") {
 			{ mode: 0o755 },
 		);
 	}
-	execFileSync("bash", ["-n", script]);
-	const result = spawnSync("bash", [script, ...args], {
+	const isolatedScript = join(root, "isolated-hook");
+	const source = (await readFile(script, "utf8"))
+		.replaceAll("/usr/bin/", `${root}/usr/bin/`)
+		.replaceAll("/etc/alternatives/", `${root}/etc/alternatives/`)
+		.replaceAll("/opt/", `${root}/opt/`);
+	await writeFile(isolatedScript, source);
+	execFileSync("bash", ["-n", isolatedScript]);
+	const result = spawnSync("bash", [isolatedScript, ...args], {
 		env: {
 			...process.env,
 			PATH: `${root}:${process.env.PATH}`,
@@ -109,7 +127,10 @@ async function runScript(root, script, args = [], failure = "") {
 		},
 		encoding: "utf8",
 	});
-	return { status: result.status, commands: await readFile(log, "utf8") };
+	return {
+		status: result.status,
+		commands: (await readFile(log, "utf8")).replaceAll(root, ""),
+	};
 }
 
 test("postinst configures root-owned SUID sandbox even when root can unshare", async () => {
@@ -143,13 +164,48 @@ test("postinst fails if sandbox permissions cannot be configured", async () => {
 	});
 });
 
+test("postinst leaves package recovery actions untouched", async () => {
+	await fixture(async ({ root, scripts }) => {
+		for (const args of [
+			["abort-upgrade", "0.24.0"],
+			["abort-remove"],
+			["abort-remove", "in-favour", "replacement", "0.24.0"],
+			["abort-deconfigure", "in-favour", "replacement", "0.24.0"],
+		]) {
+			const { status, commands } = await runScript(
+				root,
+				scripts[0],
+				args,
+				"chown",
+			);
+			assert.equal(status, 0);
+			assert.equal(commands, "");
+		}
+	});
+});
+
+test("postinst mocks removal of an unmanaged CLI symlink", async () => {
+	await fixture(async ({ root, scripts }) => {
+		const directory = join(root, "usr/bin");
+		await mkdir(directory, { recursive: true });
+		const link = join(directory, "zuse");
+		await symlink("../legacy-zuse", link);
+		const { status, commands } = await runScript(root, scripts[0], [
+			"configure",
+		]);
+		assert.equal(status, 0);
+		assert.match(commands, /rm <-f> <\/usr\/bin\/zuse>/);
+		assert.equal(await readlink(link), "../legacy-zuse");
+	});
+});
+
 test("fresh installs and purge tolerate alternatives already being absent", async () => {
 	await fixture(async ({ root, scripts }) => {
-		for (const script of scripts) {
+		for (const [index, script] of scripts.entries()) {
 			const { status } = await runScript(
 				root,
 				script,
-				["purge"],
+				[index === 0 ? "configure" : "purge"],
 				"missing-alternative",
 			);
 			assert.equal(status, 0);

@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+# Recovery actions must not require package files or change launcher state.
+if [ "${1:-}" != "configure" ]; then
+    exit 0
+fi
+
 # Installation runs as root, so probing unshare here does not tell us whether
 # desktop users can create namespaces under Ubuntu's AppArmor restrictions.
 # Keep the SUID fallback available without disabling Chromium's sandbox.
