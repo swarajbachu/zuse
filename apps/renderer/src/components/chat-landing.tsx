@@ -1189,13 +1189,16 @@ function WorkspaceChatLanding({
 				staged = true;
 				setPendingCloudChatId(summary.chatId);
 				setPendingCloudStep("starting");
-				releaseStartupConnection =
-					await connectCloudWorkspaceForLaunch(summary);
-				assertRendererWorkspaceCurrent(workspace);
+				// Open the staged chat immediately: its header, transcript and
+				// mailbox queue carry the startup status while the gateway connects,
+				// so the user is never left on a bare landing for the whole boot.
 				if (ownsLanding()) {
 					useChatsStore.getState().select(summary.chatId);
 					opened = true;
 				}
+				releaseStartupConnection =
+					await connectCloudWorkspaceForLaunch(summary);
+				assertRendererWorkspaceCurrent(workspace);
 				if (!usesDurableInitialMessage) {
 					// This control plane delivered the prompt with the launch intent,
 					// so there is no first message left for us to enrich.
@@ -1247,7 +1250,7 @@ function WorkspaceChatLanding({
 					cause instanceof StartupInputError
 						? cause.message
 						: formatError(cause);
-				// Once the connected chat is selected the lander is gone: the open chat is the
+				// Once the chat is selected the lander is gone: the open chat is the
 				// only surface left that can carry the failure.
 				if (opened) {
 					toastManager.add({
