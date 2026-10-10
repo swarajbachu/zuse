@@ -103,10 +103,13 @@ describe("pending cloud gateway transport", () => {
 				native.availability("pending");
 				expect(native.readyState).toBe(2);
 				// Native close is asynchronous; no send defect or frame can escape meanwhile.
-				yield* write("racing-mutation");
+				yield* write("racing-mutation").pipe(
+					Effect.forkScoped({ startImmediately: true }),
+				);
 				expect(native.sent).toEqual(["handshake"]);
-				native.finishClose(4100, "workspace runtime unavailable");
-				const result = yield* Fiber.join(reader);
+				const result = yield* Fiber.join(reader).pipe(
+					Effect.timeout("100 millis"),
+				);
 				expect(result).toMatchObject({
 					_tag: "Failure",
 					failure: {
@@ -127,5 +130,45 @@ describe("pending cloud gateway transport", () => {
 		expect(listener).not.toHaveBeenCalled();
 		expect(needsCloudGatewayReadiness(["zuse-workspace-v3"])).toBe(true);
 		expect(needsCloudGatewayReadiness("zuse-workspace-v2")).toBe(false);
+	});
+	test.each([
+		"pending",
+		"available",
+	] as const)("reports %s retirement once without waiting for or faking native close", (state) => {
+		const native = new TestSocket();
+		native.deferClose = true;
+		const nativeClosed = vi.fn();
+		native.addEventListener("close", nativeClosed);
+		const socket = cloudGatewaySocket(native as unknown as WebSocket);
+		const once = vi.fn();
+		const persistent = vi.fn();
+		const removed = vi.fn();
+		const received = vi.fn();
+		socket.addEventListener("close", once, { once: true });
+		socket.addEventListener("close", persistent);
+		socket.addEventListener("close", removed);
+		socket.removeEventListener("close", removed);
+		socket.addEventListener("message", received);
+		native.open();
+		native.availability("available");
+		native.availability(state, state === "available");
+		expect(socket.readyState).toBe(3);
+		expect(native.readyState).toBe(2);
+		expect(once).toHaveBeenCalledTimes(1);
+		expect(persistent).toHaveBeenCalledTimes(1);
+		expect(once.mock.calls[0]?.[0]).toMatchObject({
+			code: 4100,
+			reason: "workspace runtime unavailable",
+		});
+		expect(removed).not.toHaveBeenCalled();
+		expect(nativeClosed).not.toHaveBeenCalled();
+		native.message("obsolete-rpc-response");
+		native.availability("available", true);
+		expect(received).not.toHaveBeenCalled();
+		expect(native.close).toHaveBeenCalledTimes(1);
+		native.finishClose(1006, "");
+		expect(nativeClosed).toHaveBeenCalledTimes(1);
+		expect(once).toHaveBeenCalledTimes(1);
+		expect(persistent).toHaveBeenCalledTimes(1);
 	});
 });

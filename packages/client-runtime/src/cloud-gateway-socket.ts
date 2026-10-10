@@ -15,12 +15,14 @@ export const cloudGatewaySocket = (socket: WebSocket): WebSocket => {
 	type ListenerOptions = Parameters<WebSocket["addEventListener"]>[2];
 	type Handler = (event: Event) => void;
 	const listeners = new Map<Listener, { readonly once: boolean }>();
+	const closeListeners = new Map<Listener, { readonly once: boolean }>();
 	let opened: Event | undefined;
+	let closed: CloseEvent | undefined;
 	let available = false;
 	let exposed = false;
 	let retiring = false;
 	const notifyOpen = () => {
-		if (!available || opened === undefined || exposed) return;
+		if (retiring || !available || opened === undefined || exposed) return;
 		exposed = true;
 		for (const [listener, options] of listeners) {
 			if (options.once) listeners.delete(listener);
@@ -33,10 +35,28 @@ export const cloudGatewaySocket = (socket: WebSocket): WebSocket => {
 		notifyOpen();
 	});
 	const messageListeners = new Map<Listener, Handler>();
+	const notifyClose = (event: CloseEvent) => {
+		if (closed !== undefined) return;
+		closed = event;
+		listeners.clear();
+		for (const [listener, options] of closeListeners) {
+			if (options.once) closeListeners.delete(listener);
+			if (typeof listener === "function") listener.call(socket, event);
+			else listener.handleEvent(event);
+		}
+		closeListeners.clear();
+		for (const wrapped of messageListeners.values())
+			socket.removeEventListener("message", wrapped);
+		messageListeners.clear();
+	};
 	const proxy = new Proxy(socket, {
 		get(target, property) {
 			if (property === "readyState")
-				return target.readyState === 1 && !exposed ? 0 : target.readyState;
+				return closed !== undefined
+					? 3
+					: target.readyState === 1 && !exposed
+						? 0
+						: target.readyState;
 			if (property === "addEventListener")
 				return (
 					type: string,
@@ -44,6 +64,13 @@ export const cloudGatewaySocket = (socket: WebSocket): WebSocket => {
 					options?: ListenerOptions,
 				) => {
 					if (listener === null) return;
+					if (type === "close") {
+						if (!closeListeners.has(listener))
+							closeListeners.set(listener, {
+								once: typeof options === "object" && options.once === true,
+							});
+						return;
+					}
 					if (type === "open") {
 						listeners.set(listener, {
 							once: typeof options === "object" && options.once === true,
@@ -53,7 +80,7 @@ export const cloudGatewaySocket = (socket: WebSocket): WebSocket => {
 					if (type === "message") {
 						if (messageListeners.has(listener)) return;
 						const wrapped: Handler = (event) => {
-							if (availability(event)) return;
+							if (retiring || availability(event)) return;
 							if (typeof listener === "function") listener.call(target, event);
 							else listener.handleEvent(event);
 						};
@@ -70,6 +97,10 @@ export const cloudGatewaySocket = (socket: WebSocket): WebSocket => {
 					options?: ListenerOptions,
 				) => {
 					if (listener === null) return;
+					if (type === "close") {
+						closeListeners.delete(listener);
+						return;
+					}
 					if (type === "open") {
 						listeners.delete(listener);
 						return;
@@ -103,6 +134,7 @@ export const cloudGatewaySocket = (socket: WebSocket): WebSocket => {
 		}
 	};
 	socket.addEventListener("message", (event) => {
+		if (retiring) return;
 		if (!availability(event)) return;
 		const state = decode(JSON.parse(event.data));
 		available = state.state === "available";
@@ -112,18 +144,26 @@ export const cloudGatewaySocket = (socket: WebSocket): WebSocket => {
 			// Signal transport closure as soon as an established peer disappears:
 			// throwing from send would be an Effect defect, not a retryable close.
 			retiring = true;
-			socket.close(
-				WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code,
-				WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.reason,
-			);
+			// Native close handshakes can take seconds. Retire this RPC transport
+			// immediately so its owner can reconnect without waiting for TCP teardown.
+			try {
+				socket.close(
+					WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code,
+					WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.reason,
+				);
+			} finally {
+				notifyClose(
+					new CloseEvent("close", {
+						...WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE,
+						wasClean: false,
+					}),
+				);
+			}
 			return;
 		}
 		notifyOpen();
 	});
-	socket.addEventListener("close", () => {
-		listeners.clear();
-		messageListeners.clear();
-	});
+	socket.addEventListener("close", notifyClose);
 	return proxy;
 };
 
