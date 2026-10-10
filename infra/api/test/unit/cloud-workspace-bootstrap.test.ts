@@ -133,6 +133,112 @@ const makeRuntime = async (organizationWorkspacesEnabled = false) => {
 };
 
 describe("cloud workspace runtime bootstrap", () => {
+	test.each([
+		"delete-queued",
+		"delete-rejected",
+	])("removes deletion intent from full and incremental chat catalogs before provider cleanup (%s)", async (statusCode) => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			const now = Date.now();
+			await runtime.runPromise(
+				store.connectProject({
+					projectId: "project",
+					accountId: "account-1",
+					repositoryIdentity: "github.com/acme/app",
+					repositoryUrl: "https://github.com/acme/app.git",
+					displayName: "App",
+					defaultBranch: "main",
+					visibility: "private",
+					gitConnectionKind: "github-app",
+					cloudEnvironment: {},
+					secretBindings: [],
+					configurationDigest: "digest",
+					state: "ready",
+					idempotencyKey: "project",
+					createdAtMs: now,
+					updatedAtMs: now,
+				}),
+			);
+			const workspace = {
+				workspaceId: "workspace-delete",
+				accountId: "account-1",
+				projectId: "project",
+				buildId: "build",
+				provider: "fake",
+				runtimeState: "offline" as const,
+				chatId: "chat-delete",
+				initialSessionId: "session-delete",
+				branch: "task/delete",
+				baseRef: "main",
+				state: "failed" as const,
+				desiredState: "ready" as const,
+				statusCode: "provider-unavailable",
+				idempotencyKey: "delete-test",
+				requestConfig: {},
+				nextActionAtMs: Number.MAX_SAFE_INTEGER,
+				revision: 1,
+				createdAtMs: now,
+				updatedAtMs: now,
+				lastActivityAtMs: now,
+			};
+			await runtime.runPromise(
+				store.createWorkspace(workspace, {
+					workspaceId: workspace.workspaceId,
+					accountId: workspace.accountId,
+					chatId: workspace.chatId,
+					sessionId: workspace.initialSessionId,
+					turnId: "turn",
+					commandId: "command",
+					ciphertext: "sealed",
+					expiresAtMs: now + 60_000,
+					createdAtMs: now,
+				}),
+			);
+			const read = (path: string) =>
+				runtime.runPromise(
+					handleRequest(
+						new Request(`${ISSUER}${path}`, {
+							headers: { authorization: "Bearer test-token:account-1" },
+						}),
+					),
+				);
+			expect(await (await read(ApiPaths.cloudChats)).json()).toMatchObject({
+				chats: [{ workspaceId: workspace.workspaceId }],
+			});
+			const head = await (
+				await read(`${ApiPaths.cloudChatChanges}?cursor=0`)
+			).json();
+			await runtime.runPromise(
+				store.saveWorkspace({
+					...workspace,
+					desiredState: "deleted",
+					statusCode,
+					revision: 2,
+					updatedAtMs: now + 1,
+				}),
+			);
+			for (const scope of ["active", "all", "archived"]) {
+				expect(
+					await (await read(`${ApiPaths.cloudChats}?scope=${scope}`)).json(),
+				).toEqual({ chats: [] });
+			}
+			expect(
+				await (
+					await read(`${ApiPaths.cloudChatChanges}?cursor=${head.cursor}`)
+				).json(),
+			).toMatchObject({
+				chats: [],
+				deletedWorkspaceIds: [workspace.workspaceId],
+			});
+			expect(
+				await runtime.runPromise(store.getWorkspace(workspace.workspaceId)),
+			).toMatchObject({ desiredState: "deleted", statusCode });
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
 	test("signed renewal survives two days asleep and rejects wrong identity, stale proof and revoked receipt replay", async () => {
 		const runtime = await makeRuntime();
 		try {

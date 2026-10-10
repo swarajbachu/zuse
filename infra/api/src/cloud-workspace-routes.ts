@@ -4024,7 +4024,12 @@ const routeCloudWorkspaceRequestWithAccess = (
 					))
 				)
 					continue;
-				if (workspace.state === "deleted") {
+				// An accepted deletion removes the chat immediately. Provider cleanup
+				// can retry or fail independently without resurrecting a clickable chat.
+				if (
+					workspace.state === "deleted" ||
+					workspace.desiredState === "deleted"
+				) {
 					if (!replacement) deletedWorkspaceIds.push(workspace.workspaceId);
 					continue;
 				}

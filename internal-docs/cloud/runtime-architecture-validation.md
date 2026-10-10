@@ -429,3 +429,25 @@ Further speed work requires measuring dispatch, database, guest launch, enrollme
 The final review reproduced an execution-gate cancellation race: interrupting an accepted prompt while repository preparation waited could still start its agent after preparation completed. Preparation waiting now coalesces outside the serialized lifecycle lane, allowing interrupts to settle immediately; start/turn handlers revalidate the active turn after preparation and before an external-delivery attempt. The regression asserts Stop completes while preparation remains blocked and that the cancelled prompt causes no provider start or send after release.
 
 Final local checks passed: API suite 943 tests, all 117 PostgreSQL integration tests against a disposable migrated local database (including the 17 initially skipped database tests), 275 selected server tests, 325 client-runtime tests, 262 provider tests, 51 targeted renderer tests, and 30 localization package tests. All five affected package type checks passed; localization source/catalog validation and its script tests, architecture boundaries, Bash syntax, and Biome checks passed. Biome reports existing nonblocking diagnostics. A stale English review hash introduced during rebase was corrected and localization validation rerun. These checks do not add a full-start latency measurement or a fleet reliability qualification.
+
+### October 10 screenshot: deleted test chats remained visible
+
+The selected “Reply only ACK_BOXD_RESTORE…” chat is staging workspace
+`workspace_G0mEyvviaEd_ROoK`; the adjacent “Reliability smoke test…” chat is
+`workspace_dMpapPBAH-PcaVpK`. Read-only staging SQL confirms both have
+`desired_state=deleted`, `state=failed`, `status_code=delete-rejected`, no
+recorded provider sandbox ID, and no scheduled retry. The selected banner
+reflects that retained failed record, rather than establishing a new socket
+disconnect. The saved provider connection is `provider_41pPYUVLAaVjUOkqeYf15A`;
+the retained records contain no diagnostic establishing the provider rejection's
+original reason. Authentication reads of both API environments returned HTTP 200.
+
+The chat catalog previously excluded only completed deletion (`state=deleted`),
+so a cleanup rejection resurrected a chat whose deletion was already accepted.
+It now excludes deletion intent immediately and emits an incremental tombstone,
+while leaving the backend record available for cleanup. Regression cases for
+queued and rejected deletion failed before the fix and pass after it; ordinary
+failed chats remain visible until their deletion is accepted. This is an API
+catalog fix and does not require a new runtime image. The “hii” and “yoo does
+this work?” workspaces in the same screenshot separately report
+`provider-unavailable`; this catalog fix does not repair those provider failures.
