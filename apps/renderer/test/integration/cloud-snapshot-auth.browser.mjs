@@ -55,8 +55,8 @@ const server = await createServer({
     }}));`;
 				if (id === "\0auth-cache")
 					return `
-    export const peekCloudImage = () => window.cold ? undefined : window.image;
-    export const loadCloudImage = async () => window.image;
+    export const peekCloudImage = () => window.cold ? undefined : window.cachedImage;
+    export const loadCloudImage = async () => { if(window.pauseImageRefresh) { window.refreshStarted = true; await new Promise(resolve => {window.resolveImageRefresh = resolve;}); } return window.image; };
     export const peekCloudAuth = () => window.auth;
     export const loadCloudAuth = async () => ({...window.auth});
     export const peekCloudProviderConnections = () => window.connections;
@@ -72,6 +72,10 @@ const server = await createServer({
     window.calls = []; window.saved = 0;
     window.cold = new URLSearchParams(location.search).has('cold');
     window.image = {providerId:'boxd',state:'ready',snapshot:{snapshotId:'snap-original',runtimeUser:'developer',agentAuthentication:'native',gitAuthentication:'native',agents:[{providerId:'claude',state:'detected',account:'snapshot@example.test'},{providerId:'codex',state:'detected',account:'ChatGPT'}],repositories:[{path:'/home/developer/My Projects/repo'}]}};
+    window.cachedImage = structuredClone(window.image);
+    window.stale = new URLSearchParams(location.search).has('stale');
+    window.pauseImageRefresh = window.stale;
+    if(window.stale) window.image.snapshot = {...window.image.snapshot, snapshotId:'snap-refreshed', runtimeUser:'current-user', gitAuthentication:'zuse', repositories:[{path:'/srv/current-repo'}]};
     window.connections = {customSnapshotsEnabled:true,connections:[{connectionId:'byok',providerId:'boxd',active:true}]};
     window.auth = {authorityState:'ready',providers:[]};
     function App(){const [image,setImage] = React.useState(window.image);return React.createElement(CloudSnapshotAuthSetup,{image,onChanged:async()=>{window.saved++;setImage({...window.image});}})}
@@ -92,7 +96,7 @@ try {
 	});
 	const errors = [];
 	page.on("pageerror", (e) => errors.push(e.message));
-	for (const query of ["", "?cold"]) {
+	for (const query of ["", "?cold", "?stale"]) {
 		await page.goto(
 			`http://127.0.0.1:${server.httpServer.address().port}/__snapshot_auth${query}`,
 		);
@@ -107,6 +111,15 @@ try {
 		const apply = page.getByRole("button", { name: "Switch", exact: true });
 		const cancel = page.getByRole("button", { name: "Cancel", exact: true });
 		await source.waitFor();
+		if (query === "?stale") {
+			await page.waitForFunction(() => window.refreshStarted);
+			assert.equal(await source.getAttribute("data-disabled"), "");
+			assert.equal(await apply.count(), 0);
+			await page.evaluate(() => {
+				window.pauseImageRefresh = false;
+				window.resolveImageRefresh();
+			});
+		}
 		await page.waitForFunction(
 			() =>
 				document
@@ -217,13 +230,25 @@ try {
 		);
 		const saved = calls.find((c) => c.name === "cloud.snapshot.import").payload;
 		assert.equal(saved.agentAuthentication, "zuse");
-		assert.equal(saved.gitAuthentication, "native");
-		assert.equal(saved.runtimeUser, "developer");
-		assert.equal(saved.snapshotId, "snap-original");
+		assert.equal(
+			saved.gitAuthentication,
+			query === "?stale" ? "zuse" : "native",
+		);
+		assert.equal(
+			saved.runtimeUser,
+			query === "?stale" ? "current-user" : "developer",
+		);
+		assert.equal(
+			saved.snapshotId,
+			query === "?stale" ? "snap-refreshed" : "snap-original",
+		);
 		assert.equal(saved.connectionId, "byok");
-		assert.deepEqual(saved.repositoryPaths, [
-			"/home/developer/My Projects/repo",
-		]);
+		assert.deepEqual(
+			saved.repositoryPaths,
+			query === "?stale"
+				? ["/srv/current-repo"]
+				: ["/home/developer/My Projects/repo"],
+		);
 		assert.equal(
 			calls.some((c) => c.name.includes("build")),
 			false,
@@ -256,8 +281,14 @@ try {
 					.payload,
 		);
 		assert.equal(restored.agentAuthentication, "native");
-		assert.equal(restored.gitAuthentication, "native");
-		assert.equal(restored.snapshotId, "snap-original");
+		assert.equal(
+			restored.gitAuthentication,
+			query === "?stale" ? "zuse" : "native",
+		);
+		assert.equal(
+			restored.snapshotId,
+			query === "?stale" ? "snap-refreshed" : "snap-original",
+		);
 		await page
 			.getByText(
 				"Saved for new workspaces. Existing workspaces keep their current logins.",
@@ -269,7 +300,7 @@ try {
 	}
 	assert.deepEqual(errors, []);
 	console.log(
-		"Snapshot-first authentication: inline switching, cancellation, provider login, apply/retry and narrow layout passed with cached and uncached snapshots",
+		"Snapshot-first authentication: inline switching, cancellation, provider login, apply/retry and narrow layout passed with cached, uncached and stale snapshots",
 	);
 } finally {
 	await browser?.close();

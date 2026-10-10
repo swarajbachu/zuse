@@ -26,6 +26,7 @@ import { DeviceCode } from "./connection-login-steps.tsx";
 
 export const SNAPSHOT_INSTALL_COMMAND = "npx zusehq snapshot install";
 
+/** Edit snapshot drafts, or refresh hidden fields before applying an authentication-only change. */
 export function CloudSnapshotSettings({
 	connectionId,
 	authenticationOnly = false,
@@ -39,11 +40,13 @@ export function CloudSnapshotSettings({
 	const fieldId = useId();
 	const [cachedImage] = useState(() => peekCloudImage("boxd"));
 	const cachedSnapshot = cachedImage?.snapshot;
-	const initialized = useRef(cachedSnapshot !== undefined);
+	const initialized = useRef(
+		!authenticationOnly && cachedSnapshot !== undefined,
+	);
 	const changed = useRef(onChanged);
 	changed.current = onChanged;
 	const [image, setImage] = useState<CloudAccountImage | null>(
-		cachedImage ?? null,
+		authenticationOnly ? null : (cachedImage ?? null),
 	);
 	const [snapshotId, setSnapshotId] = useState(
 		cachedSnapshot?.snapshotId ?? "",

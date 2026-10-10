@@ -12,7 +12,7 @@ import { resolveChatRuntimeMode } from "./auto-worktree.ts";
 import { selectAuthenticatedProvider } from "./model-picker-availability.ts";
 import { useSettingsStore } from "./settings-client-bus.ts";
 
-/** Shared preparation for adding a tab and replacing the final tab. */
+/** Prepare tab defaults concurrently; missing provider feedback takes precedence over runtime errors. */
 export const prepareChatTab = async (
 	environmentId: EnvironmentId,
 	projectId: FolderId | null,
@@ -22,12 +22,14 @@ export const prepareChatTab = async (
 	readonly runtimeMode: RuntimeMode;
 } | null> => {
 	const settings = useSettingsStore.getState();
-	const [, runtimeMode] = await Promise.all([
-		useProvidersStore.getState().loadFor(environmentId),
+	const providersPromise = useProvidersStore.getState().loadFor(environmentId);
+	const runtimeModePromise =
 		projectId === null
 			? Promise.resolve(settings.defaultRuntimeMode)
-			: resolveChatRuntimeMode(environmentId, projectId),
-	]);
+			: resolveChatRuntimeMode(environmentId, projectId);
+	// Observe errors even when provider discovery fails or finds no usable provider.
+	void runtimeModePromise.catch(() => undefined);
+	await providersPromise;
 	const providerId = selectAuthenticatedProvider({
 		preferredProviderId: settings.defaultProviderId,
 		providerIds: PROVIDER_IDS,
@@ -37,6 +39,7 @@ export const prepareChatTab = async (
 		providerEnabled: settings.providerEnabled ?? {},
 	});
 	if (providerId === null) return null;
+	const runtimeMode = await runtimeModePromise;
 	return {
 		providerId,
 		model:

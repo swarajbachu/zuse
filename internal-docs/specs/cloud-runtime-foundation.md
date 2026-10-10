@@ -161,13 +161,16 @@ must be specified together; availability must not silently remove authorization.
 
 ### Process identity, credentials, and connections have different lifetimes
 
-Current code has a concrete expiry coupling: runtime credentials have a
-15-minute TTL (`cloud-workspace-routes.ts`) and renew at half-life. The runtime's
-renewal function fails before making a request if the credential has expired;
-`superviseRuntimeCredential` then sends its own process SIGTERM. The API store
-also rejects renewal after the stored expiry. A sleep longer than the remaining
-TTL therefore leaves a preserved process unable to renew through this interface.
-This is a code-path finding, not proof of the cause of every production outage.
+Runtime credentials have a 15-minute TTL (`cloud-workspace-routes.ts`) and renew
+at half-life. `renewRuntimeCredential` sends a signed renewal request even after
+expiry. The API store permits renewal when fresh signing-key proof verifies and
+the workspace lifecycle, runtime generation, and gateway epoch still authorize
+the same owner. `superviseRuntimeCredential` waits for renewal to finish;
+transport outages retry without terminating execution. It sends its own process
+SIGTERM only after an authoritative denial or a changed identity fence. A sleep
+longer than the remaining TTL can therefore recover through signed renewal
+without replacing the preserved process. This behavior does not establish the
+cause of every production outage.
 
 The new authentication interface must separate three principals:
 
