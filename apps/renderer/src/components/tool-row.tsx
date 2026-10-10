@@ -3,6 +3,7 @@ import "@zuse/i18n/english/chat";
 import "@zuse/i18n/english/tools";
 import "@zuse/i18n/english/plugins";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { isEmitUiTool } from "@zuse/client-runtime/generative-ui";
 import {
 	type ChatId,
 	isRedundantShellDescription,
@@ -82,10 +83,6 @@ const normalizeToolName = (tool: string): string => {
 		? "local_command_execute"
 		: normalized;
 };
-
-/** Zuse's generative-UI tool, whatever MCP prefix the provider adds. */
-const isEmitUiTool = (tool: string): boolean =>
-	/(?:^|__|[.:/-])emit_ui$/.test(tool);
 
 /** Managed-plugin gateway tools, whatever MCP prefix the provider adds. */
 const pluginToolKind = (tool: string): "search" | "schema" | "call" | null => {

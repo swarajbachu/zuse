@@ -25,6 +25,8 @@ export type ChatTimelineRow =
 			readonly message: Message;
 			readonly enterUser: boolean;
 			readonly showAssistantCommands: boolean;
+			/** Generated UI accepts input only in the latest turn. */
+			readonly interactive?: boolean;
 	  }
 	| {
 			readonly kind: "delegation";
@@ -292,6 +294,9 @@ export function deriveChatTimelineRows({
 					message: group.message,
 					enterUser: false,
 					showAssistantCommands: showAssistantCommands(group.message),
+					...(isLastTurn && group.message.content._tag === "ui_spec"
+						? { interactive: true }
+						: {}),
 				});
 			} else {
 				rows.push({ kind: "delegation", id: group.id, members: group.members });

@@ -23,7 +23,17 @@ describe("generative UI spec", () => {
 			"Grid",
 			"BarChart",
 			"LineChart",
+			"Callout",
+			"Steps",
+			"Tabs",
 			"FollowUps",
+			"Form",
+			"Input",
+			"TextArea",
+			"Select",
+			"RadioGroup",
+			"Checkbox",
+			"Slider",
 		]);
 		expect(UI_SPEC_VERSION).toBe(1);
 	});
@@ -182,5 +192,45 @@ it("rejects unused components instead of silently losing output", () => {
 	).toMatchObject({
 		ok: false,
 		error: expect.stringContaining("Unused statements"),
+	});
+});
+
+describe("forms and layout components", () => {
+	it("accepts forms with every field type and nested layout", () => {
+		expect(
+			validateGenerativeUiSpec(`root = Form([Grid([env, region], 2), migrate, rollout, notes, Input("owner", "Owner")], "Deploy", "Deploy settings")
+env = RadioGroup("env", "Environment", ["staging", "production"], "staging")
+region = Select("region", "Region", ["us-east-1", "eu-west-1"])
+migrate = Checkbox("migrate", "Run migrations", true)
+rollout = Slider("rollout", "Rollout", 0, 100, 25, 5)
+notes = TextArea("notes", "Notes")`),
+		).toEqual({ ok: true });
+		expect(
+			validateGenerativeUiSpec(`root = Card([plan, risk, views])
+plan = Steps([{label: "Build", status: "done"}, {label: "Ship", status: "pending"}])
+risk = Callout("Locks the users table.", "warn", "Heads up")
+views = Tabs([{label: "Before", content: Text("a")}, {label: "After", content: Text("b")}])`),
+		).toEqual({ ok: true });
+	});
+	it.each([
+		['root = Card([Input("a", "A")])', "inside a Form"],
+		['root = Form([Input("a", "A"), TextArea("a", "B")])', "Duplicate field"],
+		['root = Form([Text("hi")])', "at least one field"],
+		['root = Form([Form([Input("a", "A")])])', "cannot be nested"],
+		['root = Form([Select("s", "S", ["x"], "y")])', "one of the options"],
+		['root = Form([RadioGroup("r", "R", ["only"])])', "r"],
+		['root = Form([Slider("s", "S", 10, 0)])', "min must be below max"],
+		['root = Form([Slider("s", "S", 0, 10, 20)])', "within min and max"],
+		['root = Form([Input("bad name", "A")])', "name"],
+		[
+			'root = Tabs([{label: "A", content: "x"}, {label: "B", content: Text("b")}])',
+			"must be a component",
+		],
+		['root = Tabs([{label: "Only", content: Text("a")}])', "tabs"],
+		['root = Steps([{label: "x", status: "skipped"}])', "status"],
+	])("rejects %s", (spec, reason) => {
+		const result = validateGenerativeUiSpec(spec);
+		expect(result.ok).toBe(false);
+		if (!result.ok) expect(result.error).toContain(reason);
 	});
 });

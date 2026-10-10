@@ -708,6 +708,10 @@
 	"delegation_group_running": "{{working}} sur {{total}} en cours",
 	"message_row_ui_spec_generated": "UI générée",
 	"message_row_ui_spec_could_not_render": "Impossible d'afficher ce bloc d'interface — la spec brute est affichée",
-	"message_row_ui_spec_follow_up_failed": "Impossible d'ajouter la suggestion",
-	"message_row_ui_spec_follow_up_open_chat": "Ouvrez cette discussion pour ajouter la suggestion à son champ de saisie."
+	"message_row_ui_spec_submit": "Envoyer",
+	"message_row_ui_spec_sent": "Envoyé",
+	"message_row_ui_spec_yes": "Oui",
+	"message_row_ui_spec_no": "Non",
+	"message_row_ui_spec_send_failed": "Impossible d'envoyer votre réponse",
+	"message_row_ui_spec_send_open_chat": "Ouvrez cette discussion pour l'envoyer."
 }

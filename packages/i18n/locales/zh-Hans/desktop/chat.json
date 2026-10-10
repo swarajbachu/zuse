@@ -705,6 +705,10 @@
 	"delegation_group_running": "{{total}} 个中 {{working}} 个运行中",
 	"message_row_ui_spec_generated": "生成的 UI",
 	"message_row_ui_spec_could_not_render": "无法渲染此 UI 块 — 显示原始 spec",
-	"message_row_ui_spec_follow_up_failed": "无法添加建议",
-	"message_row_ui_spec_follow_up_open_chat": "打开此聊天以将建议添加到其输入框。"
+	"message_row_ui_spec_submit": "提交",
+	"message_row_ui_spec_sent": "已发送",
+	"message_row_ui_spec_yes": "是",
+	"message_row_ui_spec_no": "否",
+	"message_row_ui_spec_send_failed": "无法发送你的回复",
+	"message_row_ui_spec_send_open_chat": "打开此聊天以发送。"
 }

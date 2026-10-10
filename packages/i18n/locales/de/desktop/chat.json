@@ -705,6 +705,10 @@
 	"delegation_group_running": "{{working}} von {{total}} aktiv",
 	"message_row_ui_spec_generated": "Generierte UI",
 	"message_row_ui_spec_could_not_render": "Dieser UI-Block konnte nicht gerendert werden — Rohspezifikation wird angezeigt",
-	"message_row_ui_spec_follow_up_failed": "Vorschlag konnte nicht hinzugefügt werden",
-	"message_row_ui_spec_follow_up_open_chat": "Öffne diesen Chat, um den Vorschlag in sein Eingabefeld einzufügen."
+	"message_row_ui_spec_submit": "Senden",
+	"message_row_ui_spec_sent": "Gesendet",
+	"message_row_ui_spec_yes": "Ja",
+	"message_row_ui_spec_no": "Nein",
+	"message_row_ui_spec_send_failed": "Antwort konnte nicht gesendet werden",
+	"message_row_ui_spec_send_open_chat": "Öffne diesen Chat, um sie zu senden."
 }

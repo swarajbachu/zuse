@@ -705,6 +705,10 @@
 	"delegation_group_running": "{{total}}개 중 {{working}}개 실행 중",
 	"message_row_ui_spec_generated": "생성된 UI",
 	"message_row_ui_spec_could_not_render": "이 UI 블록을 렌더링할 수 없습니다 — 원시 스펙을 표시합니다",
-	"message_row_ui_spec_follow_up_failed": "제안을 추가할 수 없습니다",
-	"message_row_ui_spec_follow_up_open_chat": "이 채팅을 열어 제안을 입력창에 추가하세요."
+	"message_row_ui_spec_submit": "제출",
+	"message_row_ui_spec_sent": "전송됨",
+	"message_row_ui_spec_yes": "예",
+	"message_row_ui_spec_no": "아니요",
+	"message_row_ui_spec_send_failed": "응답을 보낼 수 없습니다",
+	"message_row_ui_spec_send_open_chat": "이 채팅을 열어 보내세요."
 }

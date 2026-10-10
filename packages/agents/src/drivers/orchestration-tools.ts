@@ -242,7 +242,15 @@ const LIST_MODELS_DESCRIPTION =
 const WHOAMI_DESCRIPTION =
 	"Return your own session id, chat id, project id, workspace (worktreeId — null means the project's main checkout), providerId, model, and autonomy level. Use to reason about your own constraints and location before spawning more work. Read-only.";
 
-const EMIT_UI_DESCRIPTION = `Render a small UI block (a responsive dashboard with stats, charts, tables, and progress) directly in the chat transcript. Input spec is OpenUI Lang text. The block is display-only: it cannot run tools, take form input, or call back into this session. FollowUps buttons only place a prompt in the user's composer; the user decides whether to send it. Use it when a structured visual beats prose: status dashboards, comparisons, checklists.
+const EMIT_UI_DESCRIPTION = `Render UI inline in your reply: dashboards, comparisons, plans, and forms that collect the user's answers. Input spec is OpenUI Lang text. It renders directly in the chat (no card or background), between your text messages.
+
+Interaction: FollowUps buttons and Form submissions send the user's response as their next message, so you receive it as a normal user turn. Only the latest turn's UI accepts input. Nothing else runs — no tools, callbacks, or live data.
+
+When to use:
+- Ask for several structured choices at once → Form (Select, RadioGroup, Checkbox, Slider, Input, TextArea).
+- Offer clear next steps → FollowUps.
+- Show data → Stat, Table, BarChart, LineChart; a plan or progress → Steps; risks → Callout; alternatives → Tabs.
+- Use ordinary text for short answers. Do not invent data. Do not repeat the UI's content in prose.
 
 Syntax rules:
 - One statement per line: name = Expression
@@ -252,13 +260,19 @@ Syntax rules:
 - Define parts on their own lines and reference them by name; every defined name (except root) must be reachable from root
 - Pass null for an optional arg you want to skip
 - Use literal data only. No reactive state, expressions, Query(), Mutation(), or actions.
+- Fields (Input, TextArea, Select, RadioGroup, Checkbox, Slider) must be inside a Form, with unique names. Forms cannot nest.
 - Keep specs under 32,768 characters. Containers hold at most 64 components; charts hold 1-100 points; tables hold 1-20 columns and at most 200 rows.
-- Chart values must be finite numbers. Table rows must match the number of columns.
-- Use ordinary text for short answers. Do not invent data to fill a chart.
-- Add FollowUps only for concrete next steps; write each prompt as the user would say it.
 
-Example:
-root = Card([Grid([Stat("Tests", "428 passed"), Progress("Build", 100)], 2), trend, next], "Build health")
+Example — a form:
+root = Form([env, region, migrate, rollout, notes], "Deploy", "Deploy settings")
+env = RadioGroup("env", "Environment", ["staging", "production"], "staging")
+region = Select("region", "Region", ["us-east-1", "eu-west-1"])
+migrate = Checkbox("migrate", "Run database migrations", true)
+rollout = Slider("rollout", "Initial rollout %", 0, 100, 25, 5)
+notes = TextArea("notes", "Anything else?")
+
+Example — a dashboard:
+root = Card([Grid([Stat("Tests", "428 passed"), Stat("Median build", "8.1 s")], 2), trend, next], "Build health")
 trend = LineChart("Build duration", [{label: "Mon", value: 12}, {label: "Tue", value: 9}], "s")
 next = FollowUps([{label: "Profile slow build", prompt: "Profile the Tuesday build and explain the slowest step."}])
 

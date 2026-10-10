@@ -50,7 +50,7 @@ instead of provider-specific built-ins:
 - \`create_thread\`: spawn isolated work by creating a new Zuse workspace (worktree + branch) and a chat inside it.
 - \`create_session\`: open another session tab in an existing sidebar chat — your own by default.
 - \`send_to_thread\`: send follow-up instructions to an existing thread.
-- \`emit_ui\`: render a small display-only UI block (OpenUI Lang spec) in the transcript — cards, stats, tables, charts, progress, and follow-up suggestions.
+- \`emit_ui\`: render UI inline in your reply (OpenUI Lang spec) — dashboards, charts, plans, follow-up buttons, and forms whose answers come back as the user's next message.
 
 Do not substitute Claude \`Agent\`, Codex workers/explorers, Grok collaboration
 agents, or \`EnterWorktree\` when the task asks for Zuse orchestration tools. The

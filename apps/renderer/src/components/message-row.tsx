@@ -185,6 +185,7 @@ function MessageRowImpl({
 	smoothStreaming = false,
 	forkDestination,
 	sourceProjectId,
+	interactive = false,
 }: {
 	message: Message;
 	sessionId?: SessionId;
@@ -195,6 +196,8 @@ function MessageRowImpl({
 	smoothStreaming?: boolean;
 	forkDestination?: ForkDestination;
 	sourceProjectId?: FolderId;
+	/** Generated UI in the latest turn may send messages. */
+	interactive?: boolean;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 
@@ -291,32 +294,30 @@ function MessageRowImpl({
 			);
 		case "ui_spec":
 			return (
-				<ErrorBoundary
-					resetKey={message.content.spec}
-					fallback={
-						<div className="px-4 py-1.5">
-							<UiSpecFallback spec={message.content.spec} reason="" />
-						</div>
-					}
-				>
-					<Suspense
-						fallback={
-							<div
-								className="mx-4 my-1.5 h-24 rounded-lg bg-muted/30"
-								aria-busy="true"
-							/>
-						}
+				<div className="px-[var(--chat-assistant-gutter,0.75rem)] py-1.5">
+					<ErrorBoundary
+						resetKey={message.content.spec}
+						fallback={<UiSpecFallback spec={message.content.spec} reason="" />}
 					>
-						<UiSpecBlock
-							spec={message.content.spec}
-							sessionRef={
-								!readOnly && environmentId !== undefined
-									? { environmentId, sessionId: message.sessionId }
-									: undefined
+						<Suspense
+							fallback={
+								<div
+									className="h-24 animate-pulse rounded-lg bg-muted/40"
+									aria-busy="true"
+								/>
 							}
-						/>
-					</Suspense>
-				</ErrorBoundary>
+						>
+							<UiSpecBlock
+								spec={message.content.spec}
+								sessionRef={
+									interactive && !readOnly && environmentId !== undefined
+										? { environmentId, sessionId: message.sessionId }
+										: undefined
+								}
+							/>
+						</Suspense>
+					</ErrorBoundary>
+				</div>
 			);
 		case "usage":
 		case "context_usage":

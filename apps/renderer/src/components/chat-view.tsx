@@ -1095,6 +1095,7 @@ function TimelineRow({
 					environmentId={environmentId}
 					providerId={providerId}
 					showAssistantCommands={row.showAssistantCommands}
+					interactive={row.interactive}
 				/>
 			);
 			break;

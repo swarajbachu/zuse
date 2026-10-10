@@ -127,16 +127,14 @@ export const attachToCurrentComposer = (
 	return true;
 };
 
-/** Insert text at the cursor of the CURRENTLY mounted composer. Never sends. */
-export const insertIntoCurrentComposer = (
+/** Send text as the next message through the CURRENTLY mounted composer's
+ * send-or-queue routing. The user's draft is left untouched. */
+export const sendThroughCurrentComposer = (
 	text: string,
 	target?: SessionRef,
 ): boolean => {
 	if (!composerMatches(target)) return false;
-	const insert = useComposerBridge.getState().insertText;
-	if (insert === null) return false;
-	insert(text);
-	return true;
+	return useComposerBridge.getState().sendText?.(text) ?? false;
 };
 
 /**

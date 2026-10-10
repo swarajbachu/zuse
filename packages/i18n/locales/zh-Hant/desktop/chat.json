@@ -705,6 +705,10 @@
 	"delegation_group_running": "{{total}} 個中 {{working}} 個執行中",
 	"message_row_ui_spec_generated": "產生的 UI",
 	"message_row_ui_spec_could_not_render": "無法轉譯此 UI 區塊 — 顯示原始 spec",
-	"message_row_ui_spec_follow_up_failed": "無法新增建議",
-	"message_row_ui_spec_follow_up_open_chat": "開啟此聊天以將建議新增至其輸入框。"
+	"message_row_ui_spec_submit": "提交",
+	"message_row_ui_spec_sent": "已傳送",
+	"message_row_ui_spec_yes": "是",
+	"message_row_ui_spec_no": "否",
+	"message_row_ui_spec_send_failed": "無法傳送你的回覆",
+	"message_row_ui_spec_send_open_chat": "開啟此聊天以傳送。"
 }

@@ -3,13 +3,13 @@ import { EnvironmentId, SessionId } from "@zuse/contracts";
 import { afterEach, expect, test, vi } from "vitest";
 import {
 	attachFileWhenReady,
-	insertIntoCurrentComposer,
+	sendThroughCurrentComposer,
 } from "../../src/lib/context-handoff.ts";
 import { useComposerBridge } from "../../src/store/composer-bridge.ts";
 
 afterEach(() => {
 	useComposerBridge.getState().setAttachFile(null);
-	useComposerBridge.getState().setInsertText(null);
+	useComposerBridge.getState().setSendText(null);
 	vi.useRealTimers();
 });
 test("never attaches delayed PR context to a different mounted session", () => {
@@ -39,23 +39,26 @@ test("never attaches delayed PR context to a different mounted session", () => {
 	expect(other).not.toHaveBeenCalled();
 });
 
-test("inserts generated follow-ups only into the source session's composer", () => {
+test("sends generated UI responses only through the source session's composer", () => {
 	const target = {
 		environmentId: EnvironmentId.make("local"),
 		sessionId: SessionId.make("source"),
 	};
-	const insert = vi.fn();
-	useComposerBridge.getState().setInsertText(insert);
+	const send = vi.fn(() => true);
+	useComposerBridge.getState().setSendText(send);
 	useComposerBridge
 		.getState()
 		.setAttachFile(
 			vi.fn(),
 			resourceRefKey({ ...target, sessionId: SessionId.make("other") }),
 		);
-	expect(insertIntoCurrentComposer("Run the tests", target)).toBe(false);
-	expect(insert).not.toHaveBeenCalled();
+	expect(sendThroughCurrentComposer("Run the tests", target)).toBe(false);
+	expect(send).not.toHaveBeenCalled();
 
 	useComposerBridge.getState().setAttachFile(vi.fn(), resourceRefKey(target));
-	expect(insertIntoCurrentComposer("Run the tests", target)).toBe(true);
-	expect(insert).toHaveBeenCalledExactlyOnceWith("Run the tests");
+	expect(sendThroughCurrentComposer("Run the tests", target)).toBe(true);
+	expect(send).toHaveBeenCalledExactlyOnceWith("Run the tests");
+
+	useComposerBridge.getState().setSendText(null);
+	expect(sendThroughCurrentComposer("Run the tests", target)).toBe(false);
 });

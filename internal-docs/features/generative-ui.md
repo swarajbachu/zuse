@@ -1,13 +1,14 @@
 # Generated UI in transcripts
 
 Agents can call `emit_ui({ spec })` through the session's orchestration tools to
-publish a small OpenUI Lang dashboard. The tool is available to providers through
-the shared MCP gateway and Claude's native tool adapter. Successful calls return
-the persisted message ID; invalid specs return an error the agent can correct.
+render OpenUI Lang UI inline in their reply: dashboards, plans, comparisons, and
+forms. The tool is available to providers through the shared MCP gateway and
+Claude's native tool adapter. Successful calls return the persisted message ID;
+invalid specs return an error the agent can correct.
 
 ```text
 emit_ui → shared validation → persistMessage → ui_spec timeline row
-                                             ├─ desktop/web: native components
+                                             ├─ desktop/web: inline components
                                              ├─ mobile: selectable source
                                              └─ export/read_thread: full source
 ```
@@ -15,6 +16,15 @@ emit_ui → shared validation → persistMessage → ui_spec timeline row
 The source is stored as `{ _tag: "ui_spec", spec, version: 1 }` using the normal
 message persistence and event stream. Reconnects and transcript replay do not
 execute generation again. Each successful tool call appends a new snapshot.
+
+## Presentation
+
+The block renders as part of the assistant reply, aligned with assistant text,
+with no card surface or background. A successful `emit_ui` call has no tool row
+of its own: `normalizeTimelineMessages` drops its tool use and result, so the
+block is the visible output. Failed calls keep their tool rows so the error is
+visible. `isEmitUiTool` in `@zuse/client-runtime/generative-ui` is the single
+check for the tool name.
 
 ## Component library
 
@@ -24,27 +34,42 @@ entry to a typed implementation; adding a component requires both a schema and a
 renderer. Existing argument order is part of the saved format and must remain
 compatible.
 
-Components: Card, Text, Stat, KeyValue, Table, Progress, Badge, List, Grid,
-BarChart, LineChart, and FollowUps. Charts use ordered `{ label, value }` points and an
-optional unit. Grids collapse with available chat width. The line chart uses
-Zuse's existing chart implementation, exposes values for assistive technology,
-and supports pointer inspection. Bar charts support negative and zero values.
+- Display: Card (titled section), Text, Stat, KeyValue, Table, Progress, Badge,
+  List, Grid, Callout, Steps, Tabs.
+- Charts: BarChart, LineChart. Points are ordered `{ label, value }` pairs with
+  an optional unit.
+- Interaction: FollowUps, Form, and the fields Input, TextArea, Select,
+  RadioGroup, Checkbox, Slider.
 
 ```openui
-root = Card([Grid([Stat("Tests", "428 passed"), Progress("Build", 100)], 2), trend, next], "Build health")
-trend = LineChart("Build duration", [{label: "Mon", value: 12}, {label: "Tue", value: 9}], "s")
-next = FollowUps([{label: "Profile slow build", prompt: "Profile the Tuesday build and explain the slowest step."}])
+root = Form([env, region, migrate, rollout, notes], "Deploy", "Deploy settings")
+env = RadioGroup("env", "Environment", ["staging", "production"], "staging")
+region = Select("region", "Region", ["us-east-1", "eu-west-1"])
+migrate = Checkbox("migrate", "Run database migrations", true)
+rollout = Slider("rollout", "Initial rollout %", 0, 100, 25, 5)
+notes = TextArea("notes", "Anything else?")
 ```
 
-## Follow-ups
+## Interaction
 
-FollowUps is the only interactive component. Each button raises OpenUI's
-built-in `continue_conversation` action. The renderer's `onAction` puts the
-prompt at the cursor in the source session's composer through
-`insertIntoCurrentComposer`. It never sends the prompt. If the mounted composer
-belongs to a different session, the prompt is not inserted and a toast asks the
-user to open the chat. Read-only transcripts render disabled buttons. Other
-action types are ignored.
+FollowUps buttons and Form submissions raise OpenUI's built-in
+`continue_conversation` action. The renderer's `onAction` sends the response as
+the user's next message through `sendThroughCurrentComposer`, which uses the
+mounted composer's send-or-queue routing without touching the user's draft. A
+form sends its title and one `- Label: value` line per field, so the agent
+receives an ordinary user turn.
+
+- Only blocks in the latest turn accept input (`interactive` on timeline rows).
+  Older blocks and read-only transcripts render disabled controls.
+- A block sends at most once, then locks and marks the chosen action as sent.
+- If the mounted composer belongs to another session, nothing is sent and a
+  toast asks the user to open the chat.
+- Form values are local UI state. After reload, the sent answers remain in the
+  user's message and the old form stays locked because it is no longer in the
+  latest turn.
+
+Fields must be inside a Form, have unique names, and forms cannot nest. Select
+and RadioGroup values must be options; Slider values must be within range.
 
 Arguments are positional. Use one assignment per line, define `root`, and pass
 literal data or named references. Short answers should remain ordinary text.
@@ -69,8 +94,8 @@ literal data or named references. Short answers should remain ordinary text.
   that `@openuidev/react-lang` otherwise auto-mounts in development builds.
 
 This implementation publishes complete snapshots. It does not stream partial
-tool arguments, refresh live data, accept form submissions, send messages, or
-execute `Query`, `Mutation`, or actions beyond the composer handoff above. Those features need a session-scoped interaction
+tool arguments, refresh live data, or execute `Query`, `Mutation`, or actions
+beyond sending the user's response. Those features need a session-scoped interaction
 protocol, durable interaction state, and integration with the permission broker.
 The native mobile client currently exposes source rather than rich components.
 
@@ -83,9 +108,12 @@ The native mobile client currently exposes source rather than rich components.
 - `packages/agents/test/integration/mcp-gateway.test.ts`: authenticated gateway
   discovery and dispatch without mutation approval for this display-only tool.
 - `apps/renderer/test/unit/ui-spec-block.test.tsx`: native markup, charts,
-  accessible values, fallback source, HTML escaping, and follow-up enablement.
-- `apps/renderer/test/unit/context-handoff-target.test.ts`: follow-ups only
+  forms, tabs, steps, fallback source, HTML escaping, and enablement.
+- `apps/renderer/test/unit/context-handoff-target.test.ts`: responses only
   reach the source session's composer.
+- `apps/renderer/test/unit/chat-timeline-rows.test.ts` and
+  `packages/client-runtime/test/unit/timeline.test.ts`: inline placement, hidden
+  successful calls, and latest-turn interactivity.
 
 OpenUI packages are pinned together at 0.3.0. Check saved version-1 fixtures and
 browser rendering when upgrading them. Reference: https://www.openui.com/docs/openui-lang

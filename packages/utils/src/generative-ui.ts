@@ -29,6 +29,11 @@ export const UI_SPEC_MAX_CHARS = 32 * 1024;
 
 /** Nested component calls or `name = ...` references, e.g. `[stat1, stat2]`. */
 const elementList = z.array(z.unknown()).max(64);
+const tone = z.enum(["neutral", "good", "warn", "bad"]);
+const fieldName = z
+	.string()
+	.regex(/^[A-Za-z][\w-]{0,39}$/, "use letters, digits, - or _");
+const fieldOptions = z.array(z.string().min(1).max(120)).min(1);
 const chartPoints = z
 	.array(z.object({ label: z.string(), value: z.number().finite() }))
 	.min(1)
@@ -48,7 +53,7 @@ export interface GenerativeUiComponentSpec {
 export const generativeUiComponents = {
 	Card: {
 		description:
-			"Tonal container that groups a small UI block. Pass an optional title as the second argument.",
+			"Titled section that groups related content. Renders inline with the reply — no background — so keep nesting shallow.",
 		props: z.object({
 			children: elementList.optional(),
 			title: z.string().optional(),
@@ -95,7 +100,7 @@ export const generativeUiComponents = {
 		description: "Small status pill. tone is optional.",
 		props: z.object({
 			label: z.string(),
-			tone: z.enum(["neutral", "good", "warn", "bad"]).optional(),
+			tone: tone.optional(),
 		}),
 	},
 	List: {
@@ -130,9 +135,46 @@ export const generativeUiComponents = {
 			unit: z.string().optional(),
 		}),
 	},
+	Callout: {
+		description:
+			"Highlighted note for a warning, risk, or key takeaway. tone defaults to neutral.",
+		props: z.object({
+			text: z.string(),
+			tone: tone.optional(),
+			title: z.string().optional(),
+		}),
+	},
+	Steps: {
+		description:
+			"Ordered checklist or plan with a status per step: done, active, pending, or failed.",
+		props: z.object({
+			items: z
+				.array(
+					z.object({
+						label: z.string(),
+						status: z.enum(["done", "active", "pending", "failed"]),
+						detail: z.string().optional(),
+					}),
+				)
+				.min(1)
+				.max(20),
+		}),
+	},
+	Tabs: {
+		description:
+			"Switchable views of alternatives, e.g. options or before/after. Each tab holds one component.",
+		props: z.object({
+			tabs: z
+				.array(
+					z.object({ label: z.string().min(1).max(40), content: z.unknown() }),
+				)
+				.min(2)
+				.max(6),
+		}),
+	},
 	FollowUps: {
 		description:
-			"Suggested next steps shown as buttons. Clicking one places its prompt in the user's composer to review and send; nothing runs automatically. 1-6 items.",
+			"Suggested next steps as buttons. Clicking one sends its prompt as the user's next message. 1-6 items.",
 		props: z.object({
 			items: z
 				.array(
@@ -143,6 +185,71 @@ export const generativeUiComponents = {
 				)
 				.min(1)
 				.max(6),
+		}),
+	},
+	Form: {
+		description:
+			"Collects structured input. Holds fields (and optional display components); submitting sends the answers as the user's next message.",
+		props: z.object({
+			children: elementList.min(1),
+			submitLabel: z.string().min(1).max(40).optional(),
+			title: z.string().optional(),
+		}),
+	},
+	Input: {
+		description: "Single-line text field inside a Form.",
+		props: z.object({
+			name: fieldName,
+			label: z.string().min(1),
+			placeholder: z.string().optional(),
+			value: z.string().max(2000).optional(),
+		}),
+	},
+	TextArea: {
+		description: "Multi-line text field inside a Form.",
+		props: z.object({
+			name: fieldName,
+			label: z.string().min(1),
+			placeholder: z.string().optional(),
+			value: z.string().max(8000).optional(),
+		}),
+	},
+	Select: {
+		description: "Dropdown choice inside a Form; value preselects an option.",
+		props: z.object({
+			name: fieldName,
+			label: z.string().min(1),
+			options: fieldOptions.max(50),
+			value: z.string().optional(),
+		}),
+	},
+	RadioGroup: {
+		description:
+			"Pick exactly one of 2-8 visible options inside a Form; value preselects one.",
+		props: z.object({
+			name: fieldName,
+			label: z.string().min(1),
+			options: fieldOptions.min(2).max(8),
+			value: z.string().optional(),
+		}),
+	},
+	Checkbox: {
+		description: "Yes/no toggle inside a Form.",
+		props: z.object({
+			name: fieldName,
+			label: z.string().min(1),
+			checked: z.boolean().optional(),
+		}),
+	},
+	Slider: {
+		description: "Numeric range inside a Form; value defaults to min.",
+		props: z.object({
+			name: fieldName,
+			label: z.string().min(1),
+			min: z.number().finite(),
+			max: z.number().finite(),
+			value: z.number().finite().optional(),
+			step: z.number().finite().positive().optional(),
 		}),
 	},
 } satisfies Record<string, GenerativeUiComponentSpec>;
@@ -280,7 +387,7 @@ const validateStaticProgram = (spec: string): void => {
 			case "Comp":
 				if (node.name === "Query" || node.name === "Mutation")
 					throw new Error(
-						"Query() and Mutation() are not supported — emit_ui blocks are static.",
+						"Query() and Mutation() are not supported in emit_ui blocks.",
 					);
 				if (!Object.hasOwn(generativeUiComponents, node.name))
 					throw new Error(
@@ -303,40 +410,96 @@ const validateStaticProgram = (spec: string): void => {
 	for (const expr of expressions.values()) visit(expr, 0);
 };
 
-/** Apply the full Zod constraints, including numeric ranges and collection caps.
- * lang-core checks types, but does not enforce all JSON Schema constraints. */
-const validateElement = (element: ElementNode): void => {
-	if (!Object.hasOwn(generativeUiComponents, element.typeName))
-		throw new Error(`Unknown component ${element.typeName}.`);
-	const component =
-		generativeUiComponents[element.typeName as GenerativeUiComponentName];
-	const validation = component.props.safeParse(element.props);
+/** Components that collect input; they only make sense inside a Form. */
+export const GENERATIVE_UI_FIELD_COMPONENTS: ReadonlySet<GenerativeUiComponentName> =
+	new Set(["Input", "TextArea", "Select", "RadioGroup", "Checkbox", "Slider"]);
+
+const isElement = (value: unknown): value is ElementNode =>
+	value !== null &&
+	typeof value === "object" &&
+	"type" in value &&
+	value.type === "element";
+
+const requireElement = (value: unknown, where: string): ElementNode => {
+	if (!isElement(value)) throw new Error(`${where} must be a component.`);
+	return value;
+};
+
+/** Fields in the enclosing Form, keyed by name; null outside a Form. */
+type FormScope = Set<string> | null;
+
+/** Apply the full Zod constraints plus structural rules lang-core does not
+ * know: ranges, collection caps, table shape, and Form/field nesting. */
+const validateElement = (element: ElementNode, form: FormScope): void => {
+	const name = element.typeName;
+	if (!Object.hasOwn(generativeUiComponents, name))
+		throw new Error(`Unknown component ${name}.`);
+	const typed = name as GenerativeUiComponentName;
+	const validation = generativeUiComponents[typed].props.safeParse(
+		element.props,
+	);
 	if (!validation.success)
 		throw new Error(
-			`${element.typeName}: ${validation.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`,
+			`${name}: ${validation.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`,
 		);
-	if (element.typeName === "Table") {
-		const { columns, rows } = generativeUiComponents.Table.props.parse(
-			element.props,
-		);
-		if (rows.some((row) => row.length !== columns.length))
-			throw new Error(
-				"Table rows must have the same number of cells as columns.",
-			);
+	const props = validation.data as Record<string, unknown>;
+	if (GENERATIVE_UI_FIELD_COMPONENTS.has(typed)) {
+		if (form === null) throw new Error(`${name} must be inside a Form.`);
+		const field = props.name as string;
+		if (form.has(field)) throw new Error(`Duplicate field name: ${field}.`);
+		form.add(field);
 	}
-	if (element.typeName === "Card" || element.typeName === "Grid") {
-		const children =
-			generativeUiComponents.Card.props.parse(element.props).children ?? [];
-		for (const child of children) {
-			if (
-				child === null ||
-				typeof child !== "object" ||
-				!("type" in child) ||
-				child.type !== "element"
-			)
-				throw new Error("Container children must be components.");
-			validateElement(child as ElementNode);
+	switch (typed) {
+		case "Table": {
+			const { columns, rows } = generativeUiComponents.Table.props.parse(props);
+			if (rows.some((row) => row.length !== columns.length))
+				throw new Error(
+					"Table rows must have the same number of cells as columns.",
+				);
+			return;
 		}
+		case "Select":
+		case "RadioGroup": {
+			const { options, value } =
+				generativeUiComponents.Select.props.parse(props);
+			if (value !== undefined && !options.includes(value))
+				throw new Error(
+					`${name} ${props.name}: value must be one of the options.`,
+				);
+			return;
+		}
+		case "Slider": {
+			const { min, max, value } =
+				generativeUiComponents.Slider.props.parse(props);
+			if (min >= max)
+				throw new Error(`Slider ${props.name}: min must be below max.`);
+			if (value !== undefined && (value < min || value > max))
+				throw new Error(
+					`Slider ${props.name}: value must be within min and max.`,
+				);
+			return;
+		}
+		case "Card":
+		case "Grid":
+			for (const child of (props.children as unknown[] | undefined) ?? [])
+				validateElement(requireElement(child, `${name} children`), form);
+			return;
+		case "Form":
+			if (form !== null) throw new Error("Forms cannot be nested.");
+			{
+				const fields = new Set<string>();
+				for (const child of props.children as unknown[])
+					validateElement(requireElement(child, "Form children"), fields);
+				if (fields.size === 0)
+					throw new Error("Form needs at least one field.");
+			}
+			return;
+		case "Tabs":
+			for (const tab of generativeUiComponents.Tabs.props.parse(props).tabs)
+				validateElement(requireElement(tab.content, "Tab content"), form);
+			return;
+		default:
+			return;
 	}
 };
 
@@ -369,7 +532,9 @@ export const validateGenerativeUiSpec = (
 	try {
 		validateStaticProgram(spec);
 		result = uiSpecParser.parse(spec);
-		if (result.root) validateElement(result.root);
+		// lang-core's own errors name the exact field; report them first.
+		if (result.root && result.meta.errors.length === 0)
+			validateElement(result.root, null);
 	} catch (error) {
 		return {
 			ok: false,
@@ -390,14 +555,14 @@ export const validateGenerativeUiSpec = (
 	if (result.meta.incomplete) {
 		problems.push("Spec looks truncated (incomplete input).");
 	}
-	// emit_ui blocks are display-only: Query()/Mutation() would try to call
-	// tools at render time, and the renderer never wires a tool provider.
+	// Query()/Mutation() would call tools at render time; the renderer never
+	// wires a tool provider. The only interactions are user-sent messages.
 	if (
 		result.queryStatements.length > 0 ||
 		result.mutationStatements.length > 0
 	) {
 		problems.push(
-			"Query() and Mutation() are not supported — emit_ui blocks are static.",
+			"Query() and Mutation() are not supported in emit_ui blocks.",
 		);
 	}
 	if (result.root === null && problems.length === 0) {

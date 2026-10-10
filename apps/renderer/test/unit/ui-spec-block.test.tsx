@@ -71,4 +71,59 @@ describe("generated UI transcript blocks", () => {
 		expect(live).toContain("Run tests");
 		expect(live).not.toMatch(/<button[^>]* disabled=""/);
 	});
+	it("renders form fields with their defaults, disabled outside the latest turn", () => {
+		const spec = `root = Form([env, region, migrate, rollout, notes], "Deploy", "Deploy settings")
+env = RadioGroup("env", "Environment", ["staging", "production"], "staging")
+region = Select("region", "Region", ["us-east-1", "eu-west-1"], "eu-west-1")
+migrate = Checkbox("migrate", "Run migrations", true)
+rollout = Slider("rollout", "Rollout", 0, 100, 25, 5)
+notes = TextArea("notes", "Notes", "Optional")`;
+		const readOnly = render(spec);
+		for (const text of [
+			"Deploy settings",
+			"Environment",
+			"production",
+			"Region",
+			"eu-west-1",
+			"Run migrations",
+			"Rollout",
+			"25",
+			"Notes",
+			"Deploy",
+		])
+			expect(readOnly).toContain(text);
+		expect(readOnly).toMatch(
+			/role="radio" aria-checked="true"[^>]*>(?:<svg[\s\S]*?<\/svg>)?staging/,
+		);
+		expect(readOnly).toMatch(/<button type="submit"[^>]* disabled=""/);
+
+		const live = renderToStaticMarkup(
+			<UiSpecBlock
+				spec={spec}
+				sessionRef={{
+					environmentId: EnvironmentId.make("local"),
+					sessionId: SessionId.make("session"),
+				}}
+			/>,
+		);
+		expect(live).not.toMatch(/<button type="submit"[^>]* disabled=""/);
+	});
+	it("renders steps, callouts, and only the active tab", () => {
+		const html = render(`root = Card([plan, risk, views])
+plan = Steps([{label: "Build", status: "done"}, {label: "Test", status: "active", detail: "3 of 5"}, {label: "Ship", status: "pending"}])
+risk = Callout("Migrations lock the users table.", "warn", "Heads up")
+views = Tabs([{label: "Before", content: Text("Old flow")}, {label: "After", content: Text("New flow")}])`);
+		for (const text of [
+			"Build",
+			"3 of 5",
+			"Ship",
+			"Heads up",
+			"Before",
+			"After",
+			"Old flow",
+		])
+			expect(html).toContain(text);
+		expect(html).toContain('data-status="active"');
+		expect(html).not.toContain("New flow");
+	});
 });

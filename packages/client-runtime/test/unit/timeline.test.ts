@@ -143,3 +143,37 @@ describe("timeline projection", () => {
 		).toEqual(["src/a.ts", "src/b.ts"]);
 	});
 });
+
+describe("generated UI calls", () => {
+	it("drops successful emit_ui tool rows and keeps failed ones", () => {
+		const call = (id: string, tool: string, isError: boolean) => [
+			message(`t-${id}`, {
+				_tag: "tool_use",
+				itemId: id as never,
+				tool,
+				input: {},
+			}),
+			message(`r-${id}`, {
+				_tag: "tool_result",
+				itemId: id as never,
+				output: "",
+				isError,
+			}),
+		];
+		const turns = groupTimelineTurns([
+			message("u", { _tag: "user", text: "go", goal: false }),
+			...call("ok", "mcp__zuse__emit_ui", false),
+			...call("bad", "emit_ui", true),
+			...call("read", "Read", false),
+			...call("other", "mcp__acme__emit_ui", false),
+		]);
+		expect(turns[0]?.body.map((entry) => entry.id)).toEqual([
+			"t-bad",
+			"r-bad",
+			"t-read",
+			"r-read",
+			"t-other",
+			"r-other",
+		]);
+	});
+});
