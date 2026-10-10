@@ -242,7 +242,7 @@ const LIST_MODELS_DESCRIPTION =
 const WHOAMI_DESCRIPTION =
 	"Return your own session id, chat id, project id, workspace (worktreeId — null means the project's main checkout), providerId, model, and autonomy level. Use to reason about your own constraints and location before spawning more work. Read-only.";
 
-const EMIT_UI_DESCRIPTION = `Render a small UI block (a card with stats, a table, a progress bar, etc.) directly in the chat transcript. Input spec is OpenUI Lang text; the rendered block is READ-ONLY — it cannot trigger actions, take input, or run callbacks. Use it when a structured visual beats prose: status dashboards, comparisons, checklists.
+const EMIT_UI_DESCRIPTION = `Render a small UI block (a responsive dashboard with stats, charts, tables, and progress) directly in the chat transcript. Input spec is OpenUI Lang text. The block is display-only: it cannot run tools, take form input, or call back into this session. FollowUps buttons only place a prompt in the user's composer; the user decides whether to send it. Use it when a structured visual beats prose: status dashboards, comparisons, checklists.
 
 Syntax rules:
 - One statement per line: name = Expression
@@ -251,6 +251,16 @@ Syntax rules:
 - Strings are double-quoted; nest components inside array args: Card([s1, s2])
 - Define parts on their own lines and reference them by name; every defined name (except root) must be reachable from root
 - Pass null for an optional arg you want to skip
+- Use literal data only. No reactive state, expressions, Query(), Mutation(), or actions.
+- Keep specs under 32,768 characters. Containers hold at most 64 components; charts hold 1-100 points; tables hold 1-20 columns and at most 200 rows.
+- Chart values must be finite numbers. Table rows must match the number of columns.
+- Use ordinary text for short answers. Do not invent data to fill a chart.
+- Add FollowUps only for concrete next steps; write each prompt as the user would say it.
+
+Example:
+root = Card([Grid([Stat("Tests", "428 passed"), Progress("Build", 100)], 2), trend, next], "Build health")
+trend = LineChart("Build duration", [{label: "Mon", value: 12}, {label: "Tue", value: 9}], "s")
+next = FollowUps([{label: "Profile slow build", prompt: "Profile the Tuesday build and explain the slowest step."}])
 
 Components (signature — purpose):
 ${generativeUiComponentLines()}

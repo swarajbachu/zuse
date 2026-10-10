@@ -32,7 +32,15 @@ import {
 	ChevronRight,
 	RefreshCw as RefreshIcon,
 } from "lucide-react";
-import { memo, type ReactNode, useEffect, useRef, useState } from "react";
+import {
+	lazy,
+	memo,
+	type ReactNode,
+	Suspense,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { FileIcon } from "~/components/file-icon";
 import {
 	attachmentDataUrl,
@@ -73,8 +81,16 @@ import {
 	CollapsiblePanel,
 	CollapsibleTrigger,
 } from "./ui/collapsible.tsx";
-import { UiSpecBlock } from "./ui-spec-block.tsx";
+
+import { ErrorBoundary } from "./ui/error-boundary.tsx";
+import { UiSpecFallback } from "./ui-spec-fallback.tsx";
 import { UserMessageText } from "./user-message-text.tsx";
+
+const UiSpecBlock = lazy(() =>
+	import("./ui-spec-block.tsx").then((module) => ({
+		default: module.UiSpecBlock,
+	})),
+);
 
 const _isBrowserAnnotation = (
 	annotation: ComposerAnnotation,
@@ -274,7 +290,34 @@ function MessageRowImpl({
 				/>
 			);
 		case "ui_spec":
-			return <UiSpecBlock spec={message.content.spec} />;
+			return (
+				<ErrorBoundary
+					resetKey={message.content.spec}
+					fallback={
+						<div className="px-4 py-1.5">
+							<UiSpecFallback spec={message.content.spec} reason="" />
+						</div>
+					}
+				>
+					<Suspense
+						fallback={
+							<div
+								className="mx-4 my-1.5 h-24 rounded-lg bg-muted/30"
+								aria-busy="true"
+							/>
+						}
+					>
+						<UiSpecBlock
+							spec={message.content.spec}
+							sessionRef={
+								!readOnly && environmentId !== undefined
+									? { environmentId, sessionId: message.sessionId }
+									: undefined
+							}
+						/>
+					</Suspense>
+				</ErrorBoundary>
+			);
 		case "usage":
 		case "context_usage":
 		case "usage_limit":

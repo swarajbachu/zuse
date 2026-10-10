@@ -703,8 +703,8 @@
 	"delegation_row_starting": "Wird gestartet…",
 	"delegation_row_open": "{{title}} öffnen",
 	"delegation_group_running": "{{working}} von {{total}} aktiv",
-	"provider_updates_toast_dismiss": "Entlassen",
-	"provider_updates_toast_review_in_settings": "Überprüfen Sie die Einstellungen",
 	"message_row_ui_spec_generated": "Generierte UI",
-	"message_row_ui_spec_could_not_render": "Dieser UI-Block konnte nicht gerendert werden — Rohspezifikation wird angezeigt"
+	"message_row_ui_spec_could_not_render": "Dieser UI-Block konnte nicht gerendert werden — Rohspezifikation wird angezeigt",
+	"message_row_ui_spec_follow_up_failed": "Vorschlag konnte nicht hinzugefügt werden",
+	"message_row_ui_spec_follow_up_open_chat": "Öffne diesen Chat, um den Vorschlag in sein Eingabefeld einzufügen."
 }

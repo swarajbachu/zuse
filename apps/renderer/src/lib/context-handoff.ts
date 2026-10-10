@@ -111,19 +111,31 @@ export const fetchTranscriptMarkdown = async (
 	}
 };
 
+/** The mounted composer belongs to `target` (or no target was requested). */
+const composerMatches = (target?: SessionRef): boolean =>
+	!target || useComposerBridge.getState().draftKey === resourceRefKey(target);
+
 /** Drop a file chip into the CURRENTLY mounted composer (bridge-backed). */
 export const attachToCurrentComposer = (
 	ref: ContextRef,
 	target?: SessionRef,
 ): boolean => {
-	if (
-		target &&
-		useComposerBridge.getState().draftKey !== resourceRefKey(target)
-	)
-		return false;
+	if (!composerMatches(target)) return false;
 	const attach = useComposerBridge.getState().attachFile;
 	if (attach === null) return false;
 	attach({ relPath: ref.relPath, absPath: ref.absPath, kind: "file" });
+	return true;
+};
+
+/** Insert text at the cursor of the CURRENTLY mounted composer. Never sends. */
+export const insertIntoCurrentComposer = (
+	text: string,
+	target?: SessionRef,
+): boolean => {
+	if (!composerMatches(target)) return false;
+	const insert = useComposerBridge.getState().insertText;
+	if (insert === null) return false;
+	insert(text);
 	return true;
 };
 

@@ -359,6 +359,8 @@
 	"message_row_open_provider_settings": "Open Provider Settings",
 	"message_row_ui_spec_generated": "Generated UI",
 	"message_row_ui_spec_could_not_render": "Could not render this UI block — showing the raw spec",
+	"message_row_ui_spec_follow_up_failed": "Couldn't add the suggestion",
+	"message_row_ui_spec_follow_up_open_chat": "Open this chat to add the suggestion to its composer.",
 	"nearby_pairing_approval_is_this_you_trying_to_connect": "Is this you trying to connect?",
 	"nearby_pairing_approval_confirm_these_words_match_the_ones_shown_on_your_phone": "Confirm these words match the ones shown on your phone.",
 	"nearby_pairing_approval_block_device": "Block device",

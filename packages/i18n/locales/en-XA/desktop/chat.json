@@ -359,6 +359,8 @@
 	"message_row_open_provider_settings": "⟦ÔÔpëën Prôôvïïdëër Sëëttïïngs⟧",
 	"message_row_ui_spec_generated": "⟦Gëënëërààtëëd ÜÜÏÏ⟧",
 	"message_row_ui_spec_could_not_render": "⟦Côôüüld nôôt rëëndëër thïïs ÜÜÏÏ blôôck — shôôwïïng thëë rààw spëëc⟧",
+	"message_row_ui_spec_follow_up_failed": "⟦Côôüüldn't ààdd thëë süüggëëstïïôôn⟧",
+	"message_row_ui_spec_follow_up_open_chat": "⟦ÔÔpëën thïïs chààt tôô ààdd thëë süüggëëstïïôôn tôô ïïts côômpôôsëër.⟧",
 	"nearby_pairing_approval_is_this_you_trying_to_connect": "⟦ÏÏs thïïs yôôüü tryïïng tôô côônnëëct?⟧",
 	"nearby_pairing_approval_confirm_these_words_match_the_ones_shown_on_your_phone": "⟦Côônfïïrm thëësëë wôôrds mààtch thëë ôônëës shôôwn ôôn yôôüür phôônëë.⟧",
 	"nearby_pairing_approval_block_device": "⟦Blôôck dëëvïïcëë⟧",

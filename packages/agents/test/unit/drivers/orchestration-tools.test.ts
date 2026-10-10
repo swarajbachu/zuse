@@ -98,14 +98,18 @@ describe("orchestration MCP tools", () => {
 
 		// Display-only: emit_ui never prompts, even under a prompting mode.
 		let requested = 0;
-		await ensureOrchestrationPermission("emit_ui", { spec }, {
-			getPermissionMode: () => "default",
-			getRuntimeMode: () => "approval-required",
-			requestPermission: async () => {
-				requested += 1;
-				return { _tag: "Deny" };
+		await ensureOrchestrationPermission(
+			"emit_ui",
+			{ spec },
+			{
+				getPermissionMode: () => "default",
+				getRuntimeMode: () => "approval-required",
+				requestPermission: async () => {
+					requested += 1;
+					return { _tag: "Deny" };
+				},
 			},
-		});
+		);
 		expect(requested).toBe(0);
 	});
 

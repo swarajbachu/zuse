@@ -703,8 +703,8 @@
 	"delegation_row_starting": "開始中…",
 	"delegation_row_open": "{{title}} を開く",
 	"delegation_group_running": "{{total}} 件中 {{working}} 件実行中",
-	"provider_updates_toast_dismiss": "却下",
-	"provider_updates_toast_review_in_settings": "設定で確認する",
 	"message_row_ui_spec_generated": "生成されたUI",
-	"message_row_ui_spec_could_not_render": "このUIブロックをレンダリングできませんでした — 生のspecを表示します"
+	"message_row_ui_spec_could_not_render": "このUIブロックをレンダリングできませんでした — 生のspecを表示します",
+	"message_row_ui_spec_follow_up_failed": "提案を追加できませんでした",
+	"message_row_ui_spec_follow_up_open_chat": "このチャットを開いて、提案を入力欄に追加してください。"
 }

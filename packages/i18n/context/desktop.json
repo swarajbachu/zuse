@@ -2295,7 +2295,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 589
+				"line": 635
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3387,7 +3387,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 299
+				"line": 345
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3401,7 +3401,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 487
+				"line": 533
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3411,7 +3411,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 490
+				"line": 536
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3421,7 +3421,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 656
+				"line": 702
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3431,7 +3431,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 657
+				"line": 703
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3451,7 +3451,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 678
+				"line": 724
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3461,7 +3461,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 770
+				"line": 816
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3682,6 +3682,46 @@
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
 				"line": 260
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:message_row_ui_spec_generated": {
+		"source": "Generated UI",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/ui-spec-block.tsx",
+				"line": 405
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:message_row_ui_spec_could_not_render": {
+		"source": "Could not render this UI block — showing the raw spec",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/ui-spec-fallback.tsx",
+				"line": 23
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:message_row_ui_spec_follow_up_failed": {
+		"source": "Couldn't add the suggestion",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/ui-spec-block.tsx",
+				"line": 391
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:message_row_ui_spec_follow_up_open_chat": {
+		"source": "Open this chat to add the suggestion to its composer.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/ui-spec-block.tsx",
+				"line": 393
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6173,7 +6213,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 666
+				"line": 712
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6441,7 +6481,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 777
+				"line": 823
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6591,11 +6631,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 942
+				"line": 988
 			},
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 998
+				"line": 1044
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6649,7 +6689,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 919
+				"line": 965
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6659,7 +6699,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 920
+				"line": 966
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6694,7 +6734,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 257
+				"line": 274
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6704,7 +6744,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 258
+				"line": 275
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6941,7 +6981,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 489
+				"line": 535
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8449,7 +8489,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 1049
+				"line": 1095
 			},
 			{
 				"path": "apps/renderer/src/components/permissions-inspector.tsx",
@@ -8591,7 +8631,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
-				"line": 1051
+				"line": 1097
 			},
 			{
 				"path": "apps/renderer/src/components/opencode-provider-manager.tsx",
@@ -33645,55 +33685,5 @@
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"chat:message_row_ui_spec_generated": {
-		"source": "Generated UI",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/ui-spec-block.tsx",
-				"line": 260
-			}
-		],
-		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"chat:message_row_ui_spec_could_not_render": {
-		"source": "Could not render this UI block — showing the raw spec",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/ui-spec-block.tsx",
-				"line": 238
-			}
-		],
-		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"chat:provider_updates_toast_dismiss": {
-		"source": "Dismiss",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
-				"line": 159
-			}
-		],
-		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"chat:provider_updates_toast_review_in_settings": {
-		"source": "Review in settings",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
-				"line": 162
-			}
-		],
-		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"providers:add_computer_dialog_remove_sentence": {
-		"source": "Remove {{value}}?",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/remove-computer-button.tsx",
-				"line": 89
-			}
-		],
-		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	}
 }

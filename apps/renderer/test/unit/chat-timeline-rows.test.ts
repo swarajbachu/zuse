@@ -1,4 +1,4 @@
-import type { Message, SessionId } from "@zuse/contracts";
+import { AgentItemId, type Message, type SessionId } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -638,4 +638,37 @@ it("does not summarize a turn whose only tools were delegations", () => {
 		"delegation",
 		"message",
 	]);
+});
+
+it("keeps generated UI visible through turn completion and replay", () => {
+	const messages = [
+		message("u-ui", { _tag: "user", text: "Show build health" }),
+		message("tool-ui", {
+			_tag: "tool_use",
+			itemId: AgentItemId.make("emit-ui"),
+			tool: "emit_ui",
+			input: {},
+		}),
+		message("ui", {
+			_tag: "ui_spec",
+			version: 1,
+			spec: 'root = Stat("Tests", "428")',
+		}),
+		message("a-ui", { _tag: "assistant", text: "All checks passed." }),
+	];
+	for (const inFlight of [true, false]) {
+		const rows = deriveChatTimelineRows({
+			messages,
+			inFlight,
+			awaitingPlanApproval: false,
+		});
+		expect(rows.find((row) => row.id === "message:ui")?.kind).toBe("message");
+		expect(rows.some((row) => row.kind === "turn-summary")).toBe(false);
+	}
+	const replay = createCloudTimelineRows();
+	expect(
+		replay({ messages, inFlight: false, awaitingPlanApproval: false }).some(
+			(row) => row.id === "message:ui",
+		),
+	).toBe(true);
 });
