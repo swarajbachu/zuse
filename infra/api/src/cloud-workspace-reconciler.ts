@@ -98,6 +98,9 @@ export const RUNTIME_CONNECTION_TIMEOUT_MS = 10_000;
 export const RUNTIME_INSTALL_TIMEOUT_MS = 120_000;
 const RECONCILE_LEASE_MS = 2 * 60 * 1_000;
 const PROJECT_BUILD_TIMEOUT_MS = 15 * 60 * 1_000;
+// Return to the durable scheduler before the two-minute build lease expires.
+const PROJECT_SNAPSHOT_POLL_TIMEOUT_MS = 30_000;
+const PROJECT_SNAPSHOT_TIMEOUT_MS = 30 * 60 * 1_000;
 export const ARCHIVED_WORKSPACE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const WORKSPACE_RUNTIME_BOOT_TTL_MS = 30 * 60 * 1_000;
 // A preserved mailbox request may need its 10-second transport timeout,
@@ -1146,8 +1149,11 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 						]
 					: []),
 			];
-			const forbiddenResults = yield* Effect.forEach(forbiddenPaths, (path) =>
-				provider.pathExists(build.providerSandboxId as string, path, "zuse"),
+			const forbiddenResults = yield* Effect.forEach(
+				forbiddenPaths,
+				(path) =>
+					provider.pathExists(build.providerSandboxId as string, path, "zuse"),
+				{ concurrency: 4 },
 			);
 			const sourceCommit = (yield* provider.readTextFile(
 				build.providerSandboxId,
@@ -1237,7 +1243,12 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			const sanitizing = {
 				...build,
 				sourceCommit,
-				logText,
+				logText: [
+					logText,
+					"Repository preparation completed. Publishing snapshot…",
+				]
+					.filter(Boolean)
+					.join("\n"),
 				state: "sanitizing" as const,
 				nextActionAtMs: nowMs,
 				revision: build.revision + 1,
@@ -1263,11 +1274,45 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 						`${project.projectId}-${build.buildId}`,
 					)
 					.pipe(
+						(effect) =>
+							build.provider === "box"
+								? effect.pipe(
+										Effect.timeout(
+											Duration.millis(PROJECT_SNAPSHOT_POLL_TIMEOUT_MS),
+										),
+										Effect.catchTag("TimeoutError", () =>
+											Effect.gen(function* () {
+												if (
+													Date.now() - build.createdAtMs >=
+													PROJECT_SNAPSHOT_TIMEOUT_MS
+												)
+													return yield* Effect.fail(
+														new SandboxProviderError({ code: "transient" }),
+													);
+												const progress =
+													"Snapshot publication is still in progress.";
+												yield* store.saveBuild({
+													...build,
+													lastErrorCode: undefined,
+													logText: build.logText?.includes(progress)
+														? build.logText
+														: [build.logText, progress]
+																.filter(Boolean)
+																.join("\n"),
+													nextActionAtMs: Date.now() + RETRY_MS,
+													updatedAtMs: Date.now(),
+													revision: build.revision + 1,
+												});
+												return undefined;
+											}),
+										),
+									)
+								: effect,
 						Effect.catchTag("SandboxProviderError", (error) =>
 							Effect.gen(function* () {
 								const retry =
 									error.code === "transient" &&
-									Date.now() - build.createdAtMs < PROJECT_BUILD_TIMEOUT_MS;
+									Date.now() - build.createdAtMs < PROJECT_SNAPSHOT_TIMEOUT_MS;
 								const diagnostic = `Snapshot publication: ${error.code}. ${retry ? "Retrying automatically." : "Check the sandbox provider configuration and permissions before retrying."}`;
 								if (!retry) {
 									// Keep the pending build until cleanup succeeds, so failures retry.
@@ -1328,6 +1373,9 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			const promoted = {
 				...build,
 				lastErrorCode: undefined,
+				logText: [build.logText, "Snapshot published successfully."]
+					.filter(Boolean)
+					.join("\n"),
 				snapshotId,
 				providerSandboxId: undefined,
 				state: "ready",
