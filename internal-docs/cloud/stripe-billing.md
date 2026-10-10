@@ -121,13 +121,24 @@ All four existing active Polar entitlements remained on Polar. Authentication
 and webhook signature smoke checks passed, including acknowledgment of an
 unrelated signed event. This does not verify a paid live subscription delivery.
 
-Usage charging remains blocked on provider reconciliation. For October 8's
-completed UTC window, Boxd reported `3,874,645` micro-USD in machine estimates;
-96 actual organization charge buckets totaled `4,888,443` micro-USD after
-accounting for posting lag. The unexplained `1,013,798` micro-USD difference
-(20.74%) must be resolved before enabling financial export. The production
-ledger also has no imported provider statements. A read-only Boat usage request
-succeeded, but that alone does not establish provider-to-ledger-to-processor
+Boxd's provider-cost comparison was verified after accounting for its October 9
+rate reduction. October 8's completed UTC window returned `3,874,645` micro-USD
+in estimates at the new current rates, while 96 actual historical charge buckets
+totaled `4,888,443` micro-USD. Applying the old USD rates supplied in the provider
+announcement ($0.059/vCPU-hour, $0.018/GiB-hour RAM, $0.00012/GiB-hour disk) to
+the same saved resource hours gives `4,888,406` micro-USD, only 37 micro-USD below
+the historical charges. The earlier 20.74% comparison mixed pricing periods.
+It did not establish a provider or application billing defect.
+
+A completed post-change window, October 10 from 00:00 to 12:00 UTC, returned
+`704,824` micro-USD in current-rate estimates versus `704,814` micro-USD in 48
+actual charge buckets: a 10 micro-USD difference consistent with different
+rounding scopes. The adapter consumes the provider's `costMicro`; these historical
+reconciliation calculations do not introduce a hardcoded application price table.
+
+Provider-to-ledger-to-processor delivery verification remains outstanding before
+usage activation. The production ledger has no imported provider statements.
+A read-only Boat usage request succeeded, but that alone does not establish
 delivery. No usage charges or admission enforcement were enabled during launch.
 
 Production currently disables both financial export and admission enforcement,
