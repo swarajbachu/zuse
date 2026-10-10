@@ -122,8 +122,11 @@ Flag changes can take about 30 seconds to reach backend checks and one further
 client refresh to reach the visible catalog. Existing accepted runtime turns retain
 their current lifecycle semantics; this does not forcibly terminate running work.
 
-Deploy the compatible API and desktop/browser before enabling the production
-kill switch. Code changes do not update an already-published runtime. Keep
+Before first production activation, verify compatible API behavior on staging
+and release compatible desktop/browser clients. The guarded production API
+deployment enables the global switch through `wrangler.production.jsonc`; there
+is no separate flag-activation step. Code changes do not update an already-published
+runtime. Keep
 existing sandbox data, databases and session IDs intact. Older clients retain
 their build-time UI gate; backend access checks still restrict them.
 
