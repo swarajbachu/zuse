@@ -574,11 +574,7 @@ export function ProjectsSidebar() {
 				</div>
 			) : null}
 			<div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-muted-foreground">
-				<span>
-					{threadListSidebar
-						? uiMessage("projects:projects_sidebar_threads")
-						: uiMessage("projects:projects_sidebar_projects")}
-				</span>
+				<span>{uiMessage("projects:projects_sidebar_projects")}</span>
 				<div className="flex items-center">
 					{threadListSidebar ? null : (
 						<NewProjectGroupButton
@@ -605,11 +601,48 @@ export function ProjectsSidebar() {
 							<CloudChatRow key={summary.workspaceId} summary={summary} />
 						))}
 				{threadListSidebar ? (
-					<ThreadListSection
-						entries={threadListEntries}
-						origins={origins}
-						loading={loading}
-					/>
+					<>
+						{folders.map((folder) => {
+							const origin = origins[folder.id];
+							const name = origin?.repo ?? folder.name;
+							const avatarUrl = avatarUrlFor(origin ?? null);
+							return (
+								<li key={folder.id}>
+									<button
+										type="button"
+										aria-pressed={selectedFolderId === folder.id}
+										title={folder.path}
+										onClick={() => {
+											if (isHostedProduct()) selectHostedCloudHome(folder.id);
+											else openNewChatLanding(folder.id);
+										}}
+										className={cn(
+											"flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12px] hover:bg-sidebar-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+											selectedFolderId === folder.id && "bg-sidebar-accent/40",
+										)}
+									>
+										<Avatar className="size-5 rounded">
+											{avatarUrl !== null && (
+												<AvatarImage src={avatarUrl} alt="" />
+											)}
+											<AvatarFallback className="rounded text-[10px]">
+												{initialsOf(origin?.owner ?? folder.name)}
+											</AvatarFallback>
+										</Avatar>
+										<span className="truncate">{name}</span>
+									</button>
+								</li>
+							);
+						})}
+						<li className="px-2 pb-1 pt-3 text-[12px] text-muted-foreground">
+							{uiMessage("projects:projects_sidebar_threads")}
+						</li>
+						<ThreadListSection
+							entries={threadListEntries}
+							origins={origins}
+							loading={loading}
+						/>
+					</>
 				) : desktopCatalogEnabled ? (
 					<>
 						{catalogViewState === "loading" ? (
@@ -1373,7 +1406,7 @@ function SidebarActions() {
 	const pluginsOpen = useUiStore(
 		(state) => state.view === "chat" && state.activeMainTab === "plugins",
 	);
-	// Plugins belong to a Zuse account; the app itself works signed out.
+	// Plugins follow the selected workspace and require a signed-in account.
 	const { isSignedIn } = useAuth();
 
 	return (

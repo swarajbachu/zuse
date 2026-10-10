@@ -79,6 +79,56 @@ const makeTestLayer = (cloudCommandMailboxEnabled = false) =>
 const testLayer = makeTestLayer();
 const mailboxEnabledTestLayer = makeTestLayer(true);
 
+test("yields a pending Boat snapshot before the build lease expires", async () => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const workspace = yield* seedWorkspace({
+				workspaceId: "snapshot-pending",
+				requestConfig: {},
+				state: "ready",
+				desiredState: "ready",
+				statusCode: "ready",
+			});
+			const store = yield* CloudWorkspaceStore;
+			const original = yield* store.getBuild(workspace.buildId);
+			if (original === null) throw new Error("Missing build");
+			const build = {
+				...original,
+				provider: "box",
+				createdAtMs: Date.now() - 20 * 60_000,
+				state: "sanitizing" as const,
+				snapshotId: undefined,
+				providerSandboxId: workspace.providerSandboxId,
+				logText: "Repository preparation completed",
+				nextActionAtMs: 0,
+			};
+			yield* store.saveBuild(build);
+			const providers = yield* SandboxProviders;
+			const provider = yield* providers.get(original.provider);
+			const snapshot = vi.fn(() => Effect.never);
+			yield* reconcileCloudBuild(build.buildId).pipe(
+				Effect.provideService(SandboxProviders, {
+					...providers,
+					get: () =>
+						Effect.succeed({ ...provider, providerId: "box", snapshot }),
+				}),
+			);
+			const result = yield* store.getBuild(build.buildId);
+			expect(result?.state).toBe("sanitizing");
+			expect(result?.lastErrorCode).toBeUndefined();
+			expect(result?.providerSandboxId).toBe(workspace.providerSandboxId);
+			expect(result?.leaseExpiresAtMs).toBeUndefined();
+			expect(result?.logText).toContain(
+				"Snapshot publication is still in progress.",
+			);
+			expect(snapshot).toHaveBeenCalledOnce();
+			expect(
+				yield* provider.inspect(workspace.providerSandboxId ?? ""),
+			).not.toBeNull();
+		}).pipe(Effect.provide(testLayer)),
+	);
+}, 40_000);
+
 test.each([
 	"rejected",
 	"transient",
@@ -262,6 +312,7 @@ test("resumes a persisted snapshot stage after the original worker exits", async
 			expect(resumed?.state).toBe("ready");
 			expect(resumed?.snapshotId).toBeDefined();
 			expect(resumed?.logText).toContain("Repositories prepared");
+			expect(resumed?.logText).toContain("Snapshot published successfully.");
 		}).pipe(Effect.provide(testLayer)),
 	);
 });

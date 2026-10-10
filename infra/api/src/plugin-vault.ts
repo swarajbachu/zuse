@@ -198,6 +198,20 @@ export class PluginVault {
 		this.queue = task.catch(() => undefined);
 		return task;
 	}
+	/** The vault already fences the tenant; only organization-owned rows are shared. */
+	private async connections(identity: PluginIdentity) {
+		const organization = identity.tenant.startsWith("organization:");
+		const rows = await this.ctx.storage.list<PluginConnection>({
+			prefix: organization ? "connection:" : `connection:${identity.subject}:`,
+		});
+		return [...rows].flatMap(([key, row]) => {
+			const subject = key.slice("connection:".length, -`:${row.id}`.length);
+			return subject === identity.subject ||
+				(organization && row.owner === "organization")
+				? [{ key, row, subject }]
+				: [];
+		});
+	}
 	private async command(
 		e: PluginEngine,
 		identity: PluginIdentity,
@@ -205,43 +219,35 @@ export class PluginVault {
 	) {
 		const prefix = `connection:${identity.subject}:`;
 		if (input.action === "list") {
-			const rows = await this.ctx.storage.list<PluginConnection>({ prefix });
+			const rows = await this.connections(identity);
 			return {
 				kind: "snapshot",
 				tenants: [],
 				tenantId: identity.tenant,
 				endpoint: `${this.env.API_PUBLIC_ORIGIN}/v1/plugins/${encodeURIComponent(identity.tenant)}/mcp`,
 				catalog: publicPluginCatalog(),
-				connections: [...rows.values()],
+				connections: rows.map(({ row }) => row),
 			};
 		}
-		if (input.action === "disconnect") {
-			const row = await this.ctx.storage.get<PluginConnection>(
-				prefix + input.connectionId,
+		if (input.action === "disconnect" || input.action === "setEnabled") {
+			const connection = (await this.connections(identity)).find(
+				({ row }) => row.id === input.connectionId,
 			);
-			if (!row) throw new Error("Connection not found");
-			// Fence invocation before the multi-step SDK deletion, including partial failures.
-			await this.ctx.storage.put(prefix + row.id, { ...row, state: "error" });
+			if (!connection) throw new Error("Connection not found");
+			const { key, row, subject } = connection;
+			if (input.action === "setEnabled") {
+				await this.ctx.storage.put(key, { ...row, enabled: input.enabled });
+				return { kind: "ok" };
+			}
+			// Fence invocation before SDK deletion, including partial failures.
+			await this.ctx.storage.put(key, { ...row, state: "error" });
 			await e.remove(
-				this.owner(identity),
+				this.owner({ ...identity, subject }),
 				row.id,
-				await this.ctx.storage.get<StoredRef>(
-					this.refKey(identity.subject, row.id),
-				),
+				await this.ctx.storage.get<StoredRef>(this.refKey(subject, row.id)),
 			);
-			await this.ctx.storage.delete(this.refKey(identity.subject, row.id));
-			await this.ctx.storage.delete(prefix + row.id);
-			return { kind: "ok" };
-		}
-		if (input.action === "setEnabled") {
-			const row = await this.ctx.storage.get<PluginConnection>(
-				prefix + input.connectionId,
-			);
-			if (!row) throw new Error("Connection not found");
-			await this.ctx.storage.put(prefix + row.id, {
-				...row,
-				enabled: input.enabled,
-			});
+			await this.ctx.storage.delete(this.refKey(subject, row.id));
+			await this.ctx.storage.delete(key);
 			return { kind: "ok" };
 		}
 		if (input.action === "connect") {
@@ -270,15 +276,23 @@ export class PluginVault {
 				label: input.label.trim() || plugin.name,
 				...(input.returnTo ? { returnTo: input.returnTo } : {}),
 			};
-			if ((await this.ctx.storage.list({ prefix })).size >= 50)
-				throw new Error("Connection limit reached");
+			const existing = await this.ctx.storage.list<PluginConnection>({
+				prefix: identity.tenant.startsWith("organization:")
+					? "connection:"
+					: prefix,
+			});
+			if ([...existing.values()].some((row) => row.id === id))
+				throw new Error("Connection id already exists");
+			if (existing.size >= 50) throw new Error("Connection limit reached");
 			await this.ctx.storage.setAlarm(Date.now() + TTL);
 			await this.write(`attempt:${identity.subject}:${id}`, a);
 			await this.ctx.storage.put(prefix + id, {
 				id,
 				pluginId: plugin.id,
 				label: a.label,
-				owner: "user",
+				owner: identity.tenant.startsWith("organization:")
+					? "organization"
+					: "user",
 				state: "connecting",
 				enabled: true,
 				createdAt: Date.now(),
@@ -504,17 +518,13 @@ export class PluginVault {
 		identity: PluginIdentity,
 		input: PluginToolRequest,
 	) {
-		const rows = await this.ctx.storage.list<PluginConnection>({
-			prefix: `connection:${identity.subject}:`,
-		});
-		// Rows from before the flag existed have no `enabled` and stay on.
-		const connected = [...rows.values()].filter(
-			(r) => r.state === "connected" && r.enabled !== false,
+		const connected = (await this.connections(identity)).filter(
+			({ row }) => row.state === "connected" && row.enabled !== false,
 		);
 		const prefix = (row: PluginConnection) =>
 			`tools.${row.pluginId}.user.${row.id}.`;
 		if (input.action === "list") {
-			return connected.map(({ id, pluginId, label }) => ({
+			return connected.map(({ row: { id, pluginId, label } }) => ({
 				connectionId: id,
 				pluginId,
 				label,
@@ -527,19 +537,24 @@ export class PluginVault {
 				.split(/\s+/)
 				.filter(Boolean);
 			const tools = [];
-			for (const row of connected) {
+			for (const { row, subject } of connected) {
 				const list = await e.list(
-					this.owner(identity),
-					await this.ref(identity.subject, row.id, row.pluginId),
+					this.owner({ ...identity, subject }),
+					await this.ref(subject, row.id, row.pluginId),
 				);
 				// Match the plugin's id and name too, so "linear" finds every Linear tool.
-				const plugin = `${row.pluginId} ${row.label}`;
+				const catalog = findCatalogPlugin(row.pluginId);
+				const plugin = `${row.pluginId} ${catalog?.name ?? ""} ${row.label}`;
+				const serviceNames = plugin.toLowerCase().replace(/[^a-z0-9]/g, "");
 				for (const tool of list) {
 					if (
-						terms.every((term) =>
-							`${plugin} ${tool.name} ${tool.description}`
-								.toLowerCase()
-								.includes(term),
+						terms.every(
+							(term) =>
+								`${plugin} ${tool.name} ${tool.description}`
+									.toLowerCase()
+									.includes(term) ||
+								(term.replace(/[^a-z0-9]/g, "").length > 0 &&
+									serviceNames.includes(term.replace(/[^a-z0-9]/g, ""))),
 						)
 					)
 						tools.push({
@@ -551,13 +566,17 @@ export class PluginVault {
 			}
 			return tools;
 		}
-		const row = connected.find((r) => input.address.startsWith(prefix(r)));
-		if (!row) throw new Error("Connection unavailable");
-		const ref = await this.ref(identity.subject, row.id, row.pluginId);
+		const connection = connected.find(({ row }) =>
+			input.address.startsWith(prefix(row)),
+		);
+		if (!connection) throw new Error("Connection unavailable");
+		const { row, subject } = connection;
+		const owner = this.owner({ ...identity, subject });
+		const ref = await this.ref(subject, row.id, row.pluginId);
 		const tool = input.address.slice(prefix(row).length);
 		return input.action === "schema"
-			? e.schema(this.owner(identity), ref, tool)
-			: e.call(this.owner(identity), ref, tool, input.arguments);
+			? e.schema(owner, ref, tool)
+			: e.call(owner, ref, tool, input.arguments);
 	}
 
 	alarm(): Promise<void> {

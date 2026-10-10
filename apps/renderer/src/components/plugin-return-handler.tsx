@@ -46,7 +46,7 @@ async function redeem(value: PluginReturn) {
 			type: "error",
 		});
 	} finally {
-		notifyPluginsChanged();
+		notifyPluginsChanged(value.tenantId);
 	}
 }
 

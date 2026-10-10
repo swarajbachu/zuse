@@ -18,6 +18,12 @@ export const workspaceAccessForPath = (
 	method?: string,
 ): "billing" | "administration" | "content" | undefined => {
 	if (
+		method === "POST" &&
+		(path === "/v1/plugins" || path === "/v1/plugins/tools")
+	)
+		return "content";
+	if (/^\/v1\/plugins\/[^/]+\/mcp$/.test(path)) return "content";
+	if (
 		(method === "GET" && path === ApiPaths.cloudGithub) ||
 		(method === "POST" && path === ApiPaths.cloudGithubInstall)
 	)

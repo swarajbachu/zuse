@@ -136,6 +136,14 @@ the snapshot. Tracked repository files and Git history are preserved, including
 Repository owners control the contents of their selected commits. The builder
 does not install project dependencies or run untrusted repository setup.
 
+Snapshot publication is a separate persisted stage with explicit progress in the
+build logs. Boat publication polls yield after 30 seconds so a worker cannot
+occupy a build lease for the provider's full snapshot wait; later reconciliation
+resumes the same named snapshot. Transient publication failures retain the
+prepared source machine for retry within a 30-minute total build window, while
+repository preparation retains its 15-minute deadline. Successful publication
+adds a completion marker after historical retry diagnostics.
+
 A new workspace forks a compatible prepared snapshot when possible. Otherwise
 it starts from the current reviewed base template and performs the normal
 authenticated clone. Snapshot failure affects startup speed, not workspace

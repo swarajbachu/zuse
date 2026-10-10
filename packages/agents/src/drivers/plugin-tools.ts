@@ -85,7 +85,7 @@ export const createHttpPluginClient = (
 		});
 		if (!response.ok)
 			throw new Error(
-				"Plugin request failed. Check the connection in Settings → Integrations.",
+				"Plugin request failed. Check Plugins in the workspace this chat belongs to.",
 			);
 		return response.json();
 	},

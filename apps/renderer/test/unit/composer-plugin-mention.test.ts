@@ -101,6 +101,7 @@ describe("@plugin mentions", () => {
 		};
 		expect(
 			connectedOf({
+				canManage: true,
 				kind: "snapshot",
 				tenantId: "personal:test",
 				tenants: [],

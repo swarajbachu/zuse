@@ -49,6 +49,11 @@ export const PluginConnection = Schema.Struct({
 export type PluginConnection = typeof PluginConnection.Type;
 
 export const PluginSnapshot = Schema.Struct({
+	/** Organization members use connections; admins manage them. */
+	canManage: Schema.Boolean.pipe(
+		Schema.withConstructorDefault(Effect.succeed(true)),
+		Schema.withDecodingDefaultType(Effect.succeed(true)),
+	),
 	kind: Schema.Literal("snapshot"),
 	tenants: Schema.Array(PluginTenant),
 	tenantId: Schema.String,
@@ -161,7 +166,7 @@ export const PLUGIN_MCP_TOOLS = [
 	{
 		name: "plugins_search",
 		description:
-			"Search the user's connected Zuse plugins directly by service and task, for example 'linear issue'. No listing or empty query is needed first. Returns exact tool addresses; use plugins_schema then plugins_call.",
+			"Search the current workspace's connected Zuse plugins directly by service and task, for example 'linear issue'. No listing or empty query is needed first. Returns exact tool addresses; use plugins_schema then plugins_call. An empty result means no matching tools; use plugins_list to check connected services before concluding none are connected.",
 		inputSchema: {
 			type: "object",
 			properties: { query: { type: "string" } },

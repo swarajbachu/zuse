@@ -315,7 +315,9 @@ export const landingDefaultProject = (
 	groups: ReadonlyArray<LogicalProjectGroup>,
 	rememberedKey: string | null,
 	selectedKey: string | null,
+	preserveSelection = false,
 ): LogicalProjectGroup | null => {
+	if (preserveSelection && selectedKey !== null) return null;
 	const openable = (group: LogicalProjectGroup) =>
 		preferredGroupMember(group) !== null;
 	const remembered = groups.find(

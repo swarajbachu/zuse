@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
 	pluginConnectionName,
 	usePluginAccount,
+	usePluginTenant,
 } from "~/lib/connected-plugins.ts";
 import {
 	notifyPluginsChanged,
@@ -158,6 +159,7 @@ type PluginRow = {
 };
 
 type ConnectedPluginRows = {
+	readonly canManage: boolean;
 	readonly signedIn: boolean;
 	readonly tenantId: string | null;
 	readonly rows: readonly PluginRow[] | null;
@@ -187,7 +189,10 @@ function rowsOf(snapshot: PluginSnapshot): readonly PluginRow[] {
 }
 
 function useConnectedPluginRows(): ConnectedPluginRows {
-	const { snapshot, failed, refresh } = usePluginSnapshot(usePluginAccount());
+	const { snapshot, failed, refresh } = usePluginSnapshot(
+		usePluginAccount(),
+		usePluginTenant(),
+	);
 	const account = usePluginAccount();
 	const rows = useMemo(
 		() => (snapshot === null ? null : rowsOf(snapshot)),
@@ -195,6 +200,7 @@ function useConnectedPluginRows(): ConnectedPluginRows {
 	);
 	return {
 		signedIn: account !== null,
+		canManage: snapshot?.canManage !== false,
 		tenantId: snapshot?.tenantId ?? null,
 		rows,
 		failed,
@@ -233,7 +239,7 @@ function ConnectedPluginList({
 				connectionId: id,
 				enabled,
 			});
-			notifyPluginsChanged();
+			notifyPluginsChanged(state.tenantId);
 		} catch {
 			setOverrides((current) => {
 				const next = new Map(current);
@@ -298,7 +304,7 @@ function ConnectedPluginList({
 					</div>
 					<Switch
 						checked={overrides.get(row.connection.id) ?? row.connection.enabled}
-						disabled={pending.has(row.connection.id)}
+						disabled={!state.canManage || pending.has(row.connection.id)}
 						aria-label={row.name}
 						onCheckedChange={(next) => void toggle(row, next)}
 					/>

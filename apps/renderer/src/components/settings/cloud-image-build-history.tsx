@@ -114,6 +114,15 @@ function BuildAccordion({
 				<ChevronDown className="size-3 text-muted-foreground transition-transform group-open/build:rotate-180" />
 			</summary>
 			<div className="space-y-2 px-3 py-2">
+				{build.state === "sanitizing" ? (
+					<p
+						className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
+						role="status"
+					>
+						<LoaderCircle className="size-3 animate-spin" aria-hidden />
+						{uiMessage("settings:cloud_image_sanitizing")}
+					</p>
+				) : null}
 				<div className="relative rounded-md bg-muted/30 p-2.5">
 					<CopyButton
 						text={build.logText ?? ""}

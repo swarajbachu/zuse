@@ -5,17 +5,22 @@ import {
 	PluginSnapshot,
 } from "@zuse/contracts";
 import { Effect, Schema } from "effect";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	peekControlPlaneCache,
-	runCachedControlPlane,
+	runCachedRead,
 	subscribeControlPlaneSessionCache,
 } from "./control-plane-client.ts";
 import { getControlPlaneRpcClient } from "./rpc-client.ts";
 
 export async function pluginRequest(input: PluginRequest) {
-	// Plugin tenancy is selected in the request, independently of the active workspace.
-	const client = await getControlPlaneRpcClient({ kind: "personal" });
+	const scope = input.tenantId?.startsWith("organization:")
+		? {
+				kind: "organization" as const,
+				organizationId: input.tenantId.slice(13),
+			}
+		: { kind: "personal" as const };
+	const client = await getControlPlaneRpcClient(scope);
 	return Effect.runPromise(client["plugins.request"](input));
 }
 
@@ -52,16 +57,14 @@ export const loadPluginSnapshot = (
 	tenantId?: string,
 	refresh = false,
 ): Promise<PluginSnapshot> =>
-	runCachedControlPlane(
+	runCachedRead(
 		snapshotKey(tenantId),
-		(client) =>
-			client["plugins.request"]({ action: "list", tenantId }).pipe(
-				Effect.flatMap((result) =>
-					result.kind === "snapshot"
-						? Effect.succeed(result)
-						: Effect.fail(new Error("Unexpected plugin response")),
-				),
-			),
+		async () => {
+			const result = await pluginRequest({ action: "list", tenantId });
+			if (result.kind !== "snapshot")
+				throw new Error("Unexpected plugin response");
+			return result;
+		},
 		{ decode: decodeSnapshot, scope: "account", refresh },
 	);
 
@@ -77,21 +80,49 @@ export function usePluginSnapshot(
 	readonly failed: boolean;
 	readonly refresh: () => Promise<void>;
 } {
-	const [snapshot, setSnapshot] = useState<PluginSnapshot | null>(() =>
-		account === null ? null : (peekPluginSnapshot(tenantId) ?? null),
+	const [result, setResult] = useState<{
+		account: string | null;
+		tenantId: string | undefined;
+		snapshot: PluginSnapshot | null;
+	}>(() => ({
+		account,
+		tenantId,
+		snapshot: account === null ? null : (peekPluginSnapshot(tenantId) ?? null),
+	}));
+	const current = useRef({ account, tenantId });
+	current.current = { account, tenantId };
+	const setSnapshot = useCallback(
+		(snapshot: PluginSnapshot | null) => {
+			if (
+				current.current.account === account &&
+				current.current.tenantId === tenantId
+			)
+				setResult({ account, tenantId, snapshot });
+		},
+		[account, tenantId],
 	);
 	const [failed, setFailed] = useState(false);
 	const load = useCallback(
 		async (refresh: boolean) => {
 			if (account === null) return;
 			try {
-				setSnapshot(await loadPluginSnapshot(tenantId, refresh));
+				const snapshot = await loadPluginSnapshot(tenantId, refresh);
+				if (
+					current.current.account !== account ||
+					current.current.tenantId !== tenantId
+				)
+					return;
+				setSnapshot(snapshot);
 				setFailed(false);
 			} catch {
-				setFailed(true);
+				if (
+					current.current.account === account &&
+					current.current.tenantId === tenantId
+				)
+					setFailed(true);
 			}
 		},
-		[account, tenantId],
+		[account, tenantId, setSnapshot],
 	);
 	useEffect(() => {
 		setSnapshot(
@@ -104,7 +135,16 @@ export function usePluginSnapshot(
 			if (changed === key) setSnapshot(peekPluginSnapshot(tenantId) ?? null);
 		});
 		return unsubscribe;
-	}, [account, tenantId, load]);
+	}, [account, tenantId, load, setSnapshot]);
 	const refresh = useCallback(() => load(true), [load]);
-	return { snapshot: account === null ? null : snapshot, failed, refresh };
+	return {
+		snapshot:
+			account !== null &&
+			result.account === account &&
+			result.tenantId === tenantId
+				? result.snapshot
+				: null,
+		failed,
+		refresh,
+	};
 }

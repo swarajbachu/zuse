@@ -1,10 +1,16 @@
-import { ChatId, FolderId, SessionId } from "@zuse/contracts";
+import { ChatId, CloudProject, FolderId, SessionId } from "@zuse/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mergeCloudProjectFolders } from "../../src/lib/cloud-project-folders.ts";
 import {
 	captureNewChatLanding,
 	openNewChatLanding,
 	resetCompletedChatDraft,
 } from "../../src/lib/open-new-chat-landing.ts";
+import {
+	buildLogicalProjectGroups,
+	landingDefaultProject,
+	preferredGroupMember,
+} from "../../src/lib/project-groups.ts";
 import { observeRendererAccount } from "../../src/lib/renderer-account.ts";
 import { selectRendererWorkspace } from "../../src/lib/renderer-workspace.ts";
 import { useChatsStore } from "../../src/store/chats.ts";
@@ -60,6 +66,74 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("New Chat navigation", () => {
+	it("opens an organization cloud repository arriving after New Chat without a local checkout", () => {
+		selectRendererWorkspace({ kind: "organization", organizationId: "legion" });
+		useWorkspaceStore.setState({ selectedFolderId: null, folders: [] });
+		openNewChatLanding(null);
+		const projected = mergeCloudProjectFolders([], {}, [
+			CloudProject.make({
+				projectId: "legion-repo",
+				repositoryIdentity: "github.com/legion-team/legion",
+				repositoryUrl: "https://github.com/legion-team/legion.git",
+				displayName: "legion",
+				defaultBranch: "master",
+				visibility: "private",
+				state: "ready",
+				activeBuilds: {},
+				latestBuilds: {},
+				createdAt: 1,
+				updatedAt: 1,
+			}),
+		]);
+		const groups = buildLogicalProjectGroups({
+			entries: [],
+			activeEnvironmentId: "local",
+			localEnvironmentId: "local",
+			activeFolders: projected.folders,
+			activeOrigins: projected.originsByFolder,
+			activeChatsByProject: {},
+			shellsByEnvironment: {},
+		});
+		const group = landingDefaultProject(
+			groups,
+			null,
+			null,
+			useChatsStore.getState().landingRevision > 0,
+		);
+		expect(group).not.toBeNull();
+		if (group === null) throw new Error("Expected cloud repository");
+		const member = preferredGroupMember(group);
+		expect(member?.isActive).toBe(true);
+		if (member === null) throw new Error("Expected selectable repository");
+		openNewChatLanding(member.folderId);
+		expect(useWorkspaceStore.getState().selectedFolderId).toBe(
+			"cloud-project:legion-repo",
+		);
+		expect(useChatsStore.getState().selectedChatId).toBeNull();
+		expect(useWorkspaceStore.getState().folders).toEqual([]);
+	});
+
+	it("dispatches New Chat with no selected repository instead of doing nothing", async () => {
+		vi.stubGlobal("document", { body: { dataset: {} } });
+		useWorkspaceStore.setState({ selectedFolderId: null });
+		useChatsStore.setState({ selectedChatId: null });
+		useUiStore.getState().setView("settings");
+		const { dispatchCommand } = await import(
+			"../../src/lib/command-handlers.ts"
+		);
+		dispatchCommand("new-chat");
+		expect(useUiStore.getState().view).toBe("chat");
+	});
+	it("opens the landing from settings even before cloud repositories have loaded", () => {
+		useWorkspaceStore.setState({ selectedFolderId: null });
+		useUiStore.getState().setView("settings");
+		useUiStore.getState().setActiveMainTab("plugins");
+		openNewChatLanding(null);
+		expect(useUiStore.getState().view).toBe("chat");
+		expect(useUiStore.getState().activeMainTab).toBe("chat");
+		expect(useChatsStore.getState().selectedChatId).toBeNull();
+		expect(useWorkspaceStore.getState().selectedFolderId).toBeNull();
+	});
 	it("does not let a late launch reclaim navigation after switching workspaces and back", () => {
 		openNewChatLanding(first);
 		const personal = captureNewChatLanding();
