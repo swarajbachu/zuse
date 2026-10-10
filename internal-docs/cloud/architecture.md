@@ -129,10 +129,12 @@ remaining command families before each family is advertised.
 ## Project preparation and placement
 
 A cloud project may prepare a sanitized provider snapshot to make workspace
-startup faster. The builder clones a bare repository mirror and removes
-credentials, runtime identity, authorized keys, and shell history before
-publishing the snapshot. It does not install project dependencies or run
-untrusted repository setup.
+startup faster. The builder checks out the selected repositories and removes
+Zuse-injected credentials, runtime identity, and shell history before publishing
+the snapshot. Tracked repository files and Git history are preserved, including
+`.env` configuration; filenames alone do not establish that a file is a secret.
+Repository owners control the contents of their selected commits. The builder
+does not install project dependencies or run untrusted repository setup.
 
 A new workspace forks a compatible prepared snapshot when possible. Otherwise
 it starts from the current reviewed base template and performs the normal
