@@ -21,6 +21,7 @@ import { HostedLaptopSection } from "./hosted-sidebar.tsx";
 import { WorkspaceSwitcher } from "./workspace-switcher.tsx";
 import "@zuse/i18n/english/projects";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import { DitherAvatar } from "@repo/ui/dither";
 import {
 	type Chat,
 	type ChatId,
@@ -46,7 +47,6 @@ import {
 	Folder01Icon,
 	FolderAddIcon,
 	GitBranchIcon,
-	GithubIcon,
 	HelpCircleIcon,
 	Login03Icon,
 	PencilIcon,
@@ -259,10 +259,21 @@ function SidebarErrorToasts(): null {
 }
 
 // GitHub serves owner/org avatars at this path; works for users and orgs alike.
-// Returns null for non-GitHub remotes so the caller falls back to initials.
-const avatarUrlFor = (origin: GitOriginInfo | null): string | null => {
-	if (origin === null || origin.host !== "github.com") return null;
-	return `https://github.com/${encodeURIComponent(origin.owner)}.png?size=80`;
+// Returns null for non-GitHub remotes so the caller falls back to a dither avatar.
+const githubOwnerAvatarUrl = (host: string, owner: string): string | null =>
+	host.toLowerCase() === "github.com"
+		? `https://github.com/${encodeURIComponent(owner)}.png?size=80`
+		: null;
+
+const avatarUrlFor = (origin: GitOriginInfo | null): string | null =>
+	origin === null ? null : githubOwnerAvatarUrl(origin.host, origin.owner);
+
+/** Same avatar for a cloud chat's `host/owner/repo` repository identity. */
+const avatarUrlForRepositoryIdentity = (identity: string): string | null => {
+	const [host, owner] = identity.split("/");
+	return host === undefined || owner === undefined
+		? null
+		: githubOwnerAvatarUrl(host, owner);
 };
 
 /** `compact` drops " ago" ("5m") for dense rows that need the title room. */
@@ -896,12 +907,12 @@ function ThreadListSection({
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 	const [showAll, setShowAll] = useState(false);
 	// Cloud rows open into their matching sidebar project, as in the tree.
-	const projectIdByRepository = useMemo(
+	const projectByRepository = useMemo(
 		() =>
 			new Map(
 				Object.entries(origins).map(([folderId, origin]) => [
 					repositoryIdentityForOrigin(origin),
-					FolderId.make(folderId),
+					{ id: FolderId.make(folderId), name: origin?.repo },
 				]),
 			),
 		[origins],
@@ -945,14 +956,19 @@ function ThreadListSection({
 						chatRef={entry.remote.ref}
 						connected={entry.remote.connected}
 						repositoryName={entry.remote.repositoryName}
+						variant="threadList"
 					/>
 				) : (
 					<CloudChatRow
 						key={entry.id}
 						summary={entry.summary}
-						projectId={projectIdByRepository.get(
-							entry.summary.repositoryIdentity,
-						)}
+						projectId={
+							projectByRepository.get(entry.summary.repositoryIdentity)?.id
+						}
+						projectName={
+							projectByRepository.get(entry.summary.repositoryIdentity)?.name
+						}
+						variant="threadList"
 					/>
 				),
 			)}
@@ -1978,10 +1994,13 @@ function CatalogChatRow({
 	chatRef,
 	connected,
 	repositoryName,
+	variant = "tree",
 }: {
 	chatRef: LogicalChatRef;
 	connected: boolean;
 	repositoryName: string;
+	/** Same layouts as `ChatRow`, so remote and local rows line up. */
+	variant?: "tree" | "threadList";
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
@@ -2008,45 +2027,79 @@ function CatalogChatRow({
 								});
 							}}
 							className={cn(
-								"group flex min-h-6 w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12px] text-muted-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+								variant === "threadList"
+									? "group relative flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-[12.5px] text-muted-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+									: "group flex min-h-6 w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12px] text-muted-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
 								connected
 									? "cursor-pointer hover:bg-sidebar-accent/40"
 									: "cursor-default opacity-60",
 							)}
 						>
-							<span className="ml-3 inline-grid size-5 shrink-0 place-items-center">
-								{busy ? (
-									<>
-										<span
-											aria-hidden="true"
-											className="size-1.5 rounded-full bg-emerald-500"
-										/>
-										<span className="sr-only">
-											{uiMessage("projects:projects_sidebar_agent_running")}
+							{variant === "threadList" ? (
+								<ThreadListRowBody
+									title={
+										chat.title ||
+										uiMessage("projects:projects_sidebar_new_chat")
+									}
+									attentionState={busy ? "running" : "idle"}
+									creationPending={false}
+									statusLabel={uiMessage(
+										"projects:projects_sidebar_agent_running",
+									)}
+									prInfo={prInfo}
+									stats={null}
+									projectName={repositoryName}
+									projectAvatarUrl={null}
+									time={formatRelative(chatRecency(chat), true)}
+									remoteIndicator={
+										remote ? (
+											<RemoteComputerIndicator
+												label={environmentLabel}
+												className="mr-1"
+												tooltip={false}
+											/>
+										) : null
+									}
+									action={null}
+								/>
+							) : (
+								<>
+									<span className="ml-3 inline-grid size-5 shrink-0 place-items-center">
+										{busy ? (
+											<>
+												<span
+													aria-hidden="true"
+													className="size-1.5 rounded-full bg-emerald-500"
+												/>
+												<span className="sr-only">
+													{uiMessage("projects:projects_sidebar_agent_running")}
+												</span>
+											</>
+										) : (
+											<BranchIcon
+												state={branchStateFor(prInfo, isArchived)}
+												selected={false}
+											/>
+										)}
+									</span>
+									<span className="min-w-0 flex-1 truncate">
+										{chat.title ||
+											uiMessage("projects:projects_sidebar_new_chat")}
+									</span>
+									<div className="relative flex h-4 w-16 shrink-0 items-center justify-end">
+										{remote ? (
+											<RemoteComputerIndicator
+												label={environmentLabel}
+												className="mr-1"
+												tooltip={false}
+											/>
+										) : null}
+										<span className="tabular-nums text-[10px] text-muted-foreground">
+											{formatRelative(chatRecency(chat))}
 										</span>
-									</>
-								) : (
-									<BranchIcon
-										state={branchStateFor(prInfo, isArchived)}
-										selected={false}
-									/>
-								)}
-							</span>
-							<span className="min-w-0 flex-1 truncate">
-								{chat.title || uiMessage("projects:projects_sidebar_new_chat")}
-							</span>
-							<div className="relative flex h-4 w-16 shrink-0 items-center justify-end">
-								{remote ? (
-									<RemoteComputerIndicator
-										label={environmentLabel}
-										className="mr-1"
-										tooltip={false}
-									/>
-								) : null}
-								<span className="tabular-nums text-[10px] text-muted-foreground">
-									{formatRelative(chatRecency(chat))}
-								</span>
-							</div>
+									</div>
+								</>
+							)}
 						</button>
 					}
 				/>
@@ -2482,9 +2535,15 @@ function ProjectGroup({
 function CloudChatRow({
 	summary,
 	projectId,
+	projectName,
+	variant = "tree",
 }: {
 	readonly summary: CloudChatSummary;
 	readonly projectId?: FolderId;
+	/** Shown on `threadList` rows; defaults to the cloud repository name. */
+	readonly projectName?: string;
+	/** Same layouts as `ChatRow`, so cloud and local rows line up. */
+	readonly variant?: "tree" | "threadList";
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
@@ -2550,6 +2609,10 @@ function CloudChatRow({
 			)
 			.finally(() => setArchiving(false));
 	};
+	const archiveLabel =
+		summary.state === "failed" && summary.desiredState === "archived"
+			? uiMessage("projects:projects_sidebar_retry_archive")
+			: uiMessage("projects:projects_sidebar_archive");
 	return (
 		<li>
 			<Tooltip>
@@ -2561,7 +2624,9 @@ function CloudChatRow({
 							tabIndex={0}
 							aria-label={`${summary.title}. ${label}`}
 							className={cn(
-								"group flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-2 pl-1 text-left text-[12px] text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/40 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
+								variant === "threadList"
+									? "group relative flex w-full cursor-pointer items-start gap-2.5 rounded-lg px-2 py-2 text-left text-[12.5px] text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/40 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+									: "group flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-2 pl-1 text-left text-[12px] text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/40 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
 								selected && "bg-sidebar-accent text-sidebar-accent-foreground",
 							)}
 							onClick={open}
@@ -2574,57 +2639,91 @@ function CloudChatRow({
 								}
 							}}
 						>
-							<span className="ml-3 inline-grid size-5 shrink-0 place-items-center">
-								{attentionState !== "idle" ? (
-									<ChatAttentionIcon
-										state={attentionState}
-										selected={selected}
-									/>
-								) : (
-									<BranchIcon state="default" selected={selected} />
-								)}
-							</span>
-							<span className="min-w-0 flex-1 truncate">{summary.title}</span>
-							<div className="flex h-4 w-20 shrink-0 items-center justify-end gap-1">
-								<span
-									className="inline-flex shrink-0 text-muted-foreground/60"
-									role="img"
-									aria-label={label}
-								>
-									<DitherCloudIcon className="size-4" />
-								</span>
-								<span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
-									{formatRelative(new Date(chatRecency(summary)))}
-								</span>
-								<button
-									type="button"
-									disabled={archiving || archivePending}
-									onClick={(event) => {
-										event.stopPropagation();
-										archiveChat();
-									}}
-									className={cn(
-										"items-center rounded-md p-0.5 text-muted-foreground transition-opacity duration-150 ease-out hover:text-sidebar-accent-foreground motion-reduce:transition-none group-focus-within:flex",
-										archiving ? "flex" : "hidden group-hover:flex",
+							{variant === "threadList" ? (
+								<ThreadListRowBody
+									title={summary.title}
+									attentionState={attentionState}
+									creationPending={false}
+									statusLabel={chatAttentionLabel(attentionState)}
+									prInfo={null}
+									stats={null}
+									projectName={projectName ?? summary.repositoryDisplayName}
+									projectAvatarUrl={avatarUrlForRepositoryIdentity(
+										summary.repositoryIdentity,
 									)}
-									aria-label={`${summary.state === "failed" && summary.desiredState === "archived" ? "Retry archiving" : "Archive"} ${summary.title}`}
-									title={
-										summary.state === "failed" &&
-										summary.desiredState === "archived"
-											? uiMessage("projects:projects_sidebar_retry_archive")
-											: uiMessage("projects:projects_sidebar_archive")
+									time={formatRelative(new Date(chatRecency(summary)), true)}
+									remoteIndicator={
+										<span
+											className="mr-1 inline-flex shrink-0 text-muted-foreground/60"
+											role="img"
+											aria-label={label}
+										>
+											<DitherCloudIcon className="size-4" />
+										</span>
 									}
-								>
-									{archiving ? (
-										<Spinner className="size-3.5" />
-									) : (
-										<HugeiconsIcon
+									action={
+										<ChatArchiveButton
 											icon={ArchiveArrowDownIcon}
-											className="size-3.5"
+											label={archiveLabel}
+											chatTitle={summary.title}
+											archiving={archiving}
+											busy={archiving || archivePending}
+											onClick={archiveChat}
 										/>
-									)}
-								</button>
-							</div>
+									}
+								/>
+							) : (
+								<>
+									<span className="ml-3 inline-grid size-5 shrink-0 place-items-center">
+										{attentionState !== "idle" ? (
+											<ChatAttentionIcon
+												state={attentionState}
+												selected={selected}
+											/>
+										) : (
+											<BranchIcon state="default" selected={selected} />
+										)}
+									</span>
+									<span className="min-w-0 flex-1 truncate">
+										{summary.title}
+									</span>
+									<div className="flex h-4 w-20 shrink-0 items-center justify-end gap-1">
+										<span
+											className="inline-flex shrink-0 text-muted-foreground/60"
+											role="img"
+											aria-label={label}
+										>
+											<DitherCloudIcon className="size-4" />
+										</span>
+										<span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
+											{formatRelative(new Date(chatRecency(summary)))}
+										</span>
+										<button
+											type="button"
+											disabled={archiving || archivePending}
+											onClick={(event) => {
+												event.stopPropagation();
+												archiveChat();
+											}}
+											className={cn(
+												"items-center rounded-md p-0.5 text-muted-foreground transition-opacity duration-150 ease-out hover:text-sidebar-accent-foreground motion-reduce:transition-none group-focus-within:flex",
+												archiving ? "flex" : "hidden group-hover:flex",
+											)}
+											aria-label={`${summary.state === "failed" && summary.desiredState === "archived" ? "Retry archiving" : "Archive"} ${summary.title}`}
+											title={archiveLabel}
+										>
+											{archiving ? (
+												<Spinner className="size-3.5" />
+											) : (
+												<HugeiconsIcon
+													icon={ArchiveArrowDownIcon}
+													className="size-3.5"
+												/>
+											)}
+										</button>
+									</div>
+								</>
+							)}
 						</div>
 					}
 				/>
@@ -3264,7 +3363,8 @@ function ChatRow({
 
 /**
  * Body for `threadList` rows, anchored by the repository's GitHub logo.
- *   logo  — repo owner avatar; a small corner badge appears only while the
+ *   logo  — repo owner avatar (a dither avatar seeded by the project name when
+ *           there is none); a small corner badge appears only while the
  *           agent works or needs you (status words live in the hover card)
  *   line 1 — title · time
  *   line 2 — project name, GitHub PR icon, number, and state · diff
@@ -3304,12 +3404,8 @@ function ThreadListRowBody({
 					{projectAvatarUrl !== null && (
 						<AvatarImage src={projectAvatarUrl} alt="" />
 					)}
-					<AvatarFallback className="rounded-[5px] bg-sidebar-accent text-muted-foreground">
-						<HugeiconsIcon
-							icon={GithubIcon}
-							className="size-3"
-							aria-hidden="true"
-						/>
+					<AvatarFallback className="rounded-[5px] bg-sidebar-accent">
+						<DitherAvatar name={projectName ?? title} size={20} />
 					</AvatarFallback>
 				</Avatar>
 				{working || attentionState !== "idle" ? (

@@ -1322,6 +1322,16 @@ const isMissingCodexRollout = (cause: unknown): boolean =>
 	/^no rollout found for thread id\b/i.test(cause.message);
 
 /**
+ * Codex refuses to resume or fork a thread archived outside Zuse. Zuse owns
+ * its own archive state, so a provider-side archive is not a reason to fail
+ * the session.
+ */
+const isArchivedCodexThread = (cause: unknown): boolean =>
+	cause instanceof CodexAppServerRequestError &&
+	cause.code === CODEX_INVALID_REQUEST_ERROR &&
+	/^session \S+ is archived\b/i.test(cause.message);
+
+/**
  * Codex allocates a thread id at `thread/start`, but does not create its
  * resumable rollout until the first turn starts. Keep that provisional id out
  * of persistence so an app/provider restart cannot try to resume a rollout
@@ -1730,16 +1740,34 @@ export const startCodexSession = (
 			if (started.model !== undefined) activeModel = started.model;
 		};
 
+		/** `thread/resume`/`thread/fork`, unarchiving a Codex-archived thread once. */
+		const requestExistingThread = async (
+			method: "thread/resume" | "thread/fork",
+			threadId: string,
+		): Promise<ThreadResponse> => {
+			const params = { threadId, ...commonThreadParams };
+			try {
+				return await app.request<ThreadResponse>(method, params);
+			} catch (cause) {
+				if (!isArchivedCodexThread(cause)) throw cause;
+				console.warn(
+					"[codex] thread was archived outside Zuse; unarchiving it",
+				);
+				await app.request("thread/unarchive", { threadId });
+				return app.request<ThreadResponse>(method, params);
+			}
+		};
+
 		const startOrResume = async (): Promise<void> => {
 			if (activeThreadId !== null && input.forkFromResume === true) {
 				// "Fork chat": branch the source thread into a NEW thread so the
 				// original transcript stays intact. The forked thread id becomes this
 				// session's durable cursor.
 				try {
-					const forked = await app.request<ThreadResponse>("thread/fork", {
-						threadId: activeThreadId,
-						...commonThreadParams,
-					});
+					const forked = await requestExistingThread(
+						"thread/fork",
+						activeThreadId,
+					);
 					adoptDurableThread(forked);
 				} catch (cause) {
 					if (!isMissingCodexRollout(cause)) throw cause;
@@ -1750,10 +1778,10 @@ export const startCodexSession = (
 				}
 			} else if (activeThreadId !== null) {
 				try {
-					const resumed = await app.request<ThreadResponse>("thread/resume", {
-						threadId: activeThreadId,
-						...commonThreadParams,
-					});
+					const resumed = await requestExistingThread(
+						"thread/resume",
+						activeThreadId,
+					);
 					adoptDurableThread(resumed);
 				} catch (cause) {
 					if (!isMissingCodexRollout(cause)) throw cause;
