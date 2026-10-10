@@ -220,7 +220,97 @@ describe("GitServiceLive", () => {
 			service.workspaceSnapshot(folderId),
 		);
 		expect(snapshot.status.dirtyFiles).toBe(0);
+		expect(snapshot.changes).toEqual([]);
+		expect(snapshot.reviewSummary.files).toEqual([]);
 		expect(readFileSync(join(repositoryRoot, ".git", "index"))).toEqual(index);
+	});
+
+	test("excludes stat-only changes from every review scope while preserving real edits", async () => {
+		writeFileSync(join(repositoryRoot, "edited.txt"), "before\n");
+		writeFileSync(
+			join(repositoryRoot, "unchanged.pdf"),
+			Buffer.from([0, 1, 2, 3]),
+		);
+		git(repositoryRoot, "add", ".");
+		git(repositoryRoot, "commit", "-m", "add edited fixture");
+		const later = new Date(Date.now() + 2_000);
+		utimesSync(join(repositoryRoot, "README.md"), later, later);
+		utimesSync(join(repositoryRoot, "unchanged.pdf"), later, later);
+		writeFileSync(join(repositoryRoot, "edited.txt"), "after!\n");
+
+		for (const scope of ["branch", "unstaged", "staged"] as const) {
+			const summary = await run((service) =>
+				service.reviewSummary(folderId, null, scope),
+			);
+			expect(summary.files.map((file) => file.path)).toEqual(
+				scope === "staged" ? [] : ["edited.txt"],
+			);
+		}
+	});
+
+	test("keeps committed and staged binary edits while excluding unchanged binary files", async () => {
+		for (const name of ["committed.pdf", "unchanged.pdf"]) {
+			writeFileSync(join(repositoryRoot, name), Buffer.from([0, 1, 2, 3]));
+		}
+		git(repositoryRoot, "add", ".");
+		git(repositoryRoot, "commit", "-m", "add binary fixtures");
+		git(repositoryRoot, "switch", "-c", "feature");
+		writeFileSync(
+			join(repositoryRoot, "committed.pdf"),
+			Buffer.from([0, 4, 5, 6]),
+		);
+		git(repositoryRoot, "add", ".");
+		git(repositoryRoot, "commit", "-m", "change binary file");
+		const index = readFileSync(join(repositoryRoot, ".git", "index"));
+		const later = new Date(Date.now() + 2_000);
+		for (const name of ["committed.pdf", "unchanged.pdf"]) {
+			utimesSync(join(repositoryRoot, name), later, later);
+		}
+		const branch = await run((service) => service.reviewSummary(folderId));
+		expect(branch.files.map((file) => file.path)).toEqual(["committed.pdf"]);
+		expect(branch.files[0]).toMatchObject({
+			binary: true,
+			hasUncommittedChanges: false,
+		});
+		expect(readFileSync(join(repositoryRoot, ".git", "index"))).toEqual(index);
+
+		writeFileSync(
+			join(repositoryRoot, "unchanged.pdf"),
+			Buffer.from([0, 7, 8, 9]),
+		);
+		git(repositoryRoot, "add", "unchanged.pdf");
+		utimesSync(join(repositoryRoot, "unchanged.pdf"), later, later);
+		const staged = await run((service) =>
+			service.reviewSummary(folderId, null, "staged"),
+		);
+		const unstaged = await run((service) =>
+			service.reviewSummary(folderId, null, "unstaged"),
+		);
+		expect(staged.files.map((file) => file.path)).toEqual(["unchanged.pdf"]);
+		expect(unstaged.files).toEqual([]);
+		writeFileSync(
+			join(repositoryRoot, "unchanged.pdf"),
+			Buffer.from([0, 9, 8, 7]),
+		);
+		const edited = await run((service) =>
+			service.reviewSummary(folderId, null, "unstaged"),
+		);
+		expect(edited.files.map((file) => file.path)).toEqual(["unchanged.pdf"]);
+	});
+
+	test("preserves executable-bit-only changes with zero line changes in reviews", async () => {
+		git(repositoryRoot, "config", "core.filemode", "true");
+		chmodSync(join(repositoryRoot, "README.md"), 0o755);
+		const summary = await run((service) => service.reviewSummary(folderId));
+		expect(summary.files).toEqual([
+			expect.objectContaining({
+				path: "README.md",
+				kind: "modified",
+				additions: 0,
+				deletions: 0,
+				hasUncommittedChanges: true,
+			}),
+		]);
 	});
 
 	test("returns one coherent local workspace projection", async () => {
