@@ -183,12 +183,17 @@ export const installServeService = async (input: {
 	readonly paths: ServeServicePaths;
 	readonly apiUrl?: string;
 	readonly sshManaged?: boolean;
+	readonly selfHosted?: boolean;
 	readonly tailscale?: boolean;
 	readonly noAccount?: boolean;
 	readonly lan?: boolean;
 	readonly host?: string;
 	readonly port?: number;
 }): Promise<ServeServiceStatus> => {
+	const previouslyInstalled = await access(input.paths.definitionPath).then(
+		() => true,
+		() => false,
+	);
 	await mkdir(dirname(input.paths.definitionPath), { recursive: true });
 	await mkdir(input.paths.logDir, { recursive: true, mode: 0o700 });
 	await mkdir(input.paths.dataDir, { recursive: true, mode: 0o700 });
@@ -205,6 +210,7 @@ export const installServeService = async (input: {
 			logDir: input.paths.logDir,
 			apiUrl: input.apiUrl,
 			sshManaged: input.sshManaged,
+			selfHosted: input.selfHosted,
 			tailscale: input.tailscale,
 			noAccount: input.noAccount,
 			lan: input.lan,
@@ -244,6 +250,7 @@ export const installServeService = async (input: {
 		logDir: input.paths.logDir,
 		apiUrl: input.apiUrl,
 		sshManaged: input.sshManaged,
+		selfHosted: input.selfHosted,
 		tailscale: input.tailscale,
 		noAccount: input.noAccount,
 		lan: input.lan,
@@ -255,6 +262,9 @@ export const installServeService = async (input: {
 	});
 	await run("systemctl", ["--user", "daemon-reload"]);
 	await run("systemctl", ["--user", "enable", "--now", definition.unitName]);
+	if (previouslyInstalled) {
+		await run("systemctl", ["--user", "restart", definition.unitName]);
+	}
 	return { installed: true, running: true, durable: true };
 };
 

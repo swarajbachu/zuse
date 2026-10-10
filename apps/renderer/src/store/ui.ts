@@ -38,6 +38,7 @@ export type SettingsSection =
 	| { readonly kind: "plugins"; readonly tab?: PluginsSettingsTab }
 	| { readonly kind: "devices" }
 	| { readonly kind: "organizations" }
+	| { readonly kind: "self-hosted" }
 	| { readonly kind: "machines" }
 	| {
 			readonly kind: "cloud";

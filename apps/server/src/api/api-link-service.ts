@@ -739,7 +739,7 @@ const makeApiLinkService = (options: {
 							proof,
 							environmentId: keys.envId,
 							environmentPublicKey: keys.publicJwk,
-							providerKind: "desktop",
+							providerKind: config.providerKind ?? "desktop",
 							endpoint: computeEndpoint(config),
 							label,
 							...apiRuntimeMetadata(),
