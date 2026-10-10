@@ -714,13 +714,12 @@ export class CloudWorkspaceActionRequest extends Schema.Class<CloudWorkspaceActi
 	commandId: Schema.optional(Schema.String),
 }) {}
 
+/** Legacy recoverRuntime input is ignored; only the lifecycle owner decides recovery. */
 export class CloudWorkspaceResumeRequest extends Schema.Class<CloudWorkspaceResumeRequest>(
 	"CloudWorkspaceResumeRequest",
 )({
 	workspaceId: Schema.String,
 	commandId: Schema.optional(Schema.String),
-	/** The gateway proved that API's online projection has no runtime socket. */
-	recoverRuntime: Schema.optional(Schema.Boolean),
 }) {}
 
 /**
@@ -921,6 +920,12 @@ export const CloudWorkspacesResumeRpc = Rpc.make("cloud.workspaces.resume", {
 });
 /** Restart the runtime of a running workspace in place (same sandbox). */
 export const CloudWorkspacesRestartRpc = Rpc.make("cloud.workspaces.restart", {
+	payload: CloudWorkspaceActionRequest,
+	success: CloudWorkspace,
+	error: CloudWorkspaceOpError,
+});
+/** Prepare and activate an explicitly requested signed runtime release. */
+export const CloudWorkspacesUpdateRpc = Rpc.make("cloud.workspaces.update", {
 	payload: CloudWorkspaceActionRequest,
 	success: CloudWorkspace,
 	error: CloudWorkspaceOpError,

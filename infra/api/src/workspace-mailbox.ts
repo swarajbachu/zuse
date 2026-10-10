@@ -17,6 +17,10 @@ type SqlRow = Record<string, string | number | null>;
 const RESERVATION_TTL_MS = 60_000;
 const RESULT_RETENTION_MS = 30 * 24 * 60 * 60_000;
 const CHANGE_HISTORY_LIMIT = 10_000;
+export type MailboxWakeDelivery = {
+	readonly workspaceId: string;
+	readonly accountId: string;
+};
 const DESTRUCTIVE_LEASE_CATEGORIES = [
 	"workspace-destruction-fence-advanced-after-lease",
 	"workspace-archived-after-lease",
@@ -40,7 +44,12 @@ export class WorkspaceMailbox {
 	private readonly sql;
 	private readonly waiters = new Set<() => void>();
 
-	constructor(private readonly state: DurableObjectState) {
+	constructor(
+		private readonly state: DurableObjectState,
+		private readonly dispatchWake?: (
+			delivery: MailboxWakeDelivery,
+		) => Promise<void>,
+	) {
 		this.sql = state.storage.sql;
 		this.sql.exec(`CREATE TABLE IF NOT EXISTS mailbox_meta (
 			key TEXT PRIMARY KEY,
@@ -84,7 +93,7 @@ export class WorkspaceMailbox {
 		return this.sql.exec<SqlRow>(query, ...bindings).toArray();
 	}
 
-	private next(name: "sequence" | "revision"): number {
+	private next(name: "sequence" | "revision" | "wake-sequence"): number {
 		const row = this.rows(
 			"SELECT value FROM mailbox_meta WHERE key = ?",
 			name,
@@ -430,13 +439,43 @@ export class WorkspaceMailbox {
 		return response;
 	}
 
-	private commitUnsafe(commandId: string, blockedUntil?: string): Response {
+	private commitUnsafe(
+		commandId: string,
+		blockedUntil?: string,
+		delivery?: MailboxWakeDelivery,
+	): Response {
 		const now = Date.now();
 		const before = this.rows(
 			"SELECT state, accepted_at FROM mailbox_commands WHERE command_id = ?",
 			commandId,
 		)[0];
 		if (before === undefined) return json({ code: "command-not-found" }, 404);
+		if (
+			before.state === "reserved" &&
+			this.dispatchWake !== undefined &&
+			delivery === undefined
+		)
+			return json({ code: "wake-delivery-required" }, 400);
+		if (delivery !== undefined) {
+			const envelope = this.rows(
+				"SELECT envelope_json FROM mailbox_commands WHERE command_id = ?",
+				commandId,
+			)[0]?.envelope_json;
+			const expected = this.rows(
+				"SELECT value FROM mailbox_meta WHERE key = 'wake-account-id'",
+			)[0]?.value;
+			if (
+				typeof envelope !== "string" ||
+				(envelope !== "" &&
+					JSON.parse(envelope).workspaceId !== delivery.workspaceId) ||
+				(envelope === "" &&
+					this.rows(
+						"SELECT value FROM mailbox_meta WHERE key = 'wake-workspace-id'",
+					)[0]?.value !== delivery.workspaceId) ||
+				(expected !== undefined && expected !== delivery.accountId)
+			)
+				return json({ code: "wake-delivery-binding-mismatch" }, 409);
+		}
 		this.sql.exec(
 			`UPDATE mailbox_commands SET state = ?, accepted_at = ?, updated_at = ?, blocked_until = ?
 			 WHERE command_id = ? AND state = 'reserved'`,
@@ -447,6 +486,19 @@ export class WorkspaceMailbox {
 			commandId,
 		);
 		if (before.state === "reserved") this.changed(commandId);
+		if (
+			delivery !== undefined &&
+			(before.state === "reserved" ||
+				(this.metaNumber("wake-revision") === null &&
+					["accepted", "waiting-for-runtime", "blocked"].includes(
+						String(before.state),
+					)))
+		) {
+			this.setMeta("wake-workspace-id", delivery.workspaceId);
+			this.setMeta("wake-account-id", delivery.accountId);
+			this.setMeta("wake-revision", this.next("wake-sequence"));
+			this.setMeta("wake-next-at", now + 1);
+		}
 		const current = this.status(commandId) as Record<string, unknown>;
 		const acceptedAt = current.acceptedAt ?? before.accepted_at;
 		if (typeof acceptedAt !== "number")
@@ -479,9 +531,13 @@ export class WorkspaceMailbox {
 	private async commit(
 		commandId: string,
 		blockedUntil?: string,
+		delivery?: MailboxWakeDelivery,
 	): Promise<Response> {
+		// Arm before SQLite acceptance. A process death after the transaction
+		// cannot strand an accepted command before its dispatch is delivered.
+		if (delivery !== undefined) await this.schedule(Date.now() + 1);
 		const response = this.state.storage.transactionSync(() =>
-			this.commitUnsafe(commandId, blockedUntil),
+			this.commitUnsafe(commandId, blockedUntil, delivery),
 		);
 		await this.scheduleNext();
 		const status = this.status(commandId);
@@ -581,6 +637,7 @@ export class WorkspaceMailbox {
 				);
 				this.changed(blockedCommandId);
 			}
+			if (blocked.length > 0) this.rearmWakeUnsafe();
 			return json({ unblocked: blocked.length });
 		}
 		const before = this.status(commandId);
@@ -599,13 +656,22 @@ export class WorkspaceMailbox {
 			commandId,
 		);
 		this.changed(commandId);
+		this.rearmWakeUnsafe();
 		return json(this.status(commandId));
+	}
+
+	private rearmWakeUnsafe(): void {
+		if (this.metaNumber("wake-revision") === null) return;
+		this.setMeta("wake-revision", this.next("wake-sequence"));
+		this.setMeta("wake-next-at", Date.now() + 1);
 	}
 
 	private async unblock(
 		commandId?: string,
 		blockedUntil?: string,
 	): Promise<Response> {
+		if (this.metaNumber("wake-revision") !== null)
+			await this.schedule(Date.now() + 1);
 		const response = this.state.storage.transactionSync(() =>
 			this.unblockUnsafe(commandId, blockedUntil),
 		);
@@ -1015,9 +1081,18 @@ export class WorkspaceMailbox {
 			RESERVATION_TTL_MS,
 			RESULT_RETENTION_MS,
 		)[0]?.deadline;
-		return deadline === undefined || deadline === null
-			? null
-			: Number(deadline);
+		const commandDeadline =
+			deadline === undefined || deadline === null ? null : Number(deadline);
+		const wakeDeadline =
+			this.metaNumber("wake-revision") !==
+			this.metaNumber("wake-delivered-revision")
+				? this.metaNumber("wake-next-at")
+				: null;
+		return commandDeadline === null
+			? wakeDeadline
+			: wakeDeadline === null
+				? commandDeadline
+				: Math.min(commandDeadline, wakeDeadline);
 	}
 
 	private async scheduleNext(): Promise<void> {
@@ -1053,6 +1128,41 @@ export class WorkspaceMailbox {
 				now - RESULT_RETENTION_MS,
 			);
 		});
+		const revision = this.metaNumber("wake-revision");
+		if (
+			this.dispatchWake !== undefined &&
+			revision !== null &&
+			revision !== this.metaNumber("wake-delivered-revision")
+		) {
+			const values = this.rows(
+				"SELECT key, value FROM mailbox_meta WHERE key IN ('wake-workspace-id', 'wake-account-id')",
+			);
+			const workspaceId = values.find(
+				(row) => row.key === "wake-workspace-id",
+			)?.value;
+			const accountId = values.find(
+				(row) => row.key === "wake-account-id",
+			)?.value;
+			try {
+				if (typeof workspaceId !== "string" || typeof accountId !== "string")
+					throw new Error("mailbox wake binding absent");
+				await this.dispatchWake({ workspaceId, accountId });
+				this.state.storage.transactionSync(() => {
+					this.setMeta("wake-delivered-revision", revision);
+					// A notification may have arrived before control-plane wake
+					// intent committed. Publish a new cursor after that durable
+					// dispatch, so an idle waiter cannot sleep past the intent.
+					this.next("revision");
+					for (const wake of this.waiters) wake();
+					this.waiters.clear();
+				});
+			} catch {
+				this.state.storage.transactionSync(() => {
+					if (this.metaNumber("wake-revision") === revision)
+						this.setMeta("wake-next-at", Date.now() + 5_000);
+				});
+			}
+		}
 		await this.scheduleNext();
 	}
 
@@ -1065,8 +1175,17 @@ export class WorkspaceMailbox {
 				const body = (await request.json()) as {
 					commandId: string;
 					blockedUntil?: string;
+					workspaceId?: string;
+					accountId?: string;
 				};
-				return this.commit(body.commandId, body.blockedUntil);
+				return this.commit(
+					body.commandId,
+					body.blockedUntil,
+					typeof body.workspaceId === "string" &&
+						typeof body.accountId === "string"
+						? { workspaceId: body.workspaceId, accountId: body.accountId }
+						: undefined,
+				);
 			}
 			if (request.method === "POST" && url.pathname === "/block") {
 				const body = (await request.json()) as {

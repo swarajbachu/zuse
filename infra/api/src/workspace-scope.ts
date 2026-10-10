@@ -49,7 +49,7 @@ export const workspaceAccessForPath = (
 				path,
 			)) ||
 		(method === "POST" &&
-			/^\/v1\/cloud\/workspaces\/[^/]+\/(?:commands|pause|resume|restart|archive|unarchive|delete)$/u.test(
+			/^\/v1\/cloud\/workspaces\/[^/]+\/(?:commands|pause|resume|restart|update|archive|unarchive|delete)$/u.test(
 				path,
 			)) ||
 		(method === "DELETE" &&

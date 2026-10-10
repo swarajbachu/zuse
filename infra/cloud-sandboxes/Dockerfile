@@ -15,7 +15,7 @@ RUN /tmp/zuse-provision/provision.sh globals
 # is intentionally not fetched from npm: the sandbox external-bind behavior
 # must ship atomically with the api that depends on it.
 COPY artifacts /tmp/zuse-provision/artifacts
-COPY sshd_config project-builder.sh workspace-bootstrap.sh git-askpass.sh github-auth.sh repository-script.ts /tmp/zuse-provision/
+COPY sshd_config project-builder.sh workspace-bootstrap.sh workspace-runtime.sh git-askpass.sh github-auth.sh repository-script.ts /tmp/zuse-provision/
 
 RUN /tmp/zuse-provision/provision.sh runtime layout \
 	&& rm -rf /tmp/zuse-provision

@@ -121,6 +121,7 @@ import {
 	CloudWorkspacesRevokePreviewUrlRpc,
 	CloudWorkspacesSshAccessRpc,
 	CloudWorkspacesUnarchiveRpc,
+	CloudWorkspacesUpdateRpc,
 	CloudWorkspacesWatchRpc,
 } from "./cloud-workspaces.ts";
 import {
@@ -527,6 +528,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	CloudWorkspacesPauseRpc,
 	CloudWorkspacesResumeRpc,
 	CloudWorkspacesRestartRpc,
+	CloudWorkspacesUpdateRpc,
 	CloudWorkspacesSshAccessRpc,
 	CloudWorkspacesPreviewUrlRpc,
 	CloudWorkspacesRevokePreviewUrlRpc,

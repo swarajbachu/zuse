@@ -7,6 +7,7 @@ import {
 	openCloudTranscriptCheckpoint,
 	openCloudTranscriptPage,
 } from "@zuse/client-runtime/cloud-transcript";
+import type { EnvironmentWakeIntent } from "@zuse/client-runtime/environment-runtime";
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import type {
 	ConnectionView,
@@ -23,6 +24,7 @@ import {
 	Message,
 	MessageId,
 	type SessionId,
+	WORKSPACE_GATEWAY_PENDING_PROTOCOL,
 } from "@zuse/contracts";
 import { Duration, Effect, Fiber, Schedule, Stream } from "effect";
 import {
@@ -32,10 +34,7 @@ import {
 } from "../lib/cloud-workspace-lifecycle.ts";
 import { overlayActiveEnvironmentShell } from "../lib/environment-entities.ts";
 import { formatError } from "../lib/format-error.ts";
-import {
-	refreshCloudWorkspaceConnectionWithRecovery,
-	registerCloudWorkspace,
-} from "../lib/rpc-client.ts";
+import { registerCloudWorkspace } from "../lib/rpc-client.ts";
 import {
 	rememberCloudTimelineHead,
 	sessionTimelineCache,
@@ -137,6 +136,8 @@ const opening = new Map<
 type CloudAttachment = {
 	account: RendererAccountSnapshot;
 	activation: "connect" | "wake";
+	wakeAccepted: boolean;
+	wakeAcknowledgments: Array<() => void>;
 	promise: Promise<void>;
 };
 const attaching = new Map<string, CloudAttachment>();
@@ -205,7 +206,13 @@ const trackCloudAttachment = (
 			attaching.delete(workspaceId);
 		}
 	});
-	attaching.set(workspaceId, { activation, promise: tracked, account });
+	attaching.set(workspaceId, {
+		activation,
+		promise: tracked,
+		account,
+		wakeAccepted: false,
+		wakeAcknowledgments: [],
+	});
 	return tracked;
 };
 
@@ -331,7 +338,7 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 	);
 	const releaseActivation = registerEnvironmentActivation(
 		EnvironmentId.make(summary.workspaceId),
-		async (activation) => {
+		async (activation, wakeIntent) => {
 			assertRendererAccountCurrent(account);
 			const fallback =
 				registeredCloudEnvironments.get(summary.workspaceId) ?? summary;
@@ -343,7 +350,7 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 					) ??
 				cloudSummaryForChat(fallback.chatId) ??
 				fallback;
-			await ensureCloudWorkspaceEnvironment(current, activation);
+			await ensureCloudWorkspaceEnvironment(current, activation, wakeIntent);
 		},
 		async (client) => {
 			assertRendererAccountCurrent(account);
@@ -553,13 +560,17 @@ export const openCloudChat = (
 };
 
 const workspaceNeedsWake = (
-	workspace: Pick<CloudWorkspace, "state">,
-): boolean => workspace.state === "paused" || workspace.state === "failed";
+	workspace: Pick<CloudWorkspace, "state" | "desiredState">,
+): boolean =>
+	workspace.state === "paused" ||
+	workspace.state === "failed" ||
+	workspace.desiredState === "paused";
 
 /** Cloud is an EnvironmentResolver capability, not a second message path. */
 export const ensureCloudWorkspaceAttached = (
 	summary: CloudChatSummary,
 	activation: "connect" | "wake" = "wake",
+	wakeIntent?: EnvironmentWakeIntent,
 ): Promise<void> => {
 	const account = rendererAccountSnapshot();
 	// A live, account-owned runtime already authorizes each command. Reuse it
@@ -571,11 +582,17 @@ export const ensureCloudWorkspaceAttached = (
 		registered.desiredState === "ready" &&
 		getRendererClientBus().connection(EnvironmentId.make(summary.workspaceId))
 			.phase === "connected"
-	)
+	) {
+		wakeIntent?.acknowledge();
 		return Promise.resolve();
+	}
 	const existing = attaching.get(summary.workspaceId);
 	if (existing !== undefined && existing.account === account) {
 		if (existing.activation === "wake" || activation === "connect") {
+			if (wakeIntent !== undefined) {
+				if (existing.wakeAccepted) wakeIntent.acknowledge();
+				else existing.wakeAcknowledgments.push(wakeIntent.acknowledge);
+			}
 			return existing.promise;
 		}
 		// A live command can arrive while a passive transcript attachment is still
@@ -583,7 +600,7 @@ export const ensureCloudWorkspaceAttached = (
 		// passive request's failure (for example when API has just paused compute).
 		const escalated = existing.promise
 			.catch(() => undefined)
-			.then(() => attachCloudWorkspace(summary, "wake", account));
+			.then(() => attachCloudWorkspace(summary, "wake", account, wakeIntent));
 		return trackCloudAttachment(
 			summary.workspaceId,
 			"wake",
@@ -594,7 +611,7 @@ export const ensureCloudWorkspaceAttached = (
 	return trackCloudAttachment(
 		summary.workspaceId,
 		activation,
-		attachCloudWorkspace(summary, activation, account),
+		attachCloudWorkspace(summary, activation, account, wakeIntent),
 		account,
 	);
 };
@@ -603,6 +620,7 @@ const attachCloudWorkspace = async (
 	summary: CloudChatSummary,
 	activation: "connect" | "wake",
 	account: RendererAccountSnapshot,
+	wakeIntent?: EnvironmentWakeIntent,
 ): Promise<void> => {
 	assertRendererAccountCurrent(account);
 	const publish = (workspace: CloudWorkspace): void => {
@@ -621,10 +639,25 @@ const attachCloudWorkspace = async (
 		workspace = await Effect.runPromise(
 			control["cloud.workspaces.resume"]({
 				workspaceId: summary.workspaceId,
+				...(wakeIntent === undefined
+					? {}
+					: { commandId: wakeIntent.commandId }),
 			}),
 		);
 	}
+	assertRendererAccountCurrent(account);
+	if (activation === "wake") {
+		wakeIntent?.acknowledge();
+		const current = attaching.get(summary.workspaceId);
+		if (current?.account === account && current.activation === "wake") {
+			current.wakeAccepted = true;
+			for (const acknowledge of current.wakeAcknowledgments) acknowledge();
+			current.wakeAcknowledgments.length = 0;
+		}
+	}
 	publish(workspace);
+	const startupError = cloudWorkspaceStartupError(workspace);
+	if (startupError !== null) throw startupError;
 	if (activation === "connect" && !isCloudWorkspaceReady(workspace)) {
 		throw new Error(
 			workspace.state === "paused"
@@ -632,9 +665,21 @@ const attachCloudWorkspace = async (
 				: "Cloud workspace is not currently available for passive attachment.",
 		);
 	}
-	if (!isCloudWorkspaceReady(workspace)) {
-		const error = cloudWorkspaceStartupError(workspace);
-		if (error !== null) throw error;
+	// Socket loss only invalidates an attachment ticket. Runtime replacement is
+	// owned by the lifecycle reconciler, never inferred from gateway failures.
+	const connectionForWorkspace = () => {
+		assertRendererAccountCurrent(account);
+		return Effect.runPromise(
+			control["cloud.workspaces.connect"]({ workspaceId: summary.workspaceId }),
+		);
+	};
+	let connection = await connectionForWorkspace();
+	if (
+		connection.protocol !== WORKSPACE_GATEWAY_PENDING_PROTOCOL &&
+		!isCloudWorkspaceReady(workspace)
+	) {
+		// Previous APIs cannot admit pending attachments. Keep this negotiated
+		// bridge only until that deployed protocol has been retired.
 		workspace = await waitForCloudWorkspaceReady(
 			control["cloud.workspaces.watch"]({
 				workspaceId: summary.workspaceId,
@@ -642,44 +687,11 @@ const attachCloudWorkspace = async (
 			}),
 			publish,
 		);
+		connection = await connectionForWorkspace();
 	}
-	const connectionForWorkspace = () =>
-		refreshCloudWorkspaceConnectionWithRecovery(
-			summary.workspaceId,
-			async (recoveryCommandId) => {
-				assertRendererAccountCurrent(account);
-				let recovered = await Effect.runPromise(
-					control["cloud.workspaces.resume"]({
-						workspaceId: summary.workspaceId,
-						recoverRuntime: true,
-						commandId: recoveryCommandId,
-					}),
-				);
-				publish(recovered);
-				if (!isCloudWorkspaceReady(recovered)) {
-					const error = cloudWorkspaceStartupError(recovered);
-					if (error !== null) throw error;
-					recovered = await waitForCloudWorkspaceReady(
-						control["cloud.workspaces.watch"]({
-							workspaceId: summary.workspaceId,
-							afterRevision: recovered.revision,
-						}),
-						publish,
-					);
-				}
-			},
-			() => {
-				assertRendererAccountCurrent(account);
-				return Effect.runPromise(
-					control["cloud.workspaces.connect"]({
-						workspaceId: summary.workspaceId,
-					}),
-				);
-			},
-		);
 	registerCloudWorkspace(
 		summary.workspaceId,
-		await connectionForWorkspace(),
+		connection,
 		connectionForWorkspace,
 		account,
 	);
@@ -688,7 +700,9 @@ const attachCloudWorkspace = async (
 const ensureCloudWorkspaceEnvironment = (
 	summary: CloudChatSummary,
 	activation: "connect" | "wake",
-): Promise<void> => ensureCloudWorkspaceAttached(summary, activation);
+	wakeIntent?: EnvironmentWakeIntent,
+): Promise<void> =>
+	ensureCloudWorkspaceAttached(summary, activation, wakeIntent);
 
 export { summaryFromLaunch } from "@zuse/client-runtime/cloud-catalog";
 export { cloudSummaryForChat, localProjectForCloudChat };

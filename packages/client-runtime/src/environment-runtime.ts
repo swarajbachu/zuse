@@ -21,10 +21,18 @@ export type EnvironmentFault = Readonly<{
 	message: string;
 }>;
 
+/** One explicit compute demand, independent of transport retry lifetime. */
+export type EnvironmentWakeIntent = Readonly<{
+	commandId: string;
+	/** Call immediately after the lifecycle authority accepts wake, before attaching. */
+	acknowledge: () => void;
+}>;
+
 export interface EnvironmentResolver<Client> {
 	readonly resolve: (
 		environmentId: EnvironmentId,
 		activation: NetworkActivation,
+		wakeIntent?: EnvironmentWakeIntent,
 	) => Effect.Effect<ResolvedEnvironment<Client>, EnvironmentFault>;
 }
 
@@ -39,8 +47,8 @@ export type EnvironmentRuntimeOptions = Readonly<{
 	random?: () => number;
 	/**
 	 * How long automatic retries continue after a failure. `bounded` keeps a
-	 * terminal failed state once the backoff ladder is exhausted, so billable
-	 * cloud machines are not re-woken forever. `unbounded` keeps retrying at a
+	 * terminal failed state once the backoff ladder is exhausted. Wake requests
+	 * independently retain one command until acknowledged. `unbounded` retries at a
 	 * steady interval, so a self-hosted computer that slept or dropped off the
 	 * network reconnects on its own when it returns. Default: bounded.
 	 */
@@ -89,6 +97,8 @@ export class EnvironmentRuntime<Client> {
 	private disposeInFlight: Promise<void> = Promise.resolve();
 	private disposed = false;
 	private retryAttempt = 0;
+	private wakeCommandId: string | null = null;
+	private resolvingWake = false;
 	private retryCancel: (() => void) | null = null;
 	private platformOnline: boolean | null = null;
 	private connectionEpoch = 0;
@@ -170,11 +180,14 @@ export class EnvironmentRuntime<Client> {
 	retain(activation: ResourceActivation): EnvironmentRuntimeLease<Client> {
 		const id = ++this.nextRetainer;
 		this.retainers.set(id, activation);
+		if (activation === "wake") this.requestWake();
 		let released = false;
 		void this.reconcileActivation().catch(() => undefined);
 		return {
 			activate: (next) => {
 				if (released) return Promise.resolve(null);
+				if (next === "wake" && this.retainers.get(id) !== "wake")
+					this.requestWake();
 				this.retainers.set(id, next);
 				return this.reconcileActivation();
 			},
@@ -187,10 +200,23 @@ export class EnvironmentRuntime<Client> {
 		};
 	}
 
+	private requestWake(): void {
+		if (
+			this.current !== null ||
+			this.wakeCommandId !== null ||
+			this.resolvingWake
+		)
+			return;
+		this.wakeCommandId = crypto.randomUUID();
+		this.retryAttempt = 0;
+		this.clearRetry();
+	}
+
 	private reconcileActivation(): Promise<Client | null> {
 		if (this.disposed) return Promise.reject(new Error("runtime disposed"));
 		const previousDesired = this.desired;
 		this.desired = this.strongestRetainedActivation();
+		if (this.desired !== "wake") this.wakeCommandId = null;
 		if (this.desired === "cache-only" || this.desired === "sync") {
 			this.clearRetry();
 			this.achieved = this.desired;
@@ -296,7 +322,19 @@ export class EnvironmentRuntime<Client> {
 				this.achieved = "cache-only";
 			}
 			await this.disposeInFlight;
-			const requested = this.desired as NetworkActivation;
+			const wakeCommandId = this.desired === "wake" ? this.wakeCommandId : null;
+			const requested: NetworkActivation =
+				wakeCommandId === null ? "connect" : "wake";
+			const wakeIntent =
+				wakeCommandId === null
+					? undefined
+					: {
+							commandId: wakeCommandId,
+							acknowledge: () => {
+								if (this.wakeCommandId === wakeCommandId)
+									this.wakeCommandId = null;
+							},
+						};
 			const connectionEpoch = this.connectionEpoch;
 			// Automatic retries remain in one reconnecting state. The surface moves
 			// again only on success, terminal exhaustion, or an explicit retry.
@@ -314,14 +352,18 @@ export class EnvironmentRuntime<Client> {
 					error: null,
 				});
 			}
+			this.resolvingWake = requested === "wake";
 			const outcome = await Effect.runPromise(
-				this.resolver.resolve(this.environmentId, requested).pipe(
+				this.resolver.resolve(this.environmentId, requested, wakeIntent).pipe(
 					Effect.match({
 						onFailure: (fault) => ({ ok: false as const, fault }),
 						onSuccess: (resolved) => ({ ok: true as const, resolved }),
 					}),
 				),
-			);
+			).finally(() => {
+				this.resolvingWake = false;
+			});
+			if (outcome.ok) wakeIntent?.acknowledge();
 			if (
 				this.disposed ||
 				connectionEpoch !== this.connectionEpoch ||
@@ -363,11 +405,9 @@ export class EnvironmentRuntime<Client> {
 				throw new Error(outcome.fault.message);
 			}
 			this.current = outcome.resolved;
-			// Credit only the resolver activation that actually completed. A wake
-			// retainer may arrive while a weaker connect is in flight; marking the
-			// weaker result as wake-capable would let clients run before the resolver's
-			// wake side effect ever executes.
-			this.achieved = requested;
+			// Attachment satisfies retained live demand once compute intent was
+			// acknowledged. A wake arriving during passive connect still runs first.
+			this.achieved = this.wakeCommandId === null ? this.desired : requested;
 			if (activationRank(this.achieved) < activationRank(this.desired)) {
 				continue;
 			}
@@ -411,7 +451,7 @@ export class EnvironmentRuntime<Client> {
 		}
 		// For bounded environments, a failure that survives the whole backoff
 		// ladder is not transient — keep the terminal failed state instead of
-		// retrying (and re-waking the environment) forever. A user retry, a
+		// retrying forever. Compute wake has its own acknowledged intent. A user retry, a
 		// stronger activation, or the platform online edge starts a fresh episode.
 		// Offline stays unbounded: it emits no oscillating phases and clears on
 		// the online edge anyway.
@@ -500,7 +540,7 @@ export class EnvironmentRuntimeRegistry<Client> {
 	}
 
 	/**
-	 * Immediately wake every retained runtime after an OS/network online edge.
+	 * Immediately reattach every retained runtime after an OS/network online edge.
 	 * `include` narrows the episode, e.g. to environments that are safe to
 	 * retry without user intent after the device resumes from sleep.
 	 */

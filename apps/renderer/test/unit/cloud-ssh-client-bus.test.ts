@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
 	clientReady: true,
 	attachRequests: 0,
 	accessFailure: null as unknown,
-	recoveryRequests: 0,
 }));
 
 vi.mock("../../src/lib/bridge.ts", () => ({
@@ -91,12 +90,6 @@ vi.mock("../../src/lib/cloud-workspaces.ts", () => ({
 	},
 }));
 
-vi.mock("../../src/lib/rpc-client.ts", () => ({
-	requestCloudWorkspaceRuntimeRecovery: () => {
-		mocks.recoveryRequests += 1;
-	},
-}));
-
 import {
 	cloudSshMissingSandboxFailure,
 	prepareCloudWorkspaceSsh,
@@ -111,7 +104,6 @@ describe("cloud SSH access", () => {
 		mocks.clientReady = true;
 		mocks.attachRequests = 0;
 		mocks.accessFailure = null;
-		mocks.recoveryRequests = 0;
 	});
 
 	it("prepares access single-flight per workspace", async () => {
@@ -161,14 +153,13 @@ describe("cloud SSH access", () => {
 		);
 	});
 
-	it("reconciles an explicitly missing sandbox before retrying once", async () => {
+	it("surfaces an explicitly missing sandbox without replacing execution", async () => {
 		mocks.accessFailure = { code: "not-found" };
-
-		await expect(
-			prepareCloudWorkspaceSsh("workspace_a"),
-		).resolves.toMatchObject({ hostAlias: "zuse-workspace_a" });
-		expect(mocks.accessRequests).toBe(2);
-		expect(mocks.recoveryRequests).toBe(1);
-		expect(mocks.attachRequests).toBe(1);
+		await expect(prepareCloudWorkspaceSsh("workspace_a")).rejects.toMatchObject(
+			{ code: "not-found" },
+		);
+		expect(mocks.accessRequests).toBe(1);
+		expect(mocks.attachRequests).toBe(0);
+		expect(mocks.prepareRequests).toBe(0);
 	});
 });

@@ -14,7 +14,6 @@ import { cloudRepositoryWorkspacePath } from "../../src/cloud-workspace-paths.ts
 import {
 	ARCHIVED_WORKSPACE_RETENTION_MS,
 	cloudWorkspaceHasRetainedRuntimeData,
-	cloudWorkspaceStartupNeedsObservation,
 	MAILBOX_RUNTIME_STALL_TIMEOUT_MS,
 	RUNTIME_CONNECTION_TIMEOUT_MS,
 	reconcileCloudBuild,
@@ -27,7 +26,6 @@ import {
 	sanitizeProjectBuildLog,
 	snapshotSanitizationFailures,
 	WORKSPACE_RUNTIME_RESUME_SCRIPT,
-	WORKSPACE_START_OBSERVATION_MS,
 	workspaceRuntimeProcessSelector,
 	workspaceRuntimeReconnectTarget,
 } from "../../src/cloud-workspace-reconciler.ts";
@@ -41,12 +39,25 @@ import {
 import * as Config from "../../src/config.ts";
 import { SandboxOfferConfiguration } from "../../src/sandbox-provider-module.ts";
 
+vi.mock("../../../cloud-sandboxes/workspace-runtime.sh", async () => {
+	const { readFile } = await import("node:fs/promises");
+	return {
+		default: await readFile(
+			new URL("../../../cloud-sandboxes/workspace-runtime.sh", import.meta.url),
+			"utf8",
+		),
+	};
+});
+
 const apiTestConfig = {
 	apiIssuer: "https://api.test",
 	workosJwksUrl: "https://unused.test/jwks",
 	workosIssuer: "https://unused.test",
 	mintPrivateKey: Redacted.make("{}"),
 	mintPublicKey: '{"kty":"OKP"}',
+	cloudDataEncryptionKey: Redacted.make(
+		"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+	),
 } as const;
 
 const makeTestLayer = (cloudCommandMailboxEnabled = false) =>
@@ -364,6 +375,7 @@ const seedWorkspace = Effect.fn("seedArchiveWorkspace")(function* (
 		provider: "fake",
 		providerSandboxId,
 		runtimeState: input.runtimeState ?? "offline",
+		runtimeCredentialHash: input.runtimeCredentialHash,
 		chatId: `chat-${workspaceId}`,
 		initialSessionId: `session-${workspaceId}`,
 		branch: `task/${workspaceId}`,
@@ -495,7 +507,7 @@ describe("cloud workspace reconciler", () => {
 						get: () => Effect.succeed(adapter),
 					}),
 				);
-				expect(forkMachine).toHaveBeenCalledTimes(recovered ? 0 : 1);
+				expect(forkMachine).toHaveBeenCalledTimes(1);
 				expect(events.slice(-3)).toEqual([
 					"prepared",
 					"child-vm:open",
@@ -508,6 +520,36 @@ describe("cloud workspace reconciler", () => {
 					(yield* store.getWorkspace(source.workspaceId))?.requestConfig
 						.forkNetworkRestorePending,
 				).toBeUndefined();
+				const launched = yield* store.getWorkspace(seeded.workspaceId);
+				if (launched === null) throw new Error("Fork workspace missing");
+				// The runtime can consume enrollment before its launch response reaches
+				// the API. The durable operation must adopt that owner on retry.
+				yield* store.saveWorkspace({
+					...launched,
+					runtimeBootTokenHash: undefined,
+					runtimeCredentialHash: "enrolled-child",
+					revision: launched.revision + 1,
+					updatedAtMs: launched.updatedAtMs + 1,
+				});
+				events.length = 0;
+				yield* reconcileCloudWorkspace(seeded.workspaceId).pipe(
+					Effect.provideService(SandboxProviders, {
+						...providers,
+						get: () => Effect.succeed(adapter),
+					}),
+				);
+				expect(events).toEqual([]);
+				expect(forkMachine).toHaveBeenCalledTimes(1);
+				const adopted = yield* store.getWorkspace(seeded.workspaceId);
+				expect(adopted).toMatchObject({
+					providerSandboxId: "child-vm",
+					runtimeCredentialHash: "enrolled-child",
+					requestConfig: {
+						runtimeGeneration: launched.requestConfig.runtimeGeneration,
+						gatewayEpoch: launched.requestConfig.gatewayEpoch,
+						runtimeActivation: launched.requestConfig.runtimeActivation,
+					},
+				});
 			}).pipe(Effect.provide(testLayer)),
 		);
 	});
@@ -668,7 +710,6 @@ describe("cloud workspace reconciler", () => {
 	test("cleans untagged runtimes when replacing after a memory pause", () => {
 		expect(workspaceRuntimeProcessSelector()).toMatchObject({
 			tag: "zuse-runtime",
-			legacyCleanup: "matching-command",
 			legacyCommandMarkers: expect.arrayContaining([
 				"zuse-workspace-bootstrap",
 				"/usr/local/bin/zuse serve",
@@ -681,66 +722,20 @@ describe("cloud workspace reconciler", () => {
 		);
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain("serve --foreground");
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).not.toContain("installed_wire");
-		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain("runtime-updater.mjs");
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
-			"ZUSE_RUNTIME_INSTALL_ONLY=1",
+			"ZUSE_RUNTIME_ACTIVATION_MODE",
+		);
+		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).not.toContain(
+			"ensure_workspace_runtime 1",
 		);
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
-			"/var/lib/zuse/workspace/credentials-ready",
+			'"$status_dir/credentials-ready"',
 		);
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
-			`exec "\${ZUSE_RUNTIME_NODE:-node}" "$runtime" serve >> "$log" 2>&1`,
+			`exec_workspace_runtime "\${ZUSE_RUNTIME_NODE:-node}" "$runtime" serve >> "$log" 2>&1`,
 		);
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).not.toContain("nohup");
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).not.toContain("</dev/null &");
-	});
-
-	test("actively observes startup and the bounded warm-resume window", () => {
-		expect(RUNTIME_CONNECTION_TIMEOUT_MS).toBe(10_000);
-		expect(WORKSPACE_START_OBSERVATION_MS).toBeGreaterThan(
-			RUNTIME_CONNECTION_TIMEOUT_MS,
-		);
-		expect(
-			cloudWorkspaceStartupNeedsObservation({
-				state: "resuming",
-				runtimeState: "connecting",
-			}),
-		).toBe(true);
-		expect(
-			cloudWorkspaceStartupNeedsObservation({
-				state: "ready",
-				runtimeState: "online",
-				requestConfig: {
-					cloudMailboxWakePending: true,
-					cloudMailboxRuntimeSeenAt: Date.now(),
-				},
-			}),
-		).toBe(false);
-		expect(
-			cloudWorkspaceStartupNeedsObservation({
-				state: "provisioning",
-				runtimeState: "offline",
-			}),
-		).toBe(true);
-		expect(
-			cloudWorkspaceStartupNeedsObservation({
-				state: "setup",
-				runtimeState: "connecting",
-			}),
-		).toBe(false);
-		expect(
-			cloudWorkspaceStartupNeedsObservation({
-				state: "failed",
-				runtimeState: "offline",
-			}),
-		).toBe(false);
-		expect(
-			cloudWorkspaceStartupNeedsObservation({
-				state: "ready",
-				runtimeState: "online",
-				requestConfig: { cloudMailboxWakePending: true },
-			}),
-		).toBe(true);
 	});
 
 	test("rechecks provider state when a queued restart auto-paused before cron", async () => {
@@ -875,7 +870,7 @@ describe("cloud workspace reconciler", () => {
 		});
 	});
 
-	test("checks the published runtime before starting a workspace from an older image", async () => {
+	test("starts the pinned image through a fenced operation without fetching the channel", async () => {
 		await Effect.runPromise(
 			Effect.gen(function* () {
 				const workspace = yield* seedWorkspace({
@@ -888,7 +883,7 @@ describe("cloud workspace reconciler", () => {
 				const control = yield* FakeSandboxProviderControlService;
 				yield* Ref.set(control.sandboxes, new Map());
 				const provider = yield* (yield* SandboxProviders).get("fake");
-				const start = vi.spyOn(provider, "startProcess");
+				const start = vi.spyOn(provider, "replaceProcess");
 				const write = vi.spyOn(provider, "writeTextFile");
 				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
 					Effect.provideService(SandboxOfferConfiguration, {
@@ -901,6 +896,7 @@ describe("cloud workspace reconciler", () => {
 				);
 				expect(start).toHaveBeenCalledWith(
 					"fake-workspace-old-image",
+					expect.anything(),
 					expect.objectContaining({
 						env: expect.objectContaining({
 							ZUSE_RUNTIME_MANIFEST_URL: "https://runtime.test/manifest.json",
@@ -916,16 +912,13 @@ describe("cloud workspace reconciler", () => {
 					"public-key",
 					"zuse",
 				);
-				const args = start.mock.calls[0]?.[1].args?.join(" ") ?? "";
-				expect(args).toContain("runtime-updater.mjs");
-				expect(args).toContain("ensure_workspace_runtime 1\nexec /bin/bash");
-				expect(args.indexOf("runtime-updater.mjs")).toBeLessThan(
-					args.indexOf("exec /bin/bash"),
-				);
+				const args = start.mock.calls[0]?.[2].args?.join(" ") ?? "";
+				expect(args).not.toContain("runtime-updater.mjs");
+				expect(args).toContain("ensure_workspace_runtime\nexec /bin/bash");
 				const saved = yield* (yield* CloudWorkspaceStore).getWorkspace(
 					workspace.workspaceId,
 				);
-				expect(saved?.requestConfig.runtimeInstallPending).toBe(true);
+				expect(saved?.requestConfig.runtimeInstallPending).toBe(false);
 			}).pipe(Effect.provide(testLayer)),
 		);
 	});
@@ -952,12 +945,13 @@ describe("cloud workspace reconciler", () => {
 					revision: workspace.revision + 1,
 				});
 				const provider = yield* (yield* SandboxProviders).get("fake");
-				const start = vi.spyOn(provider, "startProcess");
+				const start = vi.spyOn(provider, "replaceProcess");
 				const extend = vi.spyOn(provider, "extendTimeout");
 				const resume = vi.spyOn(provider, "resume");
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				expect(start).toHaveBeenCalledWith(
 					"fake-workspace-on-demand",
+					expect.anything(),
 					expect.objectContaining({
 						command: "/bin/bash",
 						args: [
@@ -969,6 +963,7 @@ describe("cloud workspace reconciler", () => {
 					}),
 				);
 				expect(extend).toHaveBeenCalledWith("fake-workspace-on-demand", 600);
+				const originalActivation = start.mock.calls[0]?.[2].activation;
 				start.mockClear();
 				extend.mockClear();
 				const allocated = yield* store.getWorkspace(workspace.workspaceId);
@@ -995,6 +990,7 @@ describe("cloud workspace reconciler", () => {
 				const renewed = recoveredState === "paused" ? resume : extend;
 				expect(renewed).toHaveBeenCalledTimes(1);
 				expect(start).toHaveBeenCalledTimes(1);
+				expect(start.mock.calls[0]?.[2].activation).toEqual(originalActivation);
 				const startOrder = start.mock.invocationCallOrder[0];
 				if (startOrder === undefined)
 					throw new Error("bootstrap did not start");
@@ -1305,9 +1301,8 @@ describe("cloud workspace reconciler", () => {
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				const warming = yield* store.getWorkspace(workspace.workspaceId);
 				const callsBeforeFallback = yield* Ref.get(control.startProcessCalls);
-				// If the provider preserved the runtime, its gateway reconnect callback
-				// advances the workspace to ready before this retry. When no callback
-				// arrives, reconciliation after the deadline performs the hard restart.
+				// Missing callbacks do not establish process death. The provider must
+				// prove no managed or legacy runtime remains before replacement.
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				if ((yield* Ref.get(control.startProcessCalls)).length !== 0)
 					return yield* Effect.die(
@@ -1320,7 +1315,18 @@ describe("cloud workspace reconciler", () => {
 					revision: warming.revision + 1,
 					updatedAtMs: warming.updatedAtMs + 1,
 				});
-				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const providers = yield* SandboxProviders;
+				const adapter = yield* providers.get(workspace.provider);
+				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+					Effect.provideService(SandboxProviders, {
+						...providers,
+						get: () =>
+							Effect.succeed({
+								...adapter,
+								inspectProcess: () => Effect.succeed("inactive" as const),
+							}),
+					}),
+				);
 				const resumed = yield* store.getWorkspace(workspace.workspaceId);
 				const resumeBeforeMissing = yield* Ref.get(control.resumeInputs);
 				if (resumed === null) return yield* Effect.die("workspace disappeared");
@@ -1376,7 +1382,7 @@ describe("cloud workspace reconciler", () => {
 			runtimeState: "offline",
 		});
 		expect(result.workspace?.nextActionAtMs).toBe(
-			(result.workspace?.updatedAtMs ?? 0) + RUNTIME_CONNECTION_TIMEOUT_MS,
+			(result.workspace?.updatedAtMs ?? 0) + 5_000,
 		);
 		expect(result.workspace?.runtimeBootTokenHash).toBeTruthy();
 		expect(result.networkBySandbox.get("sandbox-resume")).toEqual({
@@ -1392,7 +1398,7 @@ describe("cloud workspace reconciler", () => {
 		expect(result.missing?.leaseOwner).toBeUndefined();
 	});
 
-	test("replaces an unresponsive runtime only after reconnect verification expires", async () => {
+	test("replaces a runtime only after reconnect grace and confirmed guest process absence", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -1405,10 +1411,20 @@ describe("cloud workspace reconciler", () => {
 					statusCode: "agent-running",
 					requestConfig: { runtimeGeneration: 1, sessionHeadVersion: 18 },
 				});
+				const providers = yield* SandboxProviders;
+				const adapter = yield* providers.get(workspace.provider);
+				const inspectProcess = vi.fn(() => Effect.succeed("inactive" as const));
+				const reconcile = reconcileCloudWorkspace(workspace.workspaceId).pipe(
+					Effect.provideService(SandboxProviders, {
+						...providers,
+						get: () => Effect.succeed({ ...adapter, inspectProcess }),
+					}),
+				);
 				const checking = workspaceRuntimeReconnectTarget(workspace, Date.now());
 				yield* store.saveWorkspace(checking);
-				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				yield* reconcile;
 				expect(yield* Ref.get(control.startProcessCalls)).toHaveLength(0);
+				expect(inspectProcess).not.toHaveBeenCalled();
 				expect(
 					(yield* store.getWorkspace(workspace.workspaceId))?.requestConfig
 						.runtimeGeneration,
@@ -1421,7 +1437,12 @@ describe("cloud workspace reconciler", () => {
 					revision: current.revision + 1,
 					updatedAtMs: current.updatedAtMs + 1,
 				});
-				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				yield* reconcile;
+				expect(inspectProcess).toHaveBeenCalledWith(
+					workspace.providerSandboxId,
+					workspaceRuntimeProcessSelector(),
+					"zuse",
+				);
 				return {
 					workspace: yield* store.getWorkspace(workspace.workspaceId),
 					starts: yield* Ref.get(control.startProcessCalls),
@@ -1437,6 +1458,81 @@ describe("cloud workspace reconciler", () => {
 			providerSandboxId: "source-workspace-unresponsive-runtime",
 			requestConfig: { runtimeGeneration: 2, sessionHeadVersion: 18 },
 		});
+	});
+
+	test.each([
+		"active",
+		"unknown",
+		"missing",
+		"transient",
+	] as const)("preserves runtime authority when reconnect times out and process observation is %s", async (observation) => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const providers = yield* SandboxProviders;
+				const workspace = yield* seedWorkspace({
+					workspaceId: `preserved-${observation}`,
+					state: "ready",
+					desiredState: "ready",
+					runtimeState: "online",
+					statusCode: "agent-running",
+					requestConfig: {
+						runtimeGeneration: 12,
+						gatewayEpoch: 12,
+						sessionHeadVersion: 19,
+					},
+				});
+				const adapter = yield* providers.get(workspace.provider);
+				const { inspectProcess: _unused, ...withoutProbe } = adapter;
+				const inspectProcess = vi.fn(
+					(): Effect.Effect<"active" | "unknown", SandboxProviderError> =>
+						observation === "transient"
+							? Effect.fail(new SandboxProviderError({ code: "transient" }))
+							: Effect.succeed(observation === "active" ? "active" : "unknown"),
+				);
+				yield* store.saveWorkspace({
+					...workspaceRuntimeReconnectTarget(workspace, Date.now()),
+					runtimeCredentialHash: "retained-runtime-credential",
+					runtimeBootTokenHash: "retained-boot-hash",
+					runtimeBootTokenExpiresAtMs: Date.now() + 60_000,
+					nextActionAtMs: Date.now() - 1,
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+					Effect.provideService(SandboxProviders, {
+						...providers,
+						get: () =>
+							Effect.succeed({
+								...withoutProbe,
+								...(observation === "missing" ? {} : { inspectProcess }),
+							}),
+					}),
+				);
+				const preserved = yield* store.getWorkspace(workspace.workspaceId);
+				expect(preserved).toMatchObject({
+					providerSandboxId: workspace.providerSandboxId,
+					chatId: workspace.chatId,
+					initialSessionId: workspace.initialSessionId,
+					state: "resuming",
+					runtimeCredentialHash: "retained-runtime-credential",
+					runtimeBootTokenHash: "retained-boot-hash",
+					requestConfig: {
+						runtimeGeneration: 12,
+						gatewayEpoch: 12,
+						sessionHeadVersion: 19,
+					},
+				});
+				expect(yield* Ref.get(control.startProcessCalls)).toHaveLength(0);
+				expect(yield* Ref.get(control.resumeInputs)).toHaveLength(0);
+				expect(yield* Ref.get(control.createCalls)).toBe(0);
+				expect(
+					(yield* Ref.get(control.sandboxes)).get(
+						workspace.providerSandboxId ?? "",
+					)?.state,
+				).toBe("running");
+				expect(preserved?.nextActionAtMs).toBeGreaterThan(Date.now());
+			}).pipe(Effect.provide(testLayer)),
+		);
 	});
 
 	test.each([
@@ -1767,6 +1863,65 @@ describe("cloud workspace reconciler", () => {
 		});
 	});
 
+	test.each([
+		"lost",
+		"unknown",
+	] as const)("uses resume continuity %s without treating unknown as process death", async (processContinuity) => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: `continuity-${processContinuity}`,
+					state: "paused",
+					desiredState: "ready",
+					runtimeState: "offline",
+					runtimeCredentialHash: "retained-owner",
+					statusCode: "resume-queued",
+					requestConfig: {
+						runtimeGeneration: 4,
+						gatewayEpoch: 4,
+						sessionHeadVersion: 9,
+						cloudCommandProtocolVersion: CLOUD_COMMAND_PROTOCOL_VERSION,
+						cloudCommandRuntimeGeneration: 4,
+					},
+				});
+				const providers = yield* SandboxProviders;
+				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+					Effect.provideService(SandboxProviders, {
+						...providers,
+						get: (id) =>
+							providers.get(id).pipe(
+								Effect.map((adapter) => ({
+									...adapter,
+									preservesProcessesOnResume: true,
+									resume: (...args) =>
+										adapter.resume(...args).pipe(
+											Effect.map((sandbox) => ({
+												...sandbox,
+												processContinuity,
+											})),
+										),
+								})),
+							),
+					}),
+				);
+				const control = yield* FakeSandboxProviderControlService;
+				return {
+					workspace: yield* (yield* CloudWorkspaceStore).getWorkspace(
+						workspace.workspaceId,
+					),
+					starts: yield* Ref.get(control.startProcessCalls),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result.starts).toHaveLength(processContinuity === "lost" ? 1 : 0);
+		expect(result.workspace?.requestConfig.runtimeGeneration).toBe(
+			processContinuity === "lost" ? 5 : 4,
+		);
+		if (processContinuity === "unknown")
+			expect(result.workspace?.runtimeCredentialHash).toBe("retained-owner");
+		expect(result.workspace?.requestConfig.sessionHeadVersion).toBe(9);
+	});
+
 	test("gives a retained runtime its reconnect grace after a slow provider resume", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
@@ -1806,7 +1961,7 @@ describe("cloud workspace reconciler", () => {
 									...adapter,
 									resume: (...args) =>
 										adapter.resume(...args).pipe(
-											Effect.andThen(Effect.sleep("600 millis")),
+											Effect.tap(() => Effect.sleep("600 millis")),
 											Effect.tap(() =>
 												Effect.sync(() => {
 													providerReturnedAt = Date.now();
@@ -2156,7 +2311,7 @@ test.each([
 test.each([
 	false,
 	true,
-])("durable startup routing respects process preservation: %s", async (preservesProcessesOnResume) => {
+])("durably schedules startup regardless of process preservation: %s", async (preservesProcessesOnResume) => {
 	const schedule = vi.fn(async () => {});
 	await Effect.runPromise(
 		Effect.gen(function* () {
@@ -2185,7 +2340,7 @@ test.each([
 			);
 		}).pipe(Effect.provide(testLayer)),
 	);
-	expect(schedule).toHaveBeenCalledTimes(preservesProcessesOnResume ? 0 : 1);
+	expect(schedule).toHaveBeenCalledExactlyOnceWith("workspace-startup-routing");
 });
 
 describe("memory-aware runtime recovery", () => {

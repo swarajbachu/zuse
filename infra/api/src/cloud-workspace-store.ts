@@ -14,10 +14,15 @@ import {
 } from "@zuse/contracts";
 import { Context, Effect, Layer, Ref, Schema, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import type { Fragment } from "effect/unstable/sql/Statement";
 import {
 	cloudWorkspaceGatewayEpoch,
 	cloudWorkspaceRuntimeGeneration,
 } from "./cloud-workspace-runtime-fence.ts";
+import {
+	ACTIVE_RUNTIME_ACTIVATION_PHASES,
+	preserveRuntimeOperationDeadline,
+} from "./cloud-workspace-runtime-scheduling.ts";
 import { workspaceScopeForOwner } from "./workspace-scope.ts";
 
 export interface CloudCatalogRead {
@@ -164,6 +169,7 @@ export type CloudWorkspaceLifecycleAction =
 	| "pause"
 	| "resume"
 	| "restart"
+	| "update"
 	| "archive"
 	| "unarchive"
 	| "delete";
@@ -344,6 +350,25 @@ export interface RuntimeBootstrapAcknowledgementInput {
 	readonly gatewayEpoch: number;
 	readonly nowMs: number;
 }
+
+/** Renewal changes the bearer, not the bootstrap receipt's generation binding. */
+const canAcknowledgeRuntimeBoot = (
+	workspace: CloudWorkspaceRecord,
+	receipt: RuntimeBootstrapReceipt | null,
+	input: RuntimeBootstrapAcknowledgementInput,
+): receipt is RuntimeBootstrapReceipt =>
+	receipt !== null &&
+	workspace.runtimeCredentialHash === input.currentCredentialHash &&
+	receipt.generation === input.generation &&
+	receipt.gatewayEpoch === input.gatewayEpoch &&
+	cloudWorkspaceRuntimeGeneration(workspace) === input.generation &&
+	cloudWorkspaceGatewayEpoch(workspace) === input.gatewayEpoch &&
+	workspace.state !== "deleted" &&
+	workspace.state !== "deleting" &&
+	workspace.state !== "archived" &&
+	workspace.state !== "archiving" &&
+	workspace.desiredState !== "deleted" &&
+	workspace.desiredState !== "archived";
 
 export interface RuntimeCredentialRenewalInput {
 	readonly workspaceId: string;
@@ -1547,7 +1572,8 @@ const prepareWorkspaceLifecycleTransition = (
 	if (
 		(input.action === "pause" ||
 			input.action === "resume" ||
-			input.action === "restart") &&
+			input.action === "restart" ||
+			input.action === "update") &&
 		lifecycle === "archive"
 	)
 		return { kind: "rejected", reason: "workspace-archived" };
@@ -1562,6 +1588,12 @@ const prepareWorkspaceLifecycleTransition = (
 		return { kind: "rejected", reason: "mailbox-wake-pending" };
 	if (input.action === "unarchive" && lifecycle !== "archive")
 		return { kind: "rejected", reason: "workspace-not-archived" };
+	if (
+		input.action === "update" &&
+		(current.providerSandboxId === undefined ||
+			!["ready", "paused", "failed"].includes(current.state))
+	)
+		return { kind: "rejected", reason: "workspace-not-running" };
 	if (
 		input.action === "restart" &&
 		(current.state !== "ready" || current.providerSandboxId === undefined)
@@ -1724,10 +1756,12 @@ const completeLaunchWorkspace = (
 						}),
 			},
 		},
-		nextActionAtMs:
+		nextActionAtMs: preserveRuntimeOperationDeadline(
+			workspace,
 			workspace.requestConfig.cloudMailboxWakePending === true
 				? Math.min(workspace.nextActionAtMs, input.nowMs)
 				: input.nextActionAtMs,
+		),
 		runningSinceMs: workspace.runningSinceMs ?? input.nowMs,
 		revision: workspace.revision + 1,
 		updatedAtMs: input.nowMs,
@@ -2450,7 +2484,10 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 											: input.nowMs - timings.allocatedAt,
 								},
 							},
-							nextActionAtMs: input.nowMs + 30_000,
+							nextActionAtMs: preserveRuntimeOperationDeadline(
+								workspace,
+								input.nowMs + 30_000,
+							),
 							revision: workspace.revision + 1,
 							updatedAtMs: input.nowMs,
 						};
@@ -2526,12 +2563,14 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 								repositoryReadyAt: timings.repositoryReadyAt ?? input.nowMs,
 							},
 						},
-						nextActionAtMs:
+						nextActionAtMs: preserveRuntimeOperationDeadline(
+							workspace,
 							workspace.requestConfig.cloudMailboxWakePending === true
 								? Math.min(workspace.nextActionAtMs, input.nowMs)
 								: launchPending
 									? Math.min(workspace.nextActionAtMs, input.nowMs + 30_000)
 									: input.nextIdleAtMs,
+						),
 						runningSinceMs: workspace.runningSinceMs ?? input.nowMs,
 						revision: workspace.revision + 1,
 						updatedAtMs: input.nowMs,
@@ -2555,16 +2594,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					const receipt = runtimeBootstrapReceiptFromConfig(
 						workspace.requestConfig,
 					);
-					if (
-						workspace.runtimeCredentialHash !== input.currentCredentialHash ||
-						receipt === null ||
-						receipt.runtimeCredentialHash !== input.currentCredentialHash ||
-						receipt.generation !== input.generation ||
-						receipt.gatewayEpoch !== input.gatewayEpoch ||
-						cloudWorkspaceRuntimeGeneration(workspace) !== input.generation ||
-						workspace.requestConfig.gatewayEpoch !== input.gatewayEpoch ||
-						workspace.state === "deleted"
-					)
+					if (!canAcknowledgeRuntimeBoot(workspace, receipt, input))
 						return [false, current] as const;
 					if (receipt.acknowledgedAtMs !== undefined)
 						return [true, current] as const;
@@ -2942,12 +2972,14 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 										},
 									}
 								: workspace.requestConfig,
-						nextActionAtMs:
+						nextActionAtMs: preserveRuntimeOperationDeadline(
+							workspace,
 							workspace.requestConfig.cloudMailboxWakePending === true
 								? workspace.nextActionAtMs
 								: workspace.state === "paused"
 									? nowMs
 									: nextIdleAtMs,
+						),
 						lastActivityAtMs: nowMs,
 						revision: workspace.revision + 1,
 						updatedAtMs: nowMs,
@@ -3075,7 +3107,10 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							cloudMailboxWakeRevision: wakeRevision,
 							cloudMailboxRuntimeSeenAt: nowMs,
 						},
-						nextActionAtMs: nextCheckAtMs,
+						nextActionAtMs: preserveRuntimeOperationDeadline(
+							workspace,
+							nextCheckAtMs,
+						),
 						revision: workspace.revision + 1,
 						updatedAtMs: nowMs,
 					};
@@ -3143,7 +3178,10 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 								: {}),
 							...(fenceRequired ? { cloudMailboxFenceRequired: true } : {}),
 						},
-						nextActionAtMs: fenceRequired ? nowMs : nextCheckAtMs,
+						nextActionAtMs: preserveRuntimeOperationDeadline(
+							workspace,
+							fenceRequired ? nowMs : nextCheckAtMs,
+						),
 						revision: workspace.revision + 1,
 						updatedAtMs: nowMs,
 					};
@@ -3187,7 +3225,10 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					const updated: CloudWorkspaceRecord = {
 						...workspace,
 						requestConfig,
-						nextActionAtMs: nextIdleAtMs,
+						nextActionAtMs: preserveRuntimeOperationDeadline(
+							workspace,
+							nextIdleAtMs,
+						),
 						revision: workspace.revision + 1,
 						updatedAtMs: nowMs,
 					};
@@ -4277,6 +4318,14 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 	CloudWorkspaceStore,
 	Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient;
+		// Keep the phase vocabulary shared with the memory store while evaluating
+		// the deadline atomically against the row being updated.
+		const preserveRuntimeOperationDeadlineSql = (
+			candidate: Fragment,
+			qualifier: "" | "current." = "",
+		) =>
+			sql`CASE WHEN ${sql.literal(`${qualifier}request_config #>> '{runtimeActivation,phase}'`)} IN ${sql.in(ACTIVE_RUNTIME_ACTIVATION_PHASES)} THEN LEAST(${sql.literal(`${qualifier}next_action_at`)}, ${candidate}) ELSE ${candidate} END`;
+
 		const orDie = <A>(effect: Effect.Effect<A, unknown>): Effect.Effect<A> =>
 			effect.pipe(Effect.orDie);
 		const getWorkspaceSettings = (ownerId: string) =>
@@ -5060,7 +5109,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 										END
 									))
 								),
-								next_action_at=${input.nowMs + 30_000},
+								next_action_at=${preserveRuntimeOperationDeadlineSql(sql`${input.nowMs + 30_000}::bigint`, "current.")},
 								revision=current.revision+1,
 								updated_at=${input.nowMs}
 							FROM current
@@ -5135,7 +5184,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							'cloudCommandProtocolVersion', ${input.commandProtocolVersion ?? null}::integer,
 							'cloudCommandRuntimeGeneration', COALESCE((request_config->>'runtimeGeneration')::bigint, 1)
 						) END,
-						next_action_at=CASE WHEN COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true THEN LEAST(next_action_at, ${input.nowMs}::bigint) WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN ${input.nextIdleAtMs}::bigint ELSE LEAST(next_action_at, ${input.nowMs + 30_000}::bigint) END,
+						next_action_at=${preserveRuntimeOperationDeadlineSql(sql`CASE WHEN COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true THEN LEAST(next_action_at, ${input.nowMs}::bigint) WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN ${input.nextIdleAtMs}::bigint ELSE LEAST(next_action_at, ${input.nowMs + 30_000}::bigint) END`)},
 						running_since=COALESCE(running_since, ${input.nowMs}),
 						revision=revision+1,
 						updated_at=${input.nowMs},
@@ -5165,16 +5214,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						const receipt = runtimeBootstrapReceiptFromConfig(
 							workspace.requestConfig,
 						);
-						if (
-							workspace.runtimeCredentialHash !== input.currentCredentialHash ||
-							receipt === null ||
-							receipt.runtimeCredentialHash !== input.currentCredentialHash ||
-							receipt.generation !== input.generation ||
-							receipt.gatewayEpoch !== input.gatewayEpoch ||
-							cloudWorkspaceRuntimeGeneration(workspace) !== input.generation ||
-							workspace.requestConfig.gatewayEpoch !== input.gatewayEpoch ||
-							workspace.state === "deleted"
-						)
+						if (!canAcknowledgeRuntimeBoot(workspace, receipt, input))
 							return false;
 						if (receipt.acknowledgedAtMs !== undefined) return true;
 						const nextConfig = {
@@ -5256,7 +5296,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				runtimeOnly = false,
 			) =>
 				orDie(
-					sql`UPDATE api_cloud_workspaces SET desired_state=CASE WHEN state='paused' THEN 'ready' ELSE desired_state END, status_code=CASE WHEN state='paused' THEN 'resume-queued' ELSE status_code END, request_config=CASE WHEN state='paused' THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}::bigint, 'resumeRequestedAt', ${nowMs}::bigint), true) ELSE request_config END, next_action_at=CASE WHEN COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true THEN next_action_at WHEN state='paused' THEN ${nowMs} WHEN state='ready' THEN ${nextIdleAtMs} ELSE next_action_at END, last_activity_at=${nowMs}, revision=revision+1, updated_at=${nowMs} WHERE workspace_id=${workspaceId} AND account_id=${accountId} AND (${runtimeOnly}::boolean = false OR (desired_state='ready' AND state NOT IN ('paused','pausing','archived','failed'))) AND state <> 'deleted' AND desired_state <> 'deleted' AND (request_config #>> '{cloudMailboxLifecyclePending,action}') IS DISTINCT FROM 'delete' AND (request_config #>> '{cloudMailboxLifecycleDelivered,action}') IS DISTINCT FROM 'delete' RETURNING *`.pipe(
+					sql`UPDATE api_cloud_workspaces SET desired_state=CASE WHEN state='paused' THEN 'ready' ELSE desired_state END, status_code=CASE WHEN state='paused' THEN 'resume-queued' ELSE status_code END, request_config=CASE WHEN state='paused' THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}::bigint, 'resumeRequestedAt', ${nowMs}::bigint), true) ELSE request_config END, next_action_at=${preserveRuntimeOperationDeadlineSql(sql`CASE WHEN COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true THEN next_action_at WHEN state='paused' THEN ${nowMs} WHEN state='ready' THEN ${nextIdleAtMs} ELSE next_action_at END`)}, last_activity_at=${nowMs}, revision=revision+1, updated_at=${nowMs} WHERE workspace_id=${workspaceId} AND account_id=${accountId} AND (${runtimeOnly}::boolean = false OR (desired_state='ready' AND state NOT IN ('paused','pausing','archived','failed'))) AND state <> 'deleted' AND desired_state <> 'deleted' AND (request_config #>> '{cloudMailboxLifecyclePending,action}') IS DISTINCT FROM 'delete' AND (request_config #>> '{cloudMailboxLifecycleDelivered,action}') IS DISTINCT FROM 'delete' RETURNING *`.pipe(
 						Effect.map((rows) =>
 							rows[0] ? workspaceFromRow(rows[0] as Row) : null,
 						),
@@ -5301,7 +5341,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 					Effect.gen(function* () {
 						const observed = yield* sql`UPDATE api_cloud_workspaces SET
 								request_config=jsonb_set(jsonb_set(request_config, '{cloudMailboxWakeRevision}', to_jsonb(CASE WHEN jsonb_typeof(request_config->'cloudMailboxWakeRevision')='number' THEN (request_config->>'cloudMailboxWakeRevision')::bigint ELSE 1 END), true), '{cloudMailboxRuntimeSeenAt}', to_jsonb(${nowMs}::bigint), true),
-								next_action_at=${nextCheckAtMs}, revision=revision+1, updated_at=${nowMs}
+								next_action_at=${preserveRuntimeOperationDeadlineSql(sql`${nextCheckAtMs}::bigint`)}, revision=revision+1, updated_at=${nowMs}
 							 WHERE workspace_id=${workspaceId} AND account_id=${accountId}
 								AND COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true
 								AND state='ready' AND desired_state='ready' AND runtime_state='online'
@@ -5349,7 +5389,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							 RETURNING workspace_id`
 						: sql`UPDATE api_cloud_workspaces SET
 								request_config=request_config || jsonb_build_object('cloudMailboxProgressRevision', ${mailboxRevision}::bigint, 'cloudMailboxProgressAt', ${nowMs}::bigint),
-								next_action_at=${nextCheckAtMs}, revision=revision+1, updated_at=${nowMs}
+								next_action_at=${preserveRuntimeOperationDeadlineSql(sql`${nextCheckAtMs}::bigint`)}, revision=revision+1, updated_at=${nowMs}
 							 WHERE workspace_id=${workspaceId} AND account_id=${accountId}
 								AND COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true
 								AND (request_config->>'cloudMailboxWakeRevision')::bigint=${wakeRevision}
@@ -5371,7 +5411,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				orDie(
 					sql`UPDATE api_cloud_workspaces SET
 						request_config=request_config - 'cloudMailboxWakePending' - 'cloudMailboxWakeRequestedAt' - 'cloudMailboxRuntimeSeenAt' - 'cloudMailboxProgressAt' - 'cloudMailboxProgressRevision' - 'cloudMailboxFenceRequired',
-						next_action_at=${nextIdleAtMs}, revision=revision+1, updated_at=${nowMs}
+						next_action_at=${preserveRuntimeOperationDeadlineSql(sql`${nextIdleAtMs}::bigint`)}, revision=revision+1, updated_at=${nowMs}
 					 WHERE workspace_id=${workspaceId} AND account_id=${accountId}
 						AND COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true
 						AND (request_config->>'cloudMailboxWakeRevision')::bigint=${wakeRevision}

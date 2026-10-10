@@ -10,7 +10,12 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { WorkspaceMailbox } from "../../src/workspace-mailbox.ts";
 
-const makeMailboxHarness = () => {
+const makeMailboxHarness = (
+	dispatchWake?: (delivery: {
+		workspaceId: string;
+		accountId: string;
+	}) => Promise<void>,
+) => {
 	const database = new DatabaseSync(":memory:");
 	let alarm: number | null = null;
 	const sql = {
@@ -42,9 +47,10 @@ const makeMailboxHarness = () => {
 			},
 		},
 	} as unknown as DurableObjectState;
-	const mailbox = new WorkspaceMailbox(state);
+	const mailbox = new WorkspaceMailbox(state, dispatchWake);
 	return {
 		mailbox,
+		reconstruct: () => new WorkspaceMailbox(state, dispatchWake),
 		alarm: () => alarm,
 		fireAlarm: async () => {
 			alarm = null;
@@ -1005,5 +1011,98 @@ describe("workspace mailbox", () => {
 		});
 		expect((await call(harness.mailbox, "/reserve", command)).status).toBe(200);
 		expect(harness.alarm()).toBeNull();
+	});
+});
+
+describe("durable mailbox wake delivery", () => {
+	const delivery = { workspaceId: "workspace-1", accountId: "account-1" };
+	test("survives eviction after acceptance and retries failed dispatch", async () => {
+		const dispatch = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("temporary"))
+			.mockResolvedValue(undefined);
+		const harness = makeMailboxHarness(dispatch);
+		await call(harness.mailbox, "/reserve", envelope("durable-wake"));
+		expect(
+			(
+				await call(harness.mailbox, "/commit", {
+					commandId: "durable-wake",
+					...delivery,
+				})
+			).status,
+		).toBe(202);
+		expect(harness.alarm()).not.toBeNull();
+		await harness.reconstruct().alarm();
+		expect(dispatch).toHaveBeenCalledTimes(1);
+		expect(harness.alarm()).not.toBeNull();
+		await harness.reconstruct().alarm();
+		expect(dispatch).toHaveBeenCalledTimes(2);
+		expect(
+			harness.rows<{ value: string }>(
+				"SELECT value FROM mailbox_meta WHERE key = 'wake-delivered-revision'",
+			)[0]?.value,
+		).toBe("1");
+	});
+	test("does not consume a newer accepted command while an earlier wake is in flight", async () => {
+		let release: () => void = () => {};
+		const dispatch = vi.fn(
+			() =>
+				new Promise<void>((resolve) => {
+					release = resolve;
+				}),
+		);
+		const harness = makeMailboxHarness(dispatch);
+		await call(harness.mailbox, "/reserve", envelope("one"));
+		await call(harness.mailbox, "/commit", { commandId: "one", ...delivery });
+		const inFlight = harness.mailbox.alarm();
+		await call(harness.mailbox, "/reserve", envelope("two"));
+		await call(harness.mailbox, "/commit", { commandId: "two", ...delivery });
+		release();
+		await inFlight;
+		expect(
+			harness.rows<{ value: string }>(
+				"SELECT value FROM mailbox_meta WHERE key = 'wake-delivered-revision'",
+			)[0]?.value,
+		).toBe("1");
+		expect(
+			harness.rows<{ value: string }>(
+				"SELECT value FROM mailbox_meta WHERE key = 'wake-revision'",
+			)[0]?.value,
+		).toBe("2");
+		expect(harness.alarm()).not.toBeNull();
+	});
+	test("unblocking rearms delivery and terminal retries do not manufacture new demand", async () => {
+		const dispatch = vi.fn(async () => {});
+		const harness = makeMailboxHarness(dispatch);
+		await call(harness.mailbox, "/reserve", envelope("blocked-wake"));
+		await call(harness.mailbox, "/commit", {
+			commandId: "blocked-wake",
+			blockedUntil: "billing-restored",
+			...delivery,
+		});
+		await harness.fireAlarm();
+		await call(harness.mailbox, "/unblock", {
+			commandId: "blocked-wake",
+			blockedUntil: "billing-restored",
+		});
+		await harness.fireAlarm();
+		expect(dispatch).toHaveBeenCalledTimes(2);
+		await call(harness.mailbox, "/cancel", { commandId: "blocked-wake" });
+		harness.run(
+			"UPDATE mailbox_commands SET envelope_json = '' WHERE command_id = 'blocked-wake'",
+		);
+		expect(
+			(
+				await call(harness.mailbox, "/commit", {
+					commandId: "blocked-wake",
+					...delivery,
+				})
+			).status,
+		).toBe(202);
+		expect(
+			harness.rows<{ value: string }>(
+				"SELECT value FROM mailbox_meta WHERE key = 'wake-revision'",
+			)[0]?.value,
+		).toBe("2");
 	});
 });

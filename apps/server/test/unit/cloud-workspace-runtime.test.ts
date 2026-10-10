@@ -811,7 +811,6 @@ describe("cloud workspace bootstrap", () => {
 					expect(state).toMatchObject({
 						credential: "fresh",
 						generation: 4,
-						renewalPending: false,
 					});
 					expect(fetcher).toHaveBeenCalledTimes(2);
 					for (const call of fetcher.mock.calls)
@@ -1954,7 +1953,7 @@ describe("cloud active work keepalive", () => {
 });
 
 describe("cloud mailbox polling lifetime", () => {
-	it("stops repeated rejected credentials instead of keeping idle compute awake", async () => {
+	it("preserves the runtime through ambiguous credential rejection without minting wake intent", async () => {
 		await Effect.runPromise(
 			Effect.gen(function* () {
 				let attempts = 0;
@@ -1970,7 +1969,7 @@ describe("cloud mailbox polling lifetime", () => {
 								}),
 							);
 						}),
-						credential: () => "same-credential",
+						interval: "1 second",
 						onRuntimeRejected: Effect.sync(() => {
 							stopped++;
 						}),
@@ -1979,10 +1978,10 @@ describe("cloud mailbox polling lifetime", () => {
 				yield* TestClock.adjust("30 seconds");
 				expect(stopped).toBe(0);
 				yield* TestClock.adjust("40 seconds");
-				expect(stopped).toBe(1);
-				const beforeRetirement = attempts;
+				expect(stopped).toBe(0);
+				const beforeRetry = attempts;
 				yield* TestClock.adjust("1 minute");
-				expect(attempts).toBe(beforeRetirement);
+				expect(attempts).toBeGreaterThan(beforeRetry);
 				yield* Fiber.interrupt(fiber);
 			}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
 		);
@@ -2024,19 +2023,17 @@ it("does not keep approval-blocked turns alive and resumes keepalive after a dec
 it("retries mailbox outages and in-flight credential rotation without retiring a live runtime", async () => {
 	await Effect.runPromise(
 		Effect.gen(function* () {
-			let credential = "before-renewal";
 			let attempts = 0;
 			let stopped = 0;
 			const fiber = yield* Effect.forkScoped(
 				runCloudMailboxPolling({
-					credential: () => credential,
+					interval: "1 second",
 					onRuntimeRejected: Effect.sync(() => {
 						stopped++;
 					}),
 					poll: Effect.suspend(() => {
 						attempts++;
 						if (attempts === 1) {
-							credential = "after-renewal";
 							return Effect.fail(
 								new CloudWorkspaceRuntimeError({
 									reason: "workspace_runtime_rejected",
@@ -2070,7 +2067,7 @@ it("does not combine credential rejections across successful mailbox polls", asy
 			let stopped = 0;
 			const fiber = yield* Effect.forkScoped(
 				runCloudMailboxPolling({
-					credential: () => "live-credential",
+					interval: "1 second",
 					onRuntimeRejected: Effect.sync(() => {
 						stopped++;
 					}),
@@ -2096,14 +2093,14 @@ it("does not combine credential rejections across successful mailbox polls", asy
 
 it.each([
 	403, 404,
-])("retires permanently rejected mailbox polling with HTTP %s", async (httpStatus) => {
+])("does not infer owner revocation from generic HTTP %s", async (httpStatus) => {
 	await Effect.runPromise(
 		Effect.gen(function* () {
 			let attempts = 0;
 			let stopped = 0;
 			const fiber = yield* Effect.forkScoped(
 				runCloudMailboxPolling({
-					credential: () => "credential",
+					interval: "1 second",
 					onRuntimeRejected: Effect.sync(() => {
 						stopped++;
 					}),
@@ -2119,8 +2116,8 @@ it.each([
 				}),
 			);
 			yield* TestClock.adjust("10 seconds");
-			expect(attempts).toBe(1);
-			expect(stopped).toBe(1);
+			expect(attempts).toBeGreaterThan(1);
+			expect(stopped).toBe(0);
 			yield* Fiber.interrupt(fiber);
 		}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
 	);
@@ -2135,8 +2132,7 @@ it.each([
 			let stopped = 0;
 			const fiber = yield* Effect.forkScoped(
 				runCloudMailboxPolling({
-					credential: () => "expired",
-					reauthenticating: () => true,
+					interval: "1 second",
 					onRuntimeRejected: Effect.sync(() => {
 						stopped++;
 					}),
@@ -2160,7 +2156,7 @@ it("allows delayed credential renewal before retiring repeated authorization rej
 			let stopped = 0;
 			const fiber = yield* Effect.forkScoped(
 				runCloudMailboxPolling({
-					credential: () => credential,
+					interval: "1 second",
 					onRuntimeRejected: Effect.sync(() => {
 						stopped++;
 					}),
@@ -2188,14 +2184,14 @@ it("allows delayed credential renewal before retiring repeated authorization rej
 	);
 });
 
-it("bounds rejected credentials even when transport failures occur between rejections", async () => {
+it("retains execution when ambiguous rejection alternates with network outages", async () => {
 	await Effect.runPromise(
 		Effect.gen(function* () {
 			let attempts = 0;
 			let stopped = 0;
 			const fiber = yield* Effect.forkScoped(
 				runCloudMailboxPolling({
-					credential: () => "rejected-credential",
+					interval: "1 second",
 					onRuntimeRejected: Effect.sync(() => {
 						stopped++;
 					}),
@@ -2212,10 +2208,10 @@ it("bounds rejected credentials even when transport failures occur between rejec
 				}),
 			);
 			yield* TestClock.adjust("70 seconds");
-			expect(stopped).toBe(1);
+			expect(stopped).toBe(0);
 			const retiredAttempts = attempts;
 			yield* TestClock.adjust("1 minute");
-			expect(attempts).toBe(retiredAttempts);
+			expect(attempts).toBeGreaterThan(retiredAttempts);
 			yield* Fiber.interrupt(fiber);
 		}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
 	);
@@ -2243,7 +2239,7 @@ it.each([
 			});
 			const fiber = yield* Effect.forkScoped(
 				runCloudMailboxPolling({
-					credential: () => "healthy-credential",
+					interval: "1 second",
 					onRuntimeRejected: Effect.sync(() => {
 						stopped++;
 					}),

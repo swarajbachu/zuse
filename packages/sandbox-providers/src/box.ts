@@ -1,11 +1,14 @@
 import { measureCloudStage } from "@zuse/utils/cloud-timing";
 import { Duration, Effect, Redacted, Schema } from "effect";
+import { boatProcessStorageScript } from "./boat-process-storage.ts";
 import { BOX_PORT_FORWARDER } from "./box-port-forwarder.ts";
 import {
 	boxProcessScript,
+	boxProcessStoppedChecks,
 	boxProcessUnit,
 	boxShellQuote,
 	boxSystemdProcessCommand,
+	boxSystemdProcessInspectionCommand,
 } from "./box-process.ts";
 import {
 	type ProviderSandbox,
@@ -15,7 +18,9 @@ import {
 	type SandboxProviderAdapter,
 	SandboxProviderError,
 	type SandboxProviderResources,
+	WORKSPACE_RUNTIME_PROCESS_SELECTOR,
 } from "./index.ts";
+import { rootProcessCommand } from "./process-activation.ts";
 import { clampSeconds, providerError, validatedEnv } from "./provider-input.ts";
 import { zuseSnapshotName } from "./snapshot-name.ts";
 
@@ -363,8 +368,7 @@ export const makeBoxSandboxProvider = (
 				if (detail !== null) {
 					if (USABLE_STATES.has(detail.state)) return detail;
 					if (detail.state === "error") {
-						yield* kill(providerSandboxId).pipe(Effect.ignore);
-						return yield* providerError("rejected");
+						return yield* providerError("transient");
 					}
 				}
 				yield* Effect.sleep(Duration.millis(pollIntervalMs));
@@ -394,17 +398,26 @@ export const makeBoxSandboxProvider = (
 			// FUSE restore view. Writes there can acquire uid 1000 or disappear at
 			// handover. Do not modify the layout or start Zuse until disk mounts win.
 			'for root in /usr /etc /opt /srv; do fs=$(findmnt -rn -o FSTYPE -T "$root") || exit 1; case "$fs" in *fuse*) exit 75 ;; "") exit 1 ;; esac; done',
-			...(requirePersistedLayout
-				? [`sudo -n test -f ${BOX_PERSISTED_RUNTIME_MARKER}`]
-				: []),
-			`if sudo -n test -f ${BOX_PERSISTED_RUNTIME_MARKER} && [ "$(readlink /home/zuse)" = "${BOX_PERSISTED_RUNTIME_ROOT}/home" ] && [ "$(readlink /home/repos)" = "${BOX_PERSISTED_RUNTIME_ROOT}/repos" ] && test -d /home/zuse/.zuse-data && test -d /home/zuse/.ssh && test -d /home/repos; then sudo -n install -d -m 0700 -o zuse -g zuse /run/zuse-secrets; exit $?; fi`,
-			`sudo -n install -d -m 0755 -o root -g root ${BOX_PERSISTED_RUNTIME_ROOT}`,
-			`sudo -n install -d -m 0755 -o zuse -g zuse ${BOX_PERSISTED_RUNTIME_ROOT}/home ${BOX_PERSISTED_RUNTIME_ROOT}/repos`,
-			`for mapping in /home/zuse:${BOX_PERSISTED_RUNTIME_ROOT}/home /home/repos:${BOX_PERSISTED_RUNTIME_ROOT}/repos; do logical="\${mapping%%:*}"; persistent="\${mapping#*:}"; if [ "$(readlink "$logical" 2>/dev/null || true)" != "$persistent" ]; then if sudo -n test -d "$logical"; then sudo -n cp -an "$logical"/. "$persistent"/; fi; sudo -n chown -R zuse:zuse "$persistent"; sudo -n rm -rf -- "$logical"; sudo -n ln -s "$persistent" "$logical"; fi; done`,
-			"sudo -n install -d -m 0755 -o zuse -g zuse /home/zuse/.zuse-data",
-			"sudo -n install -d -m 0700 -o zuse -g zuse /home/zuse/.ssh /run/zuse-secrets",
-			"if sudo -n test -f /usr/local/share/zuse/sshd_config; then sudo -n install -m 0600 -o zuse -g zuse /usr/local/share/zuse/sshd_config /home/zuse/.ssh/sshd_config; fi",
-			`sudo -n touch ${BOX_PERSISTED_RUNTIME_MARKER}`,
+			rootProcessCommand(
+				[
+					boatProcessStorageScript(),
+					...(requirePersistedLayout
+						? [`sudo -n test -f ${BOX_PERSISTED_RUNTIME_MARKER}`]
+						: []),
+					`if sudo -n test -f ${BOX_PERSISTED_RUNTIME_MARKER} && [ "$(readlink /home/zuse)" = "${BOX_PERSISTED_RUNTIME_ROOT}/home" ] && [ "$(readlink /home/repos)" = "${BOX_PERSISTED_RUNTIME_ROOT}/repos" ] && test -d /home/zuse/.zuse-data && test -d /home/zuse/.ssh && test -d /home/repos; then sudo -n install -d -m 0700 -o zuse -g zuse /run/zuse-secrets; exit $?; fi`,
+					// An unaliased legacy home may still contain the live authoritative DB.
+					// The healthy alias return above needs no stopped-process observation.
+					...boxProcessStoppedChecks(WORKSPACE_RUNTIME_PROCESS_SELECTOR),
+					`sudo -n install -d -m 0755 -o root -g root ${BOX_PERSISTED_RUNTIME_ROOT}`,
+					`sudo -n install -d -m 0755 -o zuse -g zuse ${BOX_PERSISTED_RUNTIME_ROOT}/home ${BOX_PERSISTED_RUNTIME_ROOT}/repos`,
+					`if [ ! -L /home/zuse ] && [ -f /home/zuse/.zuse-data/zuse.sqlite ] && [ -f ${BOX_PERSISTED_RUNTIME_ROOT}/home/.zuse-data/zuse.sqlite ]; then exit 78; fi`,
+					`for mapping in /home/zuse:${BOX_PERSISTED_RUNTIME_ROOT}/home /home/repos:${BOX_PERSISTED_RUNTIME_ROOT}/repos; do logical="\${mapping%%:*}"; persistent="\${mapping#*:}"; if [ "$(readlink "$logical" 2>/dev/null || true)" != "$persistent" ]; then if sudo -n test -d "$logical"; then sudo -n cp -an "$logical"/. "$persistent"/; fi; sudo -n chown -R zuse:zuse "$persistent"; sudo -n rm -rf -- "$logical"; sudo -n ln -s "$persistent" "$logical"; fi; done`,
+					"sudo -n install -d -m 0755 -o zuse -g zuse /home/zuse/.zuse-data",
+					"sudo -n install -d -m 0700 -o zuse -g zuse /home/zuse/.ssh /run/zuse-secrets",
+					"if sudo -n test -f /usr/local/share/zuse/sshd_config; then sudo -n install -m 0600 -o zuse -g zuse /usr/local/share/zuse/sshd_config /home/zuse/.ssh/sshd_config; fi",
+					`sudo -n touch ${BOX_PERSISTED_RUNTIME_MARKER}`,
+				].join("\n"),
+			),
 		].join(" && ");
 
 	const ensureRuntimeLayout = Effect.fn(
@@ -611,7 +624,8 @@ export const makeBoxSandboxProvider = (
 	): Effect.Effect<ProviderSandbox | null, SandboxProviderError> =>
 		boxDetail(providerSandboxId).pipe(
 			Effect.flatMap((detail) => {
-				if (detail.state === "error") return Effect.succeed(null);
+				if (detail.state === "error")
+					return Effect.fail(providerError("transient"));
 				if (
 					!USABLE_STATES.has(detail.state) &&
 					!PAUSED_STATES.has(detail.state)
@@ -715,6 +729,7 @@ export const makeBoxSandboxProvider = (
 		),
 		templateVersion: config.templateVersion,
 		preservesProcessesOnResume: false,
+		supportsFencedProcessReplacement: true,
 		resources: BOX_MACHINE_RESOURCES[machineType],
 		// Size ids intentionally match Box machine types; resume restores onto
 		// fresh hardware, so resizing is free at the provider level.
@@ -770,6 +785,16 @@ export const makeBoxSandboxProvider = (
 		recoverByLabel,
 		startProcess,
 		replaceProcess,
+		inspectProcess: (id, selector, user = "user") =>
+			runCommand(id, boxSystemdProcessInspectionCommand(selector, user)).pipe(
+				Effect.map((result) => {
+					const state = result.stdout.trim();
+					return result.exitCode === 0 &&
+						(state === "active" || state === "inactive")
+						? state
+						: "unknown";
+				}),
+			),
 		pathExists,
 		readTextFile,
 		writeTextFile,
@@ -816,7 +841,7 @@ export const makeBoxSandboxProvider = (
 				yield* restoreResumedSandbox(providerSandboxId);
 				const sandbox = yield* inspect(providerSandboxId);
 				if (sandbox === null) return yield* providerError("not-found");
-				return sandbox;
+				return { ...sandbox, processContinuity: "lost" as const };
 			},
 		),
 		extendTimeout: (providerSandboxId, timeoutSeconds) =>

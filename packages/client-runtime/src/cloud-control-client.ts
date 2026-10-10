@@ -57,6 +57,7 @@ import {
 	PluginResponse,
 	type SessionId,
 	type SessionStreamCursor,
+	WORKSPACE_GATEWAY_PENDING_PROTOCOL,
 	WorkspaceSettings,
 	type WorkspaceSettingsUpdate,
 } from "@zuse/contracts";
@@ -292,7 +293,17 @@ export const makeCloudControlClient = (request: CloudControlRequest) => ({
 			ApiPaths.cloudWorkspaceConnectionTicket(input.workspaceId),
 			CloudWorkspaceConnection,
 			"POST",
-			{},
+			{ protocol: WORKSPACE_GATEWAY_PENDING_PROTOCOL },
+		),
+	"cloud.workspaces.update": (input: {
+		workspaceId: string;
+		commandId?: string;
+	}) =>
+		request(
+			ApiPaths.cloudWorkspaceAction(input.workspaceId, "update"),
+			CloudWorkspace,
+			"POST",
+			input,
 		),
 	"cloud.workspaces.restart": (input: {
 		workspaceId: string;
@@ -307,7 +318,6 @@ export const makeCloudControlClient = (request: CloudControlRequest) => ({
 	"cloud.workspaces.resume": (input: {
 		workspaceId: string;
 		commandId?: string;
-		recoverRuntime?: boolean;
 	}) =>
 		request(
 			ApiPaths.cloudWorkspaceAction(input.workspaceId, "resume"),

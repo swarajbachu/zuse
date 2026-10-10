@@ -7,6 +7,7 @@ import {
 	type SandboxProviderAdapter,
 	SandboxProviderError,
 	SandboxProviders,
+	WORKSPACE_RUNTIME_PROCESS_SELECTOR,
 } from "@zuse/sandbox-providers";
 import { cloudTimingEvent, measureCloudStage } from "@zuse/utils/cloud-timing";
 import { Cause, Clock, Data, Duration, Effect } from "effect";
@@ -15,6 +16,7 @@ import PROJECT_BUILDER_SOURCE from "../../cloud-sandboxes/project-builder.sh";
 import WORKSPACE_BOOTSTRAP_SOURCE from "../../cloud-sandboxes/workspace-bootstrap.sh";
 import WORKSPACE_FORK_PREPARE_SOURCE from "../../cloud-sandboxes/workspace-fork-prepare.sh";
 import WORKSPACE_REPOSITORY_SOURCE from "../../cloud-sandboxes/workspace-repository.sh";
+import WORKSPACE_RUNTIME_SOURCE from "../../cloud-sandboxes/workspace-runtime.sh";
 import { snapshotCloudAuthAuthority } from "./cloud-auth-authority.ts";
 import { allocatedComputeCostMicros } from "./cloud-billing.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
@@ -51,7 +53,21 @@ import {
 	cloudWorkspaceLayoutEnvironment,
 	cloudWorkspaceRepositoryPath,
 } from "./cloud-workspace-paths.ts";
+import {
+	activationProcessInput,
+	openRuntimeActivationBoot,
+	RUNTIME_ACTIVATION_INSTALLER,
+	RUNTIME_ACTIVATION_RETRY_MS,
+	RUNTIME_ACTIVATION_TIMEOUT_MS,
+	RUNTIME_PREPARATION_TIMEOUT_MS,
+	type RuntimeActivation,
+	readRuntimeActivationJournal,
+	runtimeActivation,
+	runtimeActivationRetryAt,
+	sealRuntimeActivationBoot,
+} from "./cloud-workspace-runtime-activation.ts";
 import { nextCloudWorkspaceRuntimeFence } from "./cloud-workspace-runtime-fence.ts";
+import { workspaceStartupOutcome } from "./cloud-workspace-runtime-scheduling.ts";
 import { WORKSPACE_RUNTIME_UPDATE_SCRIPT } from "./cloud-workspace-runtime-update.ts";
 import {
 	type CloudProjectBuildRecord,
@@ -62,6 +78,7 @@ import {
 	mailboxLifecycleCovers,
 	mailboxLifecycleTombstoneConfig,
 	pendingMailboxLifecycle,
+	runtimeBootstrapReceiptFromConfig,
 	withPendingMailboxLifecycle,
 	workspaceDestructionFence,
 	workspaceSupportsCloudCommandMailbox,
@@ -131,6 +148,8 @@ export const PROJECT_RUNTIME_UPDATE_RETRY_DELAYS_SECONDS = [0, 5, 15] as const;
 const PROJECT_BUILDER_FILE = "/var/lib/zuse/project-build/builder.sh";
 const WORKSPACE_BOOTSTRAP_FILE =
 	"/var/lib/zuse/project-build/workspace-bootstrap.sh";
+const WORKSPACE_RUNTIME_FILE =
+	"/var/lib/zuse/project-build/workspace-runtime.sh";
 // GitHub auth ships with the build for the same reason the bootstrap does:
 // base images are republished by hand, so an image older than the `gh` shim
 // would otherwise leave every workspace with an unauthenticated `gh`.
@@ -139,17 +158,6 @@ const WORKSPACE_REPOSITORY_FILE =
 	"/var/lib/zuse/project-build/workspace-repository.sh";
 const WORKSPACE_CREDENTIALS_READY_MARKER =
 	"/var/lib/zuse/workspace/credentials-ready";
-const WORKSPACE_START_OBSERVATION_INTERVAL_MS = 250;
-
-// A resume first gives the preserved runtime a warm-reconnect grace period,
-// then starts the bounded runtime connection window. Keep the request observer
-// alive through both phases and one final poll so it publishes the timeout
-// instead of leaving the client on a stale "waking up" state.
-export const WORKSPACE_START_OBSERVATION_MS =
-	Math.max(WARM_RUNTIME_RECONNECT_GRACE_MS, MAILBOX_RUNTIME_RESPONSE_GRACE_MS) +
-	RUNTIME_CONNECTION_TIMEOUT_MS +
-	WORKSPACE_START_OBSERVATION_INTERVAL_MS;
-
 export const reserveProviderCost = Effect.fn("reserveProviderCost")(
 	function* (input: {
 		readonly accountId: string;
@@ -345,22 +353,6 @@ export const reusableAccountBuildSnapshot = (
 ): string | undefined =>
 	build?.templateVersion === templateVersion ? build.snapshotId : undefined;
 
-export const cloudWorkspaceStartupNeedsObservation = (
-	workspace:
-		| (Pick<CloudWorkspaceRecord, "state" | "runtimeState"> &
-				Partial<Pick<CloudWorkspaceRecord, "requestConfig">>)
-		| null,
-): boolean =>
-	workspace !== null &&
-	((workspace.requestConfig?.cloudMailboxWakePending === true &&
-		typeof workspace.requestConfig.cloudMailboxRuntimeSeenAt !== "number") ||
-		(workspace.runtimeState === "offline" &&
-			(workspace.state === "queued" ||
-				workspace.state === "provisioning" ||
-				workspace.state === "setup")) ||
-		(workspace.state === "resuming" &&
-			workspace.runtimeState === "connecting"));
-
 const resetMailboxWakeObservation = (
 	requestConfig: Readonly<Record<string, unknown>>,
 	nowMs: number,
@@ -405,22 +397,8 @@ class CloudWorkspaceLeaseLostError extends Data.TaggedError(
 type SaveClaimedWorkspace = (
 	workspace: CloudWorkspaceRecord,
 ) => Effect.Effect<void, CloudWorkspaceLeaseLostError>;
-const WORKSPACE_RUNTIME_PROCESS = {
-	tag: "zuse-runtime",
-	legacyCommandMarkers: [
-		"zuse-workspace-bootstrap",
-		"/opt/zuse/current/bin.mjs serve",
-		"/usr/local/bin/zuse serve",
-	],
-} as const;
-export const workspaceRuntimeProcessSelector = () => ({
-	...WORKSPACE_RUNTIME_PROCESS,
-	// E2B preserves processes across a memory pause but does not preserve their
-	// envd process tags. Always scan the narrow legacy markers before replacement
-	// so a live untagged runtime cannot retain the control port and make resume
-	// fail with EADDRINUSE.
-	legacyCleanup: "matching-command" as const,
-});
+export const workspaceRuntimeProcessSelector = () =>
+	WORKSPACE_RUNTIME_PROCESS_SELECTOR;
 
 /** A missing provider sandbox must never be replaced after SQLite became authoritative. */
 export const cloudWorkspaceHasRetainedRuntimeData = (
@@ -431,22 +409,46 @@ export const cloudWorkspaceHasRetainedRuntimeData = (
 	workspace.statusCode === "agent-starting" ||
 	workspace.statusCode === "agent-running";
 
-export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; if [ "\${ZUSE_SNAPSHOT_NATIVE:-}" = 1 ]; then source /etc/zuse/snapshot.env; fi; timing() { echo "[cloud-timing] workspaceId=$ZUSE_CLOUD_WORKSPACE_ID generation=$ZUSE_RUNTIME_GENERATION stage=$1 atMs=$(date +%s%3N)" >> /var/lib/zuse/workspace/runtime.log; }; timing runtime.shell-start; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; log=/var/lib/zuse/workspace/runtime.log; rm -f /var/lib/zuse/workspace/failed /var/lib/zuse/workspace/credentials-ready /var/lib/zuse/workspace/credentials-ready-event;
+export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -euo pipefail
+${WORKSPACE_RUNTIME_SOURCE}
+if [ "\${ZUSE_SNAPSHOT_NATIVE:-}" = 1 ]; then source /etc/zuse/snapshot.env; fi
+initialize_workspace_runtime_attempt
+acquire_workspace_runtime_lock
+timing() { echo "[cloud-timing] workspaceId=$ZUSE_CLOUD_WORKSPACE_ID generation=$ZUSE_RUNTIME_GENERATION stage=$1 atMs=$(date +%s%3N)" >> "$status_dir/runtime.log"; }
+timing runtime.shell-start
+runtime=/opt/zuse/current/bin.mjs
+fallback=/usr/local/bin/zuse
+log="$status_dir/runtime.log"
+rm -f "$status_dir/failed" "$status_dir/credentials-ready" "$status_dir/credentials-ready-event" "$status_dir/failure-phase"
 ${WORKSPACE_RUNTIME_UPDATE_SCRIPT}
-ensure_workspace_runtime 1
-if [ ! -f /var/lib/zuse/workspace/repository-ready ]; then
+phase=updating-runtime
+if [ -n "\${ZUSE_RUNTIME_ACTIVATION_MODE:-}" ]; then
+  "\${ZUSE_RUNTIME_NODE:-node}" "$ZUSE_RUNTIME_ACTIVATION_INSTALLER" "--$ZUSE_RUNTIME_ACTIVATION_MODE" >>"$log" 2>&1
+fi
+phase=runtime-compatibility
+ensure_workspace_runtime
+phase=syncing-repository
+if [ ! -f "$status_dir/repository-ready" ]; then
 if bash <<'ZUSE_WORKSPACE_REPOSITORY' >> "$log" 2>&1
 ${WORKSPACE_REPOSITORY_SOURCE}
 ZUSE_WORKSPACE_REPOSITORY
 then
-touch /var/lib/zuse/workspace/repository-ready
+touch "$status_dir/repository-ready"
 else
-printf 'syncing-repository\n' >/var/lib/zuse/workspace/failure-phase
-touch /var/lib/zuse/workspace/failed
-exit 1
+exit $?
 fi
 fi
-timing runtime.exec; if [ -f "$runtime" ]; then exec "\${ZUSE_RUNTIME_NODE:-node}" "$runtime" serve >> "$log" 2>&1; else exec "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
+timing runtime.exec
+if [ -f "$runtime" ]; then exec_workspace_runtime "\${ZUSE_RUNTIME_NODE:-node}" "$runtime" serve >> "$log" 2>&1; else exec_workspace_runtime "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
+const WORKSPACE_RUNTIME_BOOTSTRAP_SCRIPT = `set -euo pipefail
+${WORKSPACE_RUNTIME_SOURCE}
+if [[ "\${ZUSE_SNAPSHOT_NATIVE:-}" == 1 ]]; then source /etc/zuse/snapshot.env; fi
+initialize_workspace_runtime_attempt
+acquire_workspace_runtime_lock
+${WORKSPACE_RUNTIME_UPDATE_SCRIPT}
+phase=runtime-compatibility
+ensure_workspace_runtime
+exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`;
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
 
@@ -896,6 +898,12 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 						sandbox.providerSandboxId,
 						WORKSPACE_BOOTSTRAP_FILE,
 						WORKSPACE_BOOTSTRAP_SOURCE,
+						"zuse",
+					),
+					provider.writeTextFile(
+						sandbox.providerSandboxId,
+						WORKSPACE_RUNTIME_FILE,
+						WORKSPACE_RUNTIME_SOURCE,
 						"zuse",
 					),
 					provider.writeTextFile(
@@ -1425,7 +1433,7 @@ const wakePreservedWorkspaceRuntime = (
 		// Provider pause preserves memory and processes. Wake the sandbox first
 		// and give its existing runtime a brief window to reconnect. If it does
 		// not reconnect, the resuming branch performs a fenced hard restart.
-		yield* provider
+		const resumed = yield* provider
 			.resume(
 				providerSandboxId,
 				keepAliveTimeoutSeconds,
@@ -1439,6 +1447,16 @@ const wakePreservedWorkspaceRuntime = (
 				),
 			);
 		const resumedAtMs = yield* Clock.currentTimeMillis;
+		if (resumed.processContinuity === "lost") {
+			return yield* restartWorkspaceRuntime(
+				workspace,
+				providerSandboxId,
+				provider,
+				resumedAtMs,
+				saveWorkspace,
+				true,
+			);
+		}
 		yield* saveWorkspace({
 			...workspaceRuntimeReconnectTarget(workspace, nowMs),
 			nextActionAtMs: resumedAtMs + WARM_RUNTIME_RECONNECT_GRACE_MS,
@@ -1467,6 +1485,411 @@ const discardUnsafeWorkspaceSandbox = (
 					: Effect.fail(error),
 		),
 	);
+
+/** Idempotent preparation also repairs a crash between authorization and file delivery. */
+const prepareWorkspaceRuntimeLaunch = Effect.fn(
+	"prepareWorkspaceRuntimeLaunch",
+)(function* (
+	workspace: CloudWorkspaceRecord,
+	provider: SandboxProviderAdapter,
+	sandboxId: string,
+) {
+	const config = yield* SandboxOfferConfiguration;
+	const layout = cloudWorkspaceLayout(workspace);
+	yield* Effect.all(
+		[
+			provider.setNetwork(sandboxId, { kind: "open" }),
+			...(
+				[
+					[WORKSPACE_REPOSITORY_FILE, WORKSPACE_REPOSITORY_SOURCE],
+					[GITHUB_AUTH_FILE, GITHUB_AUTH_SOURCE],
+					[WORKSPACE_BOOTSTRAP_FILE, WORKSPACE_BOOTSTRAP_SOURCE],
+					[WORKSPACE_RUNTIME_FILE, WORKSPACE_RUNTIME_SOURCE],
+				] as const
+			).map(([path, source]) =>
+				provider.writeTextFile(sandboxId, path, source, layout.user),
+			),
+			writeRuntimeSigningKey(
+				provider,
+				sandboxId,
+				config,
+				layout.user,
+				layout.snapshot,
+			),
+		],
+		{ concurrency: "unbounded", discard: true },
+	);
+});
+
+const workspaceRuntimeLaunchInput = Effect.fn("workspaceRuntimeLaunchInput")(
+	function* (
+		workspace: CloudWorkspaceRecord,
+		token: string,
+		bootstrap = false,
+	) {
+		const store = yield* CloudWorkspaceStore;
+		const config = yield* SandboxOfferConfiguration;
+		const api = yield* ApiConfiguration;
+		const project = yield* store.getProject(workspace.projectId);
+		if (project === null) return null;
+		return {
+			command: "/bin/bash",
+			args: [
+				"-lc",
+				bootstrap
+					? WORKSPACE_RUNTIME_BOOTSTRAP_SCRIPT
+					: WORKSPACE_RUNTIME_RESUME_SCRIPT,
+			],
+			cwd: cloudWorkspaceLayout(workspace).home,
+			user: cloudWorkspaceLayout(workspace).user,
+			env: {
+				...project.cloudEnvironment,
+				...cloudWorkspaceLayoutEnvironment(workspace),
+				ZUSE_CLOUD_WORKSPACE_ID: workspace.workspaceId,
+				ZUSE_RUNTIME_BOOT_TOKEN: token,
+				ZUSE_API_URL: api.apiIssuer,
+				ZUSE_CLOUD_WORKSPACE_ROOT: cloudWorkspaceRepositoryPath(
+					workspace,
+					project.repositoryIdentity,
+				),
+				ZUSE_BRANCH: workspace.branch,
+				ZUSE_PROJECT_CACHE_ID: project.projectId,
+				ZUSE_BASE_REF: workspace.baseRef,
+				...(machineForkSource(workspace) === undefined
+					? {}
+					: { ZUSE_FORK_CHECKOUT: "1" }),
+				ZUSE_REPOSITORY_URL: project.repositoryUrl,
+				ZUSE_RUNTIME_KIND: "cloud-workspace",
+				ZUSE_HOST: "127.0.0.1",
+				ZUSE_PORT: "47837",
+				ZUSE_AUTH_POLICY: "protected",
+				ZUSE_ENABLE_PAIRING: "0",
+				ZUSE_MACHINE_RUNTIME_ROLE: "cloud-environment",
+				ZUSE_SERVER_READY_STDOUT: "1",
+				ZUSE_USER_DATA: "/var/lib/zuse/user-data",
+				...(typeof workspace.requestConfig.sessionHeadVersion === "number" ||
+				typeof workspace.requestConfig.storageIncarnation === "string"
+					? { ZUSE_RUNTIME_EXPECT_EXISTING_DATA: "1" }
+					: {}),
+				ZUSE_RUNTIME_GENERATION: String(
+					workspace.requestConfig.runtimeGeneration,
+				),
+				ZUSE_GATEWAY_EPOCH: String(workspace.requestConfig.gatewayEpoch),
+				...runtimeUpdateEnvironment(
+					config,
+					cloudWorkspaceLayout(workspace).snapshot,
+				),
+			},
+		};
+	},
+);
+
+/** Recover the recorded launch, rather than inventing another owner after a lost provider response. */
+const reconcileRuntimeActivation = Effect.fn("reconcileRuntimeActivation")(
+	function* (
+		workspace: CloudWorkspaceRecord,
+		provider: SandboxProviderAdapter,
+		nowMs: number,
+		saveWorkspace: SaveClaimedWorkspace,
+	) {
+		const operation = runtimeActivation(workspace);
+		if (
+			operation === null ||
+			operation.phase === "confirmed" ||
+			operation.phase === "failed" ||
+			workspace.providerSandboxId === undefined
+		)
+			return false;
+		if (operation.phase === "verification-needed") {
+			return (
+				workspace.statusCode !== "restart-queued" &&
+				workspace.requestConfig.runtimeReleaseChangeRequested !== true
+			);
+		}
+		const activationExpired =
+			nowMs - operation.startedAtMs >=
+			(operation.phase === "preparing"
+				? RUNTIME_PREPARATION_TIMEOUT_MS
+				: RUNTIME_ACTIVATION_TIMEOUT_MS);
+		const config = yield* SandboxOfferConfiguration;
+		const journal =
+			operation.mode === "restart-installed"
+				? null
+				: yield* readRuntimeActivationJournal(provider, workspace).pipe(
+						Effect.catchTag("SandboxProviderError", (error) =>
+							activationExpired ? Effect.succeed(null) : Effect.fail(error),
+						),
+					);
+		const currentJournal =
+			journal?.transactionId === operation.id ? journal : null;
+		const save = (
+			updated: RuntimeActivation,
+			changes: Partial<CloudWorkspaceRecord> = {},
+		) =>
+			saveWorkspace({
+				...workspace,
+				...changes,
+				requestConfig: {
+					...workspace.requestConfig,
+					runtimeActivation: updated,
+				},
+				revision: workspace.revision + 1,
+				updatedAtMs: nowMs,
+				nextActionAtMs:
+					changes.nextActionAtMs ??
+					Math.min(
+						nowMs + RUNTIME_ACTIVATION_RETRY_MS,
+						updated.startedAtMs +
+							(updated.phase === "preparing"
+								? RUNTIME_PREPARATION_TIMEOUT_MS
+								: RUNTIME_ACTIVATION_TIMEOUT_MS),
+					),
+			});
+		if (operation.phase === "preparing") {
+			if (currentJournal?.phase === "prepared") return false;
+			if (nowMs - operation.startedAtMs >= RUNTIME_PREPARATION_TIMEOUT_MS) {
+				// Preparation has no execution authority: its failure keeps the old owner valid.
+				yield* save(
+					{
+						...operation,
+						phase: "failed",
+						lastErrorCode: "runtime-update-prepare-timeout",
+					},
+					{
+						statusCode: "runtime-update-prepare-failed",
+						...(workspace.runtimeCredentialHash === undefined
+							? {}
+							: { state: "ready" as const }),
+					},
+				);
+				return true;
+			}
+			yield* save(operation);
+			return true;
+		}
+		if (workspace.requestConfig.runtimeGeneration !== operation.generation) {
+			const { sealedBootToken: _secret, ...superseded } = operation;
+			yield* save({
+				...superseded,
+				phase: "failed",
+				lastErrorCode: "runtime-activation-superseded",
+			});
+			return true;
+		}
+		if (
+			currentJournal?.phase === "confirmed" &&
+			currentJournal.generation === operation.generation &&
+			currentJournal.confirmedVersion === operation.targetVersion
+		) {
+			const { sealedBootToken: _secret, ...confirmed } = operation;
+			yield* save({ ...confirmed, phase: "confirmed" });
+			return true;
+		}
+		if (
+			activationExpired &&
+			(operation.phase === "confirming" || workspace.runtimeState === "online")
+		) {
+			const { sealedBootToken: _secret, ...unverified } = operation;
+			yield* save(
+				{
+					...unverified,
+					phase: "verification-needed",
+					lastErrorCode: "runtime-update-verification-needed",
+				},
+				{
+					nextActionAtMs: Number.MAX_SAFE_INTEGER,
+					...(workspace.runtimeState === "online"
+						? {}
+						: {
+								state: "failed" as const,
+								statusCode: "runtime-update-verification-needed",
+							}),
+				},
+			);
+			return true;
+		}
+		if (
+			workspace.runtimeState === "online" &&
+			workspace.state === "ready" &&
+			workspace.requestConfig.runtimeSessionRecoveryPending !== true &&
+			workspace.requestConfig.runtimeGeneration === operation.generation
+		) {
+			const store = yield* CloudWorkspaceStore;
+			const summary = yield* store.getRuntimeSummary(workspace.workspaceId);
+			if (
+				summary !== null &&
+				summary.runtimeGeneration === operation.generation &&
+				summary.sessionHeadVersion >=
+					Number(workspace.requestConfig.sessionHeadVersion ?? 0)
+			) {
+				if (operation.mode === "restart-installed") {
+					const { sealedBootToken: _secret, ...confirmed } = operation;
+					yield* save({ ...confirmed, phase: "confirmed" });
+					return true;
+				}
+				yield* provider.startProcess(workspace.providerSandboxId, {
+					command: "/bin/bash",
+					args: ["-lc", `node ${RUNTIME_ACTIVATION_INSTALLER} --confirm`],
+					user: cloudWorkspaceLayout(workspace).user,
+					tag: "zuse-runtime-confirm",
+					env: {
+						...runtimeUpdateEnvironment(
+							config,
+							cloudWorkspaceLayout(workspace).snapshot,
+						),
+						ZUSE_RUNTIME_UPDATE_TRANSACTION_ID: operation.id,
+						ZUSE_RUNTIME_UPDATE_GENERATION: String(operation.generation),
+						ZUSE_RUNTIME_EXPECTED_VERSION: operation.targetVersion ?? "",
+					},
+				});
+				const updated = {
+					...operation,
+					phase: "confirming" as const,
+					attempts: operation.attempts + 1,
+				};
+				yield* saveWorkspace({
+					...workspace,
+					requestConfig: {
+						...workspace.requestConfig,
+						runtimeActivation: updated,
+					},
+					nextActionAtMs: runtimeActivationRetryAt(updated, nowMs),
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+				});
+				return true;
+			}
+			yield* save(operation);
+			return true;
+		}
+		if (operation.phase === "confirming") {
+			yield* save(operation);
+			return true;
+		}
+		if (
+			nowMs - operation.startedAtMs >= RUNTIME_ACTIVATION_TIMEOUT_MS ||
+			(workspace.runtimeBootTokenExpiresAtMs !== undefined &&
+				workspace.runtimeBootTokenExpiresAtMs <= nowMs)
+		) {
+			// Rollback gets fresh authorization; expired/spent enrollment is never replayed.
+			if (
+				operation.phase !== "rolling-back" &&
+				currentJournal?.previous?.signed === true &&
+				currentJournal.previous.version !== null &&
+				provider.inspectProcess !== undefined &&
+				(yield* provider
+					.inspectProcess(
+						workspace.providerSandboxId,
+						workspaceRuntimeProcessSelector(),
+					)
+					.pipe(
+						Effect.timeout("5 seconds"),
+						Effect.catch(() => Effect.succeed("unknown")),
+					)) === "inactive"
+			) {
+				const boot = yield* issueWorkspaceRuntimeBoot(nowMs);
+				const fence = nextCloudWorkspaceRuntimeFence(workspace);
+				const rollback: RuntimeActivation = {
+					...operation,
+					phase: "rolling-back",
+					generation: fence.runtimeGeneration,
+					targetVersion: currentJournal.previous.version,
+					startedAtMs: nowMs,
+					attempts: 0,
+				};
+				const sealedBootToken = yield* sealRuntimeActivationBoot(
+					workspace,
+					rollback,
+					boot.token,
+				);
+				yield* saveWorkspace({
+					...workspace,
+					state: "provisioning",
+					runtimeState: "offline",
+					statusCode: "runtime-update-rolling-back",
+					runtimeCredentialHash: undefined,
+					runtimeBootTokenHash: boot.tokenHash,
+					runtimeBootTokenExpiresAtMs: boot.expiresAtMs,
+					requestConfig: {
+						...withoutRuntimeBootstrapReceipt(workspace.requestConfig),
+						...fence,
+						runtimeActivation: { ...rollback, sealedBootToken },
+						runtimeSessionRecoveryPending: true,
+					},
+					nextActionAtMs: nowMs,
+					updatedAtMs: nowMs,
+					revision: workspace.revision + 1,
+				});
+				return true;
+			}
+			// A known incompatible or unprovable rollback needs action; keep the disk and the launch diagnosis.
+			yield* save(
+				{
+					...operation,
+					phase: "failed",
+					lastErrorCode: "runtime-activation-unconfirmed",
+				},
+				{
+					state: "failed",
+					runtimeState: "offline",
+					statusCode: "runtime-activation-unconfirmed",
+				},
+			);
+			return true;
+		}
+		// Enrollment binds one process key pair. A consumed boot token cannot restart that process.
+		if (
+			workspace.runtimeBootTokenHash === undefined ||
+			runtimeBootstrapReceiptFromConfig(workspace.requestConfig)?.generation ===
+				operation.generation
+		) {
+			yield* save(operation);
+			return true;
+		}
+		// Inspect the recorded allocation; missing storage never falls through to replacement.
+		const sandbox = yield* provider.inspect(workspace.providerSandboxId);
+		if (sandbox === null)
+			return yield* new SandboxProviderError({ code: "not-found" });
+		if (sandbox.state === "paused")
+			yield* provider.resume(
+				workspace.providerSandboxId,
+				config.keepAliveTimeoutSeconds,
+				"pause",
+				workspaceSizeId(workspace),
+			);
+		// The adapter's persistent generation guard makes this idempotent after response loss.
+		const token = yield* openRuntimeActivationBoot(workspace, operation);
+		const input = yield* workspaceRuntimeLaunchInput(
+			workspace,
+			token,
+			operation.bootstrap === true,
+		);
+		yield* prepareWorkspaceRuntimeLaunch(
+			workspace,
+			provider,
+			workspace.providerSandboxId,
+		);
+		if (input === null) return true;
+		yield* provider.replaceProcess(
+			workspace.providerSandboxId,
+			workspaceRuntimeProcessSelector(),
+			activationProcessInput(
+				input,
+				operation,
+				operation.phase === "rolling-back" ? "rollback" : "activate",
+			),
+		);
+		const updated = { ...operation, attempts: operation.attempts + 1 };
+		yield* saveWorkspace({
+			...workspace,
+			requestConfig: { ...workspace.requestConfig, runtimeActivation: updated },
+			nextActionAtMs: runtimeActivationRetryAt(updated, nowMs),
+			updatedAtMs: nowMs,
+			revision: workspace.revision + 1,
+		});
+		return true;
+	},
+);
 
 const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 	function* (
@@ -1498,13 +1921,8 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 		);
 		const store = yield* CloudWorkspaceStore;
 		const config = yield* SandboxOfferConfiguration;
-		const api = yield* ApiConfiguration;
 		const project = yield* store.getProject(workspace.projectId);
 		if (project === null) return;
-		const workspaceRoot = cloudWorkspaceRepositoryPath(
-			workspace,
-			project.repositoryIdentity,
-		);
 
 		const running =
 			typeof providerAlreadyRunning === "boolean"
@@ -1611,58 +2029,171 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 				};
 			}
 		}
-		const boot = yield* issueWorkspaceRuntimeBoot(nowMs);
-		yield* Effect.all(
-			[
-				// Independent setup overlaps, but every branch must finish before launch.
-				provider.setNetwork(providerSandboxId, { kind: "open" }).pipe(
-					measureCloudStage(
-						{
-							workspaceId: workspace.workspaceId,
-							provider: provider.providerId,
-						},
-						"provider.network",
-					),
-				),
-				provider.writeTextFile(
-					providerSandboxId,
-					WORKSPACE_REPOSITORY_FILE,
-					WORKSPACE_REPOSITORY_SOURCE,
-					cloudWorkspaceLayout(workspace).user,
-				),
-				provider.writeTextFile(
-					providerSandboxId,
-					GITHUB_AUTH_FILE,
-					GITHUB_AUTH_SOURCE,
-					cloudWorkspaceLayout(workspace).user,
-				),
-				writeRuntimeSigningKey(
-					provider,
-					providerSandboxId,
-					config,
-					cloudWorkspaceLayout(workspace).user,
-					cloudWorkspaceLayout(workspace).snapshot,
-				).pipe(
-					measureCloudStage(
-						{
-							workspaceId: workspace.workspaceId,
-							provider: provider.providerId,
-						},
-						"runtime.write-file",
-					),
-				),
-			],
-			{ concurrency: "unbounded", discard: true },
+		yield* prepareWorkspaceRuntimeLaunch(
+			workspace,
+			provider,
+			providerSandboxId,
 		);
+		if (provider.supportsFencedProcessReplacement !== true) {
+			yield* saveWorkspace({
+				...workspace,
+				statusCode: "runtime-guard-unavailable",
+				nextActionAtMs: Number.MAX_SAFE_INTEGER,
+				revision: workspace.revision + 1,
+				updatedAtMs: nowMs,
+			});
+			return;
+		}
+		let operation = runtimeActivation(workspace);
+		const existingJournal =
+			operation !== null && operation.mode !== "restart-installed"
+				? yield* readRuntimeActivationJournal(provider, workspace)
+				: null;
+		const pendingReleaseRecovery =
+			operation !== null &&
+			operation.mode !== "restart-installed" &&
+			operation.targetVersion !== undefined &&
+			(operation.phase === "failed" ||
+				operation.phase === "verification-needed") &&
+			existingJournal?.transactionId === operation.id &&
+			existingJournal.phase !== "confirmed";
+		const transactional =
+			workspace.requestConfig.runtimeReleaseChangeRequested === true ||
+			pendingReleaseRecovery ||
+			(operation !== null &&
+				operation.mode !== "restart-installed" &&
+				(operation.phase === "preparing" ||
+					operation.phase === "launching" ||
+					operation.phase === "rolling-back"));
+		if (
+			transactional &&
+			(config.runtimeInstallerSource === undefined ||
+				config.runtimeManifestUrl === undefined)
+		) {
+			yield* saveWorkspace({
+				...workspace,
+				statusCode: "runtime-update-unavailable",
+				nextActionAtMs: Number.MAX_SAFE_INTEGER,
+				revision: workspace.revision + 1,
+				updatedAtMs: nowMs,
+			});
+			return;
+		}
+		if (transactional) {
+			if (
+				(operation?.phase === "failed" ||
+					operation?.phase === "verification-needed") &&
+				existingJournal?.transactionId === operation.id &&
+				existingJournal.phase !== "confirmed"
+			) {
+				const rollingBack =
+					existingJournal.phase === "rolling-back" ||
+					existingJournal.phase === "rolled-back";
+				operation = {
+					...operation,
+					phase: rollingBack ? "rolling-back" : "launching",
+					targetVersion: rollingBack
+						? (existingJournal.previous?.version ?? operation.targetVersion)
+						: existingJournal.candidate.version,
+					startedAtMs: nowMs,
+					attempts: 0,
+				};
+			} else if (
+				operation === null ||
+				operation.phase === "confirmed" ||
+				operation.phase === "failed" ||
+				operation.phase === "verification-needed"
+			) {
+				operation = {
+					id: crypto.randomUUID(),
+					mode: "change-release",
+					phase: "preparing",
+					startedAtMs: nowMs,
+					attempts: 0,
+				};
+				yield* provider.writeTextFile(
+					providerSandboxId,
+					RUNTIME_ACTIVATION_INSTALLER,
+					config.runtimeInstallerSource ?? "",
+					cloudWorkspaceLayout(workspace).user,
+				);
+				yield* saveWorkspace({
+					...workspace,
+					state: workspace.state === "ready" ? "ready" : "resuming",
+					statusCode: "runtime-update-preparing",
+					requestConfig: {
+						...workspace.requestConfig,
+						runtimeReleaseChangeRequested: undefined,
+						runtimeActivation: operation,
+					},
+					nextActionAtMs: nowMs + RUNTIME_ACTIVATION_RETRY_MS,
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+				});
+				yield* provider.startProcess(providerSandboxId, {
+					command: "/bin/bash",
+					args: [
+						"-lc",
+						`node ${RUNTIME_ACTIVATION_INSTALLER} --prepare >> /var/lib/zuse/workspace/runtime.log 2>&1`,
+					],
+					cwd: cloudWorkspaceLayout(workspace).home,
+					user: cloudWorkspaceLayout(workspace).user,
+					tag: `zuse-runtime-prepare-${operation.id}`,
+					env: {
+						...runtimeUpdateEnvironment(
+							config,
+							cloudWorkspaceLayout(workspace).snapshot,
+						),
+						ZUSE_RUNTIME_UPDATE_TRANSACTION_ID: operation.id,
+						ZUSE_RUNTIME_SKIP_TOOLCHAIN: "1",
+					},
+				});
+				return;
+			}
+			if (operation.phase === "preparing") {
+				if (
+					existingJournal?.transactionId !== operation.id ||
+					existingJournal.phase !== "prepared"
+				)
+					return;
+				operation = {
+					...operation,
+					phase: "launching",
+					targetVersion: existingJournal.candidate.version,
+					startedAtMs: nowMs,
+				};
+			}
+		}
+		if (!transactional) {
+			operation = {
+				id: crypto.randomUUID(),
+				mode: "restart-installed",
+				phase: "launching",
+				startedAtMs: nowMs,
+				attempts: 0,
+			};
+		}
+		const boot = yield* issueWorkspaceRuntimeBoot(nowMs);
 		const preparedAtMs = yield* Clock.currentTimeMillis;
 		const timings =
 			(workspace.requestConfig.startupTimings as
 				| Readonly<Record<string, number>>
 				| undefined) ?? {};
 		const runtimeFence = nextCloudWorkspaceRuntimeFence(workspace);
+		if (operation !== null) {
+			operation = { ...operation, generation: runtimeFence.runtimeGeneration };
+			operation = {
+				...operation,
+				sealedBootToken: yield* sealRuntimeActivationBoot(
+					workspace,
+					operation,
+					boot.token,
+				),
+			};
+		}
 		// Authorize the boot token before starting the detached runtime. Repeated
 		// resume requests cannot replace it while startup is in flight.
-		yield* saveWorkspace({
+		const authorizedWorkspace: CloudWorkspaceRecord = {
 			...workspace,
 			runtimeBootTokenHash: boot.tokenHash,
 			runtimeBootTokenExpiresAtMs: boot.expiresAtMs,
@@ -1679,59 +2210,40 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 					preparedAtMs,
 				),
 				...runtimeFence,
+				runtimeActivation: operation,
+				runtimeReleaseChangeRequested: undefined,
 				runtimeSessionRecoveryPending: true,
-				runtimeInstallPending: config.runtimeManifestUrl !== undefined,
+				runtimeInstallPending: transactional,
 				runtimeLaunchRecoveryAttempts:
 					workspace.statusCode === "resume-runtime-restarting"
 						? (workspace.requestConfig.runtimeLaunchRecoveryAttempts ?? 0)
 						: 0,
 				startupTimings: { ...timings, allocatedAt: preparedAtMs },
 			},
-			nextActionAtMs:
-				preparedAtMs +
-				(config.runtimeManifestUrl === undefined
-					? RUNTIME_CONNECTION_TIMEOUT_MS
-					: RUNTIME_INSTALL_TIMEOUT_MS),
+			nextActionAtMs: preparedAtMs + RUNTIME_ACTIVATION_RETRY_MS,
 			lastActivityAtMs: preparedAtMs,
 			runningSinceMs: nowMs,
 			revision: workspace.revision + 1,
 			updatedAtMs: preparedAtMs,
-		});
+		};
+		yield* saveWorkspace(authorizedWorkspace);
+		const input = yield* workspaceRuntimeLaunchInput(
+			authorizedWorkspace,
+			boot.token,
+		);
+		if (input === null) return;
 		yield* provider
-			.replaceProcess(providerSandboxId, workspaceRuntimeProcessSelector(), {
-				command: "/bin/bash",
-				args: ["-lc", WORKSPACE_RUNTIME_RESUME_SCRIPT],
-				cwd: cloudWorkspaceLayout(workspace).home,
-				env: {
-					...project.cloudEnvironment,
-					...cloudWorkspaceLayoutEnvironment(workspace),
-					ZUSE_CLOUD_WORKSPACE_ID: workspace.workspaceId,
-					ZUSE_RUNTIME_BOOT_TOKEN: boot.token,
-					ZUSE_API_URL: api.apiIssuer,
-					ZUSE_CLOUD_WORKSPACE_ROOT: workspaceRoot,
-					ZUSE_BRANCH: workspace.branch,
-					ZUSE_BASE_REF: workspace.baseRef,
-					...(machineForkSource(workspace) === undefined
-						? {}
-						: { ZUSE_FORK_CHECKOUT: "1" }),
-					ZUSE_REPOSITORY_URL: project.repositoryUrl,
-					ZUSE_RUNTIME_KIND: "cloud-workspace",
-					ZUSE_HOST: "127.0.0.1",
-					ZUSE_PORT: "47837",
-					ZUSE_AUTH_POLICY: "protected",
-					ZUSE_ENABLE_PAIRING: "0",
-					ZUSE_MACHINE_RUNTIME_ROLE: "cloud-environment",
-					ZUSE_SERVER_READY_STDOUT: "1",
-					ZUSE_USER_DATA: "/var/lib/zuse/user-data",
-					ZUSE_RUNTIME_GENERATION: String(runtimeFence.runtimeGeneration),
-					ZUSE_GATEWAY_EPOCH: String(runtimeFence.gatewayEpoch),
-					...runtimeUpdateEnvironment(
-						config,
-						cloudWorkspaceLayout(workspace).snapshot,
-					),
-				},
-				user: cloudWorkspaceLayout(workspace).user,
-			})
+			.replaceProcess(
+				providerSandboxId,
+				workspaceRuntimeProcessSelector(),
+				operation !== null
+					? activationProcessInput(
+							input,
+							operation,
+							operation.phase === "rolling-back" ? "rollback" : "activate",
+						)
+					: input,
+			)
 			.pipe(
 				measureCloudStage(
 					{ workspaceId: workspace.workspaceId, provider: provider.providerId },
@@ -1965,6 +2477,46 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 		}
 
 		if (
+			workspace.desiredState === "ready" &&
+			runtimeActivation(workspace) !== null
+		) {
+			if (
+				yield* reconcileRuntimeActivation(
+					workspace,
+					provider,
+					nowMs,
+					saveWorkspace,
+				)
+			)
+				return;
+			if (
+				runtimeActivation(workspace)?.phase === "preparing" &&
+				workspace.providerSandboxId !== undefined
+			)
+				return yield* restartWorkspaceRuntime(
+					workspace,
+					workspace.providerSandboxId,
+					provider,
+					nowMs,
+					saveWorkspace,
+				);
+		}
+
+		if (
+			workspace.desiredState === "ready" &&
+			workspace.requestConfig.runtimeReleaseChangeRequested === true &&
+			workspace.providerSandboxId !== undefined
+		) {
+			return yield* restartWorkspaceRuntime(
+				workspace,
+				workspace.providerSandboxId,
+				provider,
+				nowMs,
+				saveWorkspace,
+			);
+		}
+
+		if (
 			mailboxWakePending &&
 			workspace.state === "ready" &&
 			workspace.runtimeState === "online" &&
@@ -2055,10 +2607,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			const project = yield* store.getProject(workspace.projectId);
 			if (build === null || project === null) return;
 			const label = providerLabel("workspace", workspace.workspaceId);
-			const workspaceRoot = cloudWorkspaceRepositoryPath(
-				workspace,
-				project.repositoryIdentity,
-			);
+
 			const replacingFailedSandbox =
 				(workspace.statusCode === "resume-queued" ||
 					workspace.statusCode === "resume-runtime-recovery-queued") &&
@@ -2083,20 +2632,22 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 						.kill(workspace.providerSandboxId)
 						.pipe(withSnapshotLeaseCheck);
 				}
-				const recovered = !replacingFailedSandbox
-					? yield* provider.recoverByLabel(label).pipe(
-							withSnapshotLeaseCheck,
-							measureCloudStage(
-								{
-									workspaceId: workspace.workspaceId,
-									provider: provider.providerId,
-								},
-								"provider.recoverByLabel",
-							),
-						)
-					: null;
+				const recovered =
+					!replacingFailedSandbox && machineFork === undefined
+						? yield* provider.recoverByLabel(label).pipe(
+								withSnapshotLeaseCheck,
+								measureCloudStage(
+									{
+										workspaceId: workspace.workspaceId,
+										provider: provider.providerId,
+									},
+									"provider.recoverByLabel",
+								),
+							)
+						: null;
 				if (
 					recovered === null &&
+					machineFork === undefined &&
 					preparedSnapshotAvailable &&
 					build.snapshotId !== undefined
 				)
@@ -2231,6 +2782,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 							args: [
 								"-lc",
 								`if [[ "\${ZUSE_SNAPSHOT_NATIVE:-}" == 1 ]]; then source /etc/zuse/snapshot.env; fi
+${WORKSPACE_RUNTIME_SOURCE}
 ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 							],
 							user: cloudWorkspaceLayout(workspace).user,
@@ -2266,14 +2818,73 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 				}
 			}
 			const allocatedAtMs = yield* Clock.currentTimeMillis;
-			const boot = yield* issueWorkspaceRuntimeBoot(allocatedAtMs);
-			const api = yield* ApiConfiguration;
+			const previousOperation = runtimeActivation(workspace);
+			const replay =
+				recovered !== null &&
+				previousOperation?.bootstrap === true &&
+				previousOperation.phase === "launching" &&
+				previousOperation.generation ===
+					workspace.requestConfig.runtimeGeneration
+					? previousOperation
+					: null;
+			if (
+				replay !== null &&
+				(workspace.runtimeBootTokenHash === undefined ||
+					workspace.runtimeBootTokenExpiresAtMs === undefined ||
+					workspace.runtimeBootTokenExpiresAtMs <= allocatedAtMs ||
+					runtimeBootstrapReceiptFromConfig(workspace.requestConfig)
+						?.generation === replay.generation)
+			) {
+				// Recover allocation identity, never re-enroll an already bound process.
+				yield* saveWorkspace({
+					...allocatedWorkspace,
+					providerSandboxId: sandbox.providerSandboxId,
+					state: workspace.runtimeState === "online" ? "ready" : "provisioning",
+					nextActionAtMs: allocatedAtMs,
+					revision: allocatedWorkspace.revision + 1,
+					updatedAtMs: allocatedAtMs,
+				});
+				return;
+			}
+			const boot =
+				replay !== null &&
+				workspace.runtimeBootTokenHash !== undefined &&
+				workspace.runtimeBootTokenExpiresAtMs !== undefined
+					? {
+							token: yield* openRuntimeActivationBoot(workspace, replay),
+							tokenHash: workspace.runtimeBootTokenHash,
+							expiresAtMs: workspace.runtimeBootTokenExpiresAtMs,
+						}
+					: yield* issueWorkspaceRuntimeBoot(allocatedAtMs);
 			const timings =
 				(workspace.requestConfig.startupTimings as
 					| Readonly<Record<string, number>>
 					| undefined) ?? {};
-			const runtimeFence = nextCloudWorkspaceRuntimeFence(workspace);
-			yield* saveWorkspace({
+			const runtimeFence =
+				replay === null
+					? nextCloudWorkspaceRuntimeFence(workspace)
+					: {
+							runtimeGeneration: Number(
+								workspace.requestConfig.runtimeGeneration,
+							),
+							gatewayEpoch: Number(workspace.requestConfig.gatewayEpoch),
+						};
+			const operation: RuntimeActivation = replay ?? {
+				id: crypto.randomUUID(),
+				mode: "restart-installed",
+				bootstrap: true,
+				phase: "launching",
+				generation: runtimeFence.runtimeGeneration,
+				startedAtMs: allocatedAtMs,
+				attempts: 0,
+			};
+			const sealedBootToken = yield* sealRuntimeActivationBoot(
+				workspace,
+				operation,
+				boot.token,
+			);
+
+			const authorizedWorkspace: CloudWorkspaceRecord = {
 				...allocatedWorkspace,
 				providerSandboxId: sandbox.providerSandboxId,
 				runtimeBootTokenHash: boot.tokenHash,
@@ -2287,7 +2898,8 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 						allocatedAtMs,
 					),
 					...runtimeFence,
-					runtimeInstallPending: config.runtimeManifestUrl !== undefined,
+					runtimeActivation: { ...operation, sealedBootToken },
+					runtimeInstallPending: false,
 					...(typeof workspace.requestConfig.sessionHeadVersion === "number"
 						? { runtimeSessionRecoveryPending: true }
 						: {}),
@@ -2297,90 +2909,33 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 						...(recovered === null ? { forkedAt: allocatedAtMs } : {}),
 					},
 				},
-				nextActionAtMs:
-					allocatedAtMs +
-					(config.runtimeManifestUrl === undefined
-						? RUNTIME_CONNECTION_TIMEOUT_MS
-						: RUNTIME_INSTALL_TIMEOUT_MS),
+				nextActionAtMs: allocatedAtMs + RUNTIME_ACTIVATION_RETRY_MS,
 				revision: allocatedWorkspace.revision + 1,
 				updatedAtMs: allocatedAtMs,
-			});
-			yield* Effect.all(
-				[
-					provider.writeTextFile(
-						sandbox.providerSandboxId,
-						GITHUB_AUTH_FILE,
-						GITHUB_AUTH_SOURCE,
-						cloudWorkspaceLayout(workspace).user,
-					),
-					writeRuntimeSigningKey(
-						provider,
-						sandbox.providerSandboxId,
-						config,
-						cloudWorkspaceLayout(workspace).user,
-						cloudWorkspaceLayout(workspace).snapshot,
-					),
-					provider.writeTextFile(
-						sandbox.providerSandboxId,
-						WORKSPACE_BOOTSTRAP_FILE,
-						WORKSPACE_BOOTSTRAP_SOURCE,
-						cloudWorkspaceLayout(workspace).user,
-					),
-					provider.writeTextFile(
-						sandbox.providerSandboxId,
-						WORKSPACE_REPOSITORY_FILE,
-						WORKSPACE_REPOSITORY_SOURCE,
-						cloudWorkspaceLayout(workspace).user,
-					),
-				],
-				{ concurrency: "unbounded", discard: true },
-			);
-			const runtimeOptions = {
-				command: "/bin/bash",
-				args: [
-					"-lc",
-					`set -e
-if [[ "\${ZUSE_SNAPSHOT_NATIVE:-}" == 1 ]]; then source /etc/zuse/snapshot.env; fi
-${WORKSPACE_RUNTIME_UPDATE_SCRIPT}
-ensure_workspace_runtime 1
-exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`,
-				],
-				tag: WORKSPACE_RUNTIME_PROCESS.tag,
-				cwd: cloudWorkspaceLayout(workspace).home,
-				env: {
-					...project.cloudEnvironment,
-					...cloudWorkspaceLayoutEnvironment(workspace),
-					...runtimeUpdateEnvironment(
-						config,
-						cloudWorkspaceLayout(workspace).snapshot,
-					),
-					ZUSE_CLOUD_WORKSPACE_ID: workspace.workspaceId,
-					ZUSE_RUNTIME_BOOT_TOKEN: boot.token,
-					ZUSE_API_URL: api.apiIssuer,
-					ZUSE_BASE_REF: workspace.baseRef,
-					ZUSE_BRANCH: workspace.branch,
-					ZUSE_PROJECT_CACHE_ID: project.projectId,
-					ZUSE_REPOSITORY_URL: project.repositoryUrl,
-					ZUSE_CLOUD_WORKSPACE_ROOT: workspaceRoot,
-					ZUSE_RUNTIME_GENERATION: String(runtimeFence.runtimeGeneration),
-					ZUSE_GATEWAY_EPOCH: String(runtimeFence.gatewayEpoch),
-					...(machineFork === undefined ? {} : { ZUSE_FORK_CHECKOUT: "1" }),
-				},
-				user: cloudWorkspaceLayout(workspace).user,
 			};
-			const startRuntime =
-				machineFork === undefined
-					? provider.startProcess(sandbox.providerSandboxId, runtimeOptions)
-					: provider.replaceProcess(
-							sandbox.providerSandboxId,
-							workspaceRuntimeProcessSelector(),
-							runtimeOptions,
-						);
-			// Assert the workspace invariant on every allocation path before the
-			// runtime starts. A recovered sandbox may retain the
-			// policy from its original creation or resume, and starting these in
-			// parallel races the agent's first gateway and model-api requests.
-			yield* provider.setNetwork(sandbox.providerSandboxId, { kind: "open" });
+			yield* saveWorkspace(authorizedWorkspace);
+			yield* prepareWorkspaceRuntimeLaunch(
+				authorizedWorkspace,
+				provider,
+				sandbox.providerSandboxId,
+			);
+			const runtimeOptions = yield* workspaceRuntimeLaunchInput(
+				authorizedWorkspace,
+				boot.token,
+				true,
+			);
+			if (runtimeOptions === null) return;
+			if (provider.supportsFencedProcessReplacement !== true) {
+				return yield* new SandboxProviderError({
+					code: "rejected",
+					diagnostic: "guarded runtime launch unavailable",
+				});
+			}
+			const startRuntime = provider.replaceProcess(
+				sandbox.providerSandboxId,
+				workspaceRuntimeProcessSelector(),
+				activationProcessInput(runtimeOptions, operation),
+			);
 			yield* startRuntime;
 			return;
 		}
@@ -2390,14 +2945,33 @@ exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`,
 			workspace.desiredState === "ready" &&
 			workspace.providerSandboxId !== undefined
 		) {
-			// The request observer invokes reconciliation every 250 ms regardless of
-			// nextActionAtMs. Preserve the warm reconnect window on that path too.
+			// Direct maintenance calls also respect the durable warm reconnect deadline.
 			if (
 				(workspace.statusCode === "resume-runtime-waking" ||
 					workspace.statusCode === "runtime-memory-pressure") &&
 				nowMs < workspace.nextActionAtMs
 			)
 				return;
+			if (workspace.statusCode === "resume-runtime-waking") {
+				const observed =
+					provider.inspectProcess === undefined
+						? "unknown"
+						: yield* provider.inspectProcess(
+								workspace.providerSandboxId,
+								workspaceRuntimeProcessSelector(),
+								cloudWorkspaceLayout(workspace).user,
+							);
+				if (observed !== "inactive") {
+					// An active or unobservable guest keeps its authority. Gateway loss
+					// is not permission to stop a possibly healthy database writer.
+					yield* saveWorkspace({
+						...workspace,
+						nextActionAtMs: nowMs + 30_000,
+						updatedAtMs: nowMs,
+					});
+					return;
+				}
+			}
 			return yield* restartWorkspaceRuntime(
 				workspace,
 				workspace.providerSandboxId,
@@ -2790,6 +3364,16 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
 					if (error.code === "transient") {
 						yield* saveWorkspace({
 							...currentWorkspace,
+							...(error.diagnostic === undefined
+								? {}
+								: {
+										requestConfig: {
+											...currentWorkspace.requestConfig,
+											startupFailureDiagnostic: sanitizeProjectBuildDiagnostic(
+												error.diagnostic,
+											),
+										},
+									}),
 							nextActionAtMs: failedAtMs + RETRY_MS,
 							revision: currentWorkspace.revision + 1,
 							updatedAtMs: failedAtMs,
@@ -2816,36 +3400,25 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
 		);
 	});
 
-/**
- * Observe only the short pre-enrollment window. Successful runtimes continue
- * through their authenticated callbacks; failed processes are noticed without
- * waiting for the one-minute recovery reconciler.
- */
+/** Run one durable step and return its authoritative continuation; HTTP only dispatches. */
 export const reconcileCloudWorkspaceStartup = Effect.fn(
 	"reconcileCloudWorkspaceStartup",
 )(function* (
 	workspaceId: string,
-	scheduleColdStartup?: (workspaceId: string) => Promise<void>,
+	scheduleStartup?: (workspaceId: string) => Promise<void>,
 ) {
 	const store = yield* CloudWorkspaceStore;
-	if (scheduleColdStartup) {
+	if (scheduleStartup) {
 		const workspace = yield* store.getWorkspace(workspaceId);
-		if (workspace === null) return;
-		const provider = yield* resolveResourceProvider(workspace);
-		// Cold providers can outlive an HTTP request. Preserved runtimes keep the
-		// existing immediate warm-reconnect observation path.
-		if (provider.preservesProcessesOnResume === false)
-			return yield* Effect.promise(() => scheduleColdStartup(workspaceId));
+		if (workspace === null) return { kind: "complete" } as const;
+		yield* Effect.promise(() => scheduleStartup(workspaceId));
+		return { kind: "due", dueAtMs: workspace.nextActionAtMs } as const;
 	}
-	const startedAtMs = yield* Clock.currentTimeMillis;
-	while (true) {
+	const before = yield* store.getWorkspace(workspaceId);
+	const nowMs = yield* Clock.currentTimeMillis;
+	if (before !== null && before.nextActionAtMs <= nowMs) {
 		yield* reconcileCloudWorkspace(workspaceId);
-		const workspace = yield* store.getWorkspace(workspaceId);
-		if (!cloudWorkspaceStartupNeedsObservation(workspace)) return;
-		const nowMs = yield* Clock.currentTimeMillis;
-		if (nowMs - startedAtMs >= WORKSPACE_START_OBSERVATION_MS) return;
-		yield* Effect.sleep(
-			Duration.millis(WORKSPACE_START_OBSERVATION_INTERVAL_MS),
-		);
 	}
+	const workspace = yield* store.getWorkspace(workspaceId);
+	return workspaceStartupOutcome(workspace, yield* Clock.currentTimeMillis);
 });

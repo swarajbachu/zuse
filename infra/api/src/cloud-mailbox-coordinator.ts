@@ -17,7 +17,7 @@ export interface CloudMailboxCoordinatorApi {
 	) => Promise<"ready" | "blocked" | "destroyed">;
 	readonly reconcileCloudWorkspaceStartup: (
 		workspaceId: string,
-	) => Promise<void>;
+	) => Promise<unknown>;
 	readonly completeCloudMailboxDrain: (
 		workspaceId: string,
 		accountId: string,
@@ -157,7 +157,7 @@ const coordinateCloudMailboxResponseInternal = async (input: {
 				body: value,
 			}),
 		);
-	let apiOwnedByPolicyReconcile = false;
+	let apiOwnedByBackgroundTask = false;
 	try {
 		if (billing !== undefined) {
 			const policyResponse = await internal(
@@ -179,12 +179,7 @@ const coordinateCloudMailboxResponseInternal = async (input: {
 						billing.accountId,
 					);
 					if (wake === "ready") {
-						apiOwnedByPolicyReconcile = true;
-						input.context.waitUntil(
-							input.api
-								.reconcileCloudWorkspaceStartup(command.workspaceId)
-								.finally(() => input.api.dispose()),
-						);
+						await input.api.reconcileCloudWorkspaceStartup(command.workspaceId);
 					} else {
 						await internal(
 							"/block",
@@ -240,6 +235,8 @@ const coordinateCloudMailboxResponseInternal = async (input: {
 				"POST",
 				JSON.stringify({
 					commandId,
+					workspaceId: command.workspaceId,
+					accountId: command.accountId,
 					...(wake === "blocked" ? { blockedUntil: "billing-restored" } : {}),
 				}),
 			);
@@ -247,55 +244,17 @@ const coordinateCloudMailboxResponseInternal = async (input: {
 				await input.api.dispose();
 				return committed;
 			}
-			const finalFence = await input.api.requestCloudMailboxWake(
-				command.workspaceId,
-				command.accountId,
-			);
-			if (finalFence === "destroyed") {
-				const cancelled = await internal(
-					"/cancel",
-					"POST",
-					JSON.stringify({
-						commandId,
-						category: "workspace-destroyed",
-					}),
-				);
-				if (!cancelled.ok)
-					console.error(
-						"[workspace-mailbox] post-acceptance compensation rejected",
-						{
-							workspaceId: command.workspaceId,
-							commandId,
-							status: cancelled.status,
-						},
-					);
-				await input.api.dispose();
-				return committed;
-			}
-			if (finalFence !== wake) {
-				const policyResponse = await internal(
-					finalFence === "ready" ? "/unblock" : "/block",
-					"POST",
-					JSON.stringify({
-						commandId,
-						blockedUntil: "billing-restored",
-					}),
-				);
-				if (!policyResponse.ok) {
-					await input.api.dispose();
-					return cloudMailboxUnavailableResponse();
-				}
-			}
-			input.context.waitUntil(
-				input.api
-					.reconcileCloudWorkspaceStartup(command.workspaceId)
-					.finally(() => input.api.dispose()),
-			);
+			// Destruction and billing are rechecked by every authenticated lease.
+			// The committed marker retries dispatch if this fast durable handoff
+			// is interrupted; a second speculative wake adds no authority.
+			if (wake === "ready")
+				await input.api.reconcileCloudWorkspaceStartup(command.workspaceId);
+			await input.api.dispose();
 			return committed;
 		}
 		if (command.action === "status") {
 			const commandId = commandIdentifier(body);
-			if (!apiOwnedByPolicyReconcile) await input.api.dispose();
+			if (!apiOwnedByBackgroundTask) await input.api.dispose();
 			return internal(
 				`/status?commandId=${encodeURIComponent(commandId)}`,
 				"GET",
@@ -303,7 +262,7 @@ const coordinateCloudMailboxResponseInternal = async (input: {
 		}
 		if (command.action === "watch") {
 			const afterRevision = watchRevision(body);
-			if (!apiOwnedByPolicyReconcile) await input.api.dispose();
+			if (!apiOwnedByBackgroundTask) await input.api.dispose();
 			return internal(`/watch?afterRevision=${afterRevision}`, "GET");
 		}
 		if (command.action === "cancel") {
@@ -317,7 +276,71 @@ const coordinateCloudMailboxResponseInternal = async (input: {
 		if (command.action === "lease") {
 			if (billing === undefined)
 				throw new Error("cloud mailbox lease billing directive missing");
+			const leaseRequest = JSON.parse(body) as {
+				readonly waitMs?: unknown;
+				readonly waitOnly?: unknown;
+				readonly afterRevision?: unknown;
+			};
+			const notificationWait = async (
+				afterRevision: number,
+			): Promise<Response> => {
+				if (!apiOwnedByBackgroundTask) await input.api.dispose();
+				const watched = await internal(
+					`/watch?afterRevision=${afterRevision}`,
+					"GET",
+				);
+				if (!watched.ok) return cloudMailboxUnavailableResponse();
+				const result = (await watched.json()) as {
+					readonly nextRevision?: unknown;
+				};
+				if (
+					typeof result.nextRevision !== "number" ||
+					!Number.isSafeInteger(result.nextRevision) ||
+					result.nextRevision < 0
+				)
+					return cloudMailboxUnavailableResponse();
+				// Never lease after waiting on stale authority/billing. The runtime issues a
+				// fresh authenticated request; encrypted watch bodies never leave this boundary.
+				return Response.json({
+					leases: [],
+					mailboxRevision: result.nextRevision,
+					waited: true,
+				});
+			};
+			if (leaseRequest.waitOnly === true && leaseRequest.waitMs === 25_000) {
+				const afterRevision = leaseRequest.afterRevision ?? 0;
+				if (
+					typeof afterRevision !== "number" ||
+					!Number.isSafeInteger(afterRevision) ||
+					afterRevision < 0
+				)
+					throw new Error("cloud mailbox wait revision invalid");
+				return await notificationWait(afterRevision);
+			}
 			const leaseResponse = await internal("/lease", "POST", body);
+			let idleRevision: number | undefined;
+			if (leaseRequest.waitMs === 25_000 && leaseResponse.ok) {
+				const page = (await leaseResponse.clone().json()) as {
+					leases?: unknown;
+					nonterminalCount?: unknown;
+					mailboxRevision?: unknown;
+					fenceRequired?: unknown;
+					fenced?: unknown;
+				};
+				if (
+					Array.isArray(page.leases) &&
+					page.leases.length === 0 &&
+					page.nonterminalCount === 0 &&
+					page.fenceRequired !== true &&
+					page.fenced !== true &&
+					typeof page.mailboxRevision === "number" &&
+					Number.isSafeInteger(page.mailboxRevision) &&
+					page.mailboxRevision >= 0
+				)
+					idleRevision = page.mailboxRevision;
+			}
+			let requiredStartup: Promise<unknown> | undefined;
+			let startupRequired = false;
 			if (leaseResponse.ok && command.wakeRevision !== undefined) {
 				try {
 					const leaseResult = (await leaseResponse.clone().json()) as {
@@ -342,47 +365,49 @@ const coordinateCloudMailboxResponseInternal = async (input: {
 						(nonterminalCount === 0 || mailboxRevision !== null)
 					) {
 						const fenceRequired = leaseResult.fenceRequired === true;
-						apiOwnedByPolicyReconcile = true;
-						input.context.waitUntil(
-							mailboxBookkeepingWithDeadline(
-								nonterminalCount === 0
-									? input.api.completeCloudMailboxDrain(
-											command.workspaceId,
-											billing.accountId,
-											command.runtimeGeneration,
-											command.wakeRevision,
-										)
-									: input.api.recordCloudMailboxRuntimeProgress(
-											command.workspaceId,
-											billing.accountId,
-											command.runtimeGeneration,
-											command.wakeRevision,
-											mailboxRevision ?? 0,
-											fenceRequired,
-										),
-							)
-								.then(() =>
-									fenceRequired
-										? input.api.reconcileCloudWorkspaceStartup(
-												command.workspaceId,
-											)
-										: undefined,
-								)
-								.catch((error) => {
-									console.error(
-										"[workspace-mailbox] lease bookkeeping failed",
-										{
-											workspaceId: command.workspaceId,
-											runtimeGeneration: command.runtimeGeneration,
-											wakeRevision: command.wakeRevision,
-											error,
-										},
-									);
-								})
-								.finally(() => input.api.dispose()),
+						startupRequired = fenceRequired;
+						const bookkeeping = mailboxBookkeepingWithDeadline(
+							nonterminalCount === 0
+								? input.api.completeCloudMailboxDrain(
+										command.workspaceId,
+										billing.accountId,
+										command.runtimeGeneration,
+										command.wakeRevision,
+									)
+								: input.api.recordCloudMailboxRuntimeProgress(
+										command.workspaceId,
+										billing.accountId,
+										command.runtimeGeneration,
+										command.wakeRevision,
+										mailboxRevision ?? 0,
+										fenceRequired,
+									),
 						);
+						if (fenceRequired) {
+							requiredStartup = bookkeeping.then(() =>
+								input.api.reconcileCloudWorkspaceStartup(command.workspaceId),
+							);
+						} else {
+							apiOwnedByBackgroundTask = true;
+							input.context.waitUntil(
+								bookkeeping
+									.catch((error) => {
+										console.error(
+											"[workspace-mailbox] lease bookkeeping failed",
+											{
+												workspaceId: command.workspaceId,
+												runtimeGeneration: command.runtimeGeneration,
+												wakeRevision: command.wakeRevision,
+												error,
+											},
+										);
+									})
+									.finally(() => input.api.dispose()),
+							);
+						}
 					}
 				} catch (error) {
+					if (startupRequired) throw error;
 					console.error("[workspace-mailbox] lease metadata invalid", {
 						workspaceId: command.workspaceId,
 						runtimeGeneration: command.runtimeGeneration,
@@ -391,12 +416,16 @@ const coordinateCloudMailboxResponseInternal = async (input: {
 					});
 				}
 			}
-			if (!apiOwnedByPolicyReconcile) await input.api.dispose();
+			// Fencing is execution ownership work; enqueue it before returning the lease.
+			if (requiredStartup !== undefined) await requiredStartup;
+			if (idleRevision !== undefined)
+				return await notificationWait(idleRevision);
+			if (!apiOwnedByBackgroundTask) await input.api.dispose();
 			return leaseResponse;
 		}
 		return assertUnreachableCommand(command);
 	} catch (error) {
-		if (!apiOwnedByPolicyReconcile) await input.api.dispose();
+		if (!apiOwnedByBackgroundTask) await input.api.dispose();
 		console.error("[workspace-mailbox] orchestration failed", {
 			workspaceId: command.workspaceId,
 			action: command.action,

@@ -638,7 +638,10 @@ describe("public API (/v1/api)", () => {
 		}
 	});
 
-	test("verifies a live runtime before replacing it after a client connection failure", async () => {
+	test.each([
+		false,
+		true,
+	])("ignores legacy socket recovery hints for a ready owner (expired bearer=%s)", async (expired) => {
 		const runtime = await makeRuntime();
 		try {
 			const store = await runtime.runPromise(CloudWorkspaceStore);
@@ -687,8 +690,14 @@ describe("public API (/v1/api)", () => {
 						cloudCommandProtocolVersion: CLOUD_COMMAND_PROTOCOL_VERSION,
 						cloudCommandRuntimeGeneration: 1,
 						sessionHeadVersion: 18,
+						runtimeCredentialExpiresAtMs: expired
+							? Date.now() - 86_400_000
+							: Date.now() + 86_400_000,
 					},
 				}),
+			);
+			const beforeHint = await runtime.runPromise(
+				store.getWorkspace(workspaceId),
 			);
 			const recover = (commandId: string) =>
 				serve(runtime, `/v1/cloud/workspaces/${workspaceId}/resume`, {
@@ -704,10 +713,16 @@ describe("public API (/v1/api)", () => {
 			const checking = await runtime.runPromise(
 				store.getWorkspace(workspaceId),
 			);
+			expect(checking).toEqual({
+				...beforeHint,
+				lastActivityAtMs: expect.any(Number),
+				revision: expect.any(Number),
+				updatedAtMs: expect.any(Number),
+			});
 			expect(checking).toMatchObject({
-				state: "resuming",
-				runtimeState: "connecting",
-				statusCode: "resume-runtime-waking",
+				state: "ready",
+				runtimeState: "online",
+				statusCode: "agent-running",
 				runtimeCredentialHash: workspace.runtimeCredentialHash,
 				requestConfig: { runtimeGeneration: 1, sessionHeadVersion: 18 },
 			});
@@ -720,33 +735,7 @@ describe("public API (/v1/api)", () => {
 				(await runtime.runPromise(store.getWorkspace(workspaceId)))
 					?.nextActionAtMs,
 			).toBe(checking?.nextActionAtMs);
-			const ready = await serve(
-				runtime,
-				`/v1/cloud/workspaces/${workspaceId}/ready`,
-				{
-					method: "POST",
-					headers: {
-						authorization: "Bearer live-runtime-secret",
-						"content-type": "application/json",
-					},
-					body: JSON.stringify({
-						phase: "repository-ready",
-						commandProtocolVersion: CLOUD_COMMAND_PROTOCOL_VERSION,
-					}),
-				},
-			);
-			expect(`${ready.status}: ${await ready.clone().text()}`).toMatch(/^200:/);
-			expect(
-				await runtime.runPromise(store.getWorkspace(workspaceId)),
-			).toMatchObject({
-				state: "ready",
-				runtimeState: "online",
-				providerSandboxId: "retained-sandbox",
-				runtimeCredentialHash: workspace.runtimeCredentialHash,
-				requestConfig: { runtimeGeneration: 1, sessionHeadVersion: 18 },
-			});
-			// A proven mailbox fence still requires replacement; readiness must not
-			// allow the old generation to continue processing uncertain delivery.
+			// A stored mailbox fence still requires recovery independently of the ignored hint.
 			const healthy = await runtime.runPromise(store.getWorkspace(workspaceId));
 			if (healthy === null) throw new Error("workspace missing");
 			await runtime.runPromise(

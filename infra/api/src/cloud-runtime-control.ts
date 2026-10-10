@@ -20,7 +20,7 @@ export const runtimeControlPathAllowed = (
 		);
 	if (url.search) return false;
 	if (method === "POST")
-		return /^\/v1\/cloud\/workspaces(?:\/fork|\/[^/]+\/(?:pause|resume|restart|archive|unarchive|delete|preview-url|gateway\/ticket))?$/u.test(
+		return /^\/v1\/cloud\/workspaces(?:\/fork|\/[^/]+\/(?:pause|resume|restart|update|archive|unarchive|delete|preview-url|gateway\/ticket))?$/u.test(
 			path,
 		);
 	return (

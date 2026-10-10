@@ -734,9 +734,15 @@ describe("cloud workspace runtime bootstrap", () => {
 				["data-key", "GET"],
 				["commands", "POST"],
 				["commands/command", "DELETE"],
-				...["pause", "resume", "restart", "archive", "unarchive", "delete"].map(
-					(action) => [action, "POST"],
-				),
+				...[
+					"pause",
+					"resume",
+					"restart",
+					"update",
+					"archive",
+					"unarchive",
+					"delete",
+				].map((action) => [action, "POST"]),
 			] as const) {
 				const denied = await userRequest(suffix, method);
 				expect(denied.status).toBe(403);
@@ -1085,6 +1091,45 @@ describe("cloud workspace runtime bootstrap", () => {
 			generation: 4,
 			gatewayEpoch: 8,
 		});
+
+		const beforeTicket = await runtime.runPromise(
+			store.getWorkspace(workspaceId),
+		);
+		const pendingTicketResponse = await runtime.runPromise(
+			handleRequest(
+				new Request(
+					`${ISSUER}${ApiPaths.cloudWorkspaceConnectionTicket(workspaceId)}`,
+					{
+						method: "POST",
+						headers: {
+							authorization: "Bearer test-token:account-1",
+							"content-type": "application/json",
+						},
+						body: JSON.stringify({ protocol: "zuse-workspace-v3" }),
+					},
+				),
+			),
+		);
+		expect(pendingTicketResponse.status).toBe(200);
+		const pendingTicket = await pendingTicketResponse.json();
+		expect(pendingTicket.protocol).toBe("zuse-workspace-v3");
+		expect(await runtime.runPromise(store.getWorkspace(workspaceId))).toEqual(
+			beforeTicket,
+		);
+		const pendingUpgrade = await runtime.runPromise(
+			handleRequest(
+				new Request(`${ISSUER}${ApiPaths.cloudWorkspaceGateway(workspaceId)}`, {
+					headers: {
+						upgrade: "websocket",
+						"sec-websocket-protocol": `zuse-workspace-v3, ${pendingTicket.credential}`,
+					},
+				}),
+			),
+		);
+		expect(pendingUpgrade.status).toBe(204);
+		expect(await runtime.runPromise(store.getWorkspace(workspaceId))).toEqual(
+			beforeTicket,
+		);
 
 		const credentialKey = await generateKeyPair("RSA-OAEP-256", {
 			extractable: true,
@@ -1895,6 +1940,166 @@ describe("cloud runtime orchestration", () => {
 			expect(
 				(await call("/v1/cloud/workspaces", "GET", "organization")).status,
 			).toBe(403);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+});
+
+describe("explicit cloud runtime release updates", () => {
+	test.each([
+		true,
+		false,
+	])("update requires configured artifacts and preserves the serving authority (configured: %s)", async (configured) => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			const machines = await runtime.runPromise(MachineStore);
+			const billing = await runtime.runPromise(CloudBillingStore);
+			const now = Date.now();
+			await runtime.runPromise(
+				machines.upsertEntitlement({
+					entitlementId: "update-entitlement",
+					accountId: "account-1",
+					kind: "cloud-workspace",
+					offerId: "cloud-workspace-standard-v1",
+					provider: "manual",
+					status: "active",
+					createdAtMs: now,
+					updatedAtMs: now,
+				}),
+			);
+			await runtime.runPromise(
+				billing.ensurePeriod({
+					periodId: "update-period",
+					accountId: "account-1",
+					status: "manual",
+					periodStartMs: now - 1000,
+					periodEndMs: now + 86400000,
+					nowMs: now,
+				}),
+			);
+			const original = {
+				workspaceId: "update-workspace",
+				accountId: "account-1",
+				projectId: "project",
+				buildId: "build",
+				provider: "fake",
+				providerSandboxId: "existing-sandbox",
+				chatId: "chat",
+				initialSessionId: "session",
+				branch: "work",
+				baseRef: "main",
+				state: "ready" as const,
+				desiredState: "ready" as const,
+				runtimeState: "online" as const,
+				statusCode: "agent-running",
+				runtimeCredentialHash: "serving-credential",
+				idempotencyKey: "update-workspace",
+				requestConfig: {
+					runtimeGeneration: 7,
+					gatewayEpoch: 7,
+					runtimeBootstrapReceipt: {
+						generation: 7,
+						gatewayEpoch: 7,
+						acknowledgedAtMs: now - 1,
+					},
+				},
+				nextActionAtMs: now + 60000,
+				revision: 1,
+				createdAtMs: now,
+				updatedAtMs: now,
+				lastActivityAtMs: now,
+			};
+			await runtime.runPromise(
+				store.createWorkspace(original, {
+					commandId: "create-update-workspace",
+					workspaceId: original.workspaceId,
+					accountId: original.accountId,
+					chatId: original.chatId,
+					sessionId: original.initialSessionId,
+					turnId: "turn-update",
+					ciphertext: "sealed-launch",
+					expiresAtMs: now + 60000,
+					createdAtMs: now,
+				}),
+			);
+			const call = (
+				action: "update" | "restart",
+				commandId: string,
+				account = "account-1",
+			) =>
+				runtime.runPromise(
+					handleRequest(
+						new Request(
+							`${ISSUER}${ApiPaths.cloudWorkspaceAction(original.workspaceId, action)}`,
+							{
+								method: "POST",
+								headers: {
+									authorization: `Bearer test-token:${account}`,
+									"content-type": "application/json",
+								},
+								body: JSON.stringify({
+									workspaceId: original.workspaceId,
+									commandId,
+								}),
+							},
+						),
+					).pipe(
+						Effect.provideService(SandboxOfferConfiguration, {
+							port: 47837,
+							createTimeoutSeconds: 86400,
+							keepAliveTimeoutSeconds: 86400,
+							...(configured
+								? {
+										runtimeInstallerSource: "signed installer",
+										runtimeManifestUrl:
+											"https://releases.test/stable-manifest.json",
+									}
+								: {}),
+						}),
+					),
+				);
+			expect(
+				(await call("update", "foreign-update", "account-other")).status,
+			).toBe(404);
+			const response = await call("update", "update-1");
+			expect(response.status, await response.clone().text()).toBe(
+				configured ? 200 : 409,
+			);
+			const queued = await runtime.runPromise(
+				store.getWorkspace(original.workspaceId),
+			);
+			if (!configured) {
+				expect(await response.json()).toMatchObject({
+					error: "runtime_update_unavailable",
+				});
+				expect(queued).toEqual(original);
+				const restart = await call("restart", "restart-1");
+				expect(restart.status, await restart.clone().text()).toBe(200);
+				expect(
+					(await runtime.runPromise(store.getWorkspace(original.workspaceId)))
+						?.requestConfig.runtimeReleaseChangeRequested,
+				).toBeUndefined();
+				return;
+			}
+			expect(response.headers.get("x-zuse-reconcile-cloud-workspace")).toBe(
+				original.workspaceId,
+			);
+			expect(queued).toMatchObject({
+				state: "ready",
+				desiredState: "ready",
+				runtimeState: "online",
+				runtimeCredentialHash: "serving-credential",
+				requestConfig: {
+					...original.requestConfig,
+					runtimeReleaseChangeRequested: true,
+				},
+			});
+			expect((await call("update", "update-1")).status).toBe(200);
+			expect(
+				await runtime.runPromise(store.getWorkspace(original.workspaceId)),
+			).toEqual(queued);
 		} finally {
 			await runtime.dispose();
 		}

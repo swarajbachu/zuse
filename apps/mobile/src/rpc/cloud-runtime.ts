@@ -1,10 +1,11 @@
 import { cloudFailurePresentation } from "@zuse/client-runtime/cloud-failure-presentation";
-import { cloudGatewayCloseRecovery } from "@zuse/client-runtime/cloud-gateway-recovery";
+import type { EnvironmentWakeIntent } from "@zuse/client-runtime/environment-runtime";
 import type {
 	CapabilityManifest,
 	CloudWorkspace,
 	CloudWorkspaceConnection,
 } from "@zuse/contracts";
+import { WORKSPACE_GATEWAY_PENDING_PROTOCOL } from "@zuse/contracts";
 import { Effect } from "effect";
 import {
 	cloudCatalogAtom,
@@ -14,13 +15,36 @@ import {
 } from "~/store/cloud-catalog";
 import { appAtomRegistry } from "~/store/registry";
 
-const recoveries = new Map<string, string>();
-const healthy = new Set<string>();
-const abnormalCloses = new Map<string, number>();
 const flights = new Map<string, Promise<CloudWorkspaceConnection>>();
-const wakeRequests = new Set<string>();
-export const requestCloudRuntimeWake = (workspaceId: string) => {
-	wakeRequests.add(workspaceId);
+type PendingWake = {
+	commandId: string;
+	acknowledgments: Map<string, () => void>;
+};
+const wakeRequests = new Map<string, PendingWake>();
+export const requestCloudRuntimeWake = (
+	workspaceId: string,
+	intent?: EnvironmentWakeIntent,
+) => {
+	let pending = wakeRequests.get(workspaceId);
+	if (pending === undefined) {
+		pending = {
+			commandId: intent?.commandId ?? crypto.randomUUID(),
+			acknowledgments: new Map(),
+		};
+		wakeRequests.set(workspaceId, pending);
+	}
+	if (intent !== undefined)
+		pending.acknowledgments.set(intent.commandId, intent.acknowledge);
+};
+
+const acknowledgeCloudRuntimeWake = (
+	workspaceId: string,
+	expected = wakeRequests.get(workspaceId),
+): void => {
+	if (expected === undefined || wakeRequests.get(workspaceId) !== expected)
+		return;
+	wakeRequests.delete(workspaceId);
+	for (const acknowledge of expected.acknowledgments.values()) acknowledge();
 };
 
 export const cloudRuntimeReady = (workspaceId: string): boolean => {
@@ -28,28 +52,11 @@ export const cloudRuntimeReady = (workspaceId: string): boolean => {
 	return row?.state === "ready" && row.runtimeState === "online";
 };
 
-export const recordCloudGatewayClose = (
-	workspaceId: string,
-	code: number,
-): void => {
-	const result = cloudGatewayCloseRecovery(
-		code,
-		healthy.has(workspaceId),
-		abnormalCloses.get(workspaceId) ?? 0,
-	);
-	abnormalCloses.set(workspaceId, result.abnormalCloses);
-	if (result.recover) {
-		if (!recoveries.has(workspaceId))
-			recoveries.set(workspaceId, crypto.randomUUID());
-	}
-};
 export const markCloudGatewayHealthy = (
 	workspaceId: string,
 	capabilities?: CapabilityManifest,
 ) => {
-	healthy.add(workspaceId);
-	abnormalCloses.delete(workspaceId);
-	wakeRequests.delete(workspaceId);
+	acknowledgeCloudRuntimeWake(workspaceId);
 	if (capabilities !== undefined)
 		recordCloudCapabilities(workspaceId, capabilities);
 };
@@ -57,9 +64,6 @@ export const markCloudGatewayHealthy = (
 let generation = 0;
 export const resetCloudRuntime = (): void => {
 	generation += 1;
-	recoveries.clear();
-	healthy.clear();
-	abnormalCloses.clear();
 	flights.clear();
 	wakeRequests.clear();
 };
@@ -108,22 +112,35 @@ export const connectCloudRuntime = (
 			throw new Error(
 				"Cloud workspace is sleeping. Send a message to wake it.",
 			);
-		const recovery = recoveries.get(workspaceId);
+		const wakeIntent = wakeRequests.get(workspaceId);
 		if (
-			row.state !== "ready" ||
-			row.runtimeState !== "online" ||
-			recovery !== undefined
+			wakeIntent !== undefined &&
+			(row.state !== "ready" ||
+				row.runtimeState !== "online" ||
+				row.desiredState === "paused")
 		) {
 			row = await Effect.runPromise(
 				cloudControlClient["cloud.workspaces.resume"]({
 					workspaceId,
-					commandId: recovery ?? crypto.randomUUID(),
-					...(recovery === undefined ? {} : { recoverRuntime: true }),
+					commandId: wakeIntent.commandId,
 				}),
 			);
+			assertUsable(row);
 		}
+		// Ready compute or an accepted wake consumes intent before ticket issuance.
+		// Lost resume responses keep the same idempotent command for retry.
+		acknowledgeCloudRuntimeWake(workspaceId, wakeIntent);
+		if (row.state === "failed")
+			throw new Error(
+				cloudFailurePresentation({ category: row.statusCode })?.message ??
+					`Cloud workspace could not start (${row.statusCode}).`,
+			);
+		let waitedForLegacyRuntime = false;
+		let ticket = await Effect.runPromise(
+			cloudControlClient["cloud.workspaces.connect"]({ workspaceId }),
+		);
 		const deadline = Date.now() + 120_000;
-		while (true) {
+		while (ticket.protocol !== WORKSPACE_GATEWAY_PENDING_PROTOCOL) {
 			assertUsable(row);
 			if (row.state === "ready" && row.runtimeState === "online") break;
 			if (row.state === "failed")
@@ -135,19 +152,18 @@ export const connectCloudRuntime = (
 				throw new Error(
 					"Cloud workspace is still waking. Your accepted message remains queued.",
 				);
+			waitedForLegacyRuntime = true;
 			await new Promise((resolve) => setTimeout(resolve, 1_000));
 			assertAccount();
 			row = await Effect.runPromise(
 				cloudControlClient["cloud.workspaces.get"]({ workspaceId }),
 			);
 		}
-		const ticket = await Effect.runPromise(
-			cloudControlClient["cloud.workspaces.connect"]({ workspaceId }),
-		);
+		if (waitedForLegacyRuntime)
+			ticket = await Effect.runPromise(
+				cloudControlClient["cloud.workspaces.connect"]({ workspaceId }),
+			);
 		assertAccount();
-		wakeRequests.delete(workspaceId);
-		if (recoveries.get(workspaceId) === recovery)
-			recoveries.delete(workspaceId);
 		return ticket;
 	})().finally(() => {
 		if (flights.get(workspaceId) === operation) flights.delete(workspaceId);

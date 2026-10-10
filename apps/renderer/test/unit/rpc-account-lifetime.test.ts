@@ -22,7 +22,6 @@ import {
 	registerCloudWorkspace,
 	registerWebSocketEnvironment,
 	removeRendererEnvironment,
-	requestCloudWorkspaceRuntimeRecovery,
 } from "../../src/lib/rpc-client.ts";
 
 beforeEach(() => {
@@ -34,7 +33,7 @@ beforeEach(() => {
 it.each([
 	undefined,
 	{ kind: "organization" as const, organizationId: "org_a" },
-])("preserves the cloud owner when recovery invalidates its ticket: %j", (workspaceScope) => {
+])("preserves the cloud owner after a socket invalidates its ticket: %j", async (workspaceScope) => {
 	observeRendererAccount("first");
 	const ticket = {
 		workspaceId: "recover-owner",
@@ -53,7 +52,22 @@ it.each([
 		async () => ticket,
 		rendererAccountSnapshot(),
 	);
-	requestCloudWorkspaceRuntimeRecovery(ticket.workspaceId);
+	let close: (event: {
+		code: number;
+		reason: string;
+		wasClean: boolean;
+	}) => void = () => undefined;
+	mocks.create.mockResolvedValue({
+		client: {},
+		dispose: async () => undefined,
+	});
+	mocks.protocol.mockImplementation((_url, options) => {
+		close = options.onClose;
+		return {};
+	});
+	const session = await acquireRendererRpcSession(ticket.workspaceId);
+	close({ code: 1006, reason: "", wasClean: false });
+	await session.dispose();
 	expect(getCloudWorkspaceScope(ticket.workspaceId)).toEqual(
 		workspaceScope ?? { kind: "personal" },
 	);

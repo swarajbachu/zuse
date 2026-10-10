@@ -204,6 +204,8 @@ main() {
 # provider configuration, skills, and MCP settings, while reusable agent login
 # state remains solely in the account authority.
 	phase=sanitizing-snapshot
+	rm -f /var/lib/zuse/user-data/cloud-runtime-identity.json \
+		/home/zuse/.zuse-data/cloud-runtime-identity.json
 	rm -rf /home/zuse/.config/gh /home/zuse/.zuse-data /home/zuse/.cache/zuse \
 		/tmp/zuse-* 2>/dev/null || true
 # E2B may preserve the runtime secrets mount itself. An empty mount is safe to

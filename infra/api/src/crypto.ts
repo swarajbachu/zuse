@@ -560,6 +560,13 @@ export const verifyRuntimeRenewalProof = (input: {
 		};
 		const nowSeconds = Math.floor(input.nowMs / 1_000);
 		if (
+			payload.workspaceId === input.workspaceId &&
+			payload.requestId === input.requestId &&
+			(payload.generation !== input.generation ||
+				payload.gatewayEpoch !== input.gatewayEpoch)
+		)
+			return yield* Effect.fail(unauthorized("workspace_runtime_fenced"));
+		if (
 			payload.workspaceId !== input.workspaceId ||
 			payload.requestId !== input.requestId ||
 			payload.generation !== input.generation ||

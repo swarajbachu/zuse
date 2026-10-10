@@ -147,9 +147,9 @@ import {
 	cloudWorkspaceRepositoryPath,
 } from "./cloud-workspace-paths.ts";
 import {
+	cloudWorkspaceHasRetainedRuntimeData,
 	MAILBOX_RUNTIME_STALL_TIMEOUT_MS,
 	withoutRuntimeBootstrapReceipt,
-	workspaceRuntimeReconnectTarget,
 } from "./cloud-workspace-reconciler.ts";
 import {
 	cloudWorkspaceGatewayEpoch,
@@ -206,6 +206,7 @@ import { ApiStore } from "./store.ts";
 import type { WorkosVerifier } from "./workos.ts";
 import { requireWorkspaceAccess } from "./workspace-authorization.ts";
 import {
+	WORKSPACE_GATEWAY_PENDING_PROTOCOL,
 	WORKSPACE_GATEWAY_PROTOCOL,
 	type WorkspaceGatewayProtocol,
 	workspaceGatewayProtocol,
@@ -887,16 +888,6 @@ export const cloudWorkspaceResumeIsAlreadyRequested = (
 ): boolean =>
 	workspace.desiredState === "ready" && workspace.state !== "failed";
 
-export const runtimeUnavailableResumeTarget = (
-	workspace: Pick<CloudWorkspaceRecord, "providerSandboxId">,
-) =>
-	workspace.providerSandboxId === undefined
-		? ({ state: "queued", providerSandboxId: undefined } as const)
-		: ({
-				state: "resuming",
-				providerSandboxId: workspace.providerSandboxId,
-			} as const);
-
 const workspaceFailureDiagnostic = (
 	workspace: CloudWorkspaceRecord,
 ): string | undefined =>
@@ -1265,6 +1256,8 @@ const RuntimeCredentialRenewRequest = Schema.Struct({
 
 const RuntimeCommandLeaseRequest = Schema.Struct({
 	storageIncarnationId: Schema.String,
+	waitMs: Schema.optional(Schema.Literal(25_000)),
+	afterRevision: Schema.optional(Schema.Number),
 });
 
 export const codexGrantRuntimeBindingError = (
@@ -1400,7 +1393,7 @@ export const requireRuntime = Effect.fn("requireCloudWorkspaceRuntime")(
 	function* (request: Request, workspaceId: string, nowMs: number) {
 		const workspace = yield* authenticateRuntime(request, workspaceId, nowMs);
 		if (workspaceDeletionRequested(workspace))
-			return yield* Effect.fail(unauthorized("workspace_runtime_rejected"));
+			return yield* Effect.fail(unauthorized("workspace_runtime_revoked"));
 		return workspace;
 	},
 );
@@ -2183,6 +2176,11 @@ const routeCloudWorkspaceRequestWithAccess = (
 			const workspace = yield* store.getWorkspace(workspaceId);
 			if (workspace === null || currentCredential === undefined)
 				return yield* Effect.fail(unauthorized("workspace_runtime_rejected"));
+			if (
+				workspaceDeletionRequested(workspace) ||
+				workspace.desiredState === "archived"
+			)
+				return yield* Effect.fail(unauthorized("workspace_runtime_revoked"));
 			const currentCredentialHash = yield* sha256Hex(currentCredential);
 			const registeredSigningKey =
 				typeof workspace.requestConfig.runtimeSigningPublicJwk === "string"
@@ -2914,6 +2912,16 @@ const routeCloudWorkspaceRequestWithAccess = (
 		if (method === "POST" && runtimeCommandMatch !== null) {
 			const workspaceId = decodeURIComponent(runtimeCommandMatch[1] ?? "");
 			const action = runtimeCommandMatch[2] as "lease" | "ack";
+			const leaseRequest =
+				action === "lease"
+					? yield* decodeBody(RuntimeCommandLeaseRequest, request)
+					: undefined;
+			if (
+				leaseRequest?.afterRevision !== undefined &&
+				(!Number.isSafeInteger(leaseRequest.afterRevision) ||
+					leaseRequest.afterRevision < 0)
+			)
+				return yield* Effect.fail(badRequest("cloud_mailbox_revision_invalid"));
 			// Delete fences all new delivery, but an exact still-current runtime
 			// credential must retain the bounded ability to publish the durable receipt
 			// for a lease it already owns. The mailbox validates that original token.
@@ -2971,13 +2979,16 @@ const routeCloudWorkspaceRequestWithAccess = (
 			if (
 				action === "lease" &&
 				billingCapacity === "available" &&
-				wakeRevision === null
+				wakeRevision === null &&
+				leaseRequest?.waitMs === undefined
 			)
 				return json({ leases: [] });
 			const payload =
 				action === "lease"
 					? {
-							...(yield* decodeBody(RuntimeCommandLeaseRequest, request)),
+							...leaseRequest,
+							waitOnly:
+								wakeRevision === null && billingCapacity === "available",
 							runtimeGeneration: currentRuntimeGeneration,
 							providerSandboxId: workspace.providerSandboxId,
 							destructionFence: workspaceDestructionFence(workspace),
@@ -3094,7 +3105,19 @@ const routeCloudWorkspaceRequestWithAccess = (
 			}
 			if (
 				client &&
-				(workspace.state !== "ready" || workspace.runtimeState !== "online")
+				(workspaceDeletionRequested(workspace) ||
+					workspace.desiredState === "archived" ||
+					(protocol === WORKSPACE_GATEWAY_PENDING_PROTOCOL
+						? workspace.desiredState !== "ready" ||
+							![
+								"queued",
+								"provisioning",
+								"resuming",
+								"paused",
+								"ready",
+							].includes(workspace.state)
+						: workspace.state !== "ready" ||
+							workspace.runtimeState !== "online"))
 			)
 				return yield* Effect.fail(conflict("cloud_workspace_unavailable"));
 			console.info("[cloud-workspace] gateway upgrade accepted", {
@@ -3140,7 +3163,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 		}
 
 		const actionMatch =
-			/^\/v1\/cloud\/workspaces\/([^/]+)\/(pause|resume|restart|archive|unarchive|delete)$/u.exec(
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/(pause|resume|restart|update|archive|unarchive|delete)$/u.exec(
 				path,
 			);
 		const access =
@@ -4178,7 +4201,21 @@ const routeCloudWorkspaceRequestWithAccess = (
 			// Reject before the WebSocket handshake, where browsers hide HTTP errors.
 			if (!workspaceRuntimeSupportsScope(workspace))
 				return yield* conflict("workspace_runtime_update_required");
-			yield* recordWorkspaceActivity(workspace);
+			const ticketRequest =
+				request.body === null
+					? {}
+					: yield* decodeBody(
+							Schema.Struct({
+								protocol: Schema.optional(
+									Schema.Literals([
+										WORKSPACE_GATEWAY_PENDING_PROTOCOL,
+										WORKSPACE_GATEWAY_PROTOCOL,
+									]),
+								),
+							}),
+							request,
+						);
+			const protocol = ticketRequest.protocol ?? WORKSPACE_GATEWAY_PROTOCOL;
 			const api = yield* ApiConfiguration;
 			const expiresAt = nowMs + WORKSPACE_CLIENT_TICKET_TTL_MS;
 			const credential = yield* signWorkspaceClientTicket({
@@ -4190,7 +4227,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				deviceId:
 					request.headers.get("x-zuse-device-id") ?? access.actor.accountId,
 				workspaceId,
-				protocol: WORKSPACE_GATEWAY_PROTOCOL,
+				protocol,
 				generation: cloudWorkspaceRuntimeGeneration(workspace),
 				gatewayEpoch: cloudWorkspaceGatewayEpoch(workspace),
 				ttlMs: WORKSPACE_CLIENT_TICKET_TTL_MS,
@@ -4204,15 +4241,13 @@ const routeCloudWorkspaceRequestWithAccess = (
 				workspaceId,
 				wsUrl: gatewayUrl(api.apiIssuer, workspaceId),
 				workspaceScope: access.scope,
-				protocol: WORKSPACE_GATEWAY_PROTOCOL,
+				protocol,
 				role: "client",
 				generation: cloudWorkspaceRuntimeGeneration(workspace),
 				gatewayEpoch: cloudWorkspaceGatewayEpoch(workspace),
 				credential,
 				expiresAt,
 			});
-			if (workspace.state === "paused")
-				response.headers.set("x-zuse-reconcile-cloud-workspace", workspaceId);
 			return response;
 		}
 
@@ -4418,59 +4453,46 @@ const routeCloudWorkspaceRequestWithAccess = (
 			)
 				return yield* forbidden("workspace_access_denied");
 			if (
-				(action === "resume" || action === "restart") &&
+				(action === "resume" || action === "restart" || action === "update") &&
 				connectionIdFor(workspace) === undefined
 			)
 				if (!(yield* hasPaidEntitlement(ownerId, nowMs)))
 					return yield* forbidden("cloud_entitlement_required");
-			if (action === "resume" || action === "restart")
+			if (action === "resume" || action === "restart" || action === "update")
 				yield* requireCloudBillingCapacity(
 					ownerId,
 					nowMs,
 					connectionIdFor(workspace),
 				);
+			if (action === "update") {
+				const offer = yield* SandboxOfferConfiguration;
+				if (
+					offer.runtimeInstallerSource === undefined ||
+					offer.runtimeManifestUrl === undefined
+				)
+					return yield* conflict("runtime_update_unavailable");
+				if (
+					(yield* resolveResourceProvider(workspace))
+						.supportsFencedProcessReplacement !== true
+				)
+					return yield* conflict("runtime_guard_unavailable");
+			}
 			const actionRequest =
 				action === "resume"
 					? yield* decodeBody(CloudWorkspaceResumeRequest, request)
 					: yield* decodeBody(CloudWorkspaceActionRequest, request);
+			// Client socket loss and bearer expiry cannot establish execution loss.
+			// Recovery follows stored lifecycle failure or an authoritative mailbox fence.
 			const recoverRuntime =
 				action === "resume" &&
-				(("recoverRuntime" in actionRequest &&
-					actionRequest.recoverRuntime === true) ||
-					(workspace.statusCode === "runtime-memory-recovery-failed" &&
-						workspace.providerSandboxId !== undefined));
-			// A client socket failure does not prove the runtime or its agent died.
-			// Mailbox runtimes can acknowledge readiness over their independent HTTP
-			// control channel, so use the same verification as a preserved warm resume.
-			const verifyCurrentRuntime =
-				recoverRuntime &&
-				(workspace.state === "ready" ||
-					workspace.statusCode === "resume-runtime-waking") &&
-				workspace.desiredState === "ready" &&
 				workspace.providerSandboxId !== undefined &&
-				workspace.runtimeCredentialHash !== undefined &&
-				typeof workspace.requestConfig.runtimeCredentialExpiresAtMs ===
-					"number" &&
-				workspace.requestConfig.runtimeCredentialExpiresAtMs > nowMs &&
-				workspace.requestConfig.cloudMailboxFenceRequired !== true &&
-				workspaceSupportsCloudCommandMailbox(workspace);
+				((workspace.state === "failed" &&
+					(cloudWorkspaceHasRetainedRuntimeData(workspace) ||
+						workspace.statusCode === "runtime-connection-timeout" ||
+						workspace.statusCode === "runtime-activation-unconfirmed")) ||
+					workspace.statusCode === "runtime-memory-recovery-failed" ||
+					workspace.requestConfig.cloudMailboxFenceRequired === true);
 
-			let runtimeRecoveryBuild: CloudProjectBuildRecord | null = null;
-			if (recoverRuntime && workspace.providerSandboxId === undefined) {
-				const provider = yield* resolveResourceProvider(workspace);
-				runtimeRecoveryBuild = yield* store.getActiveAccountBuild(
-					ownerId,
-					provider.providerId,
-				);
-				if (
-					runtimeRecoveryBuild?.snapshotId === undefined ||
-					!snapshotBuildCompatible(
-						runtimeRecoveryBuild,
-						provider.templateVersion,
-					)
-				)
-					return yield* Effect.fail(conflict("cloud_image_rebuild_required"));
-			}
 			let failedRetryBuild: CloudProjectBuildRecord | null = null;
 			if (
 				action === "resume" &&
@@ -4493,7 +4515,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 					? actionRequest.commandId
 					: `${action}:${workspace.workspaceId}:${nowMs}`;
 			const desiredState =
-				action === "resume" || action === "restart"
+				action === "resume" || action === "restart" || action === "update"
 					? "ready"
 					: action === "unarchive"
 						? "paused"
@@ -4504,12 +4526,17 @@ const routeCloudWorkspaceRequestWithAccess = (
 								: "paused";
 			const updated: CloudWorkspaceRecord = {
 				...workspace,
-				...(runtimeRecoveryBuild === null
-					? {}
-					: { buildId: runtimeRecoveryBuild.buildId }),
 				...(failedRetryBuild === null
 					? {}
 					: { buildId: failedRetryBuild.buildId }),
+				...(action === "update"
+					? {
+							requestConfig: {
+								...workspace.requestConfig,
+								runtimeReleaseChangeRequested: true,
+							},
+						}
+					: {}),
 				...(action === "restart"
 					? {
 							state: "resuming" as const,
@@ -4526,7 +4553,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 					: {}),
 				...(action === "resume" && recoverRuntime
 					? {
-							...runtimeUnavailableResumeTarget(workspace),
+							state: "resuming" as const,
 							runtimeState: "offline" as const,
 							requestConfig: {
 								...withoutRuntimeBootstrapReceipt(workspace.requestConfig),
@@ -4572,17 +4599,16 @@ const routeCloudWorkspaceRequestWithAccess = (
 				nextActionAtMs: nowMs,
 				revision: workspace.revision + 1,
 				updatedAtMs: nowMs,
-				...(action === "resume" || action === "restart"
+				...(action === "resume" || action === "restart" || action === "update"
 					? { lastActivityAtMs: nowMs }
-					: {}),
-				...(verifyCurrentRuntime
-					? workspaceRuntimeReconnectTarget(workspace, nowMs)
 					: {}),
 			};
 			const received: CloudWorkspaceRecord = {
 				...updated,
 				// An explicit retry starts a new bounded episode on the same disk.
-				...((action === "resume" || action === "restart") &&
+				...((action === "resume" ||
+					action === "restart" ||
+					action === "update") &&
 				workspace.statusCode === "runtime-memory-recovery-failed"
 					? {
 							requestConfig: {
@@ -4614,10 +4640,8 @@ const routeCloudWorkspaceRequestWithAccess = (
 				action,
 				deduplicateRequestedResume:
 					action === "resume" &&
-					(recoverRuntime
-						? verifyCurrentRuntime &&
-							workspace.statusCode === "resume-runtime-waking"
-						: cloudWorkspaceResumeIsAlreadyRequested(workspace)),
+					!recoverRuntime &&
+					cloudWorkspaceResumeIsAlreadyRequested(workspace),
 				createdAtMs: nowMs,
 			});
 			if (transition.kind === "missing")

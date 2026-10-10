@@ -21,6 +21,7 @@ import type {
 	EnvironmentFault,
 	EnvironmentResolver,
 	EnvironmentRetryPolicy,
+	EnvironmentWakeIntent,
 	ResourceActivation,
 } from "@zuse/client-runtime/environment-runtime";
 import { subscribeOnAnimationFrame } from "@zuse/client-runtime/frame-subscription";
@@ -67,7 +68,6 @@ import {
 	isCloudWorkspaceEnvironment,
 	isRpcClientTransportError,
 	type MemoizeClient,
-	markCloudWorkspaceConnectionHealthy,
 	type RendererRpcSession,
 	rendererEnvironmentCommandAuthority,
 } from "./rpc-client.ts";
@@ -1055,7 +1055,10 @@ type EnvironmentActivation = Readonly<{
 	/** The catalog authority that registered this resolver. */
 	readonly environmentKind: "cloud-workspace" | "other";
 	readonly account?: RendererAccountSnapshot;
-	prepare: (activation: "connect" | "wake") => Promise<void>;
+	prepare: (
+		activation: "connect" | "wake",
+		wakeIntent?: EnvironmentWakeIntent,
+	) => Promise<void>;
 	prepareClient?: (client: MemoizeClient) => Promise<void>;
 }>;
 const activationByEnvironment = new Map<EnvironmentId, EnvironmentActivation>();
@@ -1146,14 +1149,14 @@ const faultFor = (
 	);
 
 const environmentResolver: EnvironmentResolver<MemoizeClient> = {
-	resolve: (environmentId, activation) =>
+	resolve: (environmentId, activation, wakeIntent) =>
 		Effect.tryPromise({
 			try: async () => {
 				const registered = activationByEnvironment.get(environmentId);
 				// Cloud gateway discovery/ticket issuance must finish before socket
 				// acquisition. Keeping this inside the EnvironmentRuntime resolver
 				// prevents chat navigation and ClientBus from racing two attach paths.
-				await registered?.prepare(activation);
+				await registered?.prepare(activation, wakeIntent);
 				let generation: number | null = null;
 				let pendingFault: Error | null = null;
 				const session = await resolveRendererSession(environmentId, (cause) => {
@@ -1177,11 +1180,7 @@ const environmentResolver: EnvironmentResolver<MemoizeClient> = {
 					...session,
 					onActivated: (activeGeneration: number) => {
 						generation = activeGeneration;
-						if (pendingFault === null) {
-							if (isCloudWorkspaceEnvironment(environmentId))
-								markCloudWorkspaceConnectionHealthy(environmentId);
-							return;
-						}
+						if (pendingFault === null) return;
 						const fault = pendingFault;
 						pendingFault = null;
 						queueMicrotask(() => {
@@ -1202,8 +1201,9 @@ const isCloudTimelineEnvironment = (environmentId: EnvironmentId): boolean =>
 	activationByEnvironment.get(environmentId)?.environmentKind ===
 	"cloud-workspace";
 
-// Cloud workspaces keep a bounded ladder so retries never keep waking billable
-// compute. Self-hosted computers retry until they come back from sleep.
+// Cloud API failures remain bounded until terminal lifecycle errors can be
+// distinguished from transport outages. Wake intent has a separate acknowledgment.
+// Self-hosted computers retry until they come back from sleep.
 export const environmentRetryPolicy = (
 	environmentId: EnvironmentId,
 ): EnvironmentRetryPolicy =>

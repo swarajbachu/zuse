@@ -320,10 +320,9 @@ const PauseCloudWorkspace = MemoizeRpcs.toLayerHandler(
 );
 const ResumeCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.resume",
-	({ workspaceId, recoverRuntime, commandId }) =>
+	({ workspaceId, commandId }) =>
 		withCloudControl((service) =>
 			service.cloudWorkspaceAction(workspaceId, "resume", {
-				recoverRuntime,
 				commandId,
 			}),
 		),
@@ -333,6 +332,13 @@ const RestartCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	({ workspaceId, commandId }) =>
 		withCloudControl((service) =>
 			service.cloudWorkspaceAction(workspaceId, "restart", { commandId }),
+		),
+);
+const UpdateCloudWorkspace = MemoizeRpcs.toLayerHandler(
+	"cloud.workspaces.update",
+	({ workspaceId, commandId }) =>
+		withCloudControl((service) =>
+			service.cloudWorkspaceAction(workspaceId, "update", { commandId }),
 		),
 );
 const CloudWorkspaceSshAccess = MemoizeRpcs.toLayerHandler(
@@ -550,6 +556,7 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	PauseCloudWorkspace,
 	ResumeCloudWorkspace,
 	RestartCloudWorkspace,
+	UpdateCloudWorkspace,
 	CloudWorkspaceSshAccess,
 	CloudWorkspacePreviewUrl,
 	RevokeCloudWorkspacePreviewUrl,

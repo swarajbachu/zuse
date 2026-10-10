@@ -138,20 +138,9 @@ const prepareCloudWorkspaceSshOnce = async (
 			access = await requestSshAccess(workspaceId);
 		} catch (cause) {
 			if (cloudSshMissingSandboxFailure(cause)) {
-				const summary = cloudSummaryForEnvironment(workspaceId);
-				if (summary !== null) {
-					const { requestCloudWorkspaceRuntimeRecovery } = await import(
-						"./rpc-client.ts"
-					);
-					requestCloudWorkspaceRuntimeRecovery(workspaceId);
-					const { ensureCloudWorkspaceAttached } = await import(
-						"./cloud-workspaces.ts"
-					);
-					await ensureCloudWorkspaceAttached(summary, "wake");
-					access = await requestSshAccess(workspaceId);
-				} else {
-					throw cause;
-				}
+				// Provider absence is authoritative, but an SSH request does not own
+				// lifecycle replacement. Preserve the cause for the recovery surface.
+				throw cause;
 			} else {
 				// The api rejects unknown routes while SSH support is still rolling
 				// out; surface that as a capability gap instead of a raw RPC error.

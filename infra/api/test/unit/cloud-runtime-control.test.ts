@@ -11,6 +11,7 @@ describe("runtime control boundary", () => {
 		["/v1/cloud/workspaces/workspace/preview-url", "POST"],
 		["/v1/cloud/workspaces/workspace/preview-url", "DELETE"],
 		["/v1/cloud/workspaces/workspace/archive", "POST"],
+		["/v1/cloud/workspaces/workspace/update", "POST"],
 	])("permits orchestration: %s %s", (path, method) => {
 		expect(runtimeControlPathAllowed(path, method)).toBe(true);
 	});

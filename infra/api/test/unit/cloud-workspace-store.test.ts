@@ -2429,6 +2429,19 @@ describe("cloud workspace store", () => {
 				runtimeCredentialExpiresAtMs: 2_000,
 				runtimeGeneration: 2,
 				gatewayEpoch: 2,
+				runtimeBootstrapReceipt: {
+					workspaceId: "workspace-renew",
+					bootTokenHash: "boot",
+					credentialKeyThumbprint: "encryption-key",
+					signingKeyThumbprint: "signing-key",
+					signingPublicJwk: "{}",
+					runtimeCredentialHash: "credential-old",
+					runtimeCredentialExpiresAtMs: 2_000,
+					generation: 2,
+					gatewayEpoch: 2,
+					sealedTranscriptKey: "sealed",
+					enrolledAtMs: 100,
+				},
 				...(signed ? { runtimeSigningKeyThumbprint: "signing-key" } : {}),
 			},
 			nextActionAtMs: 2_000,
@@ -2476,6 +2489,25 @@ describe("cloud workspace store", () => {
 		expect(
 			await runtime.runPromise(store.getWorkspace(workspace.workspaceId)),
 		).toMatchObject({ runtimeCredentialHash: "credential-new" });
+		const acknowledge = (
+			credential: string,
+			generation = 2,
+			gatewayEpoch = 2,
+		) =>
+			runtime.runPromise(
+				store.acknowledgeRuntimeBoot({
+					workspaceId: workspace.workspaceId,
+					currentCredentialHash: credential,
+					generation,
+					gatewayEpoch,
+					nowMs: 3_000,
+				}),
+			);
+		expect(await acknowledge("credential-old")).toBe(false);
+		expect(await acknowledge("credential-new", 3)).toBe(false);
+		expect(await acknowledge("credential-new", 2, 3)).toBe(false);
+		expect(await acknowledge("credential-new")).toBe(true);
+		expect(await acknowledge("credential-new")).toBe(true);
 		if (signed) {
 			const recovered = await renew({
 				nowMs: 2 * 24 * 60 * 60_000,
@@ -2485,12 +2517,31 @@ describe("cloud workspace store", () => {
 				credentialHash: "credential-new",
 				generation: 2,
 			});
+			expect(recovered?.expiresAtMs).toBeGreaterThan(2 * 24 * 60 * 60_000);
+			const next = await renew({
+				currentCredentialHash: "credential-new",
+				requestId: "renew-after-recovery",
+				nextCredentialHash: "credential-next",
+				nowMs: 2 * 24 * 60 * 60_000 + 1,
+				expiresAtMs: 2 * 24 * 60 * 60_000 + 20_000,
+			});
+			expect(next).toMatchObject({
+				credentialHash: "credential-next",
+				previousCredentialHash: "credential-new",
+			});
+			expect(await acknowledge("credential-new")).toBe(false);
+			expect(await acknowledge("credential-next")).toBe(true);
+			expect(await renew({ nowMs: 2 * 24 * 60 * 60_000 + 2 })).toBeNull();
 		}
+		const beforeFence = await runtime.runPromise(
+			store.getWorkspace(workspace.workspaceId),
+		);
+		if (beforeFence === null) throw new Error("Workspace disappeared");
 		await runtime.runPromise(
 			store.saveWorkspace({
-				...workspace,
-				revision: 2,
-				updatedAtMs: 101,
+				...beforeFence,
+				revision: beforeFence.revision + 1,
+				updatedAtMs: beforeFence.updatedAtMs + 1,
 				runtimeCredentialHash: "credential-new",
 				requestConfig: {
 					...workspace.requestConfig,
@@ -3296,4 +3347,80 @@ describe("cloud workspace store", () => {
 		});
 		await runtime.dispose();
 	});
+});
+
+test.each([
+	"requested",
+	"preparing",
+	"launching",
+	"confirming",
+	"rolling-back",
+	"confirmed",
+	"failed",
+])("runtime callbacks preserve lifecycle deadline while activation is %s", async (phase) => {
+	const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+	try {
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(store.connectProject(project));
+		await runtime.runPromise(store.createBuild(build));
+		const workspace = {
+			...workspaceRecord(`schedule-${phase}`),
+			state: "ready" as const,
+			runtimeState: "online" as const,
+			runtimeCredentialHash: "runtime",
+			requestConfig: {
+				sessionHeadVersion: 5,
+				runtimeGeneration: 1,
+				runtimeCredentialExpiresAtMs: 1_000_000,
+				...(phase === "requested"
+					? { runtimeReleaseChangeRequested: true }
+					: {
+							runtimeActivation: {
+								id: "activation",
+								phase,
+								startedAtMs: 50,
+								attempts: 1,
+							},
+						}),
+			},
+		};
+		await runtime.runPromise(
+			store.createWorkspace(workspace, startCommand(workspace.workspaceId)),
+		);
+		const pending = phase !== "confirmed" && phase !== "failed";
+		const ready = await runtime.runPromise(
+			store.markRuntimeRepositoryReady({
+				workspaceId: workspace.workspaceId,
+				currentCredentialHash: "runtime",
+				nowMs: 200,
+				nextIdleAtMs: 10_000,
+			}),
+		);
+		expect(ready?.nextActionAtMs).toBe(pending ? 100 : 10_000);
+		const active = await runtime.runPromise(
+			store.recordActivity(
+				workspace.workspaceId,
+				workspace.accountId,
+				300,
+				11_000,
+				true,
+			),
+		);
+		expect(active?.nextActionAtMs).toBe(pending ? 100 : 11_000);
+		const launch = await runtime.runPromise(
+			store.completeLaunchIntent({
+				workspaceId: workspace.workspaceId,
+				commandId: `launch:${workspace.workspaceId}`,
+				sessionHeadVersion: 6,
+				nowMs: 400,
+				nextActionAtMs: 12_000,
+			}),
+		);
+		expect(launch).toMatchObject({
+			kind: "completed",
+			workspace: { nextActionAtMs: pending ? 100 : 12_000 },
+		});
+	} finally {
+		await runtime.dispose();
+	}
 });

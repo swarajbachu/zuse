@@ -1,6 +1,14 @@
 import { Schema } from "effect";
 import { ChatAccessPermission, WorkspaceActor } from "./collaboration.ts";
 
+/** Client-only negotiation; runtime framing remains compatible with v2. */
+export const WORKSPACE_GATEWAY_PENDING_PROTOCOL = "zuse-workspace-v3" as const;
+export const WorkspaceGatewayAvailability = Schema.Struct({
+	_zuseGateway: Schema.Literal("availability"),
+	state: Schema.Literals(["pending", "available"]),
+	reset: Schema.optional(Schema.Boolean),
+});
+
 export const CLOUD_RUNTIME_WORKSPACE_AUTHORIZATION_CAPABILITY =
 	"workspace-authorization-v1" as const;
 export const CLOUD_RUNTIME_COMMAND_AUTHOR_CAPABILITY =

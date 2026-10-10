@@ -39,7 +39,6 @@ import {
 import { CloudWorkspaceStorePg } from "./cloud-workspace-store.ts";
 import * as Config from "./config.ts";
 import { isConfigured } from "./environment.ts";
-import { withoutResponseHeaders } from "./http.ts";
 import { hyperdrivePoolConfig } from "./hyperdrive.ts";
 import { makeApi } from "./index.ts";
 import {
@@ -53,6 +52,7 @@ import { ModelConnectionStoreLive } from "./model-connection-store.ts";
 import { PluginHost } from "./plugin-host.ts";
 import { makeCloudflarePluginHost } from "./plugin-host-cloudflare.ts";
 import { PushDeliveryLive } from "./push.ts";
+import { applyResponseEffects } from "./response-effects.ts";
 import {
 	availableSandboxProviders,
 	boxdBillingConfigured,
@@ -78,7 +78,8 @@ import {
 
 export { PluginVault } from "./plugin-vault.ts";
 export { WorkspaceGateway } from "./workspace-gateway.ts";
-export { WorkspaceMailbox } from "./workspace-mailbox.ts";
+
+import { WorkspaceMailbox as WorkspaceMailboxTask } from "./workspace-mailbox.ts";
 
 /**
  * Cloudflare Worker bindings. Secrets (`RELAY_MINT_PRIVATE_JWK`) are set via
@@ -315,6 +316,7 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		isConfigured(env.CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK)
 			? {
 					runtimeManifestUrl: env.CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL,
+					runtimeInstallerSource,
 					runtimeSigningPublicJwk:
 						env.CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK,
 				}
@@ -613,7 +615,7 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		isConfigured(cloudDataEncryptionKey),
 	);
 	const api: ReturnType<typeof makeApi> = makeApi(appLayer, {
-		scheduleColdWorkspaceStartup: directStartup
+		scheduleWorkspaceStartup: directStartup
 			? undefined
 			: (workspaceId) =>
 					scheduleWorkspaceStartup(env.WORKSPACE_STARTUP, workspaceId),
@@ -632,7 +634,13 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 								mailboxEnabled: env.CLOUD_COMMAND_MAILBOX_ENABLED === "true",
 								api: scoped,
 								context,
-							})) ?? applyResponseEffects(response, scoped, env, context)
+							})) ??
+							applyResponseEffects(
+								response,
+								scoped,
+								(target) => nudgeWorkspaceGateway(env, target),
+								context,
+							)
 						);
 					},
 				}
@@ -645,76 +653,6 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 			await api.dispose();
 		},
 	};
-};
-
-/** Shared post-operation work for public requests and first-party integrations. */
-const applyResponseEffects = async (
-	response: Response,
-	api: ReturnType<typeof makeApi>,
-	env: Env,
-	context: { waitUntil(promise: Promise<unknown>): void },
-): Promise<Response> => {
-	const machineId = response.headers.get("x-zuse-reconcile-machine");
-	const cloudBuildId = response.headers.get("x-zuse-reconcile-cloud-build");
-	const cloudBuildIds =
-		cloudBuildId
-			?.split(",")
-			.map((value) => value.trim())
-			.filter(Boolean) ?? [];
-	const cloudWorkspaceId = response.headers.get(
-		"x-zuse-reconcile-cloud-workspace",
-	);
-	const gatewayNudgeTarget = response.headers.get(
-		"x-zuse-nudge-cloud-workspace",
-	);
-	const webhookDeliveryAccountId = response.headers.get(
-		"x-zuse-deliver-cloud-webhooks",
-	);
-	response = withoutResponseHeaders(response, [
-		"x-zuse-reconcile-machine",
-		"x-zuse-reconcile-cloud-build",
-		"x-zuse-reconcile-cloud-workspace",
-		"x-zuse-nudge-cloud-workspace",
-		"x-zuse-deliver-cloud-webhooks",
-	]);
-	if (
-		machineId === null &&
-		cloudBuildId === null &&
-		cloudWorkspaceId === null &&
-		gatewayNudgeTarget === null &&
-		webhookDeliveryAccountId === null
-	) {
-		await api.dispose();
-		return response;
-	}
-	context.waitUntil(
-		Promise.allSettled([
-			machineId === null
-				? Promise.resolve()
-				: api.reconcileMachine(machineId, `webhook-${crypto.randomUUID()}`),
-			...cloudBuildIds.map((buildId) => api.reconcileCloudBuild(buildId)),
-			cloudWorkspaceId === null
-				? Promise.resolve()
-				: api.reconcileCloudWorkspaceStartup(cloudWorkspaceId),
-			gatewayNudgeTarget === null
-				? Promise.resolve()
-				: nudgeWorkspaceGateway(env, gatewayNudgeTarget),
-			webhookDeliveryAccountId === null
-				? Promise.resolve()
-				: api.deliverApiWebhooks().catch((error) => {
-						console.error("[public-api] webhook delivery failed", error);
-						return 0;
-					}),
-		])
-			.then((results) => {
-				if (results.some((result) => result.status === "rejected"))
-					console.error(
-						"[api] background reconciliation failed; maintenance will retry",
-					);
-			})
-			.finally(() => api.dispose()),
-	);
-	return response;
 };
 
 export default {
@@ -763,7 +701,12 @@ export default {
 				new Request(request, { headers }),
 			);
 		}
-		return applyResponseEffects(response, api, env, context);
+		return applyResponseEffects(
+			response,
+			api,
+			(target) => nudgeWorkspaceGateway(env, target),
+			context,
+		);
 	},
 	async queue(
 		batch: { readonly messages: ReadonlyArray<QueueMessage> },
@@ -836,7 +779,26 @@ export class WorkspaceStartup extends WorkspaceStartupTask {
 		super(state, async (workspaceId) => {
 			const api = build(env, true);
 			try {
-				await api.reconcileCloudWorkspaceStartup(workspaceId);
+				return await api.reconcileCloudWorkspaceStartup(workspaceId);
+			} finally {
+				await api.dispose();
+			}
+		});
+	}
+}
+
+/** The existing mailbox alarm owns delivery of its committed wake marker. */
+export class WorkspaceMailbox extends WorkspaceMailboxTask {
+	constructor(state: DurableObjectState, env: Env) {
+		super(state, async ({ workspaceId, accountId }) => {
+			const api = build(env);
+			try {
+				const result = await api.requestCloudMailboxWake(
+					workspaceId,
+					accountId,
+				);
+				if (result === "ready")
+					await scheduleWorkspaceStartup(env.WORKSPACE_STARTUP, workspaceId);
 			} finally {
 				await api.dispose();
 			}

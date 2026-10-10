@@ -4,6 +4,7 @@ import {
 	ChatId,
 	CloudWorkspace,
 	EnvironmentId,
+	WORKSPACE_GATEWAY_PENDING_PROTOCOL,
 } from "@zuse/contracts";
 import { Effect, Layer, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
@@ -232,7 +233,7 @@ describe("cloud runtime control transport", () => {
 	});
 });
 
-describe("computer registration removal", () => {
+describe("account-authenticated machine control", () => {
 	const layer = MachineControlServiceLive.pipe(
 		Layer.provide(
 			Layer.mergeAll(
@@ -254,6 +255,79 @@ describe("computer registration removal", () => {
 				yield* service.removeEnvironment(EnvironmentId.make("stale-computer"));
 			}).pipe(Effect.provide(layer)),
 		);
+	it("requests pending attachment support through the desktop account transport", async () => {
+		const connection = {
+			workspaceId: "workspace-1",
+			wsUrl: "wss://api.test/gateway",
+			protocol: WORKSPACE_GATEWAY_PENDING_PROTOCOL,
+			role: "client",
+			generation: 7,
+			gatewayEpoch: 7,
+			credential: "scoped-ticket",
+			expiresAt: 10000,
+		};
+		const fetch = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(Response.json(connection));
+		try {
+			const result = await Effect.runPromise(
+				Effect.gen(function* () {
+					const service = yield* MachineControlService;
+					return yield* service.connectCloudWorkspace("workspace-1");
+				}).pipe(Effect.provide(layer)),
+			);
+			expect(result).toEqual(connection);
+			expect(fetch).toHaveBeenCalledWith(
+				expect.stringContaining(
+					ApiPaths.cloudWorkspaceConnectionTicket("workspace-1"),
+				),
+				expect.objectContaining({
+					method: "POST",
+					body: JSON.stringify({
+						protocol: WORKSPACE_GATEWAY_PENDING_PROTOCOL,
+					}),
+					headers: expect.objectContaining({
+						authorization: "Bearer account-token",
+					}),
+				}),
+			);
+		} finally {
+			fetch.mockRestore();
+		}
+	});
+	it("sends explicit release updates with their durable command identity", async () => {
+		const fetch = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(Response.json(workspace(5, "ready")));
+		try {
+			const result = await Effect.runPromise(
+				Effect.gen(function* () {
+					const service = yield* MachineControlService;
+					return yield* service.cloudWorkspaceAction("workspace-1", "update", {
+						commandId: "update-command",
+					});
+				}).pipe(Effect.provide(layer)),
+			);
+			expect(result.revision).toBe(5);
+			expect(fetch).toHaveBeenCalledWith(
+				expect.stringContaining(
+					ApiPaths.cloudWorkspaceAction("workspace-1", "update"),
+				),
+				expect.objectContaining({
+					method: "POST",
+					body: JSON.stringify({
+						workspaceId: "workspace-1",
+						commandId: "update-command",
+					}),
+					headers: expect.objectContaining({
+						authorization: "Bearer account-token",
+					}),
+				}),
+			);
+		} finally {
+			fetch.mockRestore();
+		}
+	});
 	it("uses account credentials even when this desktop has no registration", async () => {
 		const fetch = vi
 			.spyOn(globalThis, "fetch")

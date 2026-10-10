@@ -5,15 +5,24 @@ set -euo pipefail
 # Preserve the complete database directory, including WAL, as the import source.
 # Never execute copied queues or reuse the parent's runtime identity.
 source_dir="/var/lib/zuse/fork-source/${ZUSE_CLOUD_WORKSPACE_ID:?}"
-user_data=/var/lib/zuse/user-data
+# The managed provider embeds this helper; the installed file supports direct repair.
+if ! declare -F resolve_workspace_runtime_data >/dev/null; then
+  runtime_launcher=/var/lib/zuse/project-build/workspace-runtime.sh
+  [[ -f "$runtime_launcher" ]] || runtime_launcher=/usr/local/lib/zuse/workspace-runtime.sh
+  source "$runtime_launcher"
+fi
+# The child uses its configured canonical target. Only the preserved parent
+# source is selected from legacy aliases; no old source lock inode is inherited.
+user_data=$(readlink -m "${ZUSE_USER_DATA:-/var/lib/zuse/user-data}")
 mkdir -p "$source_dir"
 trap 'touch "$source_dir/failed"' ERR
 rm -f "$source_dir/failed"
 if [[ ! -f "$source_dir/prepared" ]]; then
   if [[ ! -d "$source_dir/user-data" ]]; then
-    [[ -f "$user_data/zuse.sqlite" ]]
-    [[ ! -L "$user_data" ]]
-    "${ZUSE_RUNTIME_NODE:-node}" - "$user_data/zuse.sqlite" "${ZUSE_FORK_CHAT_ID:?}" "${ZUSE_FORK_SESSION_ID:?}" "${ZUSE_FORK_MESSAGE_ID:?}" <<'JS'
+    ZUSE_RUNTIME_EXPECT_EXISTING_DATA=1 resolve_workspace_runtime_data
+    source_data="$ZUSE_USER_DATA"
+    [[ -f "$source_data/zuse.sqlite" ]]
+    "${ZUSE_RUNTIME_NODE:-node}" - "$source_data/zuse.sqlite" "${ZUSE_FORK_CHAT_ID:?}" "${ZUSE_FORK_SESSION_ID:?}" "${ZUSE_FORK_MESSAGE_ID:?}" <<'JS'
 const { DatabaseSync } = require('node:sqlite');
 const db = new DatabaseSync(process.argv[2], { readOnly: true });
 try {
@@ -22,8 +31,12 @@ try {
  if (!db.prepare('SELECT id FROM messages WHERE id = ? AND session_id = ?').get(process.argv[5], process.argv[4])) throw new Error('Fork message not found');
 } finally { db.close(); }
 JS
-    mv "$user_data" "$source_dir/user-data"
+    mv "$source_data" "$source_dir/user-data"
   fi
+  # The preserved import source includes SQLite/WAL, never the parent runtime capability.
+  rm -f "$source_dir/user-data/cloud-runtime-identity.json" "$source_dir/user-data"/cloud-runtime-identity.json.*.next
+  export ZUSE_USER_DATA="$user_data"
+  unset ZUSE_WORKSPACE_RUNTIME_LOCK_FD
   mkdir -p "$user_data"
   chmod 700 "$source_dir" "$user_data"
   # File attachments retain their stable paths in the new runtime.

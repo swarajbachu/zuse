@@ -1,11 +1,20 @@
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	open,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { Effect, Redacted } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
+import { boatProcessStorageScript } from "../../src/boat-process-storage.ts";
 import {
 	BOX_PROVIDER_ID,
 	type BoxHttpClient,
@@ -16,6 +25,15 @@ import {
 	boxProcessUnit,
 	boxShellQuote,
 } from "../../src/box-process.ts";
+
+const decodeLayoutCommand = (command: string): string => {
+	const encoded = command.match(/printf %s ([A-Za-z0-9+/=]+)/)?.[1];
+	if (encoded === undefined) throw new Error("missing root layout script");
+	return (
+		command.slice(0, command.indexOf("sudo -n -E bash -c")) +
+		Buffer.from(encoded, "base64").toString()
+	);
+};
 
 const makeHttp = (
 	responses: ReadonlyArray<{
@@ -209,18 +227,28 @@ describe("Box sandbox provider", () => {
 		expect(JSON.parse(String(http.calls[1]?.init?.body))).toEqual({
 			name: "zuse-cloud-workspace-1",
 		});
-		expect(JSON.parse(String(http.calls[3]?.init?.body)).command).toContain(
+		expect(
+			decodeLayoutCommand(
+				JSON.parse(String(http.calls[3]?.init?.body)).command,
+			),
+		).toContain(
 			"install -d -m 0755 -o zuse -g zuse /srv/zuse/home /srv/zuse/repos",
 		);
-		expect(JSON.parse(String(http.calls[3]?.init?.body)).command).toContain(
-			'ln -s "$persistent" "$logical"',
-		);
-		expect(JSON.parse(String(http.calls[3]?.init?.body)).command).toContain(
-			"touch /srv/zuse/.layout-v1",
-		);
-		expect(JSON.parse(String(http.calls[3]?.init?.body)).command).toContain(
-			"/run/zuse-secrets",
-		);
+		expect(
+			decodeLayoutCommand(
+				JSON.parse(String(http.calls[3]?.init?.body)).command,
+			),
+		).toContain('ln -s "$persistent" "$logical"');
+		expect(
+			decodeLayoutCommand(
+				JSON.parse(String(http.calls[3]?.init?.body)).command,
+			),
+		).toContain("touch /srv/zuse/.layout-v1");
+		expect(
+			decodeLayoutCommand(
+				JSON.parse(String(http.calls[3]?.init?.body)).command,
+			),
+		).toContain("/run/zuse-secrets");
 		expect(http.calls).toHaveLength(4);
 	});
 
@@ -249,9 +277,11 @@ describe("Box sandbox provider", () => {
 		const body = JSON.parse(String(http.calls[0]?.init?.body));
 		expect(body.from).toBe("zuse-build-snap-1");
 		expect(body.noEnv).toBeUndefined();
-		expect(JSON.parse(String(http.calls[3]?.init?.body)).command).toContain(
-			"test -f /srv/zuse/.layout-v1",
-		);
+		expect(
+			decodeLayoutCommand(
+				JSON.parse(String(http.calls[3]?.init?.body)).command,
+			),
+		).toContain("test -f /srv/zuse/.layout-v1");
 		expect(http.calls).toHaveLength(4);
 	});
 
@@ -275,7 +305,7 @@ describe("Box sandbox provider", () => {
 		expect(http.calls).toHaveLength(0);
 	});
 
-	test("destroys a create that lands in the error state", async () => {
+	test("preserves a create that lands in the error state", async () => {
 		const http = makeHttp([
 			{ status: 202, body: { sandbox: { id: "bx_1", state: "provisioning" } } },
 			{ status: 200, body: {} },
@@ -286,8 +316,10 @@ describe("Box sandbox provider", () => {
 
 		await expect(
 			Effect.runPromise(adapter.create(createInput)),
-		).rejects.toMatchObject({ code: "rejected" });
-		expect(http.calls[3]?.init?.method).toBe("DELETE");
+		).rejects.toMatchObject({ code: "transient" });
+		expect(http.calls.some((call) => call.init?.method === "DELETE")).toBe(
+			false,
+		);
 	});
 
 	test.each([
@@ -415,7 +447,7 @@ describe("Box sandbox provider", () => {
 		).resolves.toBeNull();
 	});
 
-	test("treats an errored box as absent on inspect", async () => {
+	test("keeps an errored box recoverable on inspect", async () => {
 		const http = makeHttp([
 			{ status: 200, body: { sandbox: { id: "bx_1", state: "error" } } },
 		]);
@@ -423,7 +455,7 @@ describe("Box sandbox provider", () => {
 
 		await expect(
 			Effect.runPromise(adapter.inspect("bx_1")),
-		).resolves.toBeNull();
+		).rejects.toMatchObject({ code: "transient" });
 	});
 
 	test.each([
@@ -473,9 +505,11 @@ describe("Box sandbox provider", () => {
 			}),
 		);
 
-		expect(JSON.parse(String(http.calls[0]?.init?.body)).command).toContain(
-			"readlink /home/repos",
-		);
+		expect(
+			decodeLayoutCommand(
+				JSON.parse(String(http.calls[0]?.init?.body)).command,
+			),
+		).toContain("readlink /home/repos");
 		const body = JSON.parse(String(http.calls[1]?.init?.body));
 		expect(body.detached).toBeUndefined();
 		const script = Buffer.from(
@@ -558,16 +592,17 @@ describe("Box sandbox provider", () => {
 				{
 					tag: "zuse-runtime",
 					legacyCommandMarkers: ["zuse-workspace-bootstrap"],
-					legacyCleanup: "matching-command",
 				},
 				{ command: "/opt/zuse/current/bin.mjs", args: ["serve"], user: "zuse" },
 			),
 		);
 
 		expect(http.calls).toHaveLength(2);
-		expect(JSON.parse(String(http.calls[0]?.init?.body)).command).toContain(
-			"readlink /home/repos",
-		);
+		expect(
+			decodeLayoutCommand(
+				JSON.parse(String(http.calls[0]?.init?.body)).command,
+			),
+		).toContain("readlink /home/repos");
 		const body = JSON.parse(String(http.calls[1]?.init?.body));
 		const script = Buffer.from(
 			body.command.match(/printf %s ([A-Za-z0-9+/=]+)/)[1],
@@ -769,7 +804,9 @@ describe("Box sandbox provider", () => {
 			(await Effect.runPromise(adapter.resume("bx_1", 600, "pause"))).state,
 		).toBe("running");
 		expect(http.calls).toHaveLength(4);
-		const command = JSON.parse(String(http.calls[2]?.init?.body)).command;
+		const command = decodeLayoutCommand(
+			JSON.parse(String(http.calls[2]?.init?.body)).command,
+		);
 		expect(command).toContain("test -f /srv/zuse/.layout-v1");
 		expect(command).not.toMatch(/firewall|nft|systemctl/);
 		expect(command).not.toContain("sleep");
@@ -820,13 +857,27 @@ describe("Box sandbox provider", () => {
 			await writeFile(join(dir, "persist/.layout-v1"), "");
 			await symlink(`${dir}/persist/home`, `${dir}/logical/zuse`);
 			await symlink(`${dir}/persist/repos`, `${dir}/logical/repos`);
-			const command = JSON.parse(String(http.calls[2]?.init?.body))
-				.command.replaceAll("/srv/zuse", `${dir}/persist`)
+			const command = decodeLayoutCommand(
+				JSON.parse(String(http.calls[2]?.init?.body)).command,
+			)
+				.replace(
+					boatProcessStorageScript(),
+					boatProcessStorageScript().split("preserve_directory() {")[0] ?? "",
+				)
+				.replaceAll("/srv/zuse", `${dir}/persist`)
 				.replaceAll("/home/zuse", `${dir}/logical/zuse`)
-				.replaceAll("/home/repos", `${dir}/logical/repos`);
+				.replaceAll("/home/repos", `${dir}/logical/repos`)
+				// Fixtures share /proc, unlike independent provider guests.
+				.replaceAll(
+					"const info=fs.readFileSync",
+					`if(!path.startsWith("${dir}/"))continue;const info=fs.readFileSync`,
+				);
 			const shim =
-				'findmnt() { echo ext4; }; sudo() { shift; "$@"; }; install() { return 0; }; cp() { exit 91; }; chown() { exit 92; }; sleep() { exit 93; }';
-			await promisify(execFile)("bash", ["-c", `${shim}; ${command}`]);
+				'findmnt() { echo ext4; }; sudo() { while [[ "$1" == -* ]]; do shift; done; "$@"; }; install() { return 0; }; cp() { exit 91; }; chown() { exit 92; }; sleep() { exit 93; }';
+			await promisify(execFile)("bash", [
+				"-c",
+				`${shim}; node() { exit 95; }; export -f node; ${command}`,
+			]);
 			await expect(
 				promisify(execFile)("bash", [
 					"-c",
@@ -846,18 +897,48 @@ describe("Box sandbox provider", () => {
 				join(dir, "logical/zuse/.zuse-data/zuse.sqlite"),
 				"empty replacement",
 			);
+			const legacyDatabase = join(dir, "logical/zuse/.zuse-data/zuse.sqlite");
+			const writer = await open(legacyDatabase, "r+");
+			try {
+				// Destination is empty: conflict checks alone cannot protect this writer.
+				await expect(
+					promisify(execFile)("bash", ["-c", `${shim}; ${command}`]),
+				).rejects.toMatchObject({ code: 1 });
+				expect(await readFile(legacyDatabase, "utf8")).toBe(
+					"empty replacement",
+				);
+				await expect(
+					readFile(join(dir, "persist/home/.zuse-data/zuse.sqlite")),
+				).rejects.toBeDefined();
+			} finally {
+				await writer.close();
+			}
 			await writeFile(
 				join(dir, "persist/home/.zuse-data/zuse.sqlite"),
 				"original chat",
 			);
-			await promisify(execFile)("bash", [
-				"-c",
-				`${shim}; cp() { command cp "$@"; }; chown() { return 0; }; ${command}`,
-			]);
+			await expect(
+				promisify(execFile)("bash", [
+					"-c",
+					`${shim}; cp() { command cp "$@"; }; chown() { return 0; }; ${command}`,
+				]),
+			).rejects.toMatchObject({ code: 78 });
 			const preserved = await promisify(execFile)("cat", [
 				join(dir, "persist/home/.zuse-data/zuse.sqlite"),
 			]);
 			expect(preserved.stdout).toBe("original chat");
+			// Two cold migration commands must not copy/remove this source together.
+			await rm(join(dir, "persist/home/.zuse-data/zuse.sqlite"));
+			await mkdir(join(dir, "logical/zuse/.ssh"));
+			const copying = join(dir, "copying");
+			const copies = join(dir, "copies");
+			const migration = `${shim}; cp() { mkdir '${copying}' || exit 96; echo copy >>'${copies}'; command sleep 0.1; command cp "$@"; rmdir '${copying}'; }; chown() { return 0; }; ${command}`;
+			await Promise.all([
+				promisify(execFile)("bash", ["-c", migration]),
+				promisify(execFile)("bash", ["-c", migration]),
+			]);
+			expect(await readFile(copies, "utf8")).toBe("copy\n");
+			expect(await readFile(legacyDatabase, "utf8")).toBe("empty replacement");
 			await rm(join(dir, "persist/.layout-v1"));
 			await expect(
 				promisify(execFile)("bash", ["-c", `${shim}; ${command}`]),
