@@ -411,6 +411,7 @@ export const apiCloudGithubInstallations = pgTable(
 		accountType: text("account_type").notNull(),
 		avatarUrl: text("avatar_url"),
 		repositorySelection: text("repository_selection").notNull(),
+		allowedRepositories: jsonb("allowed_repositories").$type<string[]>(),
 		suspended: boolean("suspended").default(false).notNull(),
 		createdAt: bigint("created_at", { mode: "number" }).notNull(),
 		updatedAt: bigint("updated_at", { mode: "number" }).notNull(),

@@ -127,6 +127,7 @@ describe("relay migration reconciliation", () => {
 			{ idx: 43, tag: "0042_billing_recovery" },
 			{ idx: 44, tag: "0043_stripe_customer_recovery_jobs" },
 			{ idx: 45, tag: "0044_stripe_customer_recovery_leases" },
+			{ idx: 46, tag: "0045_github_member_repository_scope" },
 		]);
 	});
 

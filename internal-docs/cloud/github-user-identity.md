@@ -5,7 +5,8 @@ which repositories the Zuse GitHub App can access and authorizes Zuse to act as
 them. There is no separate personal identity connection or manual token entry.
 The callback keeps the shared GitHub authorization flow: browser nonce and
 origin checks, current workspace membership, and an explicit installation chooser. Administrators
-can link installations they administer; members can choose installations already
+can link approved installations as GitHub owners or active organization members
+with writable repository access; Zuse workspace members can choose installations already
 linked to the organization. Credentials
 are encrypted into the short-lived signed chooser state and persisted with the
 selected installation only when the user confirms. No plaintext parent token
@@ -46,6 +47,29 @@ use installation credentials independently of agent activity.
    **Connect GitHub** once to upgrade an installation-only connection. Restart
    existing workspaces afterward; updated runtimes clear cached credentials and
    configure commit identity before launching agents.
+
+## Organization installation approval handoff
+
+A Zuse workspace administrator can connect an approved GitHub organization
+installation as an active GitHub organization member. The GitHub owner only
+approves the app on GitHub; they do not need a Zuse account. The requester keeps
+their workspace-bound signed connection state while waiting. The waiting tab
+checks approval with bounded backoff while visible and resumes authorization
+when an eligible organization appears. **Check approval** retries manually;
+starting **Connect GitHub** again recovers after closing the tab. These checks
+read GitHub directly, so missed webhooks do not block completion. Existing
+installations use the same chooser without reinstalling.
+
+Member-created installation links persist only repositories GitHub exposes as
+writable through the requester's user token, capped at 500 repositories. GitHub
+enforces this allowlist on image-build installation tokens, and bot/user
+credential delivery also checks it. A chooser POST rechecks current membership,
+repository access, and Zuse workspace administration before storing the link.
+Metadata reconciliation and webhooks preserve the allowlist; they cannot expand
+the workspace grant. Owner-authorized links retain their existing full
+installation scope. Apply `0045_github_member_repository_scope` before deploying
+this API change. No founder credentials or webhook-driven workspace links are
+created by the handoff.
 
 No live GitHub App settings, deployments, or sandbox databases are changed by
 this implementation. Older runtimes need updating for commit authorship support.

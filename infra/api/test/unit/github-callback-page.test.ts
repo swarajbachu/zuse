@@ -11,7 +11,8 @@ describe("GitHub callback page", () => {
 
 		expect(page).toContain("GitHub connected · Zuse");
 		expect(page).toContain("<h1>GitHub connected</h1>");
-		expect(page).toContain('<a class="button" href="zuse://">Open Zuse</a>');
+		expect(page).toContain("Switch back to your open Zuse window");
+		expect(page).not.toContain("zuse://");
 		expect(page).not.toContain("stamp-shell");
 		expect(page).not.toContain("<script>alert");
 		expect(page).toContain("&lt;script&gt;");
@@ -26,4 +27,20 @@ describe("GitHub callback page", () => {
 			/script-src 'sha256-[^']+'/u,
 		);
 	});
+});
+
+test("approval polling can only connect to this API under the page CSP", async () => {
+	const { githubApprovalPageHeaders, renderGithubSetupPage } = await import(
+		"../../src/github-callback-page.ts"
+	);
+	expect(githubApprovalPageHeaders["content-security-policy"]).toContain(
+		"connect-src 'self'",
+	);
+	expect(githubApprovalPageHeaders["referrer-policy"]).toBe("strict-origin");
+	const html = renderGithubSetupPage(true, "https://api.test/resume", {
+		callback: "https://api.test/check",
+		state: '"><script>unsafe</script>',
+	});
+	expect(html).toContain("data-approval-check");
+	expect(html).not.toContain("<script>unsafe</script>");
 });

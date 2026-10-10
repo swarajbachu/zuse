@@ -31,7 +31,7 @@ describe("integration page", () => {
 		expect(page).toContain('name="csrf" value="token&quot;&lt;&gt;&amp;"');
 		expect(page).toContain("Use this account: test&lt;owner&gt;&quot;");
 		expect(page).toContain('rel="noopener noreferrer"');
-		expect(page.match(/<script/gu)).toHaveLength(1);
+		expect(page.match(/<script/gu)).toHaveLength(2);
 		expect(page).not.toMatch(
 			/<img|<iframe|(?:src|href)="https?:\/\/(?!github\.com)/u,
 		);
@@ -39,7 +39,7 @@ describe("integration page", () => {
 		expect(page.length).toBeLessThan(65_000);
 	});
 
-	test("allows only the dither backdrop script", () => {
+	test("restricts scripts to the bundled page scripts", () => {
 		expect(INTEGRATION_PAGE_HEADERS["content-security-policy"]).toContain(
 			`script-src ${INTEGRATION_PAGE_SCRIPT_SOURCE}`,
 		);
@@ -93,7 +93,7 @@ describe("integration page", () => {
 		expect(page).toContain('aria-label="Approve on GitHub: acme"');
 		// Returning from GitHub resumes at the row's same-origin URL.
 		expect(page).toContain('data-resume="/callback?state=resume"');
-		expect(page.match(/<script/gu)).toHaveLength(2);
+		expect(page.match(/<script/gu)).toHaveLength(3);
 		const scripts = [...page.matchAll(/<script>([\s\S]*?)<\/script>/gu)].map(
 			(match) =>
 				`'sha256-${createHash("sha256")

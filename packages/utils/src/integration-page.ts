@@ -12,13 +12,15 @@ import {
  */
 const RESUME_SCRIPT = `(()=>{const k="zuse.integration.resume";document.addEventListener("click",e=>{const a=e.target instanceof Element?e.target.closest("a[data-resume]"):null;if(a)sessionStorage.setItem(k,a.dataset.resume);});const go=()=>{if(document.visibilityState!=="visible")return;const u=sessionStorage.getItem(k);if(!u)return;sessionStorage.removeItem(k);const t=new URL(u,location.href);if(t.origin===location.origin)location.assign(t.href);};document.addEventListener("visibilitychange",go);addEventListener("focus",go);})();`;
 const RESUME_SCRIPT_SOURCE = `'sha256-${createHash("sha256").update(RESUME_SCRIPT).digest("base64")}'`;
+const SUBMIT_SCRIPT = `(()=>{let busy=false;const reset=()=>{busy=false;document.querySelectorAll("form[aria-busy]").forEach(f=>f.removeAttribute("aria-busy"));document.querySelector("[data-submit-status]").hidden=true;document.querySelectorAll("button[data-original-label]").forEach(b=>{b.disabled=false;b.textContent=b.dataset.originalLabel;});};document.addEventListener("submit",e=>{const f=e.target;if(!(f instanceof HTMLFormElement)||!f.dataset.pending)return;if(busy){e.preventDefault();return;}busy=true;f.setAttribute("aria-busy","true");const s=document.querySelector("[data-submit-status]");s.textContent=f.dataset.pending;s.hidden=false;document.querySelectorAll("button[type=submit]").forEach(b=>{b.dataset.originalLabel=b.textContent;b.disabled=true;});const b=f.querySelector("button");b.textContent=f.dataset.pendingLabel;});document.addEventListener("click",e=>{if(busy&&e.target instanceof Element&&e.target.closest("a"))e.preventDefault();},true);addEventListener("pageshow",e=>{if(e.persisted)reset();});})();`;
+const SUBMIT_SCRIPT_SOURCE = `'sha256-${createHash("sha256").update(SUBMIT_SCRIPT).digest("base64")}'`;
 
-/** Integration pages run only the dither backdrop and, when needed, resume scripts. */
+/** Integration pages run the backdrop and, when needed, submit and resume feedback. */
 export const INTEGRATION_PAGE_SCRIPT_SOURCE = DITHER_BACKGROUND_SCRIPT_SOURCE;
 /** Account avatars are the only remote resource these pages load. */
 const AVATAR_ORIGIN = "https://avatars.githubusercontent.com";
 export const INTEGRATION_PAGE_HEADERS = browserPageHeaders(
-	[INTEGRATION_PAGE_SCRIPT_SOURCE, RESUME_SCRIPT_SOURCE],
+	[INTEGRATION_PAGE_SCRIPT_SOURCE, RESUME_SCRIPT_SOURCE, SUBMIT_SCRIPT_SOURCE],
 	[AVATAR_ORIGIN],
 );
 
@@ -55,6 +57,9 @@ form{margin:0}
 .button:hover{opacity:.88}
 .button:active{transform:translateY(1px)}
 .button.secondary{background:var(--hover);color:var(--fg)}
+.button:disabled{cursor:wait;opacity:.6}
+.button:disabled:active{transform:none}
+[data-submit-status]{margin:12px 0 0;font-size:12px}
 .hint{margin:16px 0 0;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
 :is(a,button):focus-visible{outline:2px solid var(--fg);outline-offset:2px}
 @media(max-width:440px){body{padding:24px 16px}.card{padding:20px}.meta{flex-wrap:wrap;column-gap:6px;row-gap:0}}
@@ -98,7 +103,7 @@ export interface IntegrationPageInput {
 }
 
 const form = (action: FormAction, className: string, ariaLabel: string) =>
-	`<form method="post" action="${escapeHtml(action.action)}"><input type="hidden" name="csrf" value="${escapeHtml(action.csrf)}"><button class="${className}" type="submit" aria-label="${escapeHtml(ariaLabel)}">${escapeHtml(action.label)}</button></form>`;
+	`<form method="post" action="${escapeHtml(action.action)}" data-pending-label="${action.accountName ? "Connecting…" : "Working…"}" data-pending="${escapeHtml(action.accountName ? `Connecting ${action.accountName}… This may take a few seconds.` : `${action.label}… Please wait.`)}"><input type="hidden" name="csrf" value="${escapeHtml(action.csrf)}"><button class="${className}" type="submit" aria-label="${escapeHtml(ariaLabel)}">${escapeHtml(action.label)}</button></form>`;
 
 const accountRow = (
 	action: (FormAction | LinkAction) & { readonly accountName: string },
@@ -150,7 +155,7 @@ export const renderIntegrationPage = (input: IntegrationPageInput): string => {
 						})
 						.join("")}</div>`
 				: "";
-	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(input.integration)} ${escapeHtml(input.status.toLowerCase())} · Zuse</title><style>${STYLES}${DITHER_BACKGROUND_STYLES}</style></head><body><main class="stage"><section class="card"><p class="eyebrow"><strong>Zuse</strong><span aria-hidden="true">/</span>${escapeHtml(input.integration)}</p><h1>${escapeHtml(input.title ?? `${input.integration} connected`)}</h1><p class="description">${escapeHtml(input.description)}</p>${body}<p class="hint">${escapeHtml(input.hint)}</p></section></main>${DITHER_BACKGROUND_SCRIPT}${
+	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(input.integration)} ${escapeHtml(input.status.toLowerCase())} · Zuse</title><style>${STYLES}${DITHER_BACKGROUND_STYLES}</style></head><body><main class="stage"><section class="card"><p class="eyebrow"><strong>Zuse</strong><span aria-hidden="true">/</span>${escapeHtml(input.integration)}</p><h1>${escapeHtml(input.title ?? `${input.integration} connected`)}</h1><p class="description">${escapeHtml(input.description)}</p>${body}<p data-submit-status role="status" hidden></p><p class="hint">${escapeHtml(input.hint)}</p></section></main>${DITHER_BACKGROUND_SCRIPT}${input.actions.some((action) => "action" in action) ? `<script>${SUBMIT_SCRIPT}</script>` : ""}${
 		input.actions.some((action) => "resumeHref" in action && action.resumeHref)
 			? `<script>${RESUME_SCRIPT}</script>`
 			: ""

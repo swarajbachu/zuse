@@ -234,6 +234,8 @@ describe("GitHub installation failure isolation", () => {
 									],
 								},
 					);
+				if (url.includes("/user/installations/789/repositories"))
+					return Response.json({ repositories: [] });
 				// The installation lacks the Members permission.
 				if (url.endsWith("/memberships/orgs/no-members-org"))
 					return new Response("{}", { status: 403 });
@@ -251,6 +253,18 @@ describe("GitHub installation failure isolation", () => {
 			const installUrl = await runtime.runPromise(
 				makeGithubInstallUrl(ownerId, "account"),
 			);
+			const requestedUrl = new URL(
+				githubAuthorizationUrl(installUrl, "https://api-staging.zuse.sh"),
+			);
+			requestedUrl.searchParams.set("setup_action", "request");
+			const requested = await runtime.runPromise(
+				githubAuthorizationCallback(new Request(requestedUrl)),
+			);
+			expect(requested.status).toBe(200);
+			expect(await requested.text()).toContain(
+				"Organization owner approval needed",
+			);
+			expect(requested.headers.get("set-cookie")).toBeNull();
 			const start = await runtime.runPromise(
 				githubAuthorizationCallback(
 					new Request(
@@ -317,7 +331,7 @@ describe("GitHub installation failure isolation", () => {
 			// Shown with the fix, never as a linkable choice.
 			expect(html).not.toContain("Use this account: no-members-org");
 			if (role === "admin") {
-				expect(html).toContain("Approve on GitHub: no-members-org");
+				expect(html).toContain("Request approval: no-members-org");
 				expect(html).toContain("Needs approval");
 				expect(html).toContain("Manage access");
 				expect(html).toContain('target="_blank" rel="noopener noreferrer"');
@@ -700,7 +714,7 @@ describe("GitHub account linking without a second choice", () => {
 					),
 				)
 			).text();
-			expect(chooser).toContain("Approve on GitHub: acme");
+			expect(chooser).toContain("Request approval: acme");
 			const resume = /data-resume="([^"]+)"/u
 				.exec(chooser)?.[1]
 				?.replaceAll("&amp;", "&");
