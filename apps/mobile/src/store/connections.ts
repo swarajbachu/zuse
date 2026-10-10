@@ -24,7 +24,7 @@ import { serverKeyPin as serverKeyPinForPublicKey } from "~/lib/nearby-pairing";
 import { getConnectionClient } from "~/rpc/connection";
 import { redeemPairingCode } from "~/rpc/pairing-client";
 import { connectionKey, type WsProtocolOptions } from "~/rpc/ws-protocol";
-import { cloudConnectionsAtom } from "./cloud-catalog";
+import { cloudCatalogAtom, cloudConnectionsAtom } from "./cloud-catalog";
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
 
 export type { ConnectionRecord } from "~/lib/connection-records";
@@ -36,7 +36,9 @@ export const connectionsHydratedAtom = Atom.make(false).pipe(Atom.keepAlive);
 
 /** Cloud routes are account-derived, never persisted as paired computers. */
 export const allConnectionsAtom = Atom.make((get) => [
-	...get(connectionsAtom),
+	...(get(cloudCatalogAtom).scope.kind === "personal"
+		? get(connectionsAtom)
+		: []),
 	...get(cloudConnectionsAtom),
 ]);
 

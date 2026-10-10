@@ -11,14 +11,15 @@ import { Effect } from "effect";
 import { useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { Button } from "~/components/ui/button";
-import { cloudControlClient } from "~/rpc/api-client";
+import { cloudControlForChat } from "~/store/cloud-catalog";
 
 export function CloudDeviceAccess({ workspaceId }: { workspaceId: string }) {
 	const [view, setView] = useState(EMPTY_DEVICE_BRIDGE_VIEW);
 	const { status, error, busy } = view;
 	const controller = useMemo(
 		() =>
-			new DeviceBridgeController((action) => {
+			new DeviceBridgeController(async (action) => {
+				const cloudControlClient = await cloudControlForChat(workspaceId);
 				return Effect.runPromise(
 					cloudControlClient["deviceBridge.cloud"]({ workspaceId, action }),
 				);

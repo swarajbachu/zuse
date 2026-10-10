@@ -19,9 +19,9 @@ import {
 	TextInput,
 	View,
 } from "react-native";
-
 import { ProviderLogo } from "~/components/provider-logo";
 import { StatusDot } from "~/components/ui/status-dot";
+import { withWorkspaceConnection } from "~/components/workspace-connection-screen";
 import {
 	normalizeConnParam,
 	optionsForConnection,
@@ -50,7 +50,9 @@ import { colors } from "~/theme";
 
 const LARGE_THREAD_COUNT = 8;
 
-export default function ThreadsScreen() {
+export default withWorkspaceConnection(ThreadsScreen);
+
+function ThreadsScreen() {
 	const { conn, chatId, sessionId } = useLocalSearchParams<{
 		conn: string;
 		chatId: string;

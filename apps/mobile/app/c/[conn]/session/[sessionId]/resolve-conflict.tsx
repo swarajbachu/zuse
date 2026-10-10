@@ -11,6 +11,7 @@ import {
 	View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { withWorkspaceConnection } from "~/components/workspace-connection-screen";
 
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import {
@@ -25,7 +26,9 @@ import { colors } from "~/theme";
 const hasConflictMarkers = (value: string): boolean =>
 	/(?:^|\n)(?:<{7}|={7}|>{7})(?: |\n|$)/.test(value);
 
-export default function ResolveConflictScreen() {
+export default withWorkspaceConnection(ResolveConflictScreen);
+
+function ResolveConflictScreen() {
 	const params = useLocalSearchParams<{
 		conn: string;
 		sessionId: string;

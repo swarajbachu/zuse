@@ -13,13 +13,13 @@ const state = vi.hoisted(() => ({
 	clear: vi.fn(),
 }));
 vi.mock("~/rpc/api-client", () => ({
-	cloudControlClient: {
+	cloudControlClientForWorkspace: vi.fn(() => ({
 		"cloud.workspaces.create": (input: unknown) =>
 			Effect.tryPromise({
 				try: () => state.create(input),
 				catch: (cause) => cause,
 			}),
-	},
+	})),
 }));
 vi.mock("~/rpc/actions", () => ({
 	makeTextInput: (text: string) => ({ text }),
@@ -37,7 +37,12 @@ vi.mock("~/store/composer-drafts", () => ({
 	clearComposerDraft: () => state.clear(),
 }));
 
-import { setCloudCatalogAccount } from "../../../src/store/cloud-catalog";
+import { cloudControlClientForWorkspace } from "../../../src/rpc/api-client";
+import {
+	cloudSummary,
+	setCloudCatalogAccount,
+	setCloudCatalogWorkspace,
+} from "../../../src/store/cloud-catalog";
 import { launchMobileCloudChat } from "../../../src/store/cloud-launch";
 
 const input = {
@@ -73,6 +78,7 @@ const launch = () => {
 };
 describe("mobile initial cloud launch intent", () => {
 	beforeEach(() => {
+		vi.mocked(cloudControlClientForWorkspace).mockClear();
 		setCloudCatalogAccount(null);
 		setCloudCatalogAccount("account-1");
 		state.draft = { text: "", attachments: [], goalMode: false };
@@ -86,6 +92,26 @@ describe("mobile initial cloud launch intent", () => {
 			accepted: Promise.resolve(),
 			result: new Promise(() => undefined),
 		});
+	});
+	test("creates and registers a chat in the selected organization", async () => {
+		const scope = { kind: "organization", organizationId: "org_a" } as const;
+		setCloudCatalogWorkspace(scope);
+		await launchMobileCloudChat(input);
+		expect(cloudControlClientForWorkspace).toHaveBeenCalledWith(scope);
+		expect(cloudSummary("workspace-1")?.workspaceScope).toEqual(scope);
+	});
+	test("workspace switches during creation preserve the draft and prevent sending", async () => {
+		state.create.mockImplementation(async () => {
+			setCloudCatalogWorkspace({
+				kind: "organization",
+				organizationId: "org_a",
+			});
+			return launch();
+		});
+		await expect(launchMobileCloudChat(input)).rejects.toThrow();
+		expect(state.send).not.toHaveBeenCalled();
+		expect(state.clear).not.toHaveBeenCalled();
+		expect(cloudSummary("workspace-1")).toBeUndefined();
 	});
 	test("opens the chat once compute exists, before the first message is accepted", async () => {
 		let accepted!: () => void;

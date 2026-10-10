@@ -1,9 +1,14 @@
 import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	setCloudCatalogAccount,
+	setCloudCatalogWorkspace,
+} from "../../../src/store/cloud-catalog";
 import { appAtomRegistry } from "../../../src/store/registry";
 import {
 	archiveChat,
 	bundlesByConnectionAtom,
+	connectionBundlesAtom,
 	errorByConnectionAtom,
 	markChatRead,
 	type ProjectBundle,
@@ -98,6 +103,7 @@ const seedBundles = () => {
 
 describe("sessions atom actions", () => {
 	beforeEach(() => {
+		setCloudCatalogAccount(null);
 		rpc.archiveShouldFail = false;
 		rpc.markChatReadShouldFail = false;
 		rpc.permissionModeShouldFail = false;
@@ -105,6 +111,20 @@ describe("sessions atom actions", () => {
 		appAtomRegistry.set(statusBySessionAtom, {});
 		appAtomRegistry.set(errorByConnectionAtom, {});
 		seedBundles();
+	});
+
+	it("hides cached Personal bundles in organization scope without discarding them", () => {
+		setCloudCatalogAccount("account-a");
+		const saved = appAtomRegistry.get(runtimeBundlesByConnectionAtom).conn;
+		expect(appAtomRegistry.get(connectionBundlesAtom("conn"))).toBe(saved);
+		setCloudCatalogWorkspace({ kind: "organization", organizationId: "org_a" });
+		expect(appAtomRegistry.get(bundlesByConnectionAtom)).toEqual({});
+		expect(appAtomRegistry.get(connectionBundlesAtom("conn"))).toEqual([]);
+		expect(appAtomRegistry.get(runtimeBundlesByConnectionAtom).conn).toBe(
+			saved,
+		);
+		setCloudCatalogWorkspace({ kind: "personal" });
+		expect(appAtomRegistry.get(connectionBundlesAtom("conn"))).toBe(saved);
 	});
 
 	it("archiveChat removes optimistically and keeps removal on success", async () => {

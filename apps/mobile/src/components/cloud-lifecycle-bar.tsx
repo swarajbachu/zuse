@@ -9,8 +9,11 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { cloudLifecycle } from "~/lib/cloud-lifecycle";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
-import { cloudControlClient } from "~/rpc/api-client";
-import { cloudCatalogAtom, refreshCloudCatalog } from "~/store/cloud-catalog";
+import {
+	cloudCatalogAtom,
+	cloudControlForChat,
+	refreshCloudCatalog,
+} from "~/store/cloud-catalog";
 import { colors } from "~/theme";
 
 const STEP_COUNT = 4;
@@ -56,6 +59,7 @@ export function CloudLifecycleBar({ workspaceId }: { workspaceId: string }) {
 		setBusy(true);
 		setError(null);
 		try {
+			const cloudControlClient = await cloudControlForChat(workspaceId);
 			await Effect.runPromise(
 				cloudControlClient["cloud.workspaces.resume"]({ workspaceId }),
 			);

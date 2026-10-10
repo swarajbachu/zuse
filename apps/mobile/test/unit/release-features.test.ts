@@ -5,6 +5,7 @@ import { mobileReleaseFeatures } from "../../src/lib/release-features";
 describe("mobile release feature boundaries", () => {
 	test("keeps unfinished features disabled", () => {
 		expect(mobileReleaseFeatures).toEqual({
+			organizationWorkspaces: false,
 			terminal: false,
 			voice: false,
 			usage: false,

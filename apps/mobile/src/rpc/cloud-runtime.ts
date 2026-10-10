@@ -8,6 +8,8 @@ import type {
 import { Effect } from "effect";
 import {
 	cloudCatalogAtom,
+	cloudCatalogGeneration,
+	cloudControlForChat,
 	cloudSummary,
 	recordCloudCapabilities,
 	updateCloudWorkspace,
@@ -17,7 +19,10 @@ import { appAtomRegistry } from "~/store/registry";
 const recoveries = new Map<string, string>();
 const healthy = new Set<string>();
 const abnormalCloses = new Map<string, number>();
-const flights = new Map<string, Promise<CloudWorkspaceConnection>>();
+const flights = new Map<
+	string,
+	{ workspaceEpoch: number; promise: Promise<CloudWorkspaceConnection> }
+>();
 const wakeRequests = new Set<string>();
 export const requestCloudRuntimeWake = (workspaceId: string) => {
 	wakeRequests.add(workspaceId);
@@ -67,13 +72,15 @@ export const resetCloudRuntime = (): void => {
 export const connectCloudRuntime = (
 	workspaceId: string,
 ): Promise<CloudWorkspaceConnection> => {
+	const workspaceEpoch = cloudCatalogGeneration();
 	const existing = flights.get(workspaceId);
-	if (existing !== undefined) return existing;
+	if (existing?.workspaceEpoch === workspaceEpoch) return existing.promise;
 	const epoch = generation;
 	const accountId = appAtomRegistry.get(cloudCatalogAtom).accountId;
 	const assertAccount = () => {
 		if (
 			epoch !== generation ||
+			workspaceEpoch !== cloudCatalogGeneration() ||
 			accountId === null ||
 			appAtomRegistry.get(cloudCatalogAtom).accountId !== accountId ||
 			cloudSummary(workspaceId) === undefined
@@ -83,7 +90,8 @@ export const connectCloudRuntime = (
 			);
 	};
 	const operation = (async () => {
-		const { cloudControlClient } = await import("./api-client");
+		assertAccount();
+		const cloudControlClient = await cloudControlForChat(workspaceId);
 		assertAccount();
 		let row = await Effect.runPromise(
 			cloudControlClient["cloud.workspaces.get"]({ workspaceId }),
@@ -150,8 +158,9 @@ export const connectCloudRuntime = (
 			recoveries.delete(workspaceId);
 		return ticket;
 	})().finally(() => {
-		if (flights.get(workspaceId) === operation) flights.delete(workspaceId);
+		if (flights.get(workspaceId)?.promise === operation)
+			flights.delete(workspaceId);
 	});
-	flights.set(workspaceId, operation);
+	flights.set(workspaceId, { workspaceEpoch, promise: operation });
 	return operation;
 };

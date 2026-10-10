@@ -22,6 +22,7 @@ import {
 	View,
 } from "react-native";
 import { useUniwind } from "uniwind";
+import { withWorkspaceConnection } from "~/components/workspace-connection-screen";
 
 import {
 	normalizeConnParam,
@@ -40,7 +41,9 @@ import { connectionBundlesAtom, selectSessionChat } from "~/store/sessions";
 import { colors } from "~/theme";
 import { presentQuickLook } from "../../../../../modules/mobile-platform";
 
-export default function WorkspaceFileScreen() {
+export default withWorkspaceConnection(WorkspaceFileScreen);
+
+function WorkspaceFileScreen() {
 	const { width } = useWindowDimensions();
 	const { theme } = useUniwind();
 	const syntaxPalette = theme === "dark" ? DARK_SYNTAX : LIGHT_SYNTAX;

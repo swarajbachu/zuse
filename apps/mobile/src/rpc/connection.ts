@@ -190,7 +190,7 @@ export const getConnectionClient = (
 	});
 
 export const disposeConnection = (options: WsProtocolOptions): Promise<void> =>
-	connectionEntry(options).remove();
+	supervisor.remove(options);
 
 export const reportConnectionFailure = (
 	options: WsProtocolOptions,

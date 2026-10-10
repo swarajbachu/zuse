@@ -5,6 +5,7 @@ import {
 } from "@zuse/client-runtime/cloud-catalog";
 import { cloudFailurePresentation } from "@zuse/client-runtime/cloud-failure-presentation";
 import { hasCloudEntitlement } from "@zuse/client-runtime/cloud-sandbox-providers";
+import { workspaceScopeKey } from "@zuse/client-runtime/environment-scope";
 import {
 	type CapabilityManifest,
 	type CloudAccountImage,
@@ -15,8 +16,10 @@ import {
 	type CloudWorkspace,
 	Folder,
 	FolderId,
+	type Organization,
+	WorkspaceScope,
 } from "@zuse/contracts";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import { apiBaseUrl } from "~/auth/config";
 import type { ConnectionRecord } from "~/lib/connection-records";
@@ -25,6 +28,8 @@ import type { ProjectBundle } from "./sessions";
 
 type CloudCatalog = Readonly<{
 	accountId: string | null;
+	organizations: readonly Organization[];
+	scope: WorkspaceScope;
 	chats: readonly CloudChatSummary[];
 	projects: readonly CloudProject[];
 	/** Sandbox providers (boxd, Boat, E2B…) this account can run cloud chats on. */
@@ -41,8 +46,13 @@ type CloudCatalog = Readonly<{
 	error: string | null;
 	capabilities: Readonly<Record<string, CapabilityManifest>>;
 }>;
-const empty = (accountId: string | null): CloudCatalog => ({
+const empty = (
+	accountId: string | null,
+	scope: WorkspaceScope = { kind: "personal" },
+): CloudCatalog => ({
 	accountId,
+	organizations: [],
+	scope,
 	chats: [],
 	projects: [],
 	providers: [],
@@ -64,6 +74,25 @@ export const cloudSummary = (workspaceId: string) =>
 	appAtomRegistry
 		.get(cloudCatalogAtom)
 		.chats.find((row) => row.workspaceId === workspaceId);
+
+/** Resolve ownership from the authorized catalog, never from UI selection. */
+export const cloudControlForChat = async (workspaceId: string) => {
+	const epoch = generation;
+	const catalog = appAtomRegistry.get(cloudCatalogAtom);
+	const summary = cloudSummary(workspaceId);
+	if (catalog.accountId === null || summary === undefined)
+		throw new Error(
+			"Cloud workspace ownership is not available. Refresh your chats.",
+		);
+	const { cloudControlClientForWorkspace } = await import("~/rpc/api-client");
+	if (epoch !== generation || cloudSummary(workspaceId) === undefined)
+		throw new Error(
+			"Cloud account changed. Reopen the chat from your account.",
+		);
+	return cloudControlClientForWorkspace(
+		summary.workspaceScope ?? { kind: "personal" },
+	);
+};
 export const cloudAuthenticatedProvidersAtom = Atom.make(
 	(get) =>
 		get(cloudCatalogAtom)
@@ -178,27 +207,174 @@ export const cloudCatalogBundles = (
 };
 
 let generation = 0;
+let accountGeneration = 0;
+let selectionGeneration = 0;
+let organizationFlight: Promise<readonly Organization[]> | null = null;
+export const cloudCatalogGeneration = () => generation;
+/** Capture once per UI operation; switching away and back still invalidates it. */
+export const cloudWorkspaceSnapshot = () => {
+	const catalog = appAtomRegistry.get(cloudCatalogAtom);
+	const epoch = generation;
+	return {
+		accountId: catalog.accountId,
+		scope: catalog.scope,
+		isCurrent: () => epoch === generation,
+	};
+};
+/** Configuration forms require current ownership, not just a matching workspace ID. */
+export const cloudWorkspaceAdminSnapshot = () => {
+	const snapshot = cloudWorkspaceSnapshot();
+	const scope = snapshot.scope;
+	return {
+		...snapshot,
+		isCurrent: () =>
+			snapshot.accountId !== null &&
+			snapshot.isCurrent() &&
+			(scope.kind === "personal" ||
+				appAtomRegistry
+					.get(cloudCatalogAtom)
+					.organizations.some(
+						(organization) =>
+							organization.id === scope.organizationId &&
+							organization.role === "admin",
+					)),
+	};
+};
 let catalogMutation = 0;
 let flight: Promise<void> | null = null;
 export const setCloudCatalogAccount = (accountId: string | null): void => {
 	if (appAtomRegistry.get(cloudCatalogAtom).accountId === accountId) return;
+	accountGeneration++;
+	selectionGeneration++;
+	organizationFlight = null;
 	generation += 1;
 	flight = null;
 	appAtomRegistry.set(cloudCatalogAtom, empty(accountId));
 };
 
-export const refreshCloudCatalog = (): Promise<void> => {
+export const refreshCloudOrganizations = (): Promise<
+	readonly Organization[]
+> => {
 	if (appAtomRegistry.get(cloudCatalogAtom).accountId === null)
+		return Promise.resolve([]);
+	if (organizationFlight !== null) return organizationFlight;
+	const account = accountGeneration;
+	const pending = (async () => {
+		const { organizationControlClientForAccount } = await import(
+			"~/rpc/api-client"
+		);
+		if (account !== accountGeneration)
+			throw new Error("Cloud account changed.");
+		const organizations = await Effect.runPromise(
+			organizationControlClientForAccount()["organizations.list"]({}),
+		);
+		if (account !== accountGeneration)
+			throw new Error("Cloud account changed.");
+		const current = appAtomRegistry.get(cloudCatalogAtom);
+		const scope = current.scope;
+		const membership =
+			scope.kind === "organization"
+				? organizations.find(
+						(organization) => organization.id === scope.organizationId,
+					)
+				: undefined;
+		if (
+			scope.kind === "organization" &&
+			(current.organizations.find(
+				(organization) => organization.id === scope.organizationId,
+			)?.role !== membership?.role ||
+				((membership === undefined || membership.role === "billing") &&
+					(current.loading ||
+						current.chats.length > 0 ||
+						current.projects.length > 0 ||
+						current.auth !== null ||
+						current.image !== null)))
+		) {
+			generation++;
+			flight = null;
+			appAtomRegistry.set(cloudCatalogAtom, {
+				...empty(current.accountId, scope),
+				organizations,
+				error:
+					membership === undefined
+						? "This organization is no longer available."
+						: null,
+			});
+			return organizations;
+		}
+		appAtomRegistry.update(cloudCatalogAtom, (state) => ({
+			...state,
+			organizations,
+		}));
+		return organizations;
+	})().finally(() => {
+		if (organizationFlight === pending) organizationFlight = null;
+	});
+	organizationFlight = pending;
+	return pending;
+};
+
+export const setCloudCatalogWorkspace = (scope: WorkspaceScope): void => {
+	const validated = Schema.decodeUnknownSync(WorkspaceScope)(scope);
+	const current = appAtomRegistry.get(cloudCatalogAtom);
+	if (validated.kind === "organization" && current.accountId === null)
+		throw new Error("Sign in before selecting an organization.");
+	selectionGeneration++;
+	if (workspaceScopeKey(validated) === workspaceScopeKey(current.scope)) return;
+	generation++;
+	flight = null;
+	appAtomRegistry.set(cloudCatalogAtom, {
+		...empty(current.accountId, validated),
+		organizations: current.organizations,
+	});
+};
+
+/** UI selection checks current membership; a failed selection keeps the old scope. */
+export const selectCloudWorkspace = async (
+	scope: WorkspaceScope,
+): Promise<void> => {
+	const validated = Schema.decodeUnknownSync(WorkspaceScope)(scope);
+	const selection = ++selectionGeneration;
+	const account = accountGeneration;
+	if (validated.kind === "organization") {
+		const organizations = await refreshCloudOrganizations();
+		if (
+			!organizations.some(
+				(organization) => organization.id === validated.organizationId,
+			)
+		)
+			throw new Error("This organization is no longer available.");
+	}
+	if (selection !== selectionGeneration || account !== accountGeneration)
+		throw new Error("Workspace selection changed. Try again.");
+	setCloudCatalogWorkspace(validated);
+};
+
+export const refreshCloudCatalog = (): Promise<void> => {
+	const current = appAtomRegistry.get(cloudCatalogAtom);
+	if (current.accountId === null) return Promise.resolve();
+	const selectedScope = current.scope;
+	if (
+		selectedScope.kind === "organization" &&
+		current.organizations.some(
+			(organization) =>
+				organization.id === selectedScope.organizationId &&
+				organization.role === "billing",
+		)
+	)
 		return Promise.resolve();
 	if (flight !== null) return flight;
 	const epoch = generation;
 	const mutation = catalogMutation;
+	const scope = appAtomRegistry.get(cloudCatalogAtom).scope;
 	appAtomRegistry.update(cloudCatalogAtom, (state) => ({
 		...state,
 		loading: true,
 	}));
 	const pending = (async () => {
-		const { cloudControlClient } = await import("~/rpc/api-client");
+		const { cloudControlClientForWorkspace } = await import("~/rpc/api-client");
+		if (epoch !== generation) return;
+		const cloudControlClient = cloudControlClientForWorkspace(scope);
 		const results = await Promise.allSettled([
 			Effect.runPromise(
 				cloudControlClient["cloud.chats.list"]({ scope: "active" }),
@@ -236,6 +412,36 @@ export const refreshCloudCatalog = (): Promise<void> => {
 					])
 				: [null, null];
 		if (epoch !== generation) return;
+		if (
+			chats.status === "rejected" &&
+			cloudFailurePresentation({ cause: chats.reason })?.kind ===
+				"sign-in-required"
+		) {
+			appAtomRegistry.set(cloudCatalogAtom, {
+				...empty(appAtomRegistry.get(cloudCatalogAtom).accountId, scope),
+				organizations: appAtomRegistry.get(cloudCatalogAtom).organizations,
+				error:
+					cloudFailurePresentation({ cause: chats.reason })?.message ??
+					"Could not refresh cloud chats. Pull to retry.",
+			});
+			return;
+		}
+		if (
+			chats.status === "fulfilled" &&
+			chats.value.chats.some(
+				(row) =>
+					workspaceScopeKey(row.workspaceScope ?? { kind: "personal" }) !==
+					workspaceScopeKey(scope),
+			)
+		) {
+			appAtomRegistry.set(cloudCatalogAtom, {
+				...empty(appAtomRegistry.get(cloudCatalogAtom).accountId, scope),
+				organizations: appAtomRegistry.get(cloudCatalogAtom).organizations,
+				error:
+					"Cloud catalog returned a different workspace. Refresh to retry.",
+			});
+			return;
+		}
 		appAtomRegistry.update(cloudCatalogAtom, (state) => ({
 			...state,
 			chats:
@@ -274,9 +480,18 @@ export const refreshCloudCatalog = (): Promise<void> => {
 						"Could not refresh cloud chats. Pull to retry.")
 					: null,
 		}));
-	})().finally(() => {
-		if (flight === pending) flight = null;
-	});
+	})()
+		.catch(() => {
+			if (epoch !== generation) return;
+			appAtomRegistry.update(cloudCatalogAtom, (state) => ({
+				...state,
+				loading: false,
+				error: "Could not refresh cloud chats. Pull to retry.",
+			}));
+		})
+		.finally(() => {
+			if (flight === pending) flight = null;
+		});
 	flight = pending;
 	return pending;
 };
@@ -297,10 +512,12 @@ export const updateCloudWorkspace = (workspace: CloudWorkspace): void => {
 export const archiveCloudWorkspace = async (
 	workspaceId: string,
 ): Promise<void> => {
-	const { cloudControlClient } = await import("~/rpc/api-client");
+	const epoch = generation;
+	const cloudControlClient = await cloudControlForChat(workspaceId);
 	await Effect.runPromise(
 		cloudControlClient["cloud.workspaces.archive"]({ workspaceId }),
 	);
+	if (epoch !== generation) return;
 	catalogMutation += 1;
 	appAtomRegistry.update(cloudCatalogAtom, (state) => ({
 		...state,
