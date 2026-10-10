@@ -87,7 +87,10 @@ test.each([
 			if (url.endsWith("/organizations/team"))
 				return Response.json({ id: "team", name: "Our team" });
 			if (url.includes("/login/oauth/access_token"))
-				return Response.json({ access_token: "requester-token" });
+				return Response.json({
+					access_token: "requester-token",
+					expires_in: 8 * 60 * 60,
+				});
 			if (url.endsWith("/user"))
 				return Response.json({ id: 7, login: "requester", name: "Requester" });
 			if (url.includes("/user/installations?"))
@@ -203,6 +206,27 @@ test.each([
 				/href="([^"]+)">Check approval/
 					.exec(html)?.[1]
 					?.replaceAll("&amp;", "&") ?? "";
+			vi.useFakeTimers({ toFake: ["Date"] });
+			try {
+				vi.setSystemTime(Date.now() + 9 * 60 * 60_000);
+				const expired = await runtime.runPromise(
+					githubAuthorizationCallback(poll()),
+				);
+				expect(expired.status).toBe(200);
+				expect(await expired.json()).toEqual({
+					ready: false,
+					reauthorize: true,
+				});
+				const renew = await runtime.runPromise(
+					githubAuthorizationCallback(new Request(resume)),
+				);
+				expect(renew.status).toBe(302);
+				expect(renew.headers.get("location")).toContain(
+					"https://github.com/login/oauth/authorize",
+				);
+			} finally {
+				vi.useRealTimers();
+			}
 			approved = true;
 			expect(
 				await (
@@ -234,6 +258,23 @@ test.each([
 		expect(html).toContain("Use this account: acme");
 		expect(html).toContain("Our team");
 		expect(html).not.toContain("requester-token");
+		const checkApproval =
+			[...html.matchAll(/<a\b[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/g)]
+				.find((match) => match[2]?.includes("Check approval"))?.[1]
+				?.replaceAll("&amp;", "&") ?? "";
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			vi.setSystemTime(Date.now() + 20 * 60_000);
+			const delayedCheck = await runtime.runPromise(
+				githubAuthorizationCallback(new Request(checkApproval)),
+			);
+			expect(delayedCheck.status).toBe(302);
+			expect(delayedCheck.headers.get("location")).toContain(
+				"https://github.com/login/oauth/authorize",
+			);
+		} finally {
+			vi.useRealTimers();
+		}
 		if (alreadyInstalled) {
 			const another =
 				[...html.matchAll(/<a\b[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/g)].find(

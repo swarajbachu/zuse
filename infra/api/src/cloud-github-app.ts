@@ -638,11 +638,18 @@ export const githubAuthorizationCallback = Effect.fn(
 			? yield* githubAuthorizationCredentials(
 					verified.actorId,
 					verified.userAuthorization,
+				).pipe(
+					Effect.catch((error) =>
+						error.code === "github_user_reconnect_required"
+							? Effect.succeed(null)
+							: Effect.fail(error),
+					),
 				)
 			: yield* exchangeGithubUserToken({
 					code: code ?? "",
 					redirect_uri: callback,
 				});
+	if (credentials === null) return json({ ready: false, reauthorize: true });
 	const user = yield* prepareGithubUserAuthorization(
 		verified.actorId,
 		credentials,
@@ -828,7 +835,13 @@ export const githubAuthorizationCallback = Effect.fn(
 				{
 					label: "Check approval",
 					href: githubAuthorizationUrl(
-						yield* makeGithubInstallUrl(verified.accountId, verified.actorId),
+						yield* makeGithubInstallUrl(
+							verified.accountId,
+							verified.actorId,
+							verified.nonce,
+							user.authorization,
+							[...readyOrganizations],
+						),
 						callback,
 					),
 				},
