@@ -176,8 +176,9 @@ class FakeBoxd implements BoxdSandboxClient {
 							: {
 									kind: "snapshot",
 									name: params.fromSnapshot,
-									version: 1,
-									id: null,
+									version:
+										this.snapshotStore.get(params.fromSnapshot)?.version ?? 1,
+									id: this.snapshotStore.get(params.fromSnapshot)?.id ?? null,
 								},
 				}),
 			);
@@ -284,6 +285,10 @@ class FakeBoxd implements BoxdSandboxClient {
 		},
 	};
 	readonly snapshots = {
+		list: async (params?: { org?: string }): Promise<Snapshot[]> => {
+			this.record("snapshots.list", [params]);
+			return [...this.snapshotStore.values()];
+		},
 		create: async (machine: string, name: string) => {
 			this.record("snapshots.create", [machine, name]);
 			this.byIdOrName(machine);
@@ -827,6 +832,10 @@ describe("boxd sandbox provider", () => {
 
 	test("preserves Boxd integrations when launching a custom snapshot", async () => {
 		const client = new FakeBoxd();
+		client.set(machineOf({ id: "source-vm" }));
+		await client.snapshots.create("source-vm", "customer-snapshot");
+		const snapshot = await client.snapshots.get("customer-snapshot");
+		client.snapshotStore.set(snapshot.name, { ...snapshot, status: "ready" });
 		await run(
 			makeAdapter(client).fork({
 				...createInput,
@@ -838,6 +847,94 @@ describe("boxd sandbox provider", () => {
 			fromSnapshot: "customer-snapshot",
 			isolated: false,
 		});
+	});
+
+	test("restores a persisted custom source ID by name and retains its immutable pin", async () => {
+		const client = new FakeBoxd();
+		client.set(machineOf({ id: "source-vm" }));
+		await client.snapshots.create("source-vm", "customer-snapshot");
+		const snapshot = await client.snapshots.get("customer-snapshot");
+		client.snapshotStore.set(snapshot.name, { ...snapshot, status: "ready" });
+		client.calls.length = 0;
+		const provider = makeAdapter(client);
+		if (provider.resolveSnapshotSource === undefined)
+			throw new Error("missing source resolver");
+		await expect(
+			run(provider.resolveSnapshotSource(snapshot.id)),
+		).resolves.toEqual({ snapshotId: snapshot.id, version: 1 });
+		await run(
+			provider.fork({
+				...createInput,
+				snapshotId: snapshot.id,
+				snapshotVersion: 1,
+				snapshotSource: "custom-snapshot",
+			}),
+		);
+		expect(client.methods("machines.create")[0]?.args[0]).toMatchObject({
+			fromSnapshot: snapshot.name,
+			isolated: false,
+		});
+		expect(client.methods("snapshots.list")[0]?.args).toEqual([
+			{ org: "zuse" },
+		]);
+	});
+
+	test("rejects an unavailable custom source before allocating a machine", async () => {
+		const client = new FakeBoxd();
+		await expect(
+			run(
+				makeAdapter(client).fork({
+					...createInput,
+					snapshotId: "missing-source-id",
+					snapshotVersion: 1,
+					snapshotSource: "custom-snapshot",
+				}),
+			),
+		).rejects.toMatchObject({ code: "not-found" });
+		expect(client.methods("machines.create")).toHaveLength(0);
+	});
+
+	test("does not fall back to a snapshot list after a transient lookup failure", async () => {
+		const client = new FakeBoxd();
+		client.snapshots.get = async () => {
+			throw new Error("connection lost");
+		};
+		const provider = makeAdapter(client);
+		if (provider.resolveSnapshotSource === undefined)
+			throw new Error("missing source resolver");
+		await expect(
+			run(provider.resolveSnapshotSource("customer-snapshot")),
+		).rejects.toMatchObject({ code: "transient" });
+		expect(client.methods("snapshots.list")).toHaveLength(0);
+		expect(client.methods("machines.create")).toHaveLength(0);
+	});
+
+	test("rejects a custom snapshot replaced between resolution and restore", async () => {
+		const client = new FakeBoxd();
+		client.set(machineOf({ id: "source-vm" }));
+		await client.snapshots.create("source-vm", "customer-snapshot");
+		const snapshot = await client.snapshots.get("customer-snapshot");
+		client.snapshotStore.set(snapshot.name, { ...snapshot, status: "ready" });
+		const create = client.machines.create;
+		client.machines.create = async (params) => {
+			client.snapshotStore.set(snapshot.name, {
+				...snapshot,
+				id: "replacement-source",
+				status: "ready",
+			});
+			return create(params);
+		};
+		await expect(
+			run(
+				makeAdapter(client).fork({
+					...createInput,
+					snapshotId: snapshot.id,
+					snapshotVersion: 1,
+					snapshotSource: "custom-snapshot",
+				}),
+			),
+		).rejects.toMatchObject({ code: "rejected" });
+		expect(client.methods("machines.exec")).toHaveLength(0);
 	});
 
 	test.each([

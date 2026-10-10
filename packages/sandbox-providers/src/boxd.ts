@@ -104,6 +104,7 @@ export interface BoxdSandboxClient {
 	readonly snapshots: {
 		create(machine: string, name: string): Promise<CreatedSnapshot>;
 		get(name: string, params?: { org?: string }): Promise<Snapshot>;
+		list(params?: { org?: string }): Promise<Snapshot[]>;
 		delete(name: string, params?: { org?: string }): Promise<void>;
 	};
 }
@@ -343,6 +344,30 @@ export const makeBoxdSandboxProvider = (
 			},
 		});
 
+	// Boxd restores by name, while imported sources are pinned by immutable ID.
+	// Only a genuine missing name warrants an ID lookup; outages must propagate.
+	const snapshotReference = (reference: string) =>
+		call("snapshots.get", () =>
+			client.snapshots.get(reference, org === undefined ? undefined : { org }),
+		).pipe(
+			Effect.catchTag("SandboxProviderError", (error) =>
+				error.code !== "not-found"
+					? Effect.fail(error)
+					: call("snapshots.list", () =>
+							client.snapshots.list(org === undefined ? undefined : { org }),
+						).pipe(
+							Effect.flatMap((snapshots) => {
+								const found = snapshots.find(
+									(snapshot) => snapshot.id === reference,
+								);
+								return found === undefined
+									? Effect.fail(providerError("not-found"))
+									: Effect.succeed(found);
+							}),
+						),
+			),
+		);
+
 	// A lifecycle request answered with a state conflict already holds: the
 	// machine parked or woke on its own. Rate limits and outages still fail.
 	const callTolerantOfConflict = (
@@ -511,6 +536,21 @@ export const makeBoxdSandboxProvider = (
 		const name = boxdMachineName(input.providerLabel);
 		if (!MACHINE_NAME_PATTERN.test(name))
 			return yield* providerError("rejected");
+		const source =
+			input.snapshotSource === "custom-snapshot"
+				? yield* snapshotReference(input.snapshot)
+				: undefined;
+		if (
+			source !== undefined &&
+			(source.status !== "ready" ||
+				source.version === null ||
+				(input.snapshotVersion !== undefined &&
+					(source.id !== input.snapshot ||
+						source.version !== input.snapshotVersion)))
+		)
+			return yield* providerError("rejected");
+		const expectedSnapshotId = source?.id ?? input.snapshot;
+		const expectedSnapshotVersion = input.snapshotVersion ?? source?.version;
 		const idleSeconds = clampIdleSeconds(input.timeoutSeconds);
 		// Managed images are isolated. User-owned snapshots retain Boxd
 		// account integrations, including agent credential injection.
@@ -527,7 +567,7 @@ export const makeBoxdSandboxProvider = (
 					return await client.machines.create({
 						name,
 						...(org === undefined ? {} : { org }),
-						fromSnapshot: input.snapshot,
+						fromSnapshot: source?.name ?? input.snapshot,
 						isolated: input.snapshotSource !== "custom-snapshot",
 						config: {
 							autoSuspendTimeout: 0,
@@ -572,11 +612,11 @@ export const makeBoxdSandboxProvider = (
 				client.machines.setAutoHibernateTimeout(created.id, idleSeconds),
 			);
 		let usable = created;
-		if (input.snapshotVersion !== undefined) {
+		if (expectedSnapshotVersion !== undefined) {
 			if (usable.source?.id == null) usable = yield* machine(created.id);
 			if (
-				usable.source?.id !== input.snapshot ||
-				usable.source.version !== input.snapshotVersion
+				usable.source?.id !== expectedSnapshotId ||
+				usable.source.version !== expectedSnapshotVersion
 			)
 				return yield* providerError("rejected");
 		}
@@ -1169,12 +1209,7 @@ export const makeBoxdSandboxProvider = (
 		// Account images are snapshots; a restore boots into the captured
 		// state in milliseconds with its memory intact.
 		resolveSnapshotSource: (snapshotId) =>
-			call("snapshots.get", () =>
-				client.snapshots.get(
-					snapshotId,
-					org === undefined ? undefined : { org },
-				),
-			).pipe(
+			snapshotReference(snapshotId).pipe(
 				Effect.flatMap((info) =>
 					info.status === "ready" && info.version !== null
 						? Effect.succeed({ snapshotId: info.id, version: info.version })
