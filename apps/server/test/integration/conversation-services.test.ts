@@ -57,6 +57,7 @@ import { SqlClient } from "effect/unstable/sql";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ApiActivityPublisher } from "../../src/api/activity-publisher.ts";
 import { startCloudWorkspaceLaunchIntent } from "../../src/api/cloud-workspace-runtime.ts";
+import { AppPaths } from "../../src/app-paths.ts";
 import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
 import { loadTerminalProviderTurnKeys } from "../../src/conversation/core/conversation-reactors.ts";
 import { ConversationState } from "../../src/conversation/core/conversation-state.ts";
@@ -717,7 +718,9 @@ const makeRuntime = (dbPath: string, migrate = true) => {
 	const SessionQueriesLive = SqlSessionQueries.layer.pipe(
 		Layer.provide(Migrated),
 	);
+	const userData = mkdtempSync(join(tmpdir(), "zuse-test-userdata-"));
 	const ConversationLayer = ConversationServicesLive.pipe(
+		Layer.provide(Layer.succeed(AppPaths, { userData })),
 		Layer.provide(
 			Layer.succeed(WorkspaceExecutionPolicy, {
 				authorize: () =>

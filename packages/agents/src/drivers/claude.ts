@@ -1352,13 +1352,15 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 	// Control-plane (orchestration) reads. Inspecting threads/models is
 	// non-mutating and visible to the user, so auto-allow like the browser
 	// reads. The MUTATING control-plane tools — create_thread, create_session,
-	// send_to_thread — are deliberately absent: they spawn real work and must
-	// fall through to the permission prompt, which is the approval gate for the
-	// `approval-gated` autonomy level.
+	// send_to_thread, memory_write — are deliberately absent: they change real
+	// state and must fall through to the permission prompt, which is the
+	// approval gate for the `approval-gated` autonomy level.
 	`mcp__${ZUSE_MCP_NAME}__read_thread`,
 	`mcp__${ZUSE_MCP_NAME}__list_threads`,
 	`mcp__${ZUSE_MCP_NAME}__list_models`,
 	`mcp__${ZUSE_MCP_NAME}__whoami`,
+	`mcp__${ZUSE_MCP_NAME}__memory_read`,
+	`mcp__${ZUSE_MCP_NAME}__memory_search`,
 ]);
 
 type ToolPolicy =

@@ -32,6 +32,7 @@ import {
 } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ApiActivityPublisher } from "../../src/api/activity-publisher.ts";
+import { AppPaths } from "../../src/app-paths.ts";
 import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
 import { ConversationState } from "../../src/conversation/core/conversation-state.ts";
 import { ConversationServicesLive } from "../../src/conversation/layers/conversation-services.ts";
@@ -405,7 +406,9 @@ export const makeConversationFixtureRuntime = (
 	const SessionQueriesLive = SqlSessionQueries.layer.pipe(
 		Layer.provide(Migrated),
 	);
+	const userData = mkdtempSync(join(tmpdir(), "zuse-test-userdata-"));
 	const ConversationLayer = ConversationServicesLive.pipe(
+		Layer.provide(Layer.succeed(AppPaths, { userData })),
 		Layer.provide(ConversationState.layer),
 		Layer.provide(StubProviderLive),
 		Layer.provide(StubWorktreeLive),

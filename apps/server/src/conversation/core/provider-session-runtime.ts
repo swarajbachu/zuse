@@ -10,6 +10,7 @@ import {
 import type { WorktreeServiceShape } from "@zuse/git/worktree-service";
 import { Effect, Option } from "effect";
 import type { ConfigStoreServiceShape } from "../../config-store/services/config-store-service.ts";
+import type { MemoryVault } from "../../context/memory-vault.ts";
 import type { ModelCatalogServiceShape } from "../../model-catalog/services/model-catalog-service.ts";
 import type { ProviderServiceShape } from "../../provider/services/provider-service.ts";
 import { RuntimeGitExecution } from "../../provider/services/runtime-git-execution.ts";
@@ -64,6 +65,12 @@ export interface ProviderSessionRuntimeOptions {
 	readonly listMessages: ConversationOperations["listMessages"];
 	readonly listChats: ConversationOperations["listChats"];
 	readonly listSessions: ConversationOperations["listSessions"];
+	/**
+	 * Session-scoped memory vault factory. The returned ops resolve the
+	 * session's cwd lazily (`resolveSessionCwd`) so a worktree bound during
+	 * startup is picked up by the time a tool call lands.
+	 */
+	readonly memoryVaultFor: (sessionId: SessionId) => MemoryVault;
 	readonly provider: ProviderServiceShape;
 	readonly attachProvider: (
 		sessionId: SessionId,
@@ -95,6 +102,7 @@ export const makeProviderSessionRuntime = (
 		listMessages,
 		listChats,
 		listSessions,
+		memoryVaultFor,
 		provider,
 		attachProvider,
 		setStatus,
@@ -167,6 +175,7 @@ export const makeProviderSessionRuntime = (
 					listMessages,
 					listChats,
 					listSessions,
+					memoryVault: memoryVaultFor(session.id),
 				},
 				{
 					sessionId: session.id,
