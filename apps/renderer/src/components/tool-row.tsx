@@ -12,6 +12,7 @@ import {
 import { message as uiMessage } from "@zuse/i18n";
 import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
+	Analytics01Icon,
 	Brain01Icon,
 	BrowserIcon,
 	BubbleChatIcon,
@@ -82,6 +83,10 @@ const normalizeToolName = (tool: string): string => {
 		: normalized;
 };
 
+/** Zuse's generative-UI tool, whatever MCP prefix the provider adds. */
+const isEmitUiTool = (tool: string): boolean =>
+	/(?:^|__|[.:/-])emit_ui$/.test(tool);
+
 /** Managed-plugin gateway tools, whatever MCP prefix the provider adds. */
 const pluginToolKind = (tool: string): "search" | "schema" | "call" | null => {
 	const match = /(?:^|__|[.:/-])plugins_(search|schema|call)$/.exec(tool);
@@ -103,6 +108,7 @@ const humanizeToolName = (tool: string): string =>
 export const iconForTool = (tool: string): IconHandle => {
 	const normalizedTool = normalizeToolName(tool);
 	if (pluginToolKind(normalizedTool) !== null) return PuzzleIcon;
+	if (isEmitUiTool(normalizedTool)) return Analytics01Icon;
 	switch (normalizedTool) {
 		case "local_command_execute":
 		case "Bash":
@@ -873,6 +879,22 @@ const buildToolView = (
 				),
 		};
 	}
+
+	// The rendered block is its own transcript row; this row keeps the source.
+	if (isEmitUiTool(normalizedTool))
+		return {
+			icon: Analytics01Icon,
+			label: uiMessage("chat:message_row_ui_spec_generated"),
+			fallbackBody: (
+				<CombinedPreBlock
+					input={asString(obj.spec) ?? stringifyJson(input)}
+					output={
+						result === undefined ? undefined : toResultText(result.output)
+					}
+					isError={result?.isError}
+				/>
+			),
+		};
 
 	const pluginKind = pluginToolKind(normalizedTool);
 	if (pluginKind !== null) {

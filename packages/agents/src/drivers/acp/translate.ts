@@ -140,6 +140,9 @@ const normalizeAcpKind = (rawKind: string): string => {
 	if (k.startsWith("mcp__zuse-orchestration__")) {
 		return k;
 	}
+	// Zuse's generative-UI tool keeps its identity so the renderer can label it.
+	if (k === "emit_ui" || /^(?:mcp__)?zuse(?:-orchestration)?__emit_ui$/.test(k))
+		return "mcp__zuse__emit_ui";
 	if (
 		k === "view_image" ||
 		k === "zuse-images__view_image" ||

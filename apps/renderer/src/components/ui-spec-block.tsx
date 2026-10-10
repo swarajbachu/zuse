@@ -194,7 +194,7 @@ const UiBadge: SpecComponent<"Badge"> = ({ props }) => (
 	<Badge
 		variant={BADGE_VARIANTS[props.tone ?? "neutral"]}
 		size="sm"
-		className="self-start font-medium"
+		className="self-start justify-self-start font-medium"
 	>
 		{props.label}
 	</Badge>
