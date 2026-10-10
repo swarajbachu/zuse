@@ -326,3 +326,29 @@ Provider inventory initially reported 12 named snapshots and $3.40/month in extr
 Deleted superseded bases v1, v2, v5, v6 and v7, and two unreferenced October 7 auth/tool test snapshots. Retained base v8 and four explicitly retained project images (two staging, two production). A final provider listing verified five remaining named snapshots, zero snapshots above the free allowance and $0/month in extra snapshot charges. No existing workspace, chat database, provider key or deployed API/runtime was replaced.
 
 The full new API/runtime/client staging journey, signed publication, updated template, expired-token sleep and long-duration provider tests remain rollout gates. Passing these live adapter tests does not close those gates.
+
+## Authenticated staging journey, October 10
+
+The staging API was deployed with the shared runtime-script loader, and the signed runtime release `be5291de53fd4c46149b71283859c46ca2e565cc` was published and verified against the configured staging signing key. An E2B account image was rebuilt successfully with that release. Tests originate on the user's Mac and exercise the real public API, durable mailbox, gateway, guest runtime and Codex CLI using a working account model. They do not measure a literal desktop tab click.
+
+Timing starts immediately before the authenticated create/send request. Agent receipt means the CLI has answered `turn/start`, recorded after the awaited response; HTTP acceptance and provider resume are separate boundaries. Guest/local clock offsets were bounded by a timed guest clock command, so ranges include calibration uncertainty rather than claiming false millisecond precision. Tiny cohorts establish neither p95/p99 nor a one-in-a-million failure rate.
+
+| E2B cohort | Samples | Actual agent receipt bounds | Observed completed reply |
+| --- | ---: | --- | --- |
+| Existing awake workspace | 5 | 1.27–4.39 seconds across samples | 5.54–11.67 seconds |
+| Paused workspace, send initiates wake | 3 | 5.47–8.27 seconds across samples | 10.39–12.20 seconds |
+| Fresh workspace from rebuilt image | 1 | 30.44–33.05 seconds | 37.27 seconds |
+
+Paused measurements make no guest diagnostic calls between pause confirmation and the actual send: such calls can wake E2B and invalidate the measurement. The previous stock Boxd allocation/resume values above remain provider-only evidence and must not be presented as agent receipt.
+
+Live staging transitions verified: same-ID message replay produced one user/assistant pair; three paused sends recovered; a credential was allowed to expire naturally while its workspace slept, then a prompt completed in 22.74 seconds with one execution, retained chat/session IDs and the same runtime generation with a renewed expiry; normal desktop access-token refresh restored authenticated access after an expired verification request; signed upgrades retained identities; three client socket reconnects verified gateway availability in 1.85–2.79 seconds; replacing and dropping the runtime's socket healed, followed by five completed real agent turns. Gateway availability is not proof of desktop RPC subscription continuity.
+
+The first old-image pause returned HTTP 503; the remaining pause cycles succeeded, and that failed prerequisite is retained in the evidence rather than counted as a passing wake. Two early agent runs used unsupported account models; corrected runs use `gpt-5.6-luna`. Diagnostic fixture mistakes (expecting gateway state `ready` instead of `available`, and waking a paused guest with a diagnostic read) were corrected and excluded from latency cohorts. Interrupted signed update and lost renewal response/process restart have real local fault tests, not full live provider certification; a two-day sleep uses a controlled-clock test rather than a two-day soak.
+
+### Boxd source resolution defect and remaining gates
+
+The installed Boxd SDK accepts snapshot **names** for lookup and restore, while imported account images store immutable snapshot **IDs**. The shared adapter now resolves an imported ID within its connection's organization, restores by name, and checks the immutable ID/version before and after allocation. Lookup outages propagate rather than becoming absence, and a replaced image cannot silently satisfy a pinned reference. Managed image restore retains its existing direct path. Provider type checks, applicable Biome and all 260 provider unit cases pass, including ID restore, missing source, transient lookup and a snapshot replacement race.
+
+The fix was deployed to staging API version `4080bed8-5631-4bac-8e47-c53e2cf3488a`. Retrying the selected Boxd connection still failed before assigning a machine; the latest supplied key authenticates but lists no snapshots both in its default context and explicit organization `zuse`. Thus full prepared Boxd timing is still blocked by access to the selected image, independently of the confirmed adapter defect. Boat's current staging connection rejects its image build with permission denied. Neither provider has a qualified full agent timing result, and Boxd's under-five-second goal is still open. Production was not deployed or modified.
+
+An additional runtime socket replacement/drop occurred during an unfinished agent turn; the turn completed after 27.80 seconds with exactly one user message and one assistant reply. Repeating its idempotency key returned the existing canonical message ID; its delivery status progressed, so the complete receipt payload was not byte-for-byte identical. This is an in-flight durable mailbox/agent test, not an assertion that a desktop partial stream visually resumes without interruption.
