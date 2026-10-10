@@ -45,10 +45,10 @@ describe("credentialed billing polls", () => {
 		}
 		expect(fetch).not.toHaveBeenCalled();
 	});
-	it("uses a timeout signal and rejects redirects", async () => {
+	it("uses a timeout signal with Workers-compatible redirect protection", async () => {
 		const fetch = vi.fn(async (_url: string, init: RequestInit) => {
 			expect(init.signal).toBeInstanceOf(AbortSignal);
-			expect(init.redirect).toBe("error");
+			expect(init.redirect).toBe("manual");
 			return new Response("{}");
 		});
 		vi.stubGlobal("fetch", fetch);
@@ -56,6 +56,28 @@ describe("credentialed billing polls", () => {
 			authorization: "Bearer token",
 		});
 		expect(fetch).toHaveBeenCalledOnce();
+	});
+	it.each([
+		301, 302, 303, 307, 308,
+	])("rejects redirect %s without a second credentialed request", async (status) => {
+		const fetch = vi.fn(
+			async () =>
+				new Response(null, {
+					status,
+					headers: { location: "https://other.test/usage" },
+				}),
+		);
+		vi.stubGlobal("fetch", fetch);
+		await expect(
+			billingPollRequest("https://api.test", {
+				authorization: "Bearer token",
+			}),
+		).rejects.toThrow("Billing API redirects are not allowed");
+		expect(fetch).toHaveBeenCalledOnce();
+		expect(fetch).toHaveBeenCalledWith(
+			"https://api.test",
+			expect.objectContaining({ redirect: "manual" }),
+		);
 	});
 	it.each([
 		"BOX_API_KEY",
