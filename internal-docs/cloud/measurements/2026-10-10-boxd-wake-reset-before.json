@@ -1,0 +1,112 @@
+{
+	"scenario": "resume-to-guest-response",
+	"startWallMs": 1791631540364,
+	"workspaceId": "workspace_33YmxwGmqg2wps--",
+	"resumeHttpStatus": 200,
+	"resumeReceiptMs": 1226,
+	"controlReadyObservedMs": 4349,
+	"startupTimings": {
+		"requestedAt": 1791630833598,
+		"forkedAt": 1791630842488,
+		"allocatedAt": 1791630842488,
+		"enrolledAt": 1791630846282,
+		"runtimeReadyAt": 1791630846282,
+		"enrollmentDurationMs": 3794,
+		"repositoryReadyAt": 1791630850623,
+		"connectedAt": 1791630850623,
+		"agentStartedAt": 1791630851062,
+		"messageAcceptedAt": 1791630851062,
+		"launchDurationMs": 17464
+	},
+	"ticketHttpStatus": 200,
+	"ticketReceiptMs": 4588,
+	"trace": [
+		{
+			"atMs": 7044,
+			"event": "open"
+		},
+		{
+			"atMs": 7046,
+			"direction": "in",
+			"frameTag": "gateway.availability",
+			"availabilityState": "available",
+			"availabilityReset": false,
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 7047,
+			"direction": "out",
+			"frameTag": "Request",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 7274,
+			"direction": "in",
+			"frameTag": "Exit",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 8324,
+			"direction": "in",
+			"frameTag": "gateway.availability",
+			"availabilityState": "available",
+			"availabilityReset": true,
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 8324,
+			"event": "close-called",
+			"code": 4100,
+			"reason": "workspace runtime unavailable",
+			"rawReadyState": 1
+		},
+		{
+			"atMs": 8325,
+			"event": "close-returned",
+			"rawReadyState": 2
+		},
+		{
+			"atMs": 8426,
+			"event": "post-close-100ms",
+			"rawReadyState": 2
+		},
+		{
+			"atMs": 14601,
+			"event": "close-called",
+			"code": 1000,
+			"rawReadyState": 2
+		},
+		{
+			"atMs": 14601,
+			"event": "close-returned",
+			"rawReadyState": 2
+		},
+		{
+			"atMs": 14602,
+			"event": "rpc-failed",
+			"failureTag": "RpcClientError",
+			"reason": "Timeout",
+			"rawReadyState": 2
+		},
+		{
+			"atMs": 14702,
+			"event": "post-close-100ms",
+			"rawReadyState": 2
+		},
+		{
+			"atMs": 18493,
+			"event": "error"
+		},
+		{
+			"atMs": 18494,
+			"event": "close",
+			"code": 1006,
+			"reason": "",
+			"wasClean": false
+		}
+	],
+	"guestHandshakeReceiptMs": 7279,
+	"failedRpc": "session.create",
+	"failureTag": "RpcClientError",
+	"failureReason": "Timeout"
+}
