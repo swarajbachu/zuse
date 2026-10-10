@@ -193,6 +193,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		});
 
 	const { ensureForTurn } = makeProviderSessionRuntime({
+		awaitWorkspaceReady: options.awaitWorkspaceReady,
 		state,
 		agentsFor,
 		cwdForWorktree,

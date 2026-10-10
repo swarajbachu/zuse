@@ -29,7 +29,7 @@ import {
 import { Duration, Effect, Fiber, Schedule, Stream } from "effect";
 import {
 	cloudWorkspaceStartupError,
-	isCloudWorkspaceReady,
+	isCloudWorkspaceAttachable,
 	waitForCloudWorkspaceReady,
 } from "../lib/cloud-workspace-lifecycle.ts";
 import { overlayActiveEnvironmentShell } from "../lib/environment-entities.ts";
@@ -80,6 +80,8 @@ import {
 import {
 	type EnvironmentShellData,
 	environmentShellResourceKey,
+	retainEnvironmentShell,
+	waitForEnvironmentGateway,
 } from "./environment-shell-client-bus.ts";
 import { isHostedProduct } from "./hosted-connect.ts";
 import { hostedProjectFolderId } from "./hosted-workspace.ts";
@@ -149,7 +151,7 @@ let catalogGeneration = 0;
 let hydrationRequested = false;
 
 /**
- * An authoritative ready runtime is a new recovery signal for a client whose
+ * An authoritative online runtime is a new recovery signal for a client whose
  * socket exhausted its retry ladder while compute was asleep. Include both
  * lifecycle revision and client generation so each real state change gets one
  * automatic attempt without turning a persistent outage into a retry storm.
@@ -158,9 +160,7 @@ export const cloudConnectionRearmKey = (
 	summary: CloudChatSummary,
 	connection: ConnectionView,
 ): string | null =>
-	summary.state === "ready" &&
-	summary.runtimeState === "online" &&
-	connection.phase === "failed"
+	isCloudWorkspaceAttachable(summary) && connection.phase === "failed"
 		? `${summary.workspaceId}:${summary.revision}:${connection.generation}`
 		: null;
 
@@ -578,7 +578,7 @@ export const ensureCloudWorkspaceAttached = (
 	const registered = registeredCloudEnvironments.get(summary.workspaceId);
 	if (
 		registered !== undefined &&
-		isCloudWorkspaceReady(registered) &&
+		isCloudWorkspaceAttachable(registered) &&
 		registered.desiredState === "ready" &&
 		getRendererClientBus().connection(EnvironmentId.make(summary.workspaceId))
 			.phase === "connected"
@@ -658,7 +658,7 @@ const attachCloudWorkspace = async (
 	publish(workspace);
 	const startupError = cloudWorkspaceStartupError(workspace);
 	if (startupError !== null) throw startupError;
-	if (activation === "connect" && !isCloudWorkspaceReady(workspace)) {
+	if (activation === "connect" && !isCloudWorkspaceAttachable(workspace)) {
 		throw new Error(
 			workspace.state === "paused"
 				? "Cloud workspace is paused."
@@ -676,7 +676,7 @@ const attachCloudWorkspace = async (
 	let connection = await connectionForWorkspace();
 	if (
 		connection.protocol !== WORKSPACE_GATEWAY_PENDING_PROTOCOL &&
-		!isCloudWorkspaceReady(workspace)
+		!isCloudWorkspaceAttachable(workspace)
 	) {
 		// Previous APIs cannot admit pending attachments. Keep this negotiated
 		// bridge only until that deployed protocol has been retired.
@@ -695,6 +695,30 @@ const attachCloudWorkspace = async (
 		connectionForWorkspace,
 		account,
 	);
+};
+
+/** A launch ticket is not a connected runtime. Keep one shared connection lease
+ * until the authenticated handshake succeeds, then let the selected chat retain it. */
+export const connectCloudWorkspaceForLaunch = async (
+	summary: CloudChatSummary,
+): Promise<() => void> => {
+	const account = rendererAccountSnapshot();
+	registerCloudEnvironmentResolver(summary);
+	const retained = retainEnvironmentShell(
+		{ environmentId: EnvironmentId.make(summary.workspaceId) },
+		"wake",
+	);
+	try {
+		await waitForEnvironmentGateway(
+			EnvironmentId.make(summary.workspaceId),
+			retained.key,
+		);
+		assertRendererAccountCurrent(account);
+		return () => retained.lease.release();
+	} catch (cause) {
+		retained.lease.release();
+		throw cause;
+	}
 };
 
 const ensureCloudWorkspaceEnvironment = (

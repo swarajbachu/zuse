@@ -40,6 +40,7 @@ import {
 } from "./question-resolution-receipt.ts";
 
 export interface ConversationStoreRuntimeOptions {
+	readonly isWorkspaceReady?: () => boolean;
 	readonly serviceScope: Scope.Scope;
 	readonly sql: SqlClient.SqlClient;
 	readonly state: ConversationStateApi;
@@ -539,7 +540,15 @@ export const makeConversationStoreRuntime = Effect.fn(
 			// Reactor effects are receipt-backed as well. Running reconciliation on
 			// every retry closes the crash window between accepting the prompt and
 			// starting the provider without duplicating already-completed effects.
-			yield* runSessionReactors;
+			if (options.isWorkspaceReady?.() === false) {
+				// The receipt is already durable. Preparation must not hold the RPC
+				// response open, and its runner belongs to the runtime, not this socket.
+				yield* Effect.forkIn(runSessionReactors, serviceScope, {
+					startImmediately: true,
+				});
+			} else {
+				yield* runSessionReactors;
+			}
 			return {
 				message: Message.make({
 					id: MessageId.make(row.id),

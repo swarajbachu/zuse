@@ -127,6 +127,10 @@ export interface SandboxProviderAdapter {
 	readonly preservesProcessesOnResume: boolean;
 	/** Guest serializes replacement and rejects stale or unfenced operations. */
 	readonly supportsFencedProcessReplacement?: boolean;
+	/** Create/restore adopts a conflicting stable label after a lost response. */
+	readonly supportsIdempotentAllocation?: boolean;
+	/** Create/restore configures the requested timeout, including adopted machines. */
+	readonly configuresAllocationTimeout?: boolean;
 	// The placement choices this provider advertises. Providers with one fixed
 	// profile expose a single entry matching `resources`.
 	readonly sizes: ReadonlyArray<SandboxProviderSize>;
@@ -192,6 +196,12 @@ export interface SandboxProviderAdapter {
 		providerSandboxId: string,
 		path: string,
 		contents: string,
+		user?: string,
+	) => Effect.Effect<void, SandboxProviderError>;
+	/** Batch launch assets through one guest installation operation when supported. */
+	readonly writeTextFiles?: (
+		providerSandboxId: string,
+		files: ReadonlyArray<{ readonly path: string; readonly contents: string }>,
 		user?: string,
 	) => Effect.Effect<void, SandboxProviderError>;
 	readonly inspect: (

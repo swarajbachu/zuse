@@ -120,7 +120,7 @@ import {
 } from "~/lib/cloud-provider-presentation.ts";
 import { loadCloudWorkspacePlacement } from "~/lib/cloud-workspace-session-cache.ts";
 import {
-	ensureCloudWorkspaceAttached,
+	connectCloudWorkspaceForLaunch,
 	stageCloudChat,
 	summaryFromLaunch,
 	useCloudChatSummaryForSelection,
@@ -1117,6 +1117,8 @@ function WorkspaceChatLanding({
 			setPendingInput(startupInput);
 			setPendingCloudStep("creating");
 			let staged = false;
+			let opened = false;
+			let releaseStartupConnection: (() => void) | undefined;
 			let stagedMessage: { ref: SessionRef; id: MessageId } | null = null;
 			try {
 				assertRendererWorkspaceCurrent(workspace);
@@ -1186,7 +1188,14 @@ function WorkspaceChatLanding({
 					stagedMessage = { ref: sandboxSession, id: messageId };
 				staged = true;
 				setPendingCloudChatId(summary.chatId);
-				if (ownsLanding()) useChatsStore.getState().select(summary.chatId);
+				setPendingCloudStep("starting");
+				releaseStartupConnection =
+					await connectCloudWorkspaceForLaunch(summary);
+				assertRendererWorkspaceCurrent(workspace);
+				if (ownsLanding()) {
+					useChatsStore.getState().select(summary.chatId);
+					opened = true;
+				}
 				if (!usesDurableInitialMessage) {
 					// This control plane delivered the prompt with the launch intent,
 					// so there is no first message left for us to enrich.
@@ -1205,17 +1214,7 @@ function WorkspaceChatLanding({
 							},
 						});
 					}
-					void ensureCloudWorkspaceAttached(summary).catch((cause) =>
-						toastManager.add({
-							type: "error",
-							get title() {
-								return uiMessage(
-									"chat:chat_landing_cloud_workspace_needs_attention",
-								);
-							},
-							description: formatError(cause),
-						}),
-					);
+
 					useSessionsStore.getState().clearDraft(draftRevision);
 					setSelectedCloudProviderId(null);
 					setCreateSource(null);
@@ -1224,25 +1223,11 @@ function WorkspaceChatLanding({
 
 				let finalInput = startupInput;
 				if (needsRuntime) {
-					setPendingCloudStep("starting");
-					await ensureCloudWorkspaceAttached(summary);
 					setPendingCloudStep("preparing");
 					finalInput = await finalizeStartupInputWhenReady(
 						startupInput,
 						{ ref: sandboxSession, uploadRoot: null },
 						startupOptions,
-					);
-				} else {
-					void ensureCloudWorkspaceAttached(summary).catch((cause) =>
-						toastManager.add({
-							type: "error",
-							get title() {
-								return uiMessage(
-									"chat:chat_landing_cloud_workspace_needs_attention",
-								);
-							},
-							description: formatError(cause),
-						}),
 					);
 				}
 				setPendingCloudStep("sending");
@@ -1262,9 +1247,9 @@ function WorkspaceChatLanding({
 					cause instanceof StartupInputError
 						? cause.message
 						: formatError(cause);
-				// Once the chat is staged the lander is gone: the open chat is the
+				// Once the connected chat is selected the lander is gone: the open chat is the
 				// only surface left that can carry the failure.
-				if (staged) {
+				if (opened) {
 					toastManager.add({
 						type: "error",
 						get title() {
@@ -1279,6 +1264,7 @@ function WorkspaceChatLanding({
 				}
 				setPendingPrompt(null);
 			} finally {
+				releaseStartupConnection?.();
 				if (stagedMessage !== null) {
 					for (const item of opts.pendingAttachments)
 						forgetAttachmentPreview(stagedMessage.ref, item.tempId);

@@ -286,7 +286,8 @@ export const retryCloudWorkspaceBootstrap = <A, E, R>(
 
 export const runtimeReadyPhaseOnGatewayOpen = (
 	repositoryReady: boolean,
-): "repository-ready" | null => (repositoryReady ? "repository-ready" : null);
+): "repository-ready" | "runtime-connected" =>
+	repositoryReady ? "repository-ready" : "runtime-connected";
 
 const LOCAL_RPC_HANDOFF_MAX_FRAMES = 32;
 const LOCAL_RPC_HANDOFF_MAX_BYTES = 256 * 1024;
@@ -2226,10 +2227,19 @@ const runCloudMailboxConsumer = (input: {
 const postReady = (
 	config: CloudWorkspaceRuntimeConfig,
 	runtimeCredential: string,
-	phase: "repository-ready" | "agent-started" | "launch-failed",
+	phase:
+		| "runtime-connected"
+		| "repository-ready"
+		| "agent-started"
+		| "launch-failed",
 	launchCommandId?: string,
 	errorCode?: string,
 	sessionHeadVersion?: number,
+	preparationPhase?:
+		| "checking-repository"
+		| "switching-branch"
+		| "fetching-repository"
+		| "preparing-credentials",
 ): Effect.Effect<void, CloudWorkspaceRuntimeError> =>
 	requestJson({
 		schema: Schema.Unknown,
@@ -2241,7 +2251,8 @@ const postReady = (
 			launchCommandId,
 			errorCode,
 			sessionHeadVersion,
-			...(phase === "repository-ready"
+			preparationPhase,
+			...(phase === "repository-ready" || phase === "runtime-connected"
 				? {
 						commandProtocolVersion: CLOUD_COMMAND_PROTOCOL_VERSION,
 						deviceBridgeVersion: DEVICE_BRIDGE_VERSION,
@@ -2262,9 +2273,18 @@ const writeCredentialsReady = Effect.tryPromise({
 	catch: () => fail("workspace_credentials_ready_failed"),
 });
 
-const waitForRepository = Effect.callback<void, CloudWorkspaceRuntimeError>(
-	(resume) => {
+const waitForRepository = (
+	onProgress: (
+		phase:
+			| "checking-repository"
+			| "switching-branch"
+			| "fetching-repository"
+			| "preparing-credentials",
+	) => void,
+) =>
+	Effect.callback<void, CloudWorkspaceRuntimeError>((resume) => {
 		let settled = false;
+		let progress: string | undefined;
 		const finish = (
 			effect: Effect.Effect<void, CloudWorkspaceRuntimeError>,
 		) => {
@@ -2274,15 +2294,43 @@ const waitForRepository = Effect.callback<void, CloudWorkspaceRuntimeError>(
 			resume(effect);
 		};
 		const check = () => {
-			void access(REPOSITORY_READY_MARKER).then(
-				() => finish(Effect.void),
+			void readFile(
+				join(dirname(REPOSITORY_READY_MARKER), "repository-progress"),
+				"utf8",
+			).then(
+				(value) => {
+					const phase = value.trim();
+					if (settled || phase === progress) return;
+					if (
+						phase === "checking-repository" ||
+						phase === "switching-branch" ||
+						phase === "fetching-repository"
+					) {
+						progress = phase;
+						onProgress(phase);
+					}
+				},
 				() => undefined,
+			);
+			void access(join(dirname(REPOSITORY_READY_MARKER), "failed")).then(
+				() => finish(Effect.fail(fail("workspace_repository_ready_failed"))),
+				() =>
+					access(REPOSITORY_READY_MARKER).then(
+						() => finish(Effect.void),
+						() => undefined,
+					),
 			);
 		};
 		const watcher = watch(
 			dirname(REPOSITORY_READY_MARKER),
 			(event, filename) => {
-				if (event === "rename" && filename === "repository-ready") check();
+				if (
+					(event === "rename" || event === "change") &&
+					(filename === "repository-ready" ||
+						filename === "failed" ||
+						filename === "repository-progress")
+				)
+					check();
 			},
 		);
 		watcher.once("error", () =>
@@ -2293,8 +2341,7 @@ const waitForRepository = Effect.callback<void, CloudWorkspaceRuntimeError>(
 			settled = true;
 			watcher.close();
 		});
-	},
-);
+	});
 
 const recoverProviderAuthFailedSessions = Effect.fn(
 	"CloudWorkspaceRuntime.recoverProviderAuthFailedSessions",
@@ -2689,253 +2736,307 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							setDefaultPluginClientFactory(undefined);
 						}),
 					);
-					if (
-						bootstrap.providerAuthMode !== "broker-v1" &&
-						bootstrap.providerAuthMode !== "snapshot-native"
-					)
-						yield* installImageProviderSecrets(credentials);
-					yield* Effect.tryPromise({
-						try: async () => {
-							for (const filename of [
-								"github-installation-token",
-								"github-installation-token-expires-at",
-							])
-								await unlink(join(cloudRuntimeDataDirectory(), filename)).catch(
-									(error: NodeJS.ErrnoException) => {
-										if (error.code !== "ENOENT") throw error;
-									},
-								);
-						},
-						catch: () => fail("workspace_github_cache_reset_failed"),
-					});
-					yield* writeGithubBrokerState(config, runtimeCredential.credential);
-					yield* Effect.tryPromise({
-						try: () =>
-							process.env.ZUSE_SNAPSHOT_NATIVE === "1"
-								? Promise.resolve()
-								: configureCloudGitIdentity(
-										cloudRuntimeDataDirectory(),
-										bootstrap.gitIdentity,
-									),
-						catch: () => fail("workspace_git_identity_failed"),
-					});
-					const releaseGitExecution = runtimeGitExecution.install(
-						makeCloudGitExecution({
-							preferNativeGit:
-								process.env.ZUSE_SNAPSHOT_GIT_AUTH_MODE !== "zuse",
-							nativeRepositoryPath:
-								process.env.ZUSE_SNAPSHOT_NATIVE === "1"
-									? config.workspaceRoot
-									: undefined,
-							sql,
-							directory: cloudRuntimeDataDirectory(),
-							authHelperPath: "/var/lib/zuse/project-build/github-auth.sh",
-							credentialUrl: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeGithubCredential(config.workspaceId)}`,
-							credential: () => runtimeCredential.credential,
-							initialSessionId: bootstrap.initialSessionId,
-							initialTurnId: bootstrap.launchIntent?.turnId,
-							initialContext: bootstrap.initialGithubContext,
-						}),
-					);
-					yield* Effect.addFinalizer(() => Effect.sync(releaseGitExecution));
-					yield* superviseRuntimeCredential({
-						state: runtimeCredential,
-						renew: refresh.renew,
-					}).pipe(Effect.forkScoped({ startImmediately: true }));
 					const nativeAgentAccess = new Map<string, SnapshotAgentAccess>();
-					if (bootstrap.providerAuthMode === "snapshot-native") {
-						const uninstall = runtimeProviderCredentials.install(
-							async (providerId) => {
-								if (providerId !== "claude" && providerId !== "codex")
-									return null;
-								const state = await checkSnapshotAgentAccess(providerId);
-								nativeAgentAccess.set(providerId, {
-									providerId,
-									state,
-									checkedAt: Date.now(),
-								});
-								await writeFile(
-									join(
-										cloudRuntimeDataDirectory(),
-										`native-${providerId}-access.json`,
-									),
-									JSON.stringify({
+					const prepareCredentials = Effect.gen(function* () {
+						if (
+							bootstrap.providerAuthMode !== "broker-v1" &&
+							bootstrap.providerAuthMode !== "snapshot-native"
+						)
+							yield* installImageProviderSecrets(credentials);
+						yield* Effect.tryPromise({
+							try: async () => {
+								for (const filename of [
+									"github-installation-token",
+									"github-installation-token-expires-at",
+								])
+									await unlink(
+										join(cloudRuntimeDataDirectory(), filename),
+									).catch((error: NodeJS.ErrnoException) => {
+										if (error.code !== "ENOENT") throw error;
+									});
+							},
+							catch: () => fail("workspace_github_cache_reset_failed"),
+						});
+						yield* writeGithubBrokerState(config, runtimeCredential.credential);
+						yield* Effect.tryPromise({
+							try: () =>
+								process.env.ZUSE_SNAPSHOT_NATIVE === "1"
+									? Promise.resolve()
+									: configureCloudGitIdentity(
+											cloudRuntimeDataDirectory(),
+											bootstrap.gitIdentity,
+										),
+							catch: () => fail("workspace_git_identity_failed"),
+						});
+						const releaseGitExecution = runtimeGitExecution.install(
+							makeCloudGitExecution({
+								preferNativeGit:
+									process.env.ZUSE_SNAPSHOT_GIT_AUTH_MODE !== "zuse",
+								nativeRepositoryPath:
+									process.env.ZUSE_SNAPSHOT_NATIVE === "1"
+										? config.workspaceRoot
+										: undefined,
+								sql,
+								directory: cloudRuntimeDataDirectory(),
+								authHelperPath: "/var/lib/zuse/project-build/github-auth.sh",
+								credentialUrl: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeGithubCredential(config.workspaceId)}`,
+								credential: () => runtimeCredential.credential,
+								initialSessionId: bootstrap.initialSessionId,
+								initialTurnId: bootstrap.launchIntent?.turnId,
+								initialContext: bootstrap.initialGithubContext,
+							}),
+						);
+						yield* Effect.addFinalizer(() => Effect.sync(releaseGitExecution));
+						yield* superviseRuntimeCredential({
+							state: runtimeCredential,
+							renew: refresh.renew,
+						}).pipe(Effect.forkScoped({ startImmediately: true }));
+						if (bootstrap.providerAuthMode === "snapshot-native") {
+							const uninstall = runtimeProviderCredentials.install(
+								async (providerId) => {
+									if (providerId !== "claude" && providerId !== "codex")
+										return null;
+									const state = await checkSnapshotAgentAccess(providerId);
+									nativeAgentAccess.set(providerId, {
 										providerId,
 										state,
 										checkedAt: Date.now(),
-									}),
-									{ mode: 0o600 },
-								);
-								if (state !== "detected" && state !== "verified")
-									throw new Error(
-										`${state === "authentication-required" || state === "expired" ? "Authentication required" : "Authentication check unavailable"}: ${providerId} snapshot status ${state}. ${state === "missing-tool" ? "Install this agent for the workspace development user." : "Sign in on this workspace, or select Zuse agent accounts in custom snapshot settings for new workspaces."}`,
-									);
-								return null;
-							},
-						);
-						yield* Effect.addFinalizer(() => Effect.sync(uninstall));
-					}
-					if (bootstrap.providerAuthMode === "broker-v1") {
-						if (bootstrap.zuseAccountId === undefined)
-							return yield* Effect.fail(fail("provider-auth-update-required"));
-						const cloudProviderAuth = new CloudProviderAuth({
-							zuseAccountId: bootstrap.zuseAccountId,
-							workspaceId: config.workspaceId,
-							runtimeGeneration: bootstrap.runtimeGeneration,
-							credentialPublicJwk: identity.credentialPublicJwk,
-							credentialPrivateKey: identity.credentialPrivateKey,
-							issueGrant: (providerId, request) =>
-								runNetworkPromise(
-									Effect.suspend(() =>
-										requestJson({
-											schema: SealedProviderGrant,
-											url: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeProviderGrant(config.workspaceId, providerId)}`,
-											token: runtimeCredential.credential,
-											method: "POST",
-											body: request,
-											timeoutMs: 30_000,
+									});
+									await writeFile(
+										join(
+											cloudRuntimeDataDirectory(),
+											`native-${providerId}-access.json`,
+										),
+										JSON.stringify({
+											providerId,
+											state,
+											checkedAt: Date.now(),
 										}),
-									).pipe(
-										(operation) =>
-											ensureCredential.pipe(Effect.andThen(operation)),
-										Effect.retry({
-											while: (error) =>
-												!error.reason.includes("reconnect-required") &&
-												!error.reason.includes("update-required") &&
-												!error.reason.includes("legacy-workspace") &&
-												error.reason !== "workspace_runtime_fenced" &&
-												error.reason !==
-													"runtime_credential_key_binding_mismatch",
-											schedule: cloudRuntimeRetrySchedule,
-										}),
-										restartRuntimeNetworkOnWake,
-									),
-								),
-							onStatus: (providerId, status) =>
-								console.info("[cloud-provider-auth] status", {
-									providerId,
-									status,
-								}),
-							onRecovered: (providerId) => {
-								void runNetworkPromise(
-									recoverProviderAuthFailedSessions({
-										workspaces,
-										sessions,
-										messages,
-										providerId,
-									}).pipe(Effect.catch(() => Effect.void)),
-								);
-							},
-						});
-						yield* Effect.acquireRelease(
-							Effect.tryPromise({
-								try: async () => {
-									await cloudProviderAuth.startGrokBridge();
-									const supported = new Set<CloudAuthProvider>([
-										"claude",
-										"codex",
-										"cursor",
-										"grok",
-									]);
-									const uninstall = runtimeProviderCredentials.install(
-										(providerId) =>
-											providerId === "codex" &&
-											bootstrap.codexAuthMode === "broker-v1"
-												? Promise.resolve(null)
-												: supported.has(providerId as CloudAuthProvider)
-													? cloudProviderAuth.resolve(
-															providerId as CloudAuthProvider,
-														)
-													: Promise.resolve(null),
+										{ mode: 0o600 },
 									);
-									return { uninstall };
+									if (state !== "detected" && state !== "verified")
+										throw new Error(
+											`${state === "authentication-required" || state === "expired" ? "Authentication required" : "Authentication check unavailable"}: ${providerId} snapshot status ${state}. ${state === "missing-tool" ? "Install this agent for the workspace development user." : "Sign in on this workspace, or select Zuse agent accounts in custom snapshot settings for new workspaces."}`,
+										);
+									return null;
 								},
-								catch: (cause) =>
-									fail(
-										cause instanceof Error
-											? cause.message
-											: "provider-auth-reconnecting",
-									),
-							}),
-							({ uninstall }) =>
-								Effect.sync(() => {
-									uninstall();
-									cloudProviderAuth.close();
-								}),
-						);
-					}
-					if (bootstrap.codexAuthMode === "broker-v1") {
-						if (bootstrap.zuseAccountId === undefined)
-							return yield* Effect.fail(fail("codex-auth-update-required"));
-						const cloudCodexAuth = new CloudCodexAuth({
-							zuseAccountId: bootstrap.zuseAccountId,
-							workspaceId: config.workspaceId,
-							runtimeGeneration: bootstrap.runtimeGeneration,
-							credentialPublicJwk: identity.credentialPublicJwk,
-							credentialPrivateKey: identity.credentialPrivateKey,
-							issueGrant: (request) =>
-								runNetworkPromise(
-									Effect.suspend(() =>
-										requestJson({
-											schema: SealedCodexGrant,
-											url: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeCodexGrant(config.workspaceId)}`,
-											token: runtimeCredential.credential,
-											method: "POST",
-											body: request,
-											timeoutMs: 30_000,
-										}),
-									).pipe(
-										(operation) =>
-											ensureCredential.pipe(Effect.andThen(operation)),
-										Effect.retry({
-											while: (error) =>
-												error.reason !== "codex-auth-update-required" &&
-												error.reason !== "codex-auth-reconnect-required" &&
-												error.reason !== "codex-auth-legacy-workspace" &&
-												error.reason !== "workspace_runtime_fenced" &&
-												error.reason !==
-													"runtime_credential_key_binding_mismatch",
-											schedule: cloudRuntimeRetrySchedule,
-										}),
-										restartRuntimeNetworkOnWake,
-									),
-								),
-							onStatus: (status) =>
-								console.info("[cloud-codex-auth] status", { status }),
-							onConsumersRecovered: (consumerIds) => {
-								void runNetworkPromise(
-									recoverProviderAuthFailedSessions({
-										workspaces,
-										sessions,
-										messages,
-										providerId: "codex",
-										...(consumerIds.length === 0 ? {} : { consumerIds }),
-									}).pipe(
-										Effect.catch((cause) =>
-											Effect.logWarning("Codex auth recovery scan failed", {
-												cause: String(cause),
+							);
+							yield* Effect.addFinalizer(() => Effect.sync(uninstall));
+						}
+						if (bootstrap.providerAuthMode === "broker-v1") {
+							if (bootstrap.zuseAccountId === undefined)
+								return yield* Effect.fail(
+									fail("provider-auth-update-required"),
+								);
+							const cloudProviderAuth = new CloudProviderAuth({
+								zuseAccountId: bootstrap.zuseAccountId,
+								workspaceId: config.workspaceId,
+								runtimeGeneration: bootstrap.runtimeGeneration,
+								credentialPublicJwk: identity.credentialPublicJwk,
+								credentialPrivateKey: identity.credentialPrivateKey,
+								issueGrant: (providerId, request) =>
+									runNetworkPromise(
+										Effect.suspend(() =>
+											requestJson({
+												schema: SealedProviderGrant,
+												url: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeProviderGrant(config.workspaceId, providerId)}`,
+												token: runtimeCredential.credential,
+												method: "POST",
+												body: request,
+												timeoutMs: 30_000,
 											}),
+										).pipe(
+											(operation) =>
+												ensureCredential.pipe(Effect.andThen(operation)),
+											Effect.retry({
+												while: (error) =>
+													!error.reason.includes("reconnect-required") &&
+													!error.reason.includes("update-required") &&
+													!error.reason.includes("legacy-workspace") &&
+													error.reason !== "workspace_runtime_fenced" &&
+													error.reason !==
+														"runtime_credential_key_binding_mismatch",
+												schedule: cloudRuntimeRetrySchedule,
+											}),
+											restartRuntimeNetworkOnWake,
 										),
 									),
+								onStatus: (providerId, status) =>
+									console.info("[cloud-provider-auth] status", {
+										providerId,
+										status,
+									}),
+								onRecovered: (providerId) => {
+									void runNetworkPromise(
+										recoverProviderAuthFailedSessions({
+											workspaces,
+											sessions,
+											messages,
+											providerId,
+										}).pipe(Effect.catch(() => Effect.void)),
+									);
+								},
+							});
+							yield* Effect.acquireRelease(
+								Effect.tryPromise({
+									try: async () => {
+										await cloudProviderAuth.startGrokBridge();
+										const supported = new Set<CloudAuthProvider>([
+											"claude",
+											"codex",
+											"cursor",
+											"grok",
+										]);
+										const uninstall = runtimeProviderCredentials.install(
+											(providerId) =>
+												providerId === "codex" &&
+												bootstrap.codexAuthMode === "broker-v1"
+													? Promise.resolve(null)
+													: supported.has(providerId as CloudAuthProvider)
+														? cloudProviderAuth.resolve(
+																providerId as CloudAuthProvider,
+															)
+														: Promise.resolve(null),
+										);
+										return { uninstall };
+									},
+									catch: (cause) =>
+										fail(
+											cause instanceof Error
+												? cause.message
+												: "provider-auth-reconnecting",
+										),
+								}),
+								({ uninstall }) =>
+									Effect.sync(() => {
+										uninstall();
+										cloudProviderAuth.close();
+									}),
+							);
+						}
+						if (bootstrap.codexAuthMode === "broker-v1") {
+							if (bootstrap.zuseAccountId === undefined)
+								return yield* Effect.fail(fail("codex-auth-update-required"));
+							const cloudCodexAuth = new CloudCodexAuth({
+								zuseAccountId: bootstrap.zuseAccountId,
+								workspaceId: config.workspaceId,
+								runtimeGeneration: bootstrap.runtimeGeneration,
+								credentialPublicJwk: identity.credentialPublicJwk,
+								credentialPrivateKey: identity.credentialPrivateKey,
+								issueGrant: (request) =>
+									runNetworkPromise(
+										Effect.suspend(() =>
+											requestJson({
+												schema: SealedCodexGrant,
+												url: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeCodexGrant(config.workspaceId)}`,
+												token: runtimeCredential.credential,
+												method: "POST",
+												body: request,
+												timeoutMs: 30_000,
+											}),
+										).pipe(
+											(operation) =>
+												ensureCredential.pipe(Effect.andThen(operation)),
+											Effect.retry({
+												while: (error) =>
+													error.reason !== "codex-auth-update-required" &&
+													error.reason !== "codex-auth-reconnect-required" &&
+													error.reason !== "codex-auth-legacy-workspace" &&
+													error.reason !== "workspace_runtime_fenced" &&
+													error.reason !==
+														"runtime_credential_key_binding_mismatch",
+												schedule: cloudRuntimeRetrySchedule,
+											}),
+											restartRuntimeNetworkOnWake,
+										),
+									),
+								onStatus: (status) =>
+									console.info("[cloud-codex-auth] status", { status }),
+								onConsumersRecovered: (consumerIds) => {
+									void runNetworkPromise(
+										recoverProviderAuthFailedSessions({
+											workspaces,
+											sessions,
+											messages,
+											providerId: "codex",
+											...(consumerIds.length === 0 ? {} : { consumerIds }),
+										}).pipe(
+											Effect.catch((cause) =>
+												Effect.logWarning("Codex auth recovery scan failed", {
+													cause: String(cause),
+												}),
+											),
+										),
+									);
+								},
+							});
+							yield* startCloudCodexAuth(
+								config.workspaceId,
+								cloudCodexAuth,
+								recoverProviderAuthFailedSessions({
+									workspaces,
+									sessions,
+									messages,
+									providerId: "codex",
+								}),
+							);
+						}
+						if (bootstrap.sealedProviderGrant !== undefined) {
+							const grant = yield* decryptProviderGrant(
+								bootstrap.sealedProviderGrant,
+								identity.credentialPrivateKey,
+							);
+							if (
+								grant.workspaceId !== config.workspaceId ||
+								grant.runtimeGeneration !== bootstrap.runtimeGeneration
+							)
+								return yield* Effect.fail(
+									fail("workspace_provider_grant_fence_mismatch"),
 								);
+							const secret =
+								grant.env.ANTHROPIC_API_KEY ??
+								grant.env.CLAUDE_CODE_OAUTH_TOKEN ??
+								grant.env.OPENAI_API_KEY ??
+								grant.env.CURSOR_API_KEY ??
+								grant.env.GROK_CODE_XAI_API_KEY ??
+								grant.env.XAI_API_KEY;
+							if (secret === undefined || secret.length < 8)
+								return yield* Effect.fail(
+									fail("workspace_provider_grant_invalid"),
+								);
+							yield* ensureProviderCredential(credentials, {
+								providerId: grant.providerId,
+								kind:
+									grant.providerId === "claude" &&
+									grant.method === "subscription"
+										? "oauth-token"
+										: "api-key",
+								secret,
+							});
+						}
+						yield* writeCredentialsReady;
+						cloudTimingEvent(
+							{
+								workspaceId: config.workspaceId,
+								runtimeGeneration: runtimeCredential.generation,
 							},
-						});
-						yield* startCloudCodexAuth(
-							config.workspaceId,
-							cloudCodexAuth,
-							recoverProviderAuthFailedSessions({
-								workspaces,
-								sessions,
-								messages,
-								providerId: "codex",
-							}),
+							"runtime.credentials-ready",
 						);
-					}
+					});
 					const postCurrentRuntimeReady = (
-						phase: "repository-ready" | "agent-started" | "launch-failed",
+						phase:
+							| "runtime-connected"
+							| "repository-ready"
+							| "agent-started"
+							| "launch-failed",
 						launchCommandId?: string,
 						errorCode?: string,
 						sessionHeadVersion?: number,
+						preparationPhase?:
+							| "checking-repository"
+							| "switching-branch"
+							| "fetching-repository"
+							| "preparing-credentials",
 					) =>
 						Effect.suspend(() =>
 							postReady(
@@ -2945,6 +3046,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								launchCommandId,
 								errorCode,
 								sessionHeadVersion,
+								preparationPhase,
 							),
 						);
 					const transcriptKey = yield* Effect.tryPromise({
@@ -2957,46 +3059,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						},
 						catch: () => fail("workspace_transcript_key_decryption_failed"),
 					});
-					if (bootstrap.sealedProviderGrant !== undefined) {
-						const grant = yield* decryptProviderGrant(
-							bootstrap.sealedProviderGrant,
-							identity.credentialPrivateKey,
-						);
-						if (
-							grant.workspaceId !== config.workspaceId ||
-							grant.runtimeGeneration !== bootstrap.runtimeGeneration
-						)
-							return yield* Effect.fail(
-								fail("workspace_provider_grant_fence_mismatch"),
-							);
-						const secret =
-							grant.env.ANTHROPIC_API_KEY ??
-							grant.env.CLAUDE_CODE_OAUTH_TOKEN ??
-							grant.env.OPENAI_API_KEY ??
-							grant.env.CURSOR_API_KEY ??
-							grant.env.GROK_CODE_XAI_API_KEY ??
-							grant.env.XAI_API_KEY;
-						if (secret === undefined || secret.length < 8)
-							return yield* Effect.fail(
-								fail("workspace_provider_grant_invalid"),
-							);
-						yield* ensureProviderCredential(credentials, {
-							providerId: grant.providerId,
-							kind:
-								grant.providerId === "claude" && grant.method === "subscription"
-									? "oauth-token"
-									: "api-key",
-							secret,
-						});
-					}
-					yield* writeCredentialsReady;
-					cloudTimingEvent(
-						{
-							workspaceId: config.workspaceId,
-							runtimeGeneration: runtimeCredential.generation,
-						},
-						"runtime.credentials-ready",
-					);
 					const acknowledgeBootstrap = (
 						identity.bootstrapAcknowledged
 							? Effect.void
@@ -3391,6 +3453,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						WorkspaceLocalFrameQueue
 					>();
 					let gateway: WebSocket | null = null;
+					const gatewayIsOpen = () => gateway?.readyState === WebSocket.OPEN;
 					const closeLocalConnections = () => {
 						for (const socket of localSockets.values()) socket.close();
 						localSockets.clear();
@@ -3399,6 +3462,12 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							releaseLocalCredential(id);
 					};
 					let repositoryReady = false;
+					let preparationPhase:
+						| "preparing-credentials"
+						| "checking-repository"
+						| "switching-branch"
+						| "fetching-repository" = "preparing-credentials";
+					let shellReady = false;
 					const sendGateway = (message: unknown) => {
 						if (gateway?.readyState === WebSocket.OPEN)
 							gateway.send(
@@ -3572,11 +3641,15 @@ export const makeCloudWorkspaceRuntimeLayer = (
 										);
 										const reconnectPhase =
 											runtimeReadyPhaseOnGatewayOpen(repositoryReady);
-										if (reconnectPhase !== null)
+										if (shellReady)
 											void runNetworkPromise(
-												postCurrentRuntimeReady(reconnectPhase).pipe(
-													Effect.ignore,
-												),
+												postCurrentRuntimeReady(
+													reconnectPhase,
+													undefined,
+													undefined,
+													undefined,
+													repositoryReady ? undefined : preparationPhase,
+												).pipe(Effect.ignore),
 											);
 										// A nudge sent while the gateway was down is lost; drain on every
 										// (re)connect so pending API commands never wait for the cron.
@@ -3675,15 +3748,9 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								}),
 							),
 						);
-					yield* connectGateway.pipe(
-						restartRuntimeNetworkOnWake,
-						Effect.forkScoped({ startImmediately: true }),
-					);
 
-					// Durable commands depend on the repository and runtime credential,
-					// not on the disposable UI gateway. A gateway outage must never stop
-					// this runtime from draining its workspace mailbox.
-					yield* waitForRepository;
+					// Validate retained storage and create the durable shell before exposing
+					// the runtime. Provider execution remains gated on repository readiness.
 					const launchIntent = bootstrap.launchIntent;
 					const existingRuntimeChat = yield* chats
 						.getChat(ChatId.make(bootstrap.chatId))
@@ -3700,6 +3767,59 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						).pipe(Effect.retry(cloudRuntimeRetrySchedule));
 						return yield* Effect.fail(fail(storageFailure));
 					}
+					if (launchIntent !== undefined) {
+						const started = yield* startCloudWorkspaceLaunchIntent({
+							githubContext: bootstrap.initialGithubContext,
+							transcripts,
+							workspaceId: config.workspaceId,
+							workspaces,
+							chats,
+							chatId: bootstrap.chatId,
+							sessionId: bootstrap.initialSessionId,
+							workspaceRoot: config.workspaceRoot,
+							launchIntent,
+						}).pipe(Effect.result);
+						if (started._tag === "Failure") {
+							yield* postCurrentRuntimeReady(
+								"launch-failed",
+								launchIntent.commandId,
+								started.failure.reason,
+							).pipe(Effect.retry(cloudRuntimeRetrySchedule));
+							return yield* Effect.fail(started.failure);
+						}
+					}
+					shellReady = true;
+					yield* connectGateway.pipe(
+						restartRuntimeNetworkOnWake,
+						Effect.forkScoped({ startImmediately: true }),
+					);
+
+					// A prepared shell is readable immediately; prompts already persisted
+					// in it cannot execute until the shared preparation gate opens.
+					if (gatewayIsOpen())
+						yield* postCurrentRuntimeReady(
+							"runtime-connected",
+							undefined,
+							undefined,
+							undefined,
+							preparationPhase,
+						).pipe(Effect.retry(cloudRuntimeRetrySchedule));
+					// Credential adapters and Git identity do not gate connectivity. They
+					// finish before the shared provider-execution gate opens.
+					yield* prepareCredentials;
+					yield* waitForRepository((phase) => {
+						preparationPhase = phase;
+						void runNetworkPromise(
+							postCurrentRuntimeReady(
+								"runtime-connected",
+								undefined,
+								undefined,
+								undefined,
+								phase,
+							).pipe(Effect.ignore),
+						);
+					});
+					yield* executionPolicy.markReady;
 					// Record the local prerequisite first. If the gateway opens while the
 					// control-plane update is in flight, its callback publishes another
 					// ready revision after the socket is actually usable.
@@ -3809,25 +3929,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						);
 
 					if (launchIntent !== undefined) {
-						const started = yield* startCloudWorkspaceLaunchIntent({
-							githubContext: bootstrap.initialGithubContext,
-							transcripts,
-							workspaceId: config.workspaceId,
-							workspaces,
-							chats,
-							chatId: bootstrap.chatId,
-							sessionId: bootstrap.initialSessionId,
-							workspaceRoot: config.workspaceRoot,
-							launchIntent,
-						}).pipe(Effect.result);
-						if (started._tag === "Failure") {
-							yield* postCurrentRuntimeReady(
-								"launch-failed",
-								launchIntent.commandId,
-								started.failure.reason,
-							).pipe(Effect.retry(cloudRuntimeRetrySchedule));
-							return yield* Effect.fail(started.failure);
-						}
 						yield* postCurrentRuntimeReady(
 							"agent-started",
 							launchIntent.commandId,

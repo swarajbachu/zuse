@@ -6,12 +6,16 @@ import {
 } from "@zuse/contracts";
 import { TurnAlreadyRunning } from "@zuse/domain/core/decider";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
 	makeProviderReactorHandlers,
 	type ProviderReactorHandlersOptions,
 } from "../../src/conversation/core/provider-reactor-handlers.ts";
+import {
+	PendingWorkspaceExecutionPolicy,
+	WorkspaceExecutionPolicy,
+} from "../../src/conversation/services/workspace-execution-policy.ts";
 
 describe("provider reactor handlers", () => {
 	const providerTurnInput = {
@@ -26,6 +30,59 @@ describe("provider reactor handlers", () => {
 				'{"text":"hello","attachments":[],"fileRefs":[],"skillRefs":[],"annotations":[]}',
 		},
 	};
+
+	it("retains a direct prompt before repository readiness without marking an external attempt, then delivers once", async () => {
+		const begin = vi.fn(() => Effect.succeed("started" as const));
+		const send = vi.fn(() => Effect.void);
+		const complete = vi.fn(() => Effect.void);
+		const handlers = makeProviderReactorHandlers({
+			reactorEffects: {
+				begin,
+				complete,
+			} as unknown as ProviderReactorHandlersOptions["reactorEffects"],
+			getSession: () => Effect.die("unused"),
+			ensureForTurn: () => Effect.die("must not restart an attached provider"),
+			persistMessage: () => Effect.die("must not report ambiguous delivery"),
+			ndjsonAppend: () => Effect.void,
+			setStatus: () => Effect.void,
+			resolveActiveTurn: () =>
+				Effect.succeed(AgentTurnId.make("turn-provider-send")),
+			getProviderStartJson: () => Effect.succeed(null),
+			settleTurnFromReactor: () =>
+				Effect.die("must not settle while preparing"),
+			rememberActiveTurn: () => undefined,
+			provider: {
+				send,
+			} as unknown as ProviderReactorHandlersOptions["provider"],
+			sessionDomain: {} as ProviderReactorHandlersOptions["sessionDomain"],
+			autoNameChat: () => Effect.void,
+		});
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const policy = yield* WorkspaceExecutionPolicy;
+					yield* policy.bind(() => Effect.succeed(true));
+					const interrupted = yield* handlers
+						.handleProviderTurn(providerTurnInput)
+						.pipe(Effect.forkChild);
+					yield* Effect.yieldNow;
+					expect(begin).not.toHaveBeenCalled();
+					expect(send).not.toHaveBeenCalled();
+					yield* Fiber.interrupt(interrupted);
+					const recovered = yield* handlers
+						.handleProviderTurn(providerTurnInput)
+						.pipe(Effect.forkChild);
+					yield* Effect.yieldNow;
+					expect(begin).not.toHaveBeenCalled();
+					yield* policy.markReady;
+					yield* Fiber.join(recovered);
+					expect(begin).toHaveBeenCalledTimes(1);
+					expect(send).toHaveBeenCalledTimes(1);
+					expect(complete).toHaveBeenCalledTimes(1);
+				}),
+			).pipe(Effect.provide(PendingWorkspaceExecutionPolicy)),
+		);
+	});
 
 	it.each([
 		["grok", "Grok CLI not found on PATH. Install Grok and try again."],

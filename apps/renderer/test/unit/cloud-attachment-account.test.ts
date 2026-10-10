@@ -703,3 +703,30 @@ it("acknowledges a joined wake intent even if the shared attachment fails", asyn
 	expect(acknowledge).toHaveBeenCalledOnce();
 	expect(mocks.resume).toHaveBeenCalledOnce();
 });
+
+it("passively attaches the online runtime before repository setup finishes", async () => {
+	observeRendererAccount("preparing-workspace-owner");
+	const preparing = {
+		...summary,
+		state: "setup" as const,
+		startupPhase: "syncing-repository" as const,
+		statusCode: "syncing-repository",
+	};
+	mocks.get.mockReturnValue(Effect.succeed(preparing));
+	mocks.connect.mockReturnValue(
+		Effect.succeed({
+			workspaceId: summary.workspaceId,
+			wsUrl: "wss://example.test/cloud",
+			protocol: "zuse-workspace-v2",
+			role: "client",
+			generation: 1,
+			gatewayEpoch: 1,
+			credential: "ticket",
+			expiresAt: Date.now() + 60_000,
+		}),
+	);
+	await ensureCloudWorkspaceAttached(preparing, "connect");
+	expect(mocks.connect).toHaveBeenCalledOnce();
+	expect(mocks.resume).not.toHaveBeenCalled();
+	expect(mocks.watch).not.toHaveBeenCalled();
+});

@@ -1204,8 +1204,17 @@ const sealRuntimeSecret = Effect.fn("sealRuntimeSecret")(function* (
 });
 
 const RuntimeReadyRequest = Schema.Struct({
+	preparationPhase: Schema.optional(
+		Schema.Literals([
+			"checking-repository",
+			"switching-branch",
+			"fetching-repository",
+			"preparing-credentials",
+		]),
+	),
 	deviceBridgeVersion: Schema.optional(Schema.Literal(DEVICE_BRIDGE_VERSION)),
 	phase: Schema.Literals([
+		"runtime-connected",
 		"repository-ready",
 		"agent-started",
 		"launch-failed",
@@ -1645,6 +1654,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		wrappedTranscriptKey: transcriptKey.envelope,
 		idempotencyKey: body.idempotencyKey,
 		requestConfig: {
+			allocationProtocol: "provider-idempotent-v1",
 			providerConnectionId: provider.connectionId,
 			...(importedSnapshot(build)
 				? snapshotRepositoryLayout(build, project.projectId)
@@ -2828,13 +2838,18 @@ const routeCloudWorkspaceRequestWithAccess = (
 		if (method === "POST" && readyMatch !== null) {
 			const workspaceId = decodeURIComponent(readyMatch[1] ?? "");
 			const body = yield* decodeBody(RuntimeReadyRequest, request);
-			if (body.phase === "repository-ready") {
+			if (
+				body.phase === "repository-ready" ||
+				body.phase === "runtime-connected"
+			) {
 				const credential = bearer(request);
 				if (credential === undefined)
 					return yield* Effect.fail(unauthorized("workspace_runtime_rejected"));
 				const updated = yield* store.markRuntimeRepositoryReady({
 					workspaceId,
 					currentCredentialHash: yield* sha256Hex(credential),
+					repositoryReady: body.phase === "repository-ready",
+					preparationPhase: body.preparationPhase,
 					commandProtocolVersion: body.commandProtocolVersion,
 					deviceBridgeVersion: body.deviceBridgeVersion,
 					nowMs,
@@ -3112,11 +3127,12 @@ const routeCloudWorkspaceRequestWithAccess = (
 							![
 								"queued",
 								"provisioning",
+								"setup",
 								"resuming",
 								"paused",
 								"ready",
 							].includes(workspace.state)
-						: workspace.state !== "ready" ||
+						: !["ready", "setup"].includes(workspace.state) ||
 							workspace.runtimeState !== "online"))
 			)
 				return yield* Effect.fail(conflict("cloud_workspace_unavailable"));

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
 	cloudTranscriptActivation,
 	cloudWorkspaceStartupError,
+	isCloudWorkspaceAttachable,
 	isCloudWorkspaceReady,
 	waitForCloudWorkspaceReady,
 } from "../../src/lib/cloud-workspace-lifecycle.ts";
@@ -47,6 +48,23 @@ describe("cloud workspace lifecycle", () => {
 		expect(cloudTranscriptActivation(workspace(3, "ready", "online"))).toBe(
 			"connect",
 		);
+	});
+
+	it("attaches an online runtime while repository setup still gates execution", () => {
+		const preparing = workspace(3, "setup", "online");
+		expect(cloudTranscriptActivation(preparing)).toBe("connect");
+		expect(isCloudWorkspaceAttachable(preparing)).toBe(true);
+		expect(isCloudWorkspaceReady(preparing)).toBe(false);
+		for (const state of [
+			"paused",
+			"failed",
+			"archived",
+			"deleting",
+			"deleted",
+		] as const)
+			expect(isCloudWorkspaceAttachable(workspace(4, state, "online"))).toBe(
+				false,
+			);
 	});
 
 	it("waits through lifecycle changes and returns the first online-ready frame", async () => {

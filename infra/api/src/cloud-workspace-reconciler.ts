@@ -427,17 +427,20 @@ if [ -n "\${ZUSE_RUNTIME_ACTIVATION_MODE:-}" ]; then
 fi
 phase=runtime-compatibility
 ensure_workspace_runtime
-phase=syncing-repository
 if [ ! -f "$status_dir/repository-ready" ]; then
-if bash <<'ZUSE_WORKSPACE_REPOSITORY' >> "$log" 2>&1
+(
+  phase=syncing-repository
+  if bash <<'ZUSE_WORKSPACE_REPOSITORY' >> "$log" 2>&1
 ${WORKSPACE_REPOSITORY_SOURCE}
 ZUSE_WORKSPACE_REPOSITORY
-then
-touch "$status_dir/repository-ready"
-else
-exit $?
+  then
+    touch "$status_dir/repository-ready"
+  else
+    workspace_runtime_launch_failed "$?"
+  fi
+) &
 fi
-fi
+phase=starting-runtime
 timing runtime.exec
 if [ -f "$runtime" ]; then exec_workspace_runtime "\${ZUSE_RUNTIME_NODE:-node}" "$runtime" serve >> "$log" 2>&1; else exec_workspace_runtime "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
 const WORKSPACE_RUNTIME_BOOTSTRAP_SCRIPT = `set -euo pipefail
@@ -1496,28 +1499,38 @@ const prepareWorkspaceRuntimeLaunch = Effect.fn(
 ) {
 	const config = yield* SandboxOfferConfiguration;
 	const layout = cloudWorkspaceLayout(workspace);
+	const files = [
+		{ path: WORKSPACE_REPOSITORY_FILE, contents: WORKSPACE_REPOSITORY_SOURCE },
+		{ path: GITHUB_AUTH_FILE, contents: GITHUB_AUTH_SOURCE },
+		{ path: WORKSPACE_BOOTSTRAP_FILE, contents: WORKSPACE_BOOTSTRAP_SOURCE },
+		{ path: WORKSPACE_RUNTIME_FILE, contents: WORKSPACE_RUNTIME_SOURCE },
+		...(config.runtimeSigningPublicJwk === undefined
+			? []
+			: [
+					{
+						path: runtimeSigningKeyPath(layout.snapshot),
+						contents: config.runtimeSigningPublicJwk,
+					},
+				]),
+	];
 	yield* Effect.all(
 		[
 			provider.setNetwork(sandboxId, { kind: "open" }),
-			...(
-				[
-					[WORKSPACE_REPOSITORY_FILE, WORKSPACE_REPOSITORY_SOURCE],
-					[GITHUB_AUTH_FILE, GITHUB_AUTH_SOURCE],
-					[WORKSPACE_BOOTSTRAP_FILE, WORKSPACE_BOOTSTRAP_SOURCE],
-					[WORKSPACE_RUNTIME_FILE, WORKSPACE_RUNTIME_SOURCE],
-				] as const
-			).map(([path, source]) =>
-				provider.writeTextFile(sandboxId, path, source, layout.user),
-			),
-			writeRuntimeSigningKey(
-				provider,
-				sandboxId,
-				config,
-				layout.user,
-				layout.snapshot,
-			),
+			provider.writeTextFiles !== undefined
+				? provider.writeTextFiles(sandboxId, files, layout.user)
+				: Effect.all(
+						files.map(({ path, contents }) =>
+							provider.writeTextFile(sandboxId, path, contents, layout.user),
+						),
+						{ concurrency: "unbounded", discard: true },
+					),
 		],
 		{ concurrency: "unbounded", discard: true },
+	).pipe(
+		measureCloudStage(
+			{ workspaceId: workspace.workspaceId, provider: provider.providerId },
+			"runtime.prepare-launch-assets",
+		),
 	);
 });
 
@@ -2603,8 +2616,18 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 
 		if (workspace.state === "queued") {
 			const machineFork = machineForkSource(workspace);
-			const build = yield* store.getBuild(workspace.buildId);
-			const project = yield* store.getProject(workspace.projectId);
+			const [build, project] = yield* Effect.all(
+				[
+					store.getBuild(workspace.buildId),
+					store.getProject(workspace.projectId),
+				],
+				{ concurrency: "unbounded" },
+			).pipe(
+				measureCloudStage(
+					{ workspaceId: workspace.workspaceId, provider: provider.providerId },
+					"allocation.read-project-image",
+				),
+			);
 			if (build === null || project === null) return;
 			const label = providerLabel("workspace", workspace.workspaceId);
 
@@ -2616,6 +2639,14 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				build.snapshotId !== undefined &&
 				(importedSnapshot(build) ||
 					build.templateVersion === provider.templateVersion);
+			// Only new protocol requests may rely on the adapter's stable-label
+			// create. Legacy queued work retains its historical-name recovery.
+			const directAllocation =
+				provider.supportsIdempotentAllocation === true &&
+				workspace.requestConfig.allocationProtocol ===
+					"provider-idempotent-v1" &&
+				workspace.providerSandboxId === undefined &&
+				runtimeActivation(workspace) === null;
 			const allocate = Effect.gen(function* () {
 				if (
 					replacingFailedSandbox &&
@@ -2633,7 +2664,9 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 						.pipe(withSnapshotLeaseCheck);
 				}
 				const recovered =
-					!replacingFailedSandbox && machineFork === undefined
+					!replacingFailedSandbox &&
+					machineFork === undefined &&
+					!directAllocation
 						? yield* provider.recoverByLabel(label).pipe(
 								withSnapshotLeaseCheck,
 								measureCloudStage(
@@ -2753,7 +2786,11 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					"pause",
 					workspaceSizeId(workspace),
 				);
-			else
+			else if (
+				recovered !== null ||
+				machineFork !== undefined ||
+				provider.configuresAllocationTimeout !== true
+			)
 				yield* provider.extendTimeout(
 					sandbox.providerSandboxId,
 					config.keepAliveTimeoutSeconds,

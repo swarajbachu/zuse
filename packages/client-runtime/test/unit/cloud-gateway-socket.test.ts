@@ -36,6 +36,28 @@ class TestSocket extends EventTarget {
 }
 
 describe("pending cloud gateway transport", () => {
+	test("retires transports when the host has no global CloseEvent constructor", () => {
+		vi.stubGlobal("CloseEvent", undefined);
+		try {
+			const native = new TestSocket();
+			native.deferClose = true;
+			const socket = cloudGatewaySocket(native as unknown as WebSocket);
+			const closed = vi.fn();
+			socket.addEventListener("close", closed);
+			native.open();
+			native.availability("available");
+			native.availability("pending");
+			expect(closed).toHaveBeenCalledTimes(1);
+			expect(closed.mock.calls[0]?.[0]).toMatchObject({
+				type: "close",
+				code: 4100,
+				wasClean: false,
+			});
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
 	test("opens RPC only after guest attachment and never buffers mutations", () => {
 		const native = new TestSocket();
 		const socket = cloudGatewaySocket(native as unknown as WebSocket);

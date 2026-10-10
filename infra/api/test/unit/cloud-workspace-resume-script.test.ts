@@ -41,7 +41,7 @@ vi.mock("../../../cloud-sandboxes/workspace-runtime.sh", () => ({
 	),
 }));
 
-test("repository recovery failure is logged and marked before the runtime starts", () => {
+test("repository recovery failure is reported while the early runtime is connected", () => {
 	const root = mkdtempSync(join(tmpdir(), "zuse-resume-script-"));
 	try {
 		const state = join(root, "workspace");
@@ -49,18 +49,27 @@ test("repository recovery failure is logged and marked before the runtime starts
 		const tools = join(root, "tools");
 		mkdirSync(tools);
 		writeFileSync(join(tools, "grok"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+		const release = join(root, "release");
+		mkdirSync(release);
+		writeFileSync(
+			join(release, "bin.mjs"),
+			`import { existsSync } from "node:fs";
+		const timer = setInterval(() => { if (existsSync(process.env.ZUSE_WORKSPACE_RUNTIME_STATUS_DIR + "/failed")) { clearInterval(timer); process.exit(128); } }, 10);`,
+		);
 		const repository = join(root, "not-a-repository");
 		mkdirSync(repository);
 		writeFileSync(join(root, "retained-data"), "keep");
 		const script = WORKSPACE_RUNTIME_RESUME_SCRIPT.replaceAll(
 			"/var/lib/zuse/workspace",
 			state,
-		);
+		).replaceAll("/opt/zuse/current", release);
 		const result = spawnSync("bash", ["-c", script], {
 			env: {
 				...process.env,
 				PATH: `${tools}:${process.env.PATH}`,
 				ZUSE_RUNTIME_MANIFEST_URL: "",
+				ZUSE_RUNTIME_NODE: process.execPath,
+				ZUSE_WORKSPACE_RUNTIME_STATUS_DIR: state,
 				ZUSE_CLOUD_WORKSPACE_ID: "child",
 				ZUSE_USER_DATA: join(root, "data"),
 				ZUSE_RUNTIME_GENERATION: "2",
@@ -70,6 +79,7 @@ test("repository recovery failure is logged and marked before the runtime starts
 				ZUSE_REPOSITORY_URL: "https://example.com/repo.git",
 			},
 			encoding: "utf8",
+			timeout: 5000,
 		});
 		expect(result.status).toBe(128);
 		expect(existsSync(join(state, "failed"))).toBe(true);
@@ -80,7 +90,7 @@ test("repository recovery failure is logged and marked before the runtime starts
 		expect(readFileSync(join(state, "runtime.log"), "utf8")).toContain(
 			"not a git repository",
 		);
-		expect(readFileSync(join(state, "runtime.log"), "utf8")).not.toContain(
+		expect(readFileSync(join(state, "runtime.log"), "utf8")).toContain(
 			"runtime.exec",
 		);
 		expect(readFileSync(join(root, "retained-data"), "utf8")).toBe("keep");

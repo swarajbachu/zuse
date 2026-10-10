@@ -34,6 +34,9 @@ it("waits for bootstrap, then uses the bound policy for each queued execution", 
 				yield* Effect.yieldNow;
 				expect(yield* Ref.get(completed)).toBe(false);
 				yield* policy.bind(() => Effect.sync(() => allowed));
+				yield* Effect.yieldNow;
+				expect(yield* Ref.get(completed)).toBe(false);
+				yield* policy.markReady;
 				expect(yield* Fiber.join(pending)).toBe(true);
 				allowed = false;
 				expect(yield* policy.authorize(sessionId, actor)).toBe(false);

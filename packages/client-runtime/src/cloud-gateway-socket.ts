@@ -5,6 +5,12 @@ import {
 } from "@zuse/contracts";
 import { Schema } from "effect";
 
+type GatewayCloseEvent = Event & {
+	readonly code: number;
+	readonly reason: string;
+	readonly wasClean: boolean;
+};
+
 /**
  * A pending gateway is physically open, but is not an RPC transport yet. Delay
  * its logical open until the guest can receive a handshake. No mutation frames
@@ -17,7 +23,7 @@ export const cloudGatewaySocket = (socket: WebSocket): WebSocket => {
 	const listeners = new Map<Listener, { readonly once: boolean }>();
 	const closeListeners = new Map<Listener, { readonly once: boolean }>();
 	let opened: Event | undefined;
-	let closed: CloseEvent | undefined;
+	let closed: GatewayCloseEvent | undefined;
 	let available = false;
 	let exposed = false;
 	let retiring = false;
@@ -35,7 +41,7 @@ export const cloudGatewaySocket = (socket: WebSocket): WebSocket => {
 		notifyOpen();
 	});
 	const messageListeners = new Map<Listener, Handler>();
-	const notifyClose = (event: CloseEvent) => {
+	const notifyClose = (event: GatewayCloseEvent) => {
 		if (closed !== undefined) return;
 		closed = event;
 		listeners.clear();
@@ -153,7 +159,7 @@ export const cloudGatewaySocket = (socket: WebSocket): WebSocket => {
 				);
 			} finally {
 				notifyClose(
-					new CloseEvent("close", {
+					Object.assign(new Event("close"), {
 						...WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE,
 						wasClean: false,
 					}),
@@ -163,7 +169,9 @@ export const cloudGatewaySocket = (socket: WebSocket): WebSocket => {
 		}
 		notifyOpen();
 	});
-	socket.addEventListener("close", notifyClose);
+	socket.addEventListener("close", (event) =>
+		notifyClose(event as GatewayCloseEvent),
+	);
 	return proxy;
 };
 

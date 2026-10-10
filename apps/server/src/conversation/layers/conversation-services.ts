@@ -174,6 +174,7 @@ const ConversationRuntimeLive = Layer.effect(
 
 		const storeRuntime: ConversationStoreRuntime =
 			yield* makeConversationStoreRuntime({
+				isWorkspaceReady: () => executionPolicy.isReady,
 				serviceScope,
 				sql,
 				state,
@@ -211,6 +212,7 @@ const ConversationRuntimeLive = Layer.effect(
 		} = storeRuntime;
 
 		const sessionOperations = makeSessionOperations({
+			awaitWorkspaceReady: executionPolicy.awaitReady,
 			serviceScope,
 			sql,
 			state,
@@ -329,6 +331,7 @@ const ConversationRuntimeLive = Layer.effect(
 			handleScheduledSuccessor,
 			handleAutoName,
 		} = makeProviderReactorHandlers({
+			awaitWorkspaceReady: executionPolicy.awaitReady,
 			authorizeQueuedTurn: executionPolicy.authorize,
 			reactorEffects,
 			getSession: lookupSession,

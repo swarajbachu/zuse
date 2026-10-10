@@ -924,6 +924,57 @@ describe("cloud workspace reconciler", () => {
 	});
 
 	test.each([
+		true,
+		false,
+	])("idempotent allocation skips lookup only for new protocol requests: %s", async (newProtocol) => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-direct-allocation",
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "start-queued",
+					requestConfig: newProtocol
+						? { allocationProtocol: "provider-idempotent-v1" }
+						: {},
+				});
+				yield* Ref.set(control.sandboxes, new Map());
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+				});
+				const providers = yield* SandboxProviders;
+				const provider = yield* providers.get("fake");
+				const recover = vi.spyOn(provider, "recoverByLabel");
+				const fork = vi.spyOn(provider, "fork");
+				const extend = vi.spyOn(provider, "extendTimeout");
+				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+					Effect.provideService(SandboxProviders, {
+						...providers,
+						get: () =>
+							Effect.succeed({
+								...provider,
+								supportsIdempotentAllocation: true,
+								configuresAllocationTimeout: true,
+							}),
+					}),
+				);
+				expect(recover).toHaveBeenCalledTimes(newProtocol ? 0 : 1);
+				expect(fork).toHaveBeenCalledTimes(1);
+				expect(extend).not.toHaveBeenCalled();
+				const saved = yield* store.getWorkspace(workspace.workspaceId);
+				expect(saved?.providerSandboxId).toBe(
+					"fake-workspace-direct-allocation",
+				);
+				expect(saved?.requestConfig.runtimeActivation).toBeDefined();
+			}).pipe(Effect.provide(testLayer)),
+		);
+	});
+
+	test.each([
 		"running",
 		"paused",
 	] as const)("reuses a %s allocation with a fresh startup window", async (recoveredState) => {

@@ -1,0 +1,10 @@
+{
+	"scenario": "allocation-and-batched-assets-only",
+	"fullStartupMeasured": false,
+	"allocationMs": 1293,
+	"batchInstallMs": 739,
+	"contentsVerified": true,
+	"retryAdoptionMs": 1050,
+	"sameMachineOnRetry": true,
+	"deleted": true
+}

@@ -10,6 +10,8 @@ Status: implementation in this branch, October 10, 2026; live rollout gates rema
 - Sleep when idle. Reading cached history does not wake compute. Opening a live shell, starting a conversation tab that requires runtime work, or submitting work creates explicit compute demand.
 - Aim for application-caused visible failure rate at or below one per million logical work attempts. Count wrong-session attachment, lost/duplicated accepted work, unnecessary replacement, and visible terminal errors. Count a failure even if a later retry heals it. Report all-cause availability separately. Maintain separate denominators for creates, wakes, attachments and commands so high command volume cannot hide a failing wake path.
 
+The implemented presentation sequence is: restore machine → authenticate the shared runtime connection → select/open the chat and accept durable prompts → display actual repository preparation progress → release agent execution. Connected and execution-ready are separate observations. A connected chat can accept a prompt while the shared workspace execution gate prevents provider startup or sends until repository and credentials prerequisites are satisfied.
+
 ## Evidence and existing decisions
 
 The recovered branch is [kadabra-bCyAzJ7Zy0eQHkfG](https://github.com/swarajbachu/zuse/tree/kadabra-bCyAzJ7Zy0eQHkfG), preserved at `1a4ab4be762146a9c16b00a71023cd7aa9f63214`. Its live tests measured create plus idle configuration at 194–422 ms, but create through an observed enrollment request at 2.209/3.809/5.997 seconds. Those samples excluded successful enrollment, gateway and agent readiness. The 5.997 second sample already misses this plan's target. The signed-manifest compatibility rebase disabled prepared activation and was not remeasured.

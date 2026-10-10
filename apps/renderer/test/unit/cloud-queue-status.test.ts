@@ -71,6 +71,26 @@ describe("cloud lifecycle label", () => {
 			).toBe(label);
 	});
 
+	it.each([
+		["preparing-credentials", "Preparing connected accounts…"],
+		["checking-repository", "Checking repository…"],
+		["switching-branch", "Switching branch…"],
+		["fetching-repository", "Fetching repository…"],
+	])("shows actual %s progress while the connected chat waits to execute", (statusCode, label) => {
+		expect(
+			cloudLifecycleLabel({
+				summary: summary({
+					state: "setup",
+					runtimeState: "online",
+					startupPhase: "syncing-repository",
+					statusCode,
+				}),
+				activity: "resuming",
+				connection: "connected",
+			}),
+		).toBe(label);
+	});
+
 	it("follows a resume from wake to connect instead of a fixed label", () => {
 		const resume = (
 			overrides: Partial<CloudChatSummary>,

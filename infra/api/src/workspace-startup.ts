@@ -23,6 +23,7 @@ export const scheduleWorkspaceStartup = async (
 interface StartupRequest {
 	readonly workspaceId: string;
 	readonly revision: string;
+	readonly scheduledAtMs?: number;
 }
 
 /** PostgreSQL owns progress; the object retains only its durable dispatch pointer. */
@@ -57,6 +58,7 @@ export class WorkspaceStartupTask {
 		const pending: StartupRequest = {
 			workspaceId: body.workspaceId,
 			revision: crypto.randomUUID(),
+			scheduledAtMs: Date.now(),
 		};
 		await this.state.storage.transaction(async (storage) => {
 			await storage.put("pending", pending);
@@ -71,6 +73,16 @@ export class WorkspaceStartupTask {
 	async alarm(alarmInfo?: { readonly retryCount: number }): Promise<void> {
 		const pending = await this.state.storage.get<StartupRequest>("pending");
 		if (!pending) return;
+		console.info("[cloud-timing]", {
+			workspaceId: pending.workspaceId,
+			stage: "startup.dispatch",
+			atMs: Date.now(),
+			...(pending.scheduledAtMs === undefined
+				? {}
+				: {
+						queueDelayMs: Math.max(0, Date.now() - pending.scheduledAtMs),
+					}),
+		});
 		// Await the entire operation in the alarm, never in HTTP waitUntil.
 		// Automatic retries are bounded. Renew the alarm before they run out.
 		let outcome: WorkspaceStartupOutcome;

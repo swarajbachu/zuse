@@ -718,36 +718,55 @@ export const makeBoxdSandboxProvider = (
 		return result.stdout;
 	});
 
-	const writeTextFile = Effect.fn("BoxdSandboxProvider.writeTextFile")(
-		function* (
-			providerSandboxId: string,
-			path: string,
-			contents: string,
-			user?: string,
-		) {
-			if (
-				!path.startsWith("/") ||
-				new TextEncoder().encode(contents).byteLength > MAX_TEXT_FILE_BYTES
-			)
-				return yield* providerError("rejected");
-			// Uploads land as the command user; stage in /tmp, then install
-			// with owner-only permissions and parents created.
-			const stagingPath = `/tmp/.zuse-write-${crypto.randomUUID()}`;
-			yield* call("machines.files.upload", () =>
-				client.machines.files.upload(providerSandboxId, stagingPath, contents),
-			);
-			const owner = user ?? COMMAND_USER;
-			// Missing parents are created as the owner so the runtime user can
-			// keep writing beside the file; a parent it may not create is made
-			// by root, as before.
-			const directory = path.slice(0, path.lastIndexOf("/")) || "/";
-			const install = yield* runCommand(
-				providerSandboxId,
-				`(sudo -n -u ${shellQuote(owner)} mkdir -p ${shellQuote(directory)} 2>/dev/null || sudo -n install -d -m 0755 ${shellQuote(directory)}) && sudo -n install -m 600 -o ${shellQuote(owner)} -g "$(id -gn ${shellQuote(owner)})" ${shellQuote(stagingPath)} ${shellQuote(path)} && sudo -n rm -f ${shellQuote(stagingPath)}`,
-			);
-			if (install.exitCode !== 0) return yield* providerError("transient");
-		},
-	);
+	const writeTextFiles: NonNullable<SandboxProviderAdapter["writeTextFiles"]> =
+		Effect.fn("BoxdSandboxProvider.writeTextFiles")(
+			function* (providerSandboxId, files, user) {
+				// Validate the entire batch before uploading or changing any file.
+				if (
+					files.some(
+						({ path, contents }) =>
+							!path.startsWith("/") ||
+							new TextEncoder().encode(contents).byteLength >
+								MAX_TEXT_FILE_BYTES,
+					)
+				)
+					return yield* providerError("rejected");
+				if (files.length === 0) return;
+				const owner = user ?? COMMAND_USER;
+				const staged = files.map((file) => ({
+					...file,
+					stagingPath: `/tmp/.zuse-write-${crypto.randomUUID()}`,
+				}));
+				yield* Effect.all(
+					staged.map(({ stagingPath, contents }) =>
+						call("machines.files.upload", () =>
+							client.machines.files.upload(
+								providerSandboxId,
+								stagingPath,
+								contents,
+							),
+						),
+					),
+					{ concurrency: "unbounded", discard: true },
+				);
+				const commands = staged.map(({ path, stagingPath }) => {
+					const directory = path.slice(0, path.lastIndexOf("/")) || "/";
+					return `(sudo -n -u ${shellQuote(owner)} mkdir -p ${shellQuote(directory)} 2>/dev/null || sudo -n install -d -m 0755 ${shellQuote(directory)}) && sudo -n install -m 600 -o ${shellQuote(owner)} -g "$(id -gn ${shellQuote(owner)})" ${shellQuote(stagingPath)} ${shellQuote(path)}`;
+				});
+				const cleanup = `sudo -n rm -f ${staged.map(({ stagingPath }) => shellQuote(stagingPath)).join(" ")}`;
+				const install = yield* runCommand(
+					providerSandboxId,
+					`set -e; trap ${shellQuote(cleanup)} EXIT; ${commands.join(" && ")}`,
+				);
+				if (install.exitCode !== 0) return yield* providerError("transient");
+			},
+		);
+	const writeTextFile: SandboxProviderAdapter["writeTextFile"] = (
+		id,
+		path,
+		contents,
+		user,
+	) => writeTextFiles(id, [{ path, contents }], user);
 
 	const inspect = (
 		providerSandboxId: string,
@@ -1132,6 +1151,8 @@ export const makeBoxdSandboxProvider = (
 		templateVersion: config.templateVersion,
 		preservesProcessesOnResume: true,
 		supportsFencedProcessReplacement: true,
+		supportsIdempotentAllocation: true,
+		configuresAllocationTimeout: true,
 		getUsage: config.billingUsageEnabled
 			? (id, window) =>
 					call("usage", async () => {
@@ -1221,6 +1242,7 @@ export const makeBoxdSandboxProvider = (
 		readTextFile,
 		inspectProcess,
 		writeTextFile,
+		writeTextFiles,
 		inspect,
 		resolveEndpoint,
 		revokeEndpoint,

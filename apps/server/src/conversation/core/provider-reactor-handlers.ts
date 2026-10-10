@@ -42,6 +42,7 @@ const isProvenUndeliveredProviderSend = (
 };
 
 export interface ProviderReactorHandlersOptions {
+	readonly awaitWorkspaceReady?: Effect.Effect<void>;
 	readonly authorizeQueuedTurn?: WorkspaceExecutionAuthorizer;
 	readonly reactorEffects: ReturnType<typeof makeReactorEffectJournal>;
 	readonly getSession: ConversationOperations["getSession"];
@@ -180,6 +181,10 @@ export const makeProviderReactorHandlers = (
 			// Retained pre-atomic-creation rows can still carry their user prompt in
 			// provider.start. Fence that legacy external send exactly like a normal
 			// provider turn; a crash cannot safely distinguish accepted from unsent.
+			// Preparation is not an external delivery attempt. Leave the durable
+			// intent pending so a runtime interrupted here can safely resume it.
+			yield* options.awaitWorkspaceReady ??
+				Effect.flatMap(WorkspaceExecutionPolicy, (policy) => policy.awaitReady);
 			const effect = yield* reactorEffects.begin(reactorInput.commandId);
 			if (effect === "completed" || effect === "outcome-unknown") return;
 			if (effect === "already-started") {
@@ -244,6 +249,8 @@ export const makeProviderReactorHandlers = (
 				yield* reactorEffects.complete(reactorInput.commandId);
 				return;
 			}
+			yield* options.awaitWorkspaceReady ??
+				Effect.flatMap(WorkspaceExecutionPolicy, (policy) => policy.awaitReady);
 			const effect = yield* reactorEffects.begin(reactorInput.commandId);
 			if (effect === "completed" || effect === "outcome-unknown") return;
 			if (effect === "already-started") {

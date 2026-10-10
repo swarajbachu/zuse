@@ -18,6 +18,7 @@ import type {
 	CreateChatInput,
 	CreateSessionInput,
 } from "../services/conversation-services.ts";
+import { WorkspaceExecutionPolicy } from "../services/workspace-execution-policy.ts";
 import { formatProviderFailure } from "./conversation-input.ts";
 import { makeConversationOrchestration } from "./conversation-orchestration.ts";
 import type { ConversationStateApi } from "./conversation-state.ts";
@@ -39,6 +40,7 @@ export interface OpenProviderSessionOptions {
 }
 
 export interface ProviderSessionRuntimeOptions {
+	readonly awaitWorkspaceReady?: Effect.Effect<void>;
 	readonly state: ConversationStateApi;
 	readonly agentsFor: (
 		sessionId: SessionId,
@@ -79,6 +81,9 @@ export interface ProviderSessionRuntimeOptions {
 export const makeProviderSessionRuntime = (
 	options: ProviderSessionRuntimeOptions,
 ) => {
+	const awaitWorkspaceReady =
+		options.awaitWorkspaceReady ??
+		Effect.flatMap(WorkspaceExecutionPolicy, (policy) => policy.awaitReady);
 	const {
 		state,
 		agentsFor,
@@ -283,7 +288,8 @@ export const makeProviderSessionRuntime = (
 		sessionId: SessionId,
 		options: OpenProviderSessionOptions = {},
 	): Effect.Effect<boolean, SessionStartError> =>
-		lookupSession(sessionId).pipe(
+		awaitWorkspaceReady.pipe(
+			Effect.andThen(lookupSession(sessionId)),
 			Effect.mapError(
 				() =>
 					new SessionStartError({

@@ -2126,6 +2126,23 @@ describe("cloud workspace store", () => {
 				}),
 			),
 		).toBeNull();
+		const connected = await runtime.runPromise(
+			store.markRuntimeRepositoryReady({
+				workspaceId: workspace.workspaceId,
+				currentCredentialHash: "runtime-hash",
+				repositoryReady: false,
+				nowMs: 215,
+				nextIdleAtMs: 2_000,
+			}),
+		);
+		expect(connected).toMatchObject({
+			state: "setup",
+			runtimeState: "online",
+			statusCode: "syncing-repository",
+		});
+		expect(connected?.requestConfig.startupTimings).toMatchObject({
+			connectedAt: 215,
+		});
 		const repositoryReady = await runtime.runPromise(
 			store.markRuntimeRepositoryReady({
 				workspaceId: workspace.workspaceId,
@@ -2135,6 +2152,25 @@ describe("cloud workspace store", () => {
 				nextIdleAtMs: 2_000,
 			}),
 		);
+		expect(connected?.requestConfig.startupTimings).not.toHaveProperty(
+			"repositoryReadyAt",
+		);
+		const delayedConnection = await runtime.runPromise(
+			store.markRuntimeRepositoryReady({
+				workspaceId: workspace.workspaceId,
+				currentCredentialHash: "runtime-hash",
+				repositoryReady: false,
+				nowMs: 225,
+				nextIdleAtMs: 2_000,
+			}),
+		);
+		expect(delayedConnection?.statusCode).toBe(repositoryReady?.statusCode);
+		expect(delayedConnection?.requestConfig.cloudCommandProtocolVersion).toBe(
+			3,
+		);
+		expect(delayedConnection?.requestConfig.startupTimings).toMatchObject({
+			repositoryReadyAt: 220,
+		});
 		const readinessRetry = await runtime.runPromise(
 			store.markRuntimeRepositoryReady({
 				workspaceId: workspace.workspaceId,
@@ -2155,7 +2191,7 @@ describe("cloud workspace store", () => {
 			requestConfig: {
 				cloudCommandProtocolVersion: 3,
 				cloudCommandRuntimeGeneration: 1,
-				startupTimings: { connectedAt: 220, repositoryReadyAt: 220 },
+				startupTimings: { connectedAt: 215, repositoryReadyAt: 220 },
 			},
 		});
 		expect(

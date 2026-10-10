@@ -837,6 +837,12 @@ export interface CloudWorkspaceStoreApi {
 		readonly currentCredentialHash: string;
 		readonly commandProtocolVersion?: number;
 		readonly deviceBridgeVersion?: number;
+		readonly repositoryReady?: boolean;
+		readonly preparationPhase?:
+			| "checking-repository"
+			| "switching-branch"
+			| "fetching-repository"
+			| "preparing-credentials";
 		readonly nowMs: number;
 		readonly nextIdleAtMs: number;
 	}) => Effect.Effect<CloudWorkspaceRecord | null>;
@@ -2529,6 +2535,13 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						workspace.requestConfig.cloudMailboxFenceRequired === true
 					)
 						return [null, current] as const;
+					// A delayed connection acknowledgement must not downgrade preparation.
+					const connectionOnly =
+						input.repositoryReady === false &&
+						!(
+							workspace.runtimeState === "online" &&
+							["agent-starting", "agent-running"].includes(workspace.statusCode)
+						);
 					const timings =
 						(workspace.requestConfig.startupTimings as
 							| Readonly<Record<string, number>>
@@ -2544,12 +2557,22 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					const updated: CloudWorkspaceRecord = {
 						...workspace,
 						runtimeState: "online",
-						state: launchPending ? "setup" : "ready",
-						statusCode: launchPending ? "agent-starting" : "agent-running",
+						state: connectionOnly || launchPending ? "setup" : "ready",
+						statusCode: connectionOnly
+							? (input.preparationPhase ?? "syncing-repository")
+							: launchPending
+								? "agent-starting"
+								: "agent-running",
 						requestConfig: {
-							...runtimeConfig,
+							...(input.repositoryReady === false
+								? workspace.requestConfig
+								: runtimeConfig),
 							runtimeProcessManaged: true,
-							deviceBridgeVersion: input.deviceBridgeVersion ?? null,
+							deviceBridgeVersion:
+								input.deviceBridgeVersion ??
+								(input.repositoryReady === false
+									? workspace.requestConfig.deviceBridgeVersion
+									: null),
 							...(typeof input.commandProtocolVersion === "number"
 								? {
 										cloudCommandProtocolVersion: input.commandProtocolVersion,
@@ -2560,7 +2583,12 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							startupTimings: {
 								...timings,
 								connectedAt: timings.connectedAt ?? input.nowMs,
-								repositoryReadyAt: timings.repositoryReadyAt ?? input.nowMs,
+								...(connectionOnly
+									? {}
+									: {
+											repositoryReadyAt:
+												timings.repositoryReadyAt ?? input.nowMs,
+										}),
 							},
 						},
 						nextActionAtMs: preserveRuntimeOperationDeadline(
@@ -5171,15 +5199,14 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				orDie(
 					sql`UPDATE api_cloud_workspaces
 					SET runtime_state='online',
-						state=CASE WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN 'ready' ELSE 'setup' END,
-						status_code=CASE WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN 'agent-running' ELSE 'agent-starting' END,
-						request_config=(request_config - 'cloudCommandProtocolVersion' - 'cloudCommandRuntimeGeneration') || jsonb_build_object(
+						state=CASE WHEN runtime_state='online' AND status_code IN ('agent-starting', 'agent-running') THEN state WHEN ${input.repositoryReady !== false}::boolean AND jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN 'ready' ELSE 'setup' END,
+						status_code=CASE WHEN runtime_state='online' AND status_code IN ('agent-starting', 'agent-running') THEN status_code WHEN ${input.repositoryReady === false}::boolean THEN ${input.preparationPhase ?? "syncing-repository"} WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN 'agent-running' ELSE 'agent-starting' END,
+						request_config=(CASE WHEN ${input.repositoryReady === false}::boolean THEN request_config ELSE request_config - 'cloudCommandProtocolVersion' - 'cloudCommandRuntimeGeneration' END) || jsonb_build_object(
 							'runtimeProcessManaged', true,
- 'deviceBridgeVersion', ${input.deviceBridgeVersion ?? null}::integer,
+ 'deviceBridgeVersion', COALESCE(to_jsonb(${input.deviceBridgeVersion ?? null}::integer), CASE WHEN ${input.repositoryReady === false}::boolean THEN request_config->'deviceBridgeVersion' ELSE 'null'::jsonb END),
 							'startupTimings', COALESCE(request_config->'startupTimings', '{}'::jsonb) || jsonb_build_object(
-								'connectedAt', COALESCE(request_config #> '{startupTimings,connectedAt}', to_jsonb(${input.nowMs}::bigint)),
-								'repositoryReadyAt', COALESCE(request_config #> '{startupTimings,repositoryReadyAt}', to_jsonb(${input.nowMs}::bigint))
-							)
+								'connectedAt', COALESCE(request_config #> '{startupTimings,connectedAt}', to_jsonb(${input.nowMs}::bigint))
+							) || CASE WHEN ${input.repositoryReady === false}::boolean THEN '{}'::jsonb ELSE jsonb_build_object('repositoryReadyAt', COALESCE(request_config #> '{startupTimings,repositoryReadyAt}', to_jsonb(${input.nowMs}::bigint))) END
 						) || CASE WHEN ${input.commandProtocolVersion ?? null}::integer IS NULL THEN '{}'::jsonb ELSE jsonb_build_object(
 							'cloudCommandProtocolVersion', ${input.commandProtocolVersion ?? null}::integer,
 							'cloudCommandRuntimeGeneration', COALESCE((request_config->>'runtimeGeneration')::bigint, 1)

@@ -1241,6 +1241,51 @@ describe("boxd sandbox provider", () => {
 		expect(install).not.toContain("install -D");
 	});
 
+	test("installs a launch asset batch with one guest command", async () => {
+		const client = new FakeBoxd();
+		client.set(machineOf({ id: "vm_1" }));
+		const adapter = makeAdapter(client);
+		if (!adapter.writeTextFiles) throw new Error("batch unsupported");
+		await run(
+			adapter.writeTextFiles(
+				"vm_1",
+				[
+					{
+						path: "/var/lib/zuse/project-build/bootstrap.sh",
+						contents: "bootstrap",
+					},
+					{
+						path: "/var/lib/zuse/project-build/repository.sh",
+						contents: "repository",
+					},
+				],
+				"zuse",
+			),
+		);
+		expect(client.uploads).toHaveLength(2);
+		expect(client.execs).toHaveLength(1);
+		const command = client.execs[0]?.params.command;
+		expect(command).toContain("bootstrap.sh");
+		expect(command).toContain("repository.sh");
+		expect(command).toContain("trap");
+		expect(command).toContain("EXIT");
+	});
+
+	test("validates all batch paths before the first upload", async () => {
+		const client = new FakeBoxd();
+		const adapter = makeAdapter(client);
+		if (!adapter.writeTextFiles) throw new Error("batch unsupported");
+		await expect(
+			run(
+				adapter.writeTextFiles("vm_1", [
+					{ path: "/tmp/valid", contents: "ok" },
+					{ path: "relative", contents: "invalid" },
+				]),
+			),
+		).rejects.toMatchObject({ code: "rejected" });
+		expect(client.calls).toHaveLength(0);
+	});
+
 	test("rejects writes that exceed the text file cap", async () => {
 		const client = new FakeBoxd();
 		await expect(

@@ -628,7 +628,7 @@ describe("cloud workspace bootstrap", () => {
 	});
 
 	it("announces readiness when a preserved runtime reconnects", () => {
-		expect(runtimeReadyPhaseOnGatewayOpen(false)).toBeNull();
+		expect(runtimeReadyPhaseOnGatewayOpen(false)).toBe("runtime-connected");
 		expect(runtimeReadyPhaseOnGatewayOpen(true)).toBe("repository-ready");
 	});
 

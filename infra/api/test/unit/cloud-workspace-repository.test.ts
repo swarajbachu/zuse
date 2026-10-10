@@ -38,6 +38,7 @@ const fixture = () => {
 			env: {
 				...process.env,
 				ZUSE_CLOUD_WORKSPACE_ROOT: root,
+				ZUSE_WORKSPACE_RUNTIME_STATUS_DIR: root,
 				ZUSE_BRANCH: "vileplume",
 				ZUSE_BASE_REF: base,
 				ZUSE_FORK_CHECKOUT: fork ? "1" : "",
@@ -73,7 +74,13 @@ describe("cloud workspace branch initialization", () => {
 		writeFileSync(join(root, "file"), "user edits");
 		writeFileSync(join(root, "untracked"), "keep");
 		run();
+		expect(readFileSync(join(root, "repository-progress"), "utf8").trim()).toBe(
+			"switching-branch",
+		);
 		run();
+		expect(readFileSync(join(root, "repository-progress"), "utf8").trim()).toBe(
+			"checking-repository",
+		);
 		expect(git("branch", "--show-current")).toBe("vileplume");
 		expect(readFileSync(join(root, "file"), "utf8")).toBe("user edits");
 		expect(readFileSync(join(root, "untracked"), "utf8")).toBe("keep");
@@ -116,6 +123,9 @@ describe("cloud workspace branch initialization", () => {
 		const remote = join(root, "remote.git");
 		execFileSync("git", ["init", "--bare", remote], { stdio: "pipe" });
 		expect(() => run("refs/pull/656/head", remote)).toThrow();
+		expect(readFileSync(join(root, "repository-progress"), "utf8").trim()).toBe(
+			"fetching-repository",
+		);
 		expect(git("branch", "--show-current")).toBe("main");
 	});
 	test("recovers the target branch with conflicting edits intact", () => {
