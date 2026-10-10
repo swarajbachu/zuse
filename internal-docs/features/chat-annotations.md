@@ -1,13 +1,13 @@
 # Chat annotations
 
 Selecting text anywhere in a chat transcript opens a floating menu with
-Annotate, Quote, and Copy. Selection works in assistant replies, the user's own
+Annotate and Copy. Selection works in assistant replies, the user's own
 messages, and generated UI blocks.
 
-- **Annotate** pins a note to the selected text. The note joins the composer's
+- **Annotate** opens the same draft card as file annotations
+  (`DraftReviewAnnotation`) and pins the note to the selected text. It joins the composer's
   annotation tray, next to code and browser annotations. It is sent with the
   next message and stays visible on that message's annotations pill.
-- **Quote** inserts the selection into the composer as a Markdown quote.
 - **Copy** copies the selected text.
 
 ## Data

@@ -713,10 +713,6 @@
 	"delegation_group_running": "{{working}} of {{total}} running",
 	"selection_menu_label": "Selection actions",
 	"selection_menu_annotate": "Annotate",
-	"selection_menu_quote": "Quote",
 	"selection_menu_copy": "Copy",
-	"selection_menu_copied": "Copied",
-	"selection_menu_note_placeholder": "Add a note for the agent…",
-	"selection_menu_cancel": "Cancel",
-	"selection_menu_add_note": "Add note"
+	"selection_menu_copied": "Copied"
 }

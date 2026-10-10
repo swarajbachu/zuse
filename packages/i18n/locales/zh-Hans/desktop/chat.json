@@ -713,10 +713,6 @@
 	"message_row_ui_spec_send_open_chat": "打开此聊天以发送。",
 	"selection_menu_label": "选区操作",
 	"selection_menu_annotate": "批注",
-	"selection_menu_quote": "引用",
 	"selection_menu_copy": "复制",
-	"selection_menu_copied": "已复制",
-	"selection_menu_note_placeholder": "为智能体添加备注…",
-	"selection_menu_cancel": "取消",
-	"selection_menu_add_note": "添加备注"
+	"selection_menu_copied": "已复制"
 }

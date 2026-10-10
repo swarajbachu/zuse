@@ -713,10 +713,6 @@
 	"delegation_group_running": "⟦{{working}} ôôf {{total}} rüünnïïng⟧",
 	"selection_menu_label": "⟦Sëëlëëctïïôôn ààctïïôôns⟧",
 	"selection_menu_annotate": "⟦ÀÀnnôôtààtëë⟧",
-	"selection_menu_quote": "⟦Qüüôôtëë⟧",
 	"selection_menu_copy": "⟦Côôpy⟧",
-	"selection_menu_copied": "⟦Côôpïïëëd⟧",
-	"selection_menu_note_placeholder": "⟦ÀÀdd àà nôôtëë fôôr thëë ààgëënt…⟧",
-	"selection_menu_cancel": "⟦Cààncëël⟧",
-	"selection_menu_add_note": "⟦ÀÀdd nôôtëë⟧"
+	"selection_menu_copied": "⟦Côôpïïëëd⟧"
 }
