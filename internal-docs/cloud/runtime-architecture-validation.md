@@ -392,7 +392,7 @@ Live failures remain material gates: Boat pause returned `cloud_workspace_transi
 
 A separate deterministic public-API regression reproduces a lost command nudge while an empty fetch response is in flight. The shared pump now retains overlapping nudge revisions and refetches only after an empty result; successful delivery and blocked delivery still stop until a later causal signal, preserving ordered turns and lost-acknowledgement repair. This fixes the verified race, without asserting it explains wake socket failures or every measured delay.
 
-Raw desktop evidence: [Boxd](measurements/2026-10-10-boxd-desktop-phases.json), [Boat](measurements/2026-10-10-boat-desktop-phases.json), [E2B](measurements/2026-10-10-e2b-desktop-phases.json). Boat's three disposable fixtures are verified deleted in both staging and provider inventory; its test API key was revoked. E2B's disposable fixture is verified deleted and its separate test API key revoked. Boxd's remaining diagnostic fixture is being inspected before deletion; latest prepared images remain available for staging tests.
+Raw desktop evidence: [Boxd](measurements/2026-10-10-boxd-desktop-phases.json), [Boat](measurements/2026-10-10-boat-desktop-phases.json), [E2B](measurements/2026-10-10-e2b-desktop-phases.json). Boat's three disposable fixtures are verified deleted in both staging and provider inventory; its test API key was revoked. E2B's disposable fixture is verified deleted and its separate test API key revoked. Boxd's two measurement fixtures, the failed builder and both restore probes are verified deleted at the provider; its separate test API key was revoked. Latest prepared images remain available for staging tests.
 
 
 ### Confirmed wake transport retirement delay
@@ -408,3 +408,6 @@ The corrected wrapper also passed a live Boxd wake on signed runtime `2fdc7f3e`:
 
 
 A normal signed upgrade of the same Boxd fixture was verified against guest metadata at exact version `2fdc7f3e529328af065492653ed0d97c6acc3c94`. Fresh guest `session.get` and `chat.get` calls confirmed that the original session and chat still exist and that the session retains its original chat association. An expired static benchmark access token initially returned 401; the normal shared login refresh corrected that fixture prerequisite before verification. This is a verified populated-workspace upgrade rather than only a control-plane identity comparison.
+
+
+Final Boxd cleanup verified the measurement fixtures and all earlier own probe/builder IDs missing at the provider. The temporary Boxd API key was revoked and its private fixture file removed. Boat, Boxd and E2B left no running test machines. Redacted wake traces: [before](measurements/2026-10-10-boxd-wake-reset-before.json), [after](measurements/2026-10-10-boxd-wake-reset-after.json).

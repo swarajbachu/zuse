@@ -1,0 +1,40 @@
+{
+	"upgradeGuestVerification": {
+		"workspaceId": "workspace_33YmxwGmqg2wps--",
+		"runtimeVersion": "2fdc7f3e529328af065492653ed0d97c6acc3c94",
+		"verifiedExpectedVersion": true
+	},
+	"guestPreservation": {
+		"workspaceId": "workspace_33YmxwGmqg2wps--",
+		"originalSessionId": "s_52783b32-90dc-4800-ab87-3287ccc648e9",
+		"originalChatId": "chat_73f7a160-b0e0-4e25-bb51-a4688c66706f",
+		"guestOriginalSessionPresent": true,
+		"guestOriginalSessionChatMatches": true,
+		"guestOriginalChatPresent": true
+	},
+	"providerCleanup": {
+		"provider": "boxd",
+		"machines": [
+			{
+				"id": "2f5d1d3d-9535-4741-a38d-608420ab7882",
+				"absent": true,
+				"error": "NotFoundError"
+			},
+			{
+				"id": "47dff7be-f4cb-428d-995f-734cc13a7d5a",
+				"absent": true,
+				"error": "NotFoundError"
+			},
+			{
+				"id": "f1b3fe0d-726f-42f8-9b4f-f0cab915d5ba",
+				"absent": true,
+				"error": "NotFoundError"
+			},
+			{
+				"id": "da016e19-37c1-4c64-870f-34aea5a33b8f",
+				"absent": true,
+				"error": "NotFoundError"
+			}
+		]
+	}
+}
