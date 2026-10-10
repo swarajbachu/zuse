@@ -132,6 +132,7 @@ export default defineConfig({
 			"@zuse/icons/stroke-rounded",
 			"class-variance-authority",
 			"clsx",
+			"@openuidev/react-lang",
 			"d3-scale",
 			"d3-shape",
 			"diff",

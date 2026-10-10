@@ -1,4 +1,4 @@
-import type { Message, SessionId } from "@zuse/contracts";
+import { AgentItemId, type Message, type SessionId } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -638,4 +638,85 @@ it("does not summarize a turn whose only tools were delegations", () => {
 		"delegation",
 		"message",
 	]);
+});
+
+it("keeps generated UI visible through turn completion and replay", () => {
+	const messages = [
+		message("u-ui", { _tag: "user", text: "Show build health" }),
+		message("tool-ui", {
+			_tag: "tool_use",
+			itemId: AgentItemId.make("emit-ui"),
+			tool: "emit_ui",
+			input: {},
+		}),
+		message("ui", {
+			_tag: "ui_spec",
+			version: 1,
+			spec: 'root = Stat("Tests", "428")',
+		}),
+		message("a-ui", { _tag: "assistant", text: "All checks passed." }),
+	];
+	for (const inFlight of [true, false]) {
+		const rows = deriveChatTimelineRows({
+			messages,
+			inFlight,
+			awaitingPlanApproval: false,
+		});
+		expect(rows.find((row) => row.id === "message:ui")?.kind).toBe("message");
+		expect(rows.some((row) => row.kind === "turn-summary")).toBe(false);
+	}
+	const replay = createCloudTimelineRows();
+	expect(
+		replay({ messages, inFlight: false, awaitingPlanApproval: false }).some(
+			(row) => row.id === "message:ui",
+		),
+	).toBe(true);
+});
+
+it("shows generated UI inline instead of under its tool call", () => {
+	const emitUi = (id: string, isError: boolean) => [
+		message(`tool-${id}`, {
+			_tag: "tool_use",
+			itemId: AgentItemId.make(id),
+			tool: "mcp__zuse__emit_ui",
+			input: {},
+		}),
+		message(`result-${id}`, {
+			_tag: "tool_result",
+			itemId: AgentItemId.make(id),
+			output: isError ? "Unknown component Chart." : "{}",
+			isError,
+		}),
+	];
+	const rows = deriveChatTimelineRows({
+		messages: [
+			message("u1", { _tag: "user", text: "Ask me" }),
+			...emitUi("bad", true),
+			...emitUi("good", false),
+			message("ui-1", {
+				_tag: "ui_spec",
+				version: 1,
+				spec: 'root = Text("old")',
+			}),
+			message("u2", { _tag: "user", text: "Again" }),
+			message("ui-2", {
+				_tag: "ui_spec",
+				version: 1,
+				spec: 'root = Text("new")',
+			}),
+		],
+		inFlight: false,
+		awaitingPlanApproval: false,
+	});
+	const tools = rows.flatMap((row) =>
+		row.kind === "tool-activity" ? row.messages.map((m) => m.id) : [],
+	);
+	// The failed call stays visible; the successful one is the block itself.
+	expect(tools).toEqual(["tool-bad", "result-bad"]);
+	const interactive = (id: string) => {
+		const row = rows.find((candidate) => candidate.id === `message:${id}`);
+		return row?.kind === "message" ? row.interactive === true : undefined;
+	};
+	expect(interactive("ui-1")).toBe(false);
+	expect(interactive("ui-2")).toBe(true);
 });

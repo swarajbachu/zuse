@@ -702,5 +702,17 @@
 	"delegation_status_stopped": "已停止",
 	"delegation_row_starting": "正在啟動…",
 	"delegation_row_open": "開啟 {{title}}",
-	"delegation_group_running": "{{total}} 個中 {{working}} 個執行中"
+	"delegation_group_running": "{{total}} 個中 {{working}} 個執行中",
+	"message_row_ui_spec_generated": "產生的 UI",
+	"message_row_ui_spec_could_not_render": "無法轉譯此 UI 區塊 — 顯示原始 spec",
+	"message_row_ui_spec_submit": "提交",
+	"message_row_ui_spec_sent": "已傳送",
+	"message_row_ui_spec_yes": "是",
+	"message_row_ui_spec_no": "否",
+	"message_row_ui_spec_send_failed": "無法傳送你的回覆",
+	"message_row_ui_spec_send_open_chat": "開啟此聊天以傳送。",
+	"selection_menu_label": "選取範圍操作",
+	"selection_menu_annotate": "註解",
+	"selection_menu_copy": "複製",
+	"selection_menu_copied": "已複製"
 }

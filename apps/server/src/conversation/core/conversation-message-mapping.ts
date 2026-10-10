@@ -26,6 +26,8 @@ export const messageContentToText = (content: MessageContent): string => {
 		case "assistant":
 		case "thinking":
 			return content.text;
+		case "ui_spec":
+			return content.spec;
 		case "tool_use":
 			return `[tool_use: ${content.tool}]`;
 		case "tool_result":
@@ -69,6 +71,27 @@ export const transcriptToMarkdown = (
 			case "assistant":
 				lines.push("## Assistant", "", content.text.trim(), "");
 				break;
+			case "ui_spec": {
+				// Model strings may contain fences; choose a delimiter they cannot close.
+				const fence = "`".repeat(
+					Math.max(
+						3,
+						...Array.from(
+							content.spec.matchAll(/`+/g),
+							(match) => match[0].length + 1,
+						),
+					),
+				);
+				lines.push(
+					"## Assistant UI",
+					"",
+					`${fence}openui`,
+					content.spec,
+					fence,
+					"",
+				);
+				break;
+			}
 			case "thinking":
 				if (!content.redacted && content.text.trim().length > 0) {
 					lines.push(
@@ -152,6 +175,8 @@ export const roleForContent = (content: MessageContent): MessageRole => {
 			return "assistant";
 		case "tool_result":
 			return "tool";
+		case "ui_spec":
+			return "assistant";
 		default:
 			return "system";
 	}

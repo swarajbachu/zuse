@@ -395,6 +395,18 @@ const UserQuestionAnswerContent = Schema.TaggedStruct("user_question_answer", {
 });
 
 /**
+ * A generative-UI block emitted by the agent via the `emit_ui`
+ * orchestration tool. `spec` is OpenUI Lang text validated server-side
+ * against the shared component catalogue (`@zuse/utils/generative-ui`);
+ * the renderer re-parses it into `@repo/ui`-styled components at render
+ * time. `version` gates future spec-format changes.
+ */
+const UiSpecContent = Schema.TaggedStruct("ui_spec", {
+	spec: Schema.String,
+	version: Schema.Literal(1),
+});
+
+/**
  * Tagged-union of all renderable message payloads. Persisted as the JSON blob
  * in `messages.content_json`; the `_tag` mirrors the `messages.kind` column.
  * Keep the shape additive — new tags become new rendered variants in the
@@ -417,6 +429,7 @@ export const MessageContent = Schema.Union([
 	UsageLimitContent,
 	UserQuestionContent,
 	UserQuestionAnswerContent,
+	UiSpecContent,
 ]);
 export type MessageContent = typeof MessageContent.Type;
 

@@ -705,5 +705,17 @@
 	"delegation_row_starting": "Démarrage…",
 	"delegation_row_open": "Ouvrir {{title}}",
 	"delegation_group_count_many": "{{count}} sous-agents",
-	"delegation_group_running": "{{working}} sur {{total}} en cours"
+	"delegation_group_running": "{{working}} sur {{total}} en cours",
+	"message_row_ui_spec_generated": "UI générée",
+	"message_row_ui_spec_could_not_render": "Impossible d'afficher ce bloc d'interface — la spec brute est affichée",
+	"message_row_ui_spec_submit": "Envoyer",
+	"message_row_ui_spec_sent": "Envoyé",
+	"message_row_ui_spec_yes": "Oui",
+	"message_row_ui_spec_no": "Non",
+	"message_row_ui_spec_send_failed": "Impossible d'envoyer votre réponse",
+	"message_row_ui_spec_send_open_chat": "Ouvrez cette discussion pour l'envoyer.",
+	"selection_menu_label": "Actions sur la sélection",
+	"selection_menu_annotate": "Annoter",
+	"selection_menu_copy": "Copier",
+	"selection_menu_copied": "Copié"
 }

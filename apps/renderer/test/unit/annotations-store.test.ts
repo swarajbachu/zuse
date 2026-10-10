@@ -208,3 +208,15 @@ describe("annotations store", () => {
 		]);
 	});
 });
+
+it("stores chat annotations with their quote and source", () => {
+	const entry = useAnnotationsStore.getState().addChat(sessionId, {
+		messageId: "m1",
+		source: "ui",
+		quote: "184 ms",
+		comment: "Too slow",
+	});
+	expect(entry).toMatchObject({ _tag: "chat", quote: "184 ms" });
+	expect(annotationsForSession(sessionId)).toContainEqual(entry);
+	useAnnotationsStore.getState().clear(sessionId);
+});

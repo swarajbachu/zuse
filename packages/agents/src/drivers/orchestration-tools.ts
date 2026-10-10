@@ -5,6 +5,7 @@ import type {
 	PermissionMode,
 	RuntimeMode,
 } from "@zuse/contracts";
+import { generativeUiComponentLines } from "@zuse/utils/generative-ui";
 import { z } from "zod";
 import { getToolPolicy } from "../kernel/policy.ts";
 import {
@@ -131,6 +132,10 @@ export interface WhoamiResult {
 	readonly autonomyLevel: string;
 }
 
+export type EmitUiResult =
+	| { readonly ok: true; readonly messageId: string }
+	| { readonly ok: false; readonly error: string };
+
 /**
  * The Effect-free surface `ConversationServices` binds. Each call resolves to a result
  * object; rejections are not expected (ConversationServices catches Effect failures).
@@ -168,6 +173,11 @@ export interface OrchestrationToolDeps {
 		readonly providerId?: string;
 	}) => Promise<ListModelsResult>;
 	readonly whoami: () => Promise<WhoamiResult>;
+	/**
+	 * Persist a generative-UI block (OpenUI Lang spec) into this session's
+	 * transcript. Display-only — the block carries no callbacks or actions.
+	 */
+	readonly emitUi: (input: { readonly spec: string }) => Promise<EmitUiResult>;
 }
 
 export interface OrchestrationPermissionOptions {
@@ -200,7 +210,8 @@ export type OrchestrationToolName =
 	| "read_thread"
 	| "list_threads"
 	| "list_models"
-	| "whoami";
+	| "whoami"
+	| "emit_ui";
 
 export type OrchestrationMcpToolDef = {
 	readonly name: OrchestrationToolName;
@@ -230,6 +241,45 @@ const LIST_MODELS_DESCRIPTION =
 
 const WHOAMI_DESCRIPTION =
 	"Return your own session id, chat id, project id, workspace (worktreeId — null means the project's main checkout), providerId, model, and autonomy level. Use to reason about your own constraints and location before spawning more work. Read-only.";
+
+const EMIT_UI_DESCRIPTION = `Render UI inline in your reply: dashboards, comparisons, plans, and forms that collect the user's answers. Input spec is OpenUI Lang text. It renders directly in the chat (no card or background), between your text messages.
+
+Interaction: FollowUps buttons and Form submissions send the user's response as their next message, so you receive it as a normal user turn. Only the latest turn's UI accepts input. Nothing else runs — no tools, callbacks, or live data.
+
+When to use:
+- Ask for several structured choices at once → Form (Select, RadioGroup, Checkbox, Slider, Input, TextArea).
+- Offer clear next steps → FollowUps.
+- Show data → Stat, Table, BarChart, LineChart; a plan or progress → Steps; risks → Callout; alternatives → Tabs.
+- Use ordinary text for short answers. Do not invent data. Do not repeat the UI's content in prose.
+
+Syntax rules:
+- One statement per line: name = Expression
+- root = ... is REQUIRED — it is the top-level component
+- Component arguments are POSITIONAL only: Stat("Downloads", "12k") — never name: value
+- Strings are double-quoted; nest components inside array args: Card([s1, s2])
+- Define parts on their own lines and reference them by name; every defined name (except root) must be reachable from root
+- Pass null for an optional arg you want to skip
+- Use literal data only. No reactive state, expressions, Query(), Mutation(), or actions.
+- Fields (Input, TextArea, Select, RadioGroup, Checkbox, Slider) must be inside a Form, with unique names. Forms cannot nest.
+- Keep specs under 32,768 characters. Containers hold at most 64 components; charts hold 1-100 points; tables hold 1-20 columns and at most 200 rows.
+
+Example — a form:
+root = Form([env, region, migrate, rollout, notes], "Deploy", "Deploy settings")
+env = RadioGroup("env", "Environment", ["staging", "production"], "staging")
+region = Select("region", "Region", ["us-east-1", "eu-west-1"])
+migrate = Checkbox("migrate", "Run database migrations", true)
+rollout = Slider("rollout", "Initial rollout %", 0, 100, 25, 5)
+notes = TextArea("notes", "Anything else?")
+
+Example — a dashboard:
+root = Card([Grid([Stat("Tests", "428 passed"), Stat("Median build", "8.1 s")], 2), trend, next], "Build health")
+trend = LineChart("Build duration", [{label: "Mon", value: 12}, {label: "Tue", value: 9}], "s")
+next = FollowUps([{label: "Profile slow build", prompt: "Profile the Tuesday build and explain the slowest step."}])
+
+Components (signature — purpose):
+${generativeUiComponentLines()}
+
+Returns { ok, messageId } once the block is persisted to the transcript; a validation error lists what to fix and nothing renders.`;
 
 export const ORCHESTRATION_MCP_TOOLS: ReadonlyArray<OrchestrationMcpToolDef> = [
 	{
@@ -322,6 +372,18 @@ export const ORCHESTRATION_MCP_TOOLS: ReadonlyArray<OrchestrationMcpToolDef> = [
 		description: WHOAMI_DESCRIPTION,
 		inputSchema: objectSchema({}),
 	},
+	{
+		name: "emit_ui",
+		description: EMIT_UI_DESCRIPTION,
+		inputSchema: objectSchema(
+			{
+				spec: stringProp(
+					"OpenUI Lang source text for the UI block. Must define `root = Component(...)`.",
+				),
+			},
+			["spec"],
+		),
+	},
 ];
 
 export const READ_ONLY_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
@@ -329,6 +391,9 @@ export const READ_ONLY_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
 	"list_threads",
 	"list_models",
 	"whoami",
+	// emit_ui is display-only: it appends a rendered spec block to the
+	// transcript and carries no callbacks — same blast radius as a read.
+	"emit_ui",
 ]);
 
 export const MUTATING_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
@@ -509,6 +574,16 @@ export const callOrchestrationTool = async (
 			);
 		case "whoami":
 			return jsonResult(await deps.whoami());
+		case "emit_ui": {
+			const spec = asString(args, "spec");
+			if (spec === undefined) {
+				return {
+					content: [{ type: "text", text: "emit_ui requires spec." }],
+					isError: true,
+				};
+			}
+			return settle(await deps.emitUi({ spec }));
+		}
 	}
 };
 
@@ -692,5 +767,19 @@ export const buildOrchestrationTools = (deps: OrchestrationToolDeps) => [
 
 	tool("whoami", WHOAMI_DESCRIPTION, {}, async () =>
 		jsonResult(await deps.whoami()),
+	),
+
+	tool(
+		"emit_ui",
+		EMIT_UI_DESCRIPTION,
+		{
+			spec: z
+				.string()
+				.min(1)
+				.describe(
+					"OpenUI Lang source text for the UI block. Must define `root = Component(...)`.",
+				),
+		},
+		async (args) => settle(await deps.emitUi({ spec: args.spec })),
 	),
 ];

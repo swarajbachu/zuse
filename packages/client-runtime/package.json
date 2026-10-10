@@ -56,7 +56,8 @@
 		"./background-history": "./src/background-history.ts",
 		"./organization-control-client": "./src/organization-control-client.ts",
 		"./control-api-error": "./src/control-api-error.ts",
-		"./html-render": "./src/html-render.ts"
+		"./html-render": "./src/html-render.ts",
+		"./generative-ui": "./src/generative-ui.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",
