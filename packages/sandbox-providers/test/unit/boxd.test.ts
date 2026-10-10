@@ -165,6 +165,11 @@ class FakeBoxd implements BoxdSandboxClient {
 			this.record("machines.create", [params]);
 			const id = `vm_${this.nextId++}`;
 			const routes = params.fromSnapshot === undefined ? [] : [47_837];
+			const source = [...this.snapshotStore.values()].find(
+				(snapshot) =>
+					snapshot.name === params.fromSnapshot ||
+					snapshot.id === params.fromSnapshot,
+			);
 			const machine = this.set(
 				machineOf({
 					id,
@@ -176,9 +181,8 @@ class FakeBoxd implements BoxdSandboxClient {
 							: {
 									kind: "snapshot",
 									name: params.fromSnapshot,
-									version:
-										this.snapshotStore.get(params.fromSnapshot)?.version ?? 1,
-									id: this.snapshotStore.get(params.fromSnapshot)?.id ?? null,
+									version: source?.version ?? 1,
+									id: source?.id ?? null,
 								},
 				}),
 			);
@@ -849,7 +853,7 @@ describe("boxd sandbox provider", () => {
 		});
 	});
 
-	test("restores a persisted custom source ID by name and retains its immutable pin", async () => {
+	test("restores a persisted custom source ID directly and retains its immutable pin", async () => {
 		const client = new FakeBoxd();
 		client.set(machineOf({ id: "source-vm" }));
 		await client.snapshots.create("source-vm", "customer-snapshot");
@@ -862,6 +866,7 @@ describe("boxd sandbox provider", () => {
 		await expect(
 			run(provider.resolveSnapshotSource(snapshot.id)),
 		).resolves.toEqual({ snapshotId: snapshot.id, version: 1 });
+		client.calls.length = 0;
 		await run(
 			provider.fork({
 				...createInput,
@@ -871,16 +876,16 @@ describe("boxd sandbox provider", () => {
 			}),
 		);
 		expect(client.methods("machines.create")[0]?.args[0]).toMatchObject({
-			fromSnapshot: snapshot.name,
+			fromSnapshot: snapshot.id,
 			isolated: false,
 		});
-		expect(client.methods("snapshots.list")[0]?.args).toEqual([
-			{ org: "zuse" },
-		]);
+		expect(client.methods("snapshots.get")).toHaveLength(0);
+		expect(client.methods("snapshots.list")).toHaveLength(0);
 	});
 
-	test("rejects an unavailable custom source before allocating a machine", async () => {
+	test("propagates a provider restore rejection without preflight snapshot lookups", async () => {
 		const client = new FakeBoxd();
+		client.fail("machines.create", new NotFoundError("snapshot not found", 5));
 		await expect(
 			run(
 				makeAdapter(client).fork({
@@ -891,7 +896,9 @@ describe("boxd sandbox provider", () => {
 				}),
 			),
 		).rejects.toMatchObject({ code: "not-found" });
-		expect(client.methods("machines.create")).toHaveLength(0);
+		expect(client.methods("machines.create")).toHaveLength(1);
+		expect(client.methods("snapshots.get")).toHaveLength(0);
+		expect(client.methods("snapshots.list")).toHaveLength(0);
 	});
 
 	test("does not fall back to a snapshot list after a transient lookup failure", async () => {
@@ -909,7 +916,7 @@ describe("boxd sandbox provider", () => {
 		expect(client.methods("machines.create")).toHaveLength(0);
 	});
 
-	test("rejects a custom snapshot replaced between resolution and restore", async () => {
+	test("rejects a restored machine whose source differs from the immutable pin", async () => {
 		const client = new FakeBoxd();
 		client.set(machineOf({ id: "source-vm" }));
 		await client.snapshots.create("source-vm", "customer-snapshot");
@@ -917,12 +924,16 @@ describe("boxd sandbox provider", () => {
 		client.snapshotStore.set(snapshot.name, { ...snapshot, status: "ready" });
 		const create = client.machines.create;
 		client.machines.create = async (params) => {
-			client.snapshotStore.set(snapshot.name, {
-				...snapshot,
-				id: "replacement-source",
-				status: "ready",
-			});
-			return create(params);
+			const restored = await create(params);
+			return {
+				...restored,
+				source: {
+					kind: "snapshot",
+					name: snapshot.name,
+					id: "replacement-source",
+					version: snapshot.version,
+				},
+			};
 		};
 		await expect(
 			run(

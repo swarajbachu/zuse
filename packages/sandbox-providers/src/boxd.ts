@@ -344,7 +344,7 @@ export const makeBoxdSandboxProvider = (
 			},
 		});
 
-	// Boxd restores by name, while imported sources are pinned by immutable ID.
+	// Snapshot metadata lookup accepts names; restore accepts names or immutable IDs.
 	// Only a genuine missing name warrants an ID lookup; outages must propagate.
 	const snapshotReference = (reference: string) =>
 		call("snapshots.get", () =>
@@ -536,21 +536,6 @@ export const makeBoxdSandboxProvider = (
 		const name = boxdMachineName(input.providerLabel);
 		if (!MACHINE_NAME_PATTERN.test(name))
 			return yield* providerError("rejected");
-		const source =
-			input.snapshotSource === "custom-snapshot"
-				? yield* snapshotReference(input.snapshot)
-				: undefined;
-		if (
-			source !== undefined &&
-			(source.status !== "ready" ||
-				source.version === null ||
-				(input.snapshotVersion !== undefined &&
-					(source.id !== input.snapshot ||
-						source.version !== input.snapshotVersion)))
-		)
-			return yield* providerError("rejected");
-		const expectedSnapshotId = source?.id ?? input.snapshot;
-		const expectedSnapshotVersion = input.snapshotVersion ?? source?.version;
 		const idleSeconds = clampIdleSeconds(input.timeoutSeconds);
 		// Managed images are isolated. User-owned snapshots retain Boxd
 		// account integrations, including agent credential injection.
@@ -567,7 +552,7 @@ export const makeBoxdSandboxProvider = (
 					return await client.machines.create({
 						name,
 						...(org === undefined ? {} : { org }),
-						fromSnapshot: source?.name ?? input.snapshot,
+						fromSnapshot: input.snapshot,
 						isolated: input.snapshotSource !== "custom-snapshot",
 						config: {
 							autoSuspendTimeout: 0,
@@ -612,11 +597,11 @@ export const makeBoxdSandboxProvider = (
 				client.machines.setAutoHibernateTimeout(created.id, idleSeconds),
 			);
 		let usable = created;
-		if (expectedSnapshotVersion !== undefined) {
+		if (input.snapshotVersion !== undefined) {
 			if (usable.source?.id == null) usable = yield* machine(created.id);
 			if (
-				usable.source?.id !== expectedSnapshotId ||
-				usable.source.version !== expectedSnapshotVersion
+				usable.source?.id !== input.snapshot ||
+				usable.source.version !== input.snapshotVersion
 			)
 				return yield* providerError("rejected");
 		}
