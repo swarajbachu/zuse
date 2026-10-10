@@ -136,19 +136,28 @@ actual charge buckets: a 10 micro-USD difference consistent with different
 rounding scopes. The adapter consumes the provider's `costMicro`; these historical
 reconciliation calculations do not introduce a hardcoded application price table.
 
-Provider-to-ledger-to-processor delivery verification remains outstanding before
-usage activation. The production ledger has no imported provider statements.
-A read-only Boat usage request succeeded, but that alone does not establish
-delivery. No usage charges or admission enforcement were enabled during launch.
+The October 10 activation uses a prospective `2026-10-10T16:00:00Z` compute
+cutover, with financial export, admission enforcement and Boxd settlement enabled.
+New Stripe checkout includes both the $40 base price and metered overage price;
+a fresh unpaid live Checkout session verified both items and disabled automatic
+tax, then was expired and its customer deleted. A live catalogue audit found no
+existing Stripe subscriptions requiring an overage item. Existing Polar billing
+periods and subscriptions retain their provider. Saved-image storage still requires
+its independent opt-in and cutover.
 
-Production currently disables both financial export and admission enforcement,
-and boxd settlement is also disabled. Verify provider settlement and its cutover
-before enabling `CLOUD_BILLING_EXPORT_ENABLED` and
-`CLOUD_BILLING_ENFORCEMENT_ENABLED`. The production deploy script rejects Stripe
-in metered mode unless both billing gates are enabled; its existing
-provider checks also reject unverified boxd settlement. After verification, switch
-`STRIPE_CLOUD_BILLING_MODE` to `metered` and deploy. Keep existing Polar subscribers
-on Polar until the coordinated transfer below is complete.
+Captured authenticated Boxd evidence for one production machine over October 10,
+00:00–12:00 UTC reported `33,379` micro-USD. The opt-in `provider-evidence` runner
+replayed that response through the real Boxd adapter, ingestion, isolated local
+PostgreSQL ledger and Stripe test API. With an explicitly seeded $35 allowance,
+the ledger recorded `35,047` micro-USD after the 5% markup, Stripe aggregated four
+cents, and renewal produced a paid test invoice for $40.04. Duplicate evidence
+added no charge. This verifies captured provider evidence through the billing
+pipeline; it does not claim a paid live invoice or a deployed Worker end-to-end
+payment. The provider transport and rate reconciliation were verified separately.
+
+The production deploy script requires both billing gates in Stripe metered mode
+and rejects Boxd charging without an explicit provider cutover. Keep existing
+Polar subscribers on Polar until the coordinated transfer below is complete.
 
 ## Delivery and reconciliation
 
@@ -401,5 +410,21 @@ Run billing-provider and API unit tests, affected type checks, Biome, migration
 planner tests and PostgreSQL integration tests. Local PostgreSQL tests exercise
 concurrent delivery claims, restart receipts, legacy backfill, ledger rollback and
 provider routing; they do not establish live payment portability or Stripe invoice
-correctness. Record a staged provider-to-ledger-to-Stripe invoice example before
+correctness. Record a provider-to-ledger-to-Stripe test invoice example before
 switching live checkout or invoice export.
+
+
+To verify captured Boxd settlement evidence without creating a provider machine,
+run the prepared sandbox runner against its isolated local database:
+
+```sh
+STRIPE_TEST_PROVIDER_EVIDENCE_FILE=.context/boxd-cost-verification-current-rates.json \
+ZUSE_TEST_DATABASE_URL=postgres://localhost/billing_test \
+bun infra/api/scripts/stripe-sandbox-test.mjs provider-evidence
+```
+
+The evidence file contains `report.productionMachine`, a complete USD SDK usage
+response with its original machine identity, completed period and `costMicro`.
+The runner accepts only a Stripe test key and local database, seeds the included
+allowance explicitly, advances the customer's test clock to the evidence window,
+and cancels the test subscription after checking meter and invoice totals.

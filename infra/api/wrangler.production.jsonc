@@ -93,22 +93,22 @@
 		"BOAT_MACHINE_TYPE": "small",
 		// Uses the verified organization template and production BOXD_API_KEY secret.
 		"BOXD_ADAPTER_ENABLED": "true",
-		"BOXD_BILLING_ENABLED": "false",
-		"BOXD_BILLING_CUTOVER_AT": "",
+		"BOXD_BILLING_ENABLED": "true",
+		"BOXD_BILLING_CUTOVER_AT": "2026-10-10T16:00:00Z",
 		"BOXD_TEMPLATE_SNAPSHOT": "zuse-base-v20260927-1",
 		"BOXD_TEMPLATE_VERSION": "20260927-1",
 		"BOXD_MACHINE_SIZE": "default",
 		"BOXD_ORG": "zuse",
 		"SANDBOX_DEFAULT_PROVIDER_ID": "box",
-		"CLOUD_BILLING_ENFORCEMENT_ENABLED": "false",
-		"CLOUD_BILLING_EXPORT_ENABLED": "false",
+		"CLOUD_BILLING_ENFORCEMENT_ENABLED": "true",
+		"CLOUD_BILLING_EXPORT_ENABLED": "true",
 		"CLOUD_USAGE_EXPORT_ENABLED": "true",
-		"CLOUD_BILLING_CUTOVER_AT": "2026-08-17T18:30:00.000Z",
+		"CLOUD_BILLING_CUTOVER_AT": "2026-10-10T16:00:00Z",
 
 		// New subscriptions use Stripe. Existing subscriptions keep their provider.
-		// Usage charging stays off until provider settlement is verified.
+		// Verified usage charging starts at the prospective cutover above.
 		"BILLING_DEFAULT_PROVIDER": "stripe",
-		"STRIPE_CLOUD_BILLING_MODE": "subscription-only",
+		"STRIPE_CLOUD_BILLING_MODE": "metered",
 		"STRIPE_ENVIRONMENT": "production",
 		"STRIPE_AUTOMATIC_TAX_ENABLED": "false",
 		"STRIPE_PRICE_CLOUD_WORKSPACE_STANDARD_V1": "price_1UOcC1PTgFt61LRrMqCBHq3m",

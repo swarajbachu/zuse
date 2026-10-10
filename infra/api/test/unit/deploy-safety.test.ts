@@ -458,8 +458,16 @@ else process.exit(2);
 		expect(production.vars.POLAR_CLOUD_OVERAGE_METER_ID).toBe(
 			"30037005-05ba-4bbb-8e6c-f6cab58826b7",
 		);
+		expect(production.vars.BILLING_DEFAULT_PROVIDER).toBe("stripe");
+		expect(production.vars.STRIPE_CLOUD_BILLING_MODE).toBe("metered");
+		expect(production.vars.CLOUD_BILLING_EXPORT_ENABLED).toBe("true");
+		expect(production.vars.CLOUD_BILLING_ENFORCEMENT_ENABLED).toBe("true");
+		expect(production.vars.BOXD_BILLING_ENABLED).toBe("true");
+		expect(production.vars.BOXD_BILLING_CUTOVER_AT).toBe(
+			production.vars.CLOUD_BILLING_CUTOVER_AT,
+		);
 		expect(production.vars.CLOUD_BILLING_CUTOVER_AT).toBe(
-			"2026-08-17T18:30:00.000Z",
+			"2026-10-10T16:00:00Z",
 		);
 		expect(production.hyperdrive).toEqual([
 			{
