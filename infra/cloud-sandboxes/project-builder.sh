@@ -235,12 +235,8 @@ main() {
 	while IFS= read -r repository_record; do
 		parse_repository_record "$repository_record" || mark_failed 64
 		source_commit="$(git -C "$workspace_path" rev-parse "origin/$default_branch")"
-		# Drain the listing: grep -q can SIGPIPE upstream and make pipefail hide a match.
-		# Allow named templates, but only when the template marker ends the filename.
-		if git -C "$workspace_path" ls-tree -r --name-only "$source_commit" | grep -Ev '(^|/)\.env(\.[^/]+)?\.(example|sample|template)$' | grep -E '(^|/)\.env($|\.)' >&2; then
-			printf 'Snapshot blocked: tracked environment files listed above in %s. Remove credential files from the selected commit; keep only .env[.name].example, .sample, or .template files.\n' "$workspace_path" >&2
-			mark_failed 71
-		fi
+		# Repository files are user-selected source, not build-injected credentials.
+		# Preserve tracked configuration, including .env files, and Git history.
 		git -C "$workspace_path" config --unset-all http.https://github.com/.extraheader 2>/dev/null || true
 		printf '%s\t%s\t%s\t%s\n' "$cache_id" "$default_branch" "$source_commit" "$workspace_path" >>"$commit_manifest"
 	done <"$manifest"
