@@ -88,16 +88,18 @@ export function ProviderUpdatesToast() {
 		loadDismissed(),
 	);
 	// Providers updated from this toast stay listed (showing their result)
-	// after the refreshed availability reports them as current.
-	const [startedHere, setStartedHere] = useState<ReadonlySet<ProviderId>>(
+	// after the refreshed availability reports them as current. Keyed by
+	// environment so switching computers never retains another one's rows.
+	const [startedHere, setStartedHere] = useState<ReadonlySet<string>>(
 		() => new Set(),
 	);
 
 	if (!enabled) return null;
 
+	const updateKeyOf = (providerId: ProviderId) =>
+		providerUpdateKey(environmentId, providerId);
 	const updateStateOf = (providerId: ProviderId) =>
-		updateStateByKey[providerUpdateKey(environmentId, providerId)] ??
-		IDLE_PROVIDER_UPDATE_STATE;
+		updateStateByKey[updateKeyOf(providerId)] ?? IDLE_PROVIDER_UPDATE_STATE;
 
 	const candidates = availability.filter(
 		(a) =>
@@ -111,7 +113,7 @@ export function ProviderUpdatesToast() {
 	const rows = availability.filter(
 		(a) =>
 			candidates.includes(a) ||
-			(startedHere.has(a.providerId) &&
+			(startedHere.has(updateKeyOf(a.providerId)) &&
 				updateStateOf(a.providerId).kind !== "idle"),
 	);
 
@@ -138,7 +140,9 @@ export function ProviderUpdatesToast() {
 	};
 
 	const startUpdates = (providerIds: ReadonlyArray<ProviderId>) => {
-		setStartedHere((current) => new Set([...current, ...providerIds]));
+		setStartedHere(
+			(current) => new Set([...current, ...providerIds.map(updateKeyOf)]),
+		);
 		for (const providerId of providerIds) {
 			void updateProvider(environmentId, providerId);
 		}
@@ -211,6 +215,10 @@ export function ProviderUpdatesToast() {
 // Fixed width so the update, progress, and retry states never shift the row.
 const UPDATE_BUTTON_CLASS = "h-6 w-14 px-0 text-[10px]";
 
+/**
+ * One provider in the toast: icon, name, installed → latest version, and the
+ * store-owned update control (Update, spinner that cancels, Retry, or Updated).
+ */
 function ProviderUpdateRow({
 	environmentId,
 	availability,

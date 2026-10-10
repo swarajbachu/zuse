@@ -3925,7 +3925,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
-				"line": 184
+				"line": 188
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3935,7 +3935,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
-				"line": 166
+				"line": 170
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3945,7 +3945,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
-				"line": 175
+				"line": 179
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3955,7 +3955,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
-				"line": 287
+				"line": 295
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3965,7 +3965,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
-				"line": 204
+				"line": 208
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8611,7 +8611,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
-				"line": 286
+				"line": 294
 			},
 			{
 				"path": "apps/renderer/src/components/right-pane.tsx",
@@ -9210,7 +9210,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
-				"line": 276
+				"line": 284
 			},
 			{
 				"path": "apps/renderer/src/components/workspace-switcher.tsx",
@@ -17793,7 +17793,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
-				"line": 257
+				"line": 265
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17821,11 +17821,11 @@
 			},
 			{
 				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
-				"line": 263
+				"line": 271
 			},
 			{
 				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
-				"line": 264
+				"line": 272
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

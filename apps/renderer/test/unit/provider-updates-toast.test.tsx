@@ -12,7 +12,7 @@ const state = vi.hoisted(() => ({
 	},
 	providers: {
 		availability: [] as AgentAvailability[],
-		updateStateByKey: {},
+		updateStateByKey: {} as Record<string, { kind: string }>,
 		updateProvider: vi.fn(),
 	},
 	ui: { setView: vi.fn(), setSettingsSection: vi.fn() },
@@ -67,6 +67,7 @@ const renderToast = () => renderToStaticMarkup(<ProviderUpdatesToast />);
 beforeEach(() => {
 	state.settings.providerUpdateNotificationsEnabled = true;
 	state.settings.providerEnabled = {};
+	state.providers.updateStateByKey = {};
 	state.providers.availability = [provider("claude", "Claude")];
 	vi.stubGlobal("window", { localStorage: { getItem: () => null } });
 	vi.stubGlobal("document", { body: {} });
@@ -130,6 +131,12 @@ describe("provider update notifications", () => {
 		vi.stubGlobal("window", {
 			localStorage: { getItem: () => '["claude:2.0.0"]' },
 		});
+		expect(renderToast()).toBe("");
+	});
+
+	it("does not list updates this toast did not start", () => {
+		state.providers.availability = [provider("claude", "Claude", "current")];
+		state.providers.updateStateByKey = { "local:claude": { kind: "running" } };
 		expect(renderToast()).toBe("");
 	});
 });
