@@ -55,8 +55,10 @@ const installAppServer = (
 	missingResume: boolean,
 	initialMissingMcpInventories = 0,
 	terminateOnMcpInventory = false,
+	archivedInCodex = false,
 ) => {
 	const requests: Array<{ method: string; params: unknown }> = [];
+	let archived = archivedInCodex;
 	const turnInputs: unknown[] = [];
 	let mcpInventoryReads = 0;
 	let startupTerminated = false;
@@ -112,7 +114,16 @@ const installAppServer = (
 								params: { thread: { id: "fresh-thread" } },
 							} as never);
 							return { thread: { id: "fresh-thread" } };
+						case "thread/unarchive":
+							archived = false;
+							return { thread: { id: record.threadId } };
 						case "thread/resume":
+							if (archived) {
+								throw new CodexAppServerRequestError({
+									code: -32600,
+									message: `session ${String(record.threadId)} is archived. Run \`codex unarchive ${String(record.threadId)}\` to unarchive it first.`,
+								});
+							}
 							if (missingResume) {
 								throw new CodexAppServerRequestError({
 									code: -32600,
@@ -175,6 +186,7 @@ const withSession = async <A>(
 		readonly apiKey?: string;
 		readonly forkFromResume?: boolean;
 		readonly missingResume?: boolean;
+		readonly archivedInCodex?: boolean;
 		readonly initialMissingMcpInventories?: number;
 		readonly terminateOnMcpInventory?: boolean;
 		readonly onUnexpectedTermination?: (error: Error) => void;
@@ -190,6 +202,7 @@ const withSession = async <A>(
 			options.missingResume ?? false,
 			options.initialMissingMcpInventories ?? 0,
 			options.terminateOnMcpInventory ?? false,
+			options.archivedInCodex ?? false,
 		);
 		const handle = await Effect.runPromise(
 			startCodexSession(
@@ -656,6 +669,29 @@ describe("Codex session cursor persistence", () => {
 					_tag: "SessionCursor",
 					cursor: "forked-thread",
 				});
+			},
+		);
+	});
+
+	it("unarchives a thread archived outside Zuse and resumes it", async () => {
+		await withSession(
+			{ resumeCursor: "archived-thread", archivedInCodex: true },
+			async (handle, appServer) => {
+				await Effect.runPromise(handle.send("continue"));
+				const events = await takeEvents(handle.events, 3);
+
+				expect(events.map((event) => event._tag)).toEqual([
+					"Started",
+					"Status",
+					"Status",
+				]);
+				expect(
+					appServer.requests
+						.map((request) => request.method)
+						.filter((method) =>
+							["thread/resume", "thread/unarchive"].includes(method),
+						),
+				).toEqual(["thread/resume", "thread/unarchive", "thread/resume"]);
 			},
 		);
 	});
