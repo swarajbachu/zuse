@@ -710,5 +710,13 @@
 	"message_row_ui_spec_yes": "是",
 	"message_row_ui_spec_no": "否",
 	"message_row_ui_spec_send_failed": "無法傳送你的回覆",
-	"message_row_ui_spec_send_open_chat": "開啟此聊天以傳送。"
+	"message_row_ui_spec_send_open_chat": "開啟此聊天以傳送。",
+	"selection_menu_label": "選取範圍操作",
+	"selection_menu_annotate": "註解",
+	"selection_menu_quote": "引用",
+	"selection_menu_copy": "複製",
+	"selection_menu_copied": "已複製",
+	"selection_menu_note_placeholder": "為代理新增備註…",
+	"selection_menu_cancel": "取消",
+	"selection_menu_add_note": "新增備註"
 }

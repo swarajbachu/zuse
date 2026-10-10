@@ -710,5 +710,13 @@
 	"message_row_ui_spec_yes": "はい",
 	"message_row_ui_spec_no": "いいえ",
 	"message_row_ui_spec_send_failed": "回答を送信できませんでした",
-	"message_row_ui_spec_send_open_chat": "このチャットを開いて送信してください。"
+	"message_row_ui_spec_send_open_chat": "このチャットを開いて送信してください。",
+	"selection_menu_label": "選択範囲の操作",
+	"selection_menu_annotate": "注釈",
+	"selection_menu_quote": "引用",
+	"selection_menu_copy": "コピー",
+	"selection_menu_copied": "コピーしました",
+	"selection_menu_note_placeholder": "エージェントへのメモを追加…",
+	"selection_menu_cancel": "キャンセル",
+	"selection_menu_add_note": "メモを追加"
 }

@@ -47,6 +47,11 @@ import {
 	downloadAttachment,
 	useAttachmentUrl,
 } from "~/lib/attachments";
+import {
+	CHAT_MESSAGE_ATTRIBUTE,
+	CHAT_SOURCE_ATTRIBUTE,
+	chatSelectionSource,
+} from "~/lib/chat-selection";
 import { spawnDelegationMember } from "~/lib/delegation-display";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { formatError } from "~/lib/format-error";
@@ -65,6 +70,7 @@ import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
 import { useUiStore } from "~/store/ui";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
+import { ChatAnnotationChip } from "./annotation/chat-annotation-chip.tsx";
 import {
 	AssistantMessageActions,
 	MessageActions,
@@ -81,7 +87,6 @@ import {
 	CollapsiblePanel,
 	CollapsibleTrigger,
 } from "./ui/collapsible.tsx";
-
 import { ErrorBoundary } from "./ui/error-boundary.tsx";
 import { UiSpecFallback } from "./ui-spec-fallback.tsx";
 import { UserMessageText } from "./user-message-text.tsx";
@@ -350,7 +355,25 @@ function MessageRowImpl({
 	}
 }
 
-export const MessageRow = memo(MessageRowImpl);
+/** Tags selectable rows so text in them can be annotated. */
+function SelectableMessageRow(props: Parameters<typeof MessageRowImpl>[0]) {
+	const source = chatSelectionSource(props.message.content);
+	const row = <MessageRowImpl {...props} />;
+	if (source === null) return row;
+	return (
+		<div
+			className="contents"
+			{...{
+				[CHAT_MESSAGE_ATTRIBUTE]: props.message.id,
+				[CHAT_SOURCE_ATTRIBUTE]: source,
+			}}
+		>
+			{row}
+		</div>
+	);
+}
+
+export const MessageRow = memo(SelectableMessageRow);
 MessageRow.displayName = "MessageRow";
 
 function ThinkingMessageRow({
@@ -640,7 +663,9 @@ export function UserBubble({
 										.filter((a) => !("_tag" in a) || a._tag !== "context")
 										.map((a) => (
 											<div key={a.id} className="space-y-1 p-2">
-												{"_tag" in a ? (
+												{"_tag" in a && a._tag === "chat" ? (
+													<ChatAnnotationChip annotation={a} />
+												) : "_tag" in a ? (
 													<span className="text-muted-foreground">
 														{a._tag === "browser"
 															? browserAnnotationMeta(a)

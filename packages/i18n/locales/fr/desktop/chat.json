@@ -713,5 +713,13 @@
 	"message_row_ui_spec_yes": "Oui",
 	"message_row_ui_spec_no": "Non",
 	"message_row_ui_spec_send_failed": "Impossible d'envoyer votre réponse",
-	"message_row_ui_spec_send_open_chat": "Ouvrez cette discussion pour l'envoyer."
+	"message_row_ui_spec_send_open_chat": "Ouvrez cette discussion pour l'envoyer.",
+	"selection_menu_label": "Actions sur la sélection",
+	"selection_menu_annotate": "Annoter",
+	"selection_menu_quote": "Citer",
+	"selection_menu_copy": "Copier",
+	"selection_menu_copied": "Copié",
+	"selection_menu_note_placeholder": "Ajouter une note pour l'agent…",
+	"selection_menu_cancel": "Annuler",
+	"selection_menu_add_note": "Ajouter la note"
 }

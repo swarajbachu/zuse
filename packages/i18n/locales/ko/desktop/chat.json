@@ -710,5 +710,13 @@
 	"message_row_ui_spec_yes": "예",
 	"message_row_ui_spec_no": "아니요",
 	"message_row_ui_spec_send_failed": "응답을 보낼 수 없습니다",
-	"message_row_ui_spec_send_open_chat": "이 채팅을 열어 보내세요."
+	"message_row_ui_spec_send_open_chat": "이 채팅을 열어 보내세요.",
+	"selection_menu_label": "선택 작업",
+	"selection_menu_annotate": "주석",
+	"selection_menu_quote": "인용",
+	"selection_menu_copy": "복사",
+	"selection_menu_copied": "복사됨",
+	"selection_menu_note_placeholder": "에이전트에게 남길 메모 추가…",
+	"selection_menu_cancel": "취소",
+	"selection_menu_add_note": "메모 추가"
 }

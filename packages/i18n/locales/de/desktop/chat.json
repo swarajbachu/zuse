@@ -710,5 +710,13 @@
 	"message_row_ui_spec_yes": "Ja",
 	"message_row_ui_spec_no": "Nein",
 	"message_row_ui_spec_send_failed": "Antwort konnte nicht gesendet werden",
-	"message_row_ui_spec_send_open_chat": "Öffne diesen Chat, um sie zu senden."
+	"message_row_ui_spec_send_open_chat": "Öffne diesen Chat, um sie zu senden.",
+	"selection_menu_label": "Aktionen für Auswahl",
+	"selection_menu_annotate": "Kommentieren",
+	"selection_menu_quote": "Zitieren",
+	"selection_menu_copy": "Kopieren",
+	"selection_menu_copied": "Kopiert",
+	"selection_menu_note_placeholder": "Notiz für den Agenten hinzufügen…",
+	"selection_menu_cancel": "Abbrechen",
+	"selection_menu_add_note": "Notiz hinzufügen"
 }

@@ -15,6 +15,7 @@ import {
 	usePreviewServers,
 } from "../lib/use-preview-servers.ts";
 import { ChatLoadingFallback } from "./chat-loading-fallback.tsx";
+import { ChatSelectionMenu } from "./chat-selection-menu.tsx";
 import { ToolActivityTree } from "./tool-activity-tree.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -234,6 +235,7 @@ export function ChatView({
 		environmentId,
 	);
 	const sessionRef = timeline.ref;
+	const viewportRef = useRef<HTMLDivElement | null>(null);
 	const questionAttachments = useEnvironmentQuestionAttachments(
 		environmentId,
 		"cache-only",
@@ -890,9 +892,11 @@ export function ChatView({
 				{session.title || uiMessage("chat:chat_view_new_chat")}
 			</h1>
 			<div
+				ref={viewportRef}
 				data-chat-viewport
 				className="relative flex min-h-0 min-w-0 flex-1 [container-type:inline-size]"
 			>
+				<ChatSelectionMenu rootRef={viewportRef} sessionRef={sessionRef} />
 				<div className="relative flex h-full min-h-0 flex-1 flex-col">
 					{messages.length === 0 ? (
 						<div
