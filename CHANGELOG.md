@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enable organization beta access for selected users and their teams, with automatic access for approved creators' members and optional access for existing teams.
 
 ### Fixed
+- Keep cloud billing recovery polls compatible with Cloudflare Workers while rejecting redirects that could expose provider credentials.
 - Preserve organization access when deploying the production API.
 - Restore reliable provider usage limits with CLI-backed Claude readings, isolated provider failures, automatic retries, accurate percentages, and visible stale readings.
 - Connect cloud workspaces to GitHub with repository-scoped user credentials so commits, pushes, and pull requests use the connected account.
