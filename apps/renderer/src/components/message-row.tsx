@@ -73,6 +73,7 @@ import {
 	CollapsiblePanel,
 	CollapsibleTrigger,
 } from "./ui/collapsible.tsx";
+import { UiSpecBlock } from "./ui-spec-block.tsx";
 import { UserMessageText } from "./user-message-text.tsx";
 
 const _isBrowserAnnotation = (
@@ -272,6 +273,8 @@ function MessageRowImpl({
 					status={message.content.status ?? "completed"}
 				/>
 			);
+		case "ui_spec":
+			return <UiSpecBlock spec={message.content.spec} />;
 		case "usage":
 		case "context_usage":
 		case "usage_limit":

@@ -39,11 +39,13 @@ describe("orchestration MCP tools", () => {
 			"list_threads",
 			"list_models",
 			"whoami",
+			"emit_ui",
 		]);
 	});
 
 	test("marks read-only and mutating tools explicitly", () => {
 		expect([...READ_ONLY_ORCHESTRATION_TOOLS].sort()).toEqual([
+			"emit_ui",
 			"list_models",
 			"list_threads",
 			"read_thread",
@@ -54,6 +56,87 @@ describe("orchestration MCP tools", () => {
 			"create_thread",
 			"send_to_thread",
 		]);
+	});
+
+	test("emit_ui requires a spec and stays display-only", async () => {
+		const emitUi = {
+			calls: [] as Array<{ spec: string }>,
+			fn: async (input: { spec: string }) => {
+				emitUi.calls.push(input);
+				return { ok: true as const, messageId: "m_ui" };
+			},
+		};
+		const deps = {
+			createWorktree: async () => ({ ok: false as const, error: "unused" }),
+			createThread: async () => ({ ok: false as const, error: "unused" }),
+			createSession: async () => ({ ok: false as const, error: "unused" }),
+			sendToThread: async () => ({ ok: false as const, error: "unused" }),
+			readThread: async () => ({ ok: false as const, error: "unused" }),
+			listThreads: async () => ({ ok: false as const, error: "unused" }),
+			listModels: async () => ({ ok: false as const, error: "unused" }),
+			whoami: async () => ({
+				sessionId: "s",
+				chatId: "c",
+				projectId: "p",
+				worktreeId: null,
+				providerId: "claude",
+				model: "m",
+				autonomyLevel: "approval-gated",
+			}),
+			emitUi: emitUi.fn,
+		};
+
+		const missing = await callOrchestrationTool(deps, "emit_ui", {});
+		expect(missing.isError).toBe(true);
+		expect(emitUi.calls).toEqual([]);
+
+		const spec = 'root = Stat("Downloads", "12k")';
+		const result = await callOrchestrationTool(deps, "emit_ui", { spec });
+		expect(emitUi.calls).toEqual([{ spec }]);
+		expect(result.isError).toBeUndefined();
+		expect(result.content[0]?.text).toContain("m_ui");
+
+		// Display-only: emit_ui never prompts, even under a prompting mode.
+		let requested = 0;
+		await ensureOrchestrationPermission("emit_ui", { spec }, {
+			getPermissionMode: () => "default",
+			getRuntimeMode: () => "approval-required",
+			requestPermission: async () => {
+				requested += 1;
+				return { _tag: "Deny" };
+			},
+		});
+		expect(requested).toBe(0);
+	});
+
+	test("emit_ui surfaces dep validation failures as tool errors", async () => {
+		const deps = {
+			createWorktree: async () => ({ ok: false as const, error: "unused" }),
+			createThread: async () => ({ ok: false as const, error: "unused" }),
+			createSession: async () => ({ ok: false as const, error: "unused" }),
+			sendToThread: async () => ({ ok: false as const, error: "unused" }),
+			readThread: async () => ({ ok: false as const, error: "unused" }),
+			listThreads: async () => ({ ok: false as const, error: "unused" }),
+			listModels: async () => ({ ok: false as const, error: "unused" }),
+			whoami: async () => ({
+				sessionId: "s",
+				chatId: "c",
+				projectId: "p",
+				worktreeId: null,
+				providerId: "claude",
+				model: "m",
+				autonomyLevel: "approval-gated",
+			}),
+			emitUi: async () => ({
+				ok: false as const,
+				error: 'Unknown component "Confetti"',
+			}),
+		};
+		const result = await callOrchestrationTool(deps, "emit_ui", {
+			spec: 'root = Confetti("yay")',
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0]?.text).toContain("Confetti");
 	});
 
 	test("schemas encode required arguments for write-like tools", () => {
@@ -170,6 +253,7 @@ describe("orchestration MCP tools", () => {
 					model: "claude-sonnet-5",
 					autonomyLevel: "approval-gated",
 				}),
+				emitUi: async () => ({ ok: true as const, messageId: "m_ui" }),
 			},
 			"whoami",
 			{},

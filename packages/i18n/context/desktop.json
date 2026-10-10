@@ -33645,5 +33645,55 @@
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:message_row_ui_spec_generated": {
+		"source": "Generated UI",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/ui-spec-block.tsx",
+				"line": 260
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:message_row_ui_spec_could_not_render": {
+		"source": "Could not render this UI block — showing the raw spec",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/ui-spec-block.tsx",
+				"line": 238
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:provider_updates_toast_dismiss": {
+		"source": "Dismiss",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
+				"line": 159
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:provider_updates_toast_review_in_settings": {
+		"source": "Review in settings",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
+				"line": 162
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"providers:add_computer_dialog_remove_sentence": {
+		"source": "Remove {{value}}?",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/remove-computer-button.tsx",
+				"line": 89
+			}
+		],
+		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	}
 }

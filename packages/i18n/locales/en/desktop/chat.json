@@ -357,6 +357,8 @@
 	"message_row_reconnecting": "Reconnecting",
 	"message_row_provider_error": "Provider error",
 	"message_row_open_provider_settings": "Open Provider Settings",
+	"message_row_ui_spec_generated": "Generated UI",
+	"message_row_ui_spec_could_not_render": "Could not render this UI block — showing the raw spec",
 	"nearby_pairing_approval_is_this_you_trying_to_connect": "Is this you trying to connect?",
 	"nearby_pairing_approval_confirm_these_words_match_the_ones_shown_on_your_phone": "Confirm these words match the ones shown on your phone.",
 	"nearby_pairing_approval_block_device": "Block device",

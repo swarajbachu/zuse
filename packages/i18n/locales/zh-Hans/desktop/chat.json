@@ -702,5 +702,9 @@
 	"delegation_status_stopped": "已停止",
 	"delegation_row_starting": "正在启动…",
 	"delegation_row_open": "打开 {{title}}",
-	"delegation_group_running": "{{total}} 个中 {{working}} 个运行中"
+	"delegation_group_running": "{{total}} 个中 {{working}} 个运行中",
+	"provider_updates_toast_dismiss": "解雇",
+	"provider_updates_toast_review_in_settings": "在设置中查看",
+	"message_row_ui_spec_generated": "生成的 UI",
+	"message_row_ui_spec_could_not_render": "无法渲染此 UI 块 — 显示原始 spec"
 }

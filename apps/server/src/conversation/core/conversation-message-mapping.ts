@@ -152,6 +152,8 @@ export const roleForContent = (content: MessageContent): MessageRole => {
 			return "assistant";
 		case "tool_result":
 			return "tool";
+		case "ui_spec":
+			return "assistant";
 		default:
 			return "system";
 	}

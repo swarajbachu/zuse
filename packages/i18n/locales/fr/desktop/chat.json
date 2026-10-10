@@ -705,5 +705,9 @@
 	"delegation_row_starting": "Démarrage…",
 	"delegation_row_open": "Ouvrir {{title}}",
 	"delegation_group_count_many": "{{count}} sous-agents",
-	"delegation_group_running": "{{working}} sur {{total}} en cours"
+	"delegation_group_running": "{{working}} sur {{total}} en cours",
+	"provider_updates_toast_dismiss": "Rejeter",
+	"provider_updates_toast_review_in_settings": "Vérifier dans les paramètres",
+	"message_row_ui_spec_generated": "UI générée",
+	"message_row_ui_spec_could_not_render": "Impossible d'afficher ce bloc d'interface — la spec brute est affichée"
 }

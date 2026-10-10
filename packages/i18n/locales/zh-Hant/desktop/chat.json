@@ -702,5 +702,9 @@
 	"delegation_status_stopped": "已停止",
 	"delegation_row_starting": "正在啟動…",
 	"delegation_row_open": "開啟 {{title}}",
-	"delegation_group_running": "{{total}} 個中 {{working}} 個執行中"
+	"delegation_group_running": "{{total}} 個中 {{working}} 個執行中",
+	"provider_updates_toast_dismiss": "解僱",
+	"provider_updates_toast_review_in_settings": "在設定中查看",
+	"message_row_ui_spec_generated": "產生的 UI",
+	"message_row_ui_spec_could_not_render": "無法轉譯此 UI 區塊 — 顯示原始 spec"
 }

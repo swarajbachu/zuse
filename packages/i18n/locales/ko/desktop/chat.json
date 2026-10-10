@@ -702,5 +702,9 @@
 	"delegation_status_stopped": "중지됨",
 	"delegation_row_starting": "시작 중…",
 	"delegation_row_open": "{{title}} 열기",
-	"delegation_group_running": "{{total}}개 중 {{working}}개 실행 중"
+	"delegation_group_running": "{{total}}개 중 {{working}}개 실행 중",
+	"provider_updates_toast_dismiss": "닫기",
+	"provider_updates_toast_review_in_settings": "설정에서 검토",
+	"message_row_ui_spec_generated": "생성된 UI",
+	"message_row_ui_spec_could_not_render": "이 UI 블록을 렌더링할 수 없습니다 — 원시 스펙을 표시합니다"
 }
