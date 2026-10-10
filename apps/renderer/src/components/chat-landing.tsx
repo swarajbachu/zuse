@@ -527,17 +527,12 @@ function WorkspaceChatLanding({
 	const restoredProject = useRef(false);
 	useEffect(() => {
 		if (restoredProject.current || projectGroups.length === 0) return;
-		// An explicit New Chat request already chose its project. Restoring a
-		// remembered project here would undo that navigation on the fresh landing.
-		if (useChatsStore.getState().landingRevision > 0) {
-			restoredProject.current = true;
-			return;
-		}
 		restoredProject.current = true;
 		const group = landingDefaultProject(
 			projectGroups,
 			newChatPreferences.lastProjectKey(),
 			selectedGroup?.key ?? null,
+			useChatsStore.getState().landingRevision > 0,
 		);
 		if (group === null || group.key === selectedGroup?.key) return;
 		const member = preferredGroupMember(group);

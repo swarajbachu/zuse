@@ -511,6 +511,18 @@ describe("landingDefaultProject", () => {
 		environmentPresence: "local-only",
 	});
 
+	it("preserves an explicit New Chat project instead of restoring another repo", () => {
+		expect(
+			landingDefaultProject([group("a"), group("b")], "b", "a", true),
+		).toBeNull();
+	});
+
+	it("still chooses a repository for New Chat when the organization has no selection", () => {
+		expect(
+			landingDefaultProject([group("a"), group("b")], "b", null, true)?.key,
+		).toBe("b");
+	});
+
 	it("opens the first project when nothing is remembered or selected", () => {
 		expect(
 			landingDefaultProject([group("a"), group("b")], null, null)?.key,

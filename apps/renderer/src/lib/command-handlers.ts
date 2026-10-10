@@ -217,7 +217,6 @@ const HANDLERS: Record<Command, () => void> = {
 			return;
 		}
 		const projectId = useWorkspaceStore.getState().selectedFolderId;
-		if (projectId === null) return;
 		openNewChatLanding(projectId);
 	},
 	"open-project": () => {

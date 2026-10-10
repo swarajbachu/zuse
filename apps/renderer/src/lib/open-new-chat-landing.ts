@@ -13,25 +13,28 @@ import { getActiveEnvironment } from "./rpc-client.ts";
  * or session. Keeping this store-only action outside the sidebar prevents
  * global command handling from eagerly loading the sidebar component tree.
  */
-export function openNewChatLanding(projectId: FolderId): void {
+export function openNewChatLanding(projectId: FolderId | null): void {
 	batchAtomUpdates(() => {
+		useUiStore.getState().setView("chat");
 		useUiStore.getState().setActiveMainTab("chat");
 		// Clear the destination slots before switching projects. Subscribers must
 		// never restore its previous chat while opening the landing.
-		useChatsStore.setState((state) => ({
-			selectedChatByProject: {
-				...state.selectedChatByProject,
-				[projectId]: null,
-			},
-		}));
-		useSessionsStore.setState((state) => ({
-			selectedSessionByProject: {
-				...state.selectedSessionByProject,
-				[projectId]: null,
-			},
-		}));
-		if (useWorkspaceStore.getState().selectedFolderId !== projectId) {
-			void useWorkspaceStore.getState().select(projectId);
+		if (projectId !== null) {
+			useChatsStore.setState((state) => ({
+				selectedChatByProject: {
+					...state.selectedChatByProject,
+					[projectId]: null,
+				},
+			}));
+			useSessionsStore.setState((state) => ({
+				selectedSessionByProject: {
+					...state.selectedSessionByProject,
+					[projectId]: null,
+				},
+			}));
+			if (useWorkspaceStore.getState().selectedFolderId !== projectId) {
+				void useWorkspaceStore.getState().select(projectId);
+			}
 		}
 		useChatsStore.getState().select(null);
 	});
