@@ -1,7 +1,14 @@
 import type { Message, SessionInteraction } from "@zuse/contracts";
-import type { OrbState } from "thinking-orbs";
 
-export type AgentActivityState = OrbState;
+export type AgentActivityState =
+	| "working"
+	| "searching"
+	| "solving"
+	| "listening"
+	| "composing"
+	| "shaping"
+	/** A background agent the user delegated work to. */
+	| "delegating";
 
 const SEARCHING_TOOLS = new Set([
 	"glob",

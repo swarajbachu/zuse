@@ -151,7 +151,6 @@ export default defineConfig({
 			"remark-gfm",
 			"shiki",
 			"tailwind-merge",
-			"thinking-orbs",
 		],
 	},
 	server: {

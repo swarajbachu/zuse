@@ -137,7 +137,7 @@ export function BackgroundAgentWorkingRows({
 			key={agent.id}
 			className="flex h-7 min-w-0 items-center gap-2 px-4 text-xs text-muted-foreground"
 		>
-			<AgentActivityOrb state="working" />
+			<AgentActivityOrb state="delegating" />
 			<span role="status" className="truncate" title={agent.description}>
 				{message("chat:chat_working_row_waiting_for_task", {
 					task: agent.description || message("chat:subagent_row_agent_running"),
