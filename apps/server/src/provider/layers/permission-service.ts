@@ -32,6 +32,7 @@ import {
 import { SqlClient } from "effect/unstable/sql";
 
 import { AppPaths } from "../../app-paths.ts";
+import { PermissionAuditLog } from "../services/permission-audit.ts";
 import {
 	PermissionService,
 	type PermissionServiceShape,
@@ -136,6 +137,7 @@ export const PermissionServiceLive = Layer.effect(
 		const sql = yield* SqlClient.SqlClient;
 		const sessionDomain = yield* SessionDomain;
 		const paths = yield* AppPaths;
+		const audit = yield* PermissionAuditLog;
 		const pubsub = yield* PubSub.unbounded<PermissionRequestChange>();
 		const pending = yield* Ref.make<ReadonlyMap<string, PendingEntry>>(
 			new Map(),
@@ -204,6 +206,53 @@ export const PermissionServiceLive = Layer.effect(
 				),
 			);
 
+		/**
+		 * Append one line to the grant audit trail for every decision that
+		 * reaches `persistDecision` — the single point where prompt results
+		 * become durable. Grant *applications* (the `findExistingAllow`
+		 * short-circuit) are not audited here; they emit `request.auto_allowed`
+		 * to `permissions.log` instead, and recording each repeat tool call
+		 * would bury the grant rows that matter. Session context is a
+		 * best-effort join — a missing row leaves nulls rather than dropping
+		 * the audit line.
+		 */
+		const auditDecision = (
+			request: PermissionRequest,
+			projectId: FolderId,
+			decision: PermissionDecision,
+		): Effect.Effect<void> =>
+			Effect.gen(function* () {
+				const session = yield* sql<{
+					readonly chat_id: string | null;
+					readonly worktree_id: string | null;
+					readonly provider_id: string | null;
+				}>`
+          SELECT chat_id, worktree_id, provider_id
+          FROM sessions
+          WHERE id = ${request.sessionId}
+          LIMIT 1
+        `.pipe(
+					Effect.map((rows) => rows[0]),
+					Effect.catch(() => Effect.succeed(undefined)),
+				);
+				yield* audit.record({
+					at: new Date().toISOString(),
+					requestId: request.id,
+					sessionId: request.sessionId,
+					chatId: session?.chat_id ?? null,
+					projectId,
+					worktreeId: session?.worktree_id ?? null,
+					providerId: session?.provider_id ?? null,
+					kind: request.kind._tag,
+					tool: request.kind._tag === "Other" ? request.kind.tool : null,
+					decision: decision._tag,
+					scope: scopeForDecision(decision),
+					target: kindKey(request.kind),
+					forcePrompt: request.forcePrompt,
+					requestedAt: request.requestedAt.toISOString(),
+				});
+			});
+
 		type PermissionLifecycleCommand =
 			| { readonly _tag: "PublishPermission"; readonly requestId: string }
 			| {
@@ -240,6 +289,7 @@ export const PermissionServiceLive = Layer.effect(
 						JSON.parse(input.command.decisionJson),
 					).pipe(Effect.orDie);
 					yield* persistDecision(entry.request, entry.projectId, decision);
+					yield* auditDecision(entry.request, entry.projectId, decision);
 					yield* Ref.update(pending, (current) => {
 						const next = new Map(current);
 						next.delete(input.command.requestId);
