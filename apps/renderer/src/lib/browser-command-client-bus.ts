@@ -45,14 +45,21 @@ const messageOf = (cause: unknown): string =>
 export const respondToBrowserCommand = async (
 	environmentId: EnvironmentId,
 	result: BrowserCommandResult,
+	channel?: string,
 ): Promise<void> => {
 	const bus = getRendererClientBus();
+	// Echo the channel stamped on the request so the bridge can verify this
+	// response came from the subscriber the command was addressed to.
+	const stamped =
+		channel === undefined
+			? result
+			: BrowserCommandResult.make({ ...result, channel });
 	await bus.dispatch({
 		kind: "browser.respond",
-		commandId: CommandId.make(`browser-response:${result.id}`),
+		commandId: CommandId.make(`browser-response:${stamped.id}`),
 		environmentId,
 		resource: keyFor(environmentId),
-		payload: { result },
+		payload: { result: stamped },
 		retry: "never",
 		createdAt: Date.now(),
 	});
@@ -67,6 +74,7 @@ const respondUnavailable = async (
 		await respondToBrowserCommand(
 			environmentId,
 			BrowserCommandResult.make({ id: request.id, ok: false, error }),
+			request.channel,
 		);
 	} catch {
 		// The server applies its bounded command timeout when a response cannot

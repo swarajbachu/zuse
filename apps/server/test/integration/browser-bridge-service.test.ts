@@ -45,6 +45,7 @@ describe("BrowserBridgeService", () => {
 								id: request.id,
 								ok: true,
 								detail: "loaded",
+								channel: request.channel,
 							}),
 						),
 					).pipe(Effect.forkScoped);
@@ -97,6 +98,7 @@ describe("BrowserBridgeService", () => {
 								id: request.id,
 								ok: true,
 								detail: "reconnected",
+								channel: request.channel,
 							}),
 						),
 					).pipe(Effect.forkScoped);
@@ -107,6 +109,60 @@ describe("BrowserBridgeService", () => {
 						unavailableCount: 0,
 						pendingCommandCount: 0,
 					});
+				}),
+			).pipe(Effect.provide(TestLayer)),
+		);
+	});
+
+	it("rejects responses that do not echo the owning subscriber's channel", async () => {
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const bridge = yield* BrowserBridgeService;
+					const sessionId = "session-channel-pin" as SessionId;
+					const seen = yield* Deferred.make<{
+						readonly id: string;
+						readonly channel: string | undefined;
+					}>();
+					yield* Stream.runForEach(bridge.commands(), (request) =>
+						Deferred.succeed(seen, {
+							id: request.id,
+							channel: request.channel,
+						}),
+					).pipe(Effect.forkScoped);
+					yield* Effect.sleep("10 millis");
+
+					const sending = yield* bridge
+						.send(sessionId, { _tag: "Status" })
+						.pipe(Effect.forkScoped);
+					const request = yield* Deferred.await(seen);
+					expect(request.channel).toBeDefined();
+
+					// A respond with no channel — or a foreign channel — must not
+					// resolve the pending command.
+					for (const channel of [undefined, "bch_forged"]) {
+						const error = yield* bridge
+							.respond(
+								BrowserCommandResult.make({
+									id: request.id,
+									ok: true,
+									...(channel === undefined ? {} : { channel }),
+								}),
+							)
+							.pipe(Effect.flip);
+						expect(error._tag).toBe("BrowserCommandNotFoundError");
+					}
+
+					// The owning subscriber's echo still resolves it.
+					yield* bridge.respond(
+						BrowserCommandResult.make({
+							id: request.id,
+							ok: true,
+							detail: "ok",
+							channel: request.channel,
+						}),
+					);
+					expect((yield* Fiber.join(sending)).ok).toBe(true);
 				}),
 			).pipe(Effect.provide(TestLayer)),
 		);
