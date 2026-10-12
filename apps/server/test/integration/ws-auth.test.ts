@@ -1069,6 +1069,71 @@ describe("WS LAN auth", () => {
 		}
 	});
 
+	it("rejects browser-originated upgrades whose Origin does not match the host", async () => {
+		const port = await freePort();
+		const runtime = makeRuntime({ policy: "local", port });
+		try {
+			await runtime.runPromise(Effect.void);
+			// A cross-origin page handshake must not reach the RPC surface.
+			await expect(
+				upgradeStatus(port, `/?wireVersion=${WIRE_PROTOCOL_VERSION}`, {
+					Origin: "https://attacker.invalid",
+				}),
+			).resolves.toBe(403);
+			// The same-origin browser client (host === origin host) still works.
+			await expect(
+				upgradeStatus(port, `/?wireVersion=${WIRE_PROTOCOL_VERSION}`, {
+					Origin: `http://127.0.0.1:${port}`,
+				}),
+			).resolves.toBe(101);
+			// Non-browser clients send no Origin and are unaffected.
+			await expect(
+				upgradeStatus(port, `/?wireVersion=${WIRE_PROTOCOL_VERSION}`),
+			).resolves.toBe(101);
+		} finally {
+			await disposeRuntime(runtime);
+		}
+	});
+
+	it("applies origin and rate-limit checks to pairing redemption", async () => {
+		const port = await freePort();
+		const runtime = makeRuntime({
+			policy: "protected",
+			port,
+			pairingBootstrap: true,
+		});
+		try {
+			await runtime.runPromise(Effect.void);
+			// A cross-origin page cannot redeem codes at all.
+			const crossOrigin = await fetch(`http://127.0.0.1:${port}/pair`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					origin: "https://attacker.invalid",
+				},
+				body: JSON.stringify({ code: "zp_bad" }),
+			});
+			expect(crossOrigin.status).toBe(403);
+			// Eight attempts are allowed; the ninth is rate-limited.
+			for (let attempt = 0; attempt < 8; attempt++) {
+				const res = await fetch(`http://127.0.0.1:${port}/pair`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ code: "zp_bad" }),
+				});
+				expect(res.status).toBe(401);
+			}
+			const limited = await fetch(`http://127.0.0.1:${port}/pair`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ code: "zp_bad" }),
+			});
+			expect(limited.status).toBe(429);
+		} finally {
+			await disposeRuntime(runtime);
+		}
+	});
+
 	it("binds protected servers without existing tokens and rejects requests", async () => {
 		const port = await freePort();
 		const runtime = makeRuntime({ policy: "protected", port });

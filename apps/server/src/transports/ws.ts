@@ -155,8 +155,25 @@ const requestClientKey = (
 	request.headers["user-agent"] ??
 	"unknown";
 
-const pairApp = (auth: LanAuthServiceShape, log: WsDiagnostic) =>
+const pairApp = (
+	auth: LanAuthServiceShape,
+	rateLimiter: PairingRateLimiter,
+	log: WsDiagnostic,
+	security: BrowserRequestSecurity,
+) =>
 	Effect.gen(function* () {
+		const request = yield* HttpServerRequest.HttpServerRequest;
+		// Browsers always send Origin; native pair clients do not, so only a
+		// present-but-invalid Origin means a cross-origin page is redeeming.
+		if (
+			request.headers.origin !== undefined &&
+			!hasValidRequestOrigin(request.headers, security)
+		) {
+			return yield* json({ error: "invalid_origin" }, 403);
+		}
+		if (!rateLimiter.allow(requestClientKey(request, security.trustProxy))) {
+			return yield* json({ error: "rate_limited" }, 429);
+		}
 		const body = yield* HttpServerRequest.schemaBodyJson(PairRequest).pipe(
 			Effect.catch(() => Effect.fail("bad_request" as const)),
 		);
@@ -535,6 +552,16 @@ export const wsServerProtocolLayer = (
 			const cookieName = browserCookieName(environmentId);
 			const tickets = new WebSocketTicketStore();
 			const pairingRateLimiter = new PairingRateLimiter();
+			// The dev client is served from a different origin than the socket
+			// port, so the upgrade check below trusts that origin explicitly.
+			const devClientOrigin = (() => {
+				if (opts.devServerUrl === undefined) return undefined;
+				try {
+					return new URL(opts.devServerUrl).origin;
+				} catch {
+					return undefined;
+				}
+			})();
 			yield* Effect.sync(() =>
 				log("ws.bind.start", {
 					host: opts.host ?? "127.0.0.1",
@@ -554,6 +581,17 @@ export const wsServerProtocolLayer = (
 					(opts.staticDir !== undefined || opts.devServerUrl !== undefined)
 				) {
 					return yield* browserClientApp(request, opts);
+				}
+				// Browsers always send an Origin header on WebSocket handshakes,
+				// while non-browser clients (CLI, Node ws, mobile) omit it. A
+				// present-but-invalid Origin means a cross-origin web page is
+				// driving the upgrade, which must never reach the RPC surface.
+				if (
+					request.headers.origin !== undefined &&
+					request.headers.origin !== devClientOrigin &&
+					!hasValidRequestOrigin(request.headers, browserSecurity)
+				) {
+					return yield* json({ error: "invalid_origin" }, 403);
 				}
 				const requestUrl = new URL(request.url, "http://localhost");
 				const receivedVersion = Number(
@@ -691,7 +729,11 @@ export const wsServerProtocolLayer = (
 			// Existing api deployments and previously linked environments may
 			// still advertise `/rpc`. Keep accepting it while newer links use `/`.
 			yield* router.add("GET", "/rpc", guarded);
-			yield* router.add("POST", "/pair", pairApp(auth, log));
+			yield* router.add(
+				"POST",
+				"/pair",
+				pairApp(auth, pairingRateLimiter, log, browserSecurity),
+			);
 			yield* router.add(
 				"POST",
 				"/pair/challenge",
