@@ -137,6 +137,69 @@ describe("linkEnvFiles", () => {
 		expect(output).toContain("linked certs/dev.pem ");
 	});
 
+	it("rejects include patterns that traverse out of the repo", async () => {
+		await write(repo, ".env", "ENV=1");
+		const escapeDir = Path.join(Path.dirname(repo), "escape");
+		await fs.mkdir(escapeDir, { recursive: true });
+		await fs.writeFile(Path.join(escapeDir, "host-secret.txt"), "HOST=1");
+
+		const output = await linkIncludedFiles(
+			repo,
+			worktree,
+			"../escape/host-secret.txt\n../../escape/host-secret.txt\n.env\n",
+		);
+
+		expect(output).toContain("linked .env ");
+		expect(fsSync.existsSync(Path.join(worktree, ".env"))).toBe(true);
+		expect(output).not.toContain("host-secret");
+		// The traversal targets resolve outside the worktree — nothing may be
+		// created there or inside it under a traversal name.
+		expect(fsSync.readdirSync(worktree)).toEqual([".env"]);
+		expect(fsSync.readdirSync(escapeDir)).toEqual(["host-secret.txt"]);
+	});
+
+	it("does not propagate committed symlinks that point outside the repo", async () => {
+		const outside = Path.join(Path.dirname(repo), "outside-secret");
+		await fs.writeFile(outside, "HOST=1");
+		await fs.symlink(outside, Path.join(repo, ".env"));
+		await write(repo, "nested/real.env", "unused");
+
+		const output = await linkEnvFiles(repo, worktree);
+
+		expect(output).not.toContain("linked .env ");
+		expect(fsSync.existsSync(Path.join(worktree, ".env"))).toBe(false);
+	});
+
+	it("keeps repo-internal symlinks working", async () => {
+		await write(repo, "secrets/.env.shared", "SHARED=1");
+		await fs.symlink(
+			Path.join(repo, "secrets/.env.shared"),
+			Path.join(repo, ".env"),
+		);
+
+		await linkEnvFiles(repo, worktree);
+
+		expect(await fs.readFile(Path.join(worktree, ".env"), "utf8")).toBe(
+			"SHARED=1",
+		);
+	});
+
+	it("does not place links through symlinked directories in the worktree", async () => {
+		await write(repo, ".env", "ENV=1");
+		const escapeDir = Path.join(Path.dirname(worktree), "escape");
+		await fs.mkdir(escapeDir, { recursive: true });
+		await fs.symlink(escapeDir, Path.join(worktree, "sub"));
+		await write(repo, "sub/.env", "SUB=1");
+
+		const output = await linkEnvFiles(repo, worktree);
+
+		// `.env` links at the worktree root; `sub/.env` must not land in the
+		// attacker-chosen directory the `sub` symlink points at.
+		expect(fsSync.existsSync(Path.join(worktree, ".env"))).toBe(true);
+		expect(fsSync.existsSync(Path.join(escapeDir, ".env"))).toBe(false);
+		expect(output).not.toContain("linked sub/.env ");
+	});
+
 	it("leaves existing configured include targets untouched", async () => {
 		await write(repo, "certs/dev.pem", "FROM_REPO=1");
 		await write(worktree, "certs/dev.pem", "LOCAL=1");

@@ -37,11 +37,20 @@ const MAX_DEPTH = 6;
 
 const toPosix = (value: string): string => value.split(Path.sep).join("/");
 
-const normalizePattern = (value: string): string =>
-	value
-		.trim()
-		.replace(/^\.?\//, "")
-		.replace(/\\/g, "/");
+const normalizePattern = (value: string): string | null => {
+	const normalized = value.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+	// Include patterns name files inside the repo only — absolute paths and
+	// `..` segments would resolve outside it for the source and outside the
+	// worktree for the link target.
+	if (
+		normalized.length === 0 ||
+		normalized.startsWith("/") ||
+		normalized.split("/").some((segment) => segment === "..")
+	) {
+		return null;
+	}
+	return normalized;
+};
 
 const globToRegExp = (pattern: string): RegExp => {
 	let out = "^";
@@ -66,7 +75,7 @@ const parseIncludeGlobs = (raw: string): string[] =>
 	raw
 		.split(/\r?\n/)
 		.map(normalizePattern)
-		.filter((line) => line.length > 0 && !line.startsWith("#"));
+		.filter((line): line is string => line !== null && !line.startsWith("#"));
 
 const hasGlobMagic = (pattern: string): boolean =>
 	pattern.includes("*") || pattern.includes("?");
@@ -93,10 +102,70 @@ export const isEnvFileName = (name: string): boolean => {
  * symlinked. Existing targets are left untouched (non-clobber). Returns a
  * human-readable summary streamed to the worktree setup UI.
  */
+/**
+ * Symlink `repoPath/rel` into `worktreePath/rel`, but only while both ends stay
+ * inside their realpath'd roots. A committed symlink that points out of the
+ * repo (`.env -> ~/.ssh/id_rsa`) or a symlinked directory inside the worktree
+ * path must never turn an include into a host-file leak or arbitrary link
+ * placement. Returns the `linked …` summary line, or null when skipped.
+ */
+const linkContainedFile = async (
+	repoPath: string,
+	worktreePath: string,
+	rel: string,
+	realRepoRoot: string,
+	realWorktreeRoot: string,
+): Promise<string | null> => {
+	const source = Path.join(repoPath, rel);
+	const target = Path.join(worktreePath, rel);
+	if (fsSync.existsSync(target)) return null;
+
+	const realSource = await fs.realpath(source).catch(() => null);
+	if (
+		realSource === null ||
+		(realSource !== realRepoRoot &&
+			!realSource.startsWith(`${realRepoRoot}${Path.sep}`))
+	) {
+		return null;
+	}
+
+	await fs.mkdir(Path.dirname(target), { recursive: true });
+	const realTargetDir = await fs
+		.realpath(Path.dirname(target))
+		.catch(() => null);
+	if (
+		realTargetDir === null ||
+		(realTargetDir !== realWorktreeRoot &&
+			!realTargetDir.startsWith(`${realWorktreeRoot}${Path.sep}`))
+	) {
+		return null;
+	}
+
+	await fs.symlink(source, target, "file");
+	return `linked ${toPosix(rel)} -> ${source}\n`;
+};
+
+const containedRoots = async (
+	repoPath: string,
+	worktreePath: string,
+): Promise<{ readonly repo: string; readonly worktree: string } | null> => {
+	try {
+		const [repo, worktree] = await Promise.all([
+			fs.realpath(repoPath),
+			fs.realpath(worktreePath),
+		]);
+		return { repo, worktree };
+	} catch {
+		return null;
+	}
+};
+
 export const linkEnvFiles = async (
 	repoPath: string,
 	worktreePath: string,
 ): Promise<string> => {
+	const roots = await containedRoots(repoPath, worktreePath);
+	if (roots === null) return "";
 	let output = "";
 
 	const walk = async (relDir: string, depth: number): Promise<void> => {
@@ -124,13 +193,14 @@ export const linkEnvFiles = async (
 			if (!entry.isFile() && !entry.isSymbolicLink()) continue;
 			if (!isEnvFileName(entry.name)) continue;
 
-			const source = Path.join(repoPath, rel);
-			const target = Path.join(worktreePath, rel);
-			if (fsSync.existsSync(target)) continue;
-
-			await fs.mkdir(Path.dirname(target), { recursive: true });
-			await fs.symlink(source, target, "file");
-			output += `linked ${rel} -> ${source}\n`;
+			const line = await linkContainedFile(
+				repoPath,
+				worktreePath,
+				rel,
+				roots.repo,
+				roots.worktree,
+			);
+			if (line !== null) output += line;
 		}
 	};
 
@@ -145,6 +215,9 @@ export const linkIncludedFiles = async (
 ): Promise<string> => {
 	const patterns = parseIncludeGlobs(includeGlobs);
 	if (patterns.length === 0) return linkEnvFiles(repoPath, worktreePath);
+
+	const roots = await containedRoots(repoPath, worktreePath);
+	if (roots === null) return "";
 
 	const exact = new Set(patterns.filter((pattern) => !hasGlobMagic(pattern)));
 	const globs = patterns
@@ -197,12 +270,14 @@ export const linkIncludedFiles = async (
 
 	let output = "";
 	for (const rel of [...new Set(matches)].sort()) {
-		const source = Path.join(repoPath, rel);
-		const target = Path.join(worktreePath, rel);
-		if (fsSync.existsSync(target)) continue;
-		await fs.mkdir(Path.dirname(target), { recursive: true });
-		await fs.symlink(source, target, "file");
-		output += `linked ${toPosix(rel)} -> ${source}\n`;
+		const line = await linkContainedFile(
+			repoPath,
+			worktreePath,
+			rel,
+			roots.repo,
+			roots.worktree,
+		);
+		if (line !== null) output += line;
 	}
 	return output;
 };
