@@ -1,9 +1,11 @@
+import * as Path from "node:path";
 import {
 	decidePermission,
 	isSensitivePath,
 	type PermissionVerdict,
 	type ToolCategory,
 } from "@zuse/agents/kernel/permission-policy";
+
 import type { PermissionMode, RuntimeMode } from "@zuse/contracts";
 
 /**
@@ -111,8 +113,33 @@ const SIMPLE_READ_ONLY_COMMANDS = new Set([
 	"wc",
 ]);
 
+const WORD_HAS_GLOB = /[*?[\]]/;
+const WORD_HAS_EXPANSION = /[~$]/;
+
+/**
+ * Plan-mode shell confinement. A word that names a path must resolve inside
+ * the session cwd — otherwise `cat ../../secret` or `rg . /etc` would read
+ * arbitrary host files while still looking like an "inspection" command.
+ * Words containing `~` or `$` are rejected outright: quoting is ambiguous
+ * after word-splitting, and either expansion could leave the workspace.
+ */
+const wordInsideCwd = (word: string, cwd: string | undefined): boolean => {
+	if (WORD_HAS_EXPANSION.test(word)) return false;
+	if (!word.includes("/") && !word.startsWith(".") && !Path.isAbsolute(word)) {
+		return true;
+	}
+	if (cwd === undefined) {
+		return !Path.isAbsolute(word) && !word.split("/").includes("..");
+	}
+	const resolved = Path.resolve(cwd, word);
+	return resolved === cwd || resolved.startsWith(`${cwd}${Path.sep}`);
+};
+
 /** Conservative allow-list for shell-based codebase inspection in plan mode. */
-export const isReadOnlyShellCommand = (command: string): boolean => {
+export const isReadOnlyShellCommand = (
+	command: string,
+	cwd?: string,
+): boolean => {
 	const trimmed = command.trim();
 	if (
 		trimmed.length === 0 ||
@@ -141,7 +168,18 @@ export const isReadOnlyShellCommand = (command: string): boolean => {
 	}
 	const executable = words[0];
 	if (executable === undefined) return false;
-	if (SIMPLE_READ_ONLY_COMMANDS.has(executable)) return true;
+	// Arguments that name paths must stay inside the workspace. Path-like
+	// words are anything containing a separator, an absolute path, or a
+	// leading dot; plain words like a regex pattern are fine.
+	if (!words.slice(1).every((word) => wordInsideCwd(word, cwd))) return false;
+	if (SIMPLE_READ_ONLY_COMMANDS.has(executable)) {
+		// For the simple commands the shell expands unquoted glob words, which
+		// could sweep sensitive dotfiles — reject glob chars outside rg
+		// (where a glob is the tool's own pattern syntax, not a path).
+		return !words.some(
+			(word) => !word.startsWith("-") && WORD_HAS_GLOB.test(word),
+		);
+	}
 	if (executable !== "rg") return false;
 	return !words.some(
 		(word) =>
@@ -150,6 +188,9 @@ export const isReadOnlyShellCommand = (command: string): boolean => {
 			word.startsWith("--no-ignore-") ||
 			word === "--pre" ||
 			word.startsWith("--pre=") ||
+			word === "-z" ||
+			word === "--search-zip" ||
+			word === "--null-data" ||
 			/^-u{1,3}$/.test(word),
 	);
 };
@@ -175,8 +216,9 @@ export const getBashPolicy = (
 	command: string,
 	runtimeMode: RuntimeMode,
 	permissionMode?: PermissionMode,
+	cwd?: string,
 ): BashPolicy => {
-	if (permissionMode === "plan" && isReadOnlyShellCommand(command)) {
+	if (permissionMode === "plan" && isReadOnlyShellCommand(command, cwd)) {
 		return { kind: "auto-allow" };
 	}
 	return providerPolicy(

@@ -122,6 +122,7 @@ async function ensureBashPermission(
 		command,
 		getRuntimeMode(),
 		ctx.getPermissionMode?.(),
+		ctx.cwd,
 	);
 
 	if (policy.kind === "auto-allow") return;
