@@ -19,14 +19,14 @@ export const SkeletonOne = () => {
 				logo="/logos/claude.svg"
 				label={t("showcase:planning_session")}
 				title="Claude Code"
-				footer="Plan complete"
+				footer={t("showcase:plan_complete")}
 			/>
 			<AgentCard
 				className="absolute right-5 bottom-5 rotate-2"
 				logo="/logos/openai.svg"
 				label={t("showcase:implementation_session")}
 				title="Codex"
-				footer="Ready to start"
+				footer={t("showcase:ready_to_start")}
 			/>
 			<div className="border-primary/30 bg-card absolute top-[42%] left-1/2 z-10 w-44 -translate-x-1/2 rounded-xl border p-2.5 shadow-xl">
 				<div className="flex items-center gap-2">

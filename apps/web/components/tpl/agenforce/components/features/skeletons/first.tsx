@@ -1,9 +1,11 @@
+"use client";
 import {
 	IconCheck,
 	IconClock,
 	IconGitBranch,
 	IconSparkles,
 } from "@tabler/icons-react";
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import Image from "next/image";
 import type React from "react";
 import { cn } from "@/components/tpl/agenforce/lib/utils";
@@ -13,44 +15,49 @@ const WORKTREES = [
 		branch: "agent/checkout-recovery",
 		agent: "Claude Code",
 		src: "/logos/claude.svg",
-		detail: "12 files · 16 tests",
-		status: "Running",
+		detail: "showcase:files_and_tests",
+		status: "showcase:running",
 		tone: "warning" as const,
 	},
 	{
 		branch: "agent/session-race",
 		agent: "Codex",
 		src: "/logos/openai.svg",
-		detail: "PR #814 · 2 comments",
-		status: "In review",
+		detail: "showcase:pr_comments",
+		status: "showcase:in_review",
 		tone: "primary" as const,
 	},
 	{
 		branch: "agent/sidebar-cache",
 		agent: "Claude Code",
 		src: "/logos/claude.svg",
-		detail: "Merged · history kept",
-		status: "Cleaned",
+		detail: "showcase:merged_history_kept",
+		status: "showcase:cleaned",
 		tone: "success" as const,
 	},
-];
+] as const;
 
-export const SkeletonOne = () => (
-	<div className="perspective-distant h-full w-full -translate-y-10 rotate-x-30 -rotate-y-20 rotate-z-15 scale-[1.14] mask-r-from-50% mask-radial-from-50%">
-		{WORKTREES.map((item, index) => (
-			<WorktreeCard
-				key={item.branch}
-				{...item}
-				className={cn(
-					"absolute max-w-[88%]",
-					index === 0 && "bottom-0 left-12 z-30",
-					index === 1 && "bottom-10 left-8 z-20",
-					index === 2 && "bottom-20 left-4 z-10 max-w-[80%]",
-				)}
-			/>
-		))}
-	</div>
-);
+export const SkeletonOne = () => {
+	const { message: t } = useWebsiteMessages();
+	return (
+		<div className="perspective-distant h-full w-full -translate-y-10 rotate-x-30 -rotate-y-20 rotate-z-15 scale-[1.14] mask-r-from-50% mask-radial-from-50%">
+			{WORKTREES.map((item, index) => (
+				<WorktreeCard
+					key={item.branch}
+					{...item}
+					detail={t(item.detail)}
+					status={t(item.status)}
+					className={cn(
+						"absolute max-w-[88%]",
+						index === 0 && "bottom-0 left-12 z-30",
+						index === 1 && "bottom-10 left-8 z-20",
+						index === 2 && "bottom-20 left-4 z-10 max-w-[80%]",
+					)}
+				/>
+			))}
+		</div>
+	);
+};
 
 function WorktreeCard({
 	branch,
@@ -60,7 +67,11 @@ function WorktreeCard({
 	status,
 	tone,
 	className,
-}: (typeof WORKTREES)[number] & { className?: string }) {
+}: Omit<(typeof WORKTREES)[number], "detail" | "status"> & {
+	detail: string;
+	status: string;
+	className?: string;
+}) {
 	return (
 		<div
 			className={cn(

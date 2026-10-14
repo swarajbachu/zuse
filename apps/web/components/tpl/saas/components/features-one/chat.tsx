@@ -25,7 +25,7 @@ const getEVENTS = (t: WebsiteMessage) =>
 		{
 			name: "Claude Code",
 			src: "/logos/claude.svg",
-			text: "4/4 steps passed · trace saved · 1.8s",
+			text: t("showcase:browser_steps_passed"),
 			side: "left",
 		},
 	] as const;

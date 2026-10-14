@@ -35,5 +35,9 @@
 	"data_rights": "데이터 권리",
 	"tagline": "격리된 작업과 공유 컨텍스트를 갖춘 하나의 작업 공간에 모든 코딩 에이전트가 있습니다.",
 	"light_theme": "밝은 테마로 전환",
-	"pricing": "요금"
+	"pricing": "요금",
+	"open_source_cloud_agents": "오픈 소스 클라우드 에이전트",
+	"open_source_devin_alternative": "Devin의 오픈 소스 대안",
+	"sitemap": "사이트맵",
+	"dither_studio": "디더링 스튜디오"
 }

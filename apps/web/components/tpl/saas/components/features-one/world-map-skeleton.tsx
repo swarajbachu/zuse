@@ -17,14 +17,22 @@ const getSTEPS = (t: WebsiteMessage) =>
 		{
 			icon: IconRoute,
 			label: t("showcase:open_checkout"),
-			detail: "navigation",
+			detail: t("showcase:navigation"),
 		},
-		{ icon: IconForms, label: t("showcase:enter_card"), detail: "input" },
-		{ icon: IconClick, label: t("showcase:place_order"), detail: "click" },
+		{
+			icon: IconForms,
+			label: t("showcase:enter_card"),
+			detail: t("showcase:input"),
+		},
+		{
+			icon: IconClick,
+			label: t("showcase:place_order"),
+			detail: t("showcase:click"),
+		},
 		{
 			icon: IconTarget,
 			label: t("showcase:receipt_visible_2"),
-			detail: "assert",
+			detail: t("showcase:assert"),
 		},
 	] as const;
 

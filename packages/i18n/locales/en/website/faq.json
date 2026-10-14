@@ -4,7 +4,7 @@
 	"what_happens_when_i_want_to_switch_agents": "What happens when I want to switch agents?",
 	"you_choose_the_next_provider_instead_of_zuse_silently_routing_your_mes": "You choose the next provider instead of Zuse silently routing your message. Start or fork a session, then attach the plan, transcript, diff, or files the next agent needs. If one subscription reaches its limit, you can continue with another provider you have access to.",
 	"which_agents_are_supported": "Which agents are supported?",
-	"zuse_supports_seven_coding_agent_clis_in_one_workspace_connect_the_pro": "Zuse supports seven coding-agent CLIs in one workspace. Connect the providers you use, run them side by side, and choose which provider handles each session.",
+	"zuse_supports_seven_coding_agent_clis_in_one_workspace_connect_the_pro": "Zuse supports Claude Code, Codex, Cursor, Grok, Gemini, OpenCode, Pi, and Kiro in one workspace. Connect the agents you use, run them side by side, and choose which provider handles each session.",
 	"do_i_need_my_own_api_keys_or_subscriptions": "Do I need my own API keys or subscriptions?",
 	"yes_zuse_is_bring_your_own_keys_you_plug_in_your_own_provider_keys_or": "Yes. Zuse is bring your own keys. You plug in your own provider keys or subscriptions, and Zuse talks to them directly. It never resells tokens and adds $0 markup, so you only pay the agent providers.",
 	"is_my_code_or_data_sent_anywhere": "Is my code or data sent anywhere?",

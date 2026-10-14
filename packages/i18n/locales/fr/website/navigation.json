@@ -35,5 +35,9 @@
 	"dark_theme": "Passer au thème sombre",
 	"subprocessors": "Sous-traitants",
 	"light_theme": "Passer au thème clair",
-	"pricing": "Tarifs"
+	"pricing": "Tarifs",
+	"open_source_cloud_agents": "Agents cloud open source",
+	"open_source_devin_alternative": "Alternative open source à Devin",
+	"sitemap": "Plan du site",
+	"dither_studio": "Studio de tramage"
 }

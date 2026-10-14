@@ -46,15 +46,15 @@ const groupLabels: Record<string, WebsiteMessageKey> = {
 const getData = (t: WebsiteMessage) => ({
 	Product: [
 		{
-			label: "Open source cloud agents",
+			label: t("navigation:open_source_cloud_agents"),
 			href: "/blog/open-source-cloud-agents",
 		},
 		{
-			label: "Open source Devin alternative",
+			label: t("navigation:open_source_devin_alternative"),
 			href: "/blog/open-source-coding-agent-alternative",
 		},
-		{ label: "Sitemap", href: "/sitemap.xml" },
-		{ label: "Dither studio", href: "/tools/dither" },
+		{ label: t("navigation:sitemap"), href: "/sitemap.xml" },
+		{ label: t("navigation:dither_studio"), href: "/tools/dither" },
 		{ label: t("navigation:download"), href: DOWNLOAD_URL },
 		{ label: t("navigation:developers"), href: "/developers" },
 		{ label: t("navigation:pricing"), href: "/pricing" },

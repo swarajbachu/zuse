@@ -1,7 +1,7 @@
 {
 	"en": {
 		"status": "reviewed",
-		"sourceRevision": "f5dfa0145036e627aa80c72ff19fea38b9a2f4b35524d34b8e1d3f4d2c690254",
+		"sourceRevision": "9392bd86c6b55baacc8ca6b61b4d9a899bc6ca0503526750bd933f831e845557",
 		"reviewer": "source",
 		"provenance": "English source"
 	},
@@ -21,7 +21,7 @@
 		"status": "draft",
 		"sourceRevision": "",
 		"reviewer": null,
-		"provenance": "Machine translation draft; native-speaker review pending."
+		"provenance": "Copy revised using the supplied Simplified Chinese localization review (2026-10-13); final native-speaker review pending."
 	},
 	"zh-Hant": {
 		"status": "draft",

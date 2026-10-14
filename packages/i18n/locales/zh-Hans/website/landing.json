@@ -1,14 +1,14 @@
 {
-	"see_how_it_works": "看看它是如何工作的",
-	"meta_title": "Zuse: 所有编码代理都在一个工作区中",
-	"open_source_devin_alternative": "Devin 的开源替代方案。在本地或隔离的云工作区中并行运行智能体。",
-	"meta_description": "并行运行编码代理，在它们之间传递上下文，并使用 Zuse 将每个任务隔离在自己的 git 工作树中。",
-	"open_source_cloud_beta_live": "<part0></part0>开源·云内测上线",
-	"free_in_beta_no_token_markup": "测试版免费 · 无代币加价",
-	"schema_parallel": "从一个工作区运行多个编码代理",
-	"schema_environments": "本地和云执行环境",
-	"schema_subscriptions": "带上您现有的模型订阅",
-	"schema_worktrees": "用于并行代理运行的隔离 Git 工作树",
-	"cloud_coding_agents_open_source": "云端编程智能体。<part0>开源。</part0>",
-	"schema_tools": "内置差异、终端​​、浏览器和拉取请求审查"
+	"see_how_it_works": "了解工作流程",
+	"meta_title": "Zuse：在同一工作区中并行运行编程智能体",
+	"open_source_devin_alternative": "让多个编程智能体在本地或独立的云端工作区中同时工作。用 Git worktree 隔离任务，交接上下文，统一审查代码改动。Zuse 是 Devin 的开源替代方案。",
+	"meta_description": "用 Zuse 在本地或云端并行运行编程智能体，以 Git worktree 隔离任务，在智能体之间交接会话记录、计划和文件，并统一审查代码改动。",
+	"open_source_cloud_beta_live": "<part0></part0>开源 · 云端 Beta 已上线",
+	"free_in_beta_no_token_markup": "Beta 期间免费 · 模型用量不加价",
+	"schema_parallel": "在同一工作区中运行多个编程智能体",
+	"schema_environments": "本地和云端执行环境",
+	"schema_subscriptions": "继续使用你现有的模型订阅",
+	"schema_worktrees": "用独立的 Git worktree 隔离并行任务",
+	"cloud_coding_agents_open_source": "开源云端编程智能体，<part0>尽在你的工作区。</part0>",
+	"schema_tools": "内置代码改动审查、终端、浏览器和合并请求审查"
 }

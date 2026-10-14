@@ -25,7 +25,7 @@ export const SharedWorktreeSkeleton = () => {
 					title={"checkout-recovery"}
 					subtitle="agent/checkout-recovery"
 					logo={<LogoSVG />}
-					cta="Shared worktree"
+					cta={t("showcase:shared_worktree")}
 					tone="default"
 				/>
 				<LeftSVG className="absolute top-12 -left-32" />
@@ -36,25 +36,25 @@ export const SharedWorktreeSkeleton = () => {
 			<div className="mt-12 flex flex-row gap-4.5">
 				<Card
 					title="Claude Code"
-					subtitle="Implementation"
+					subtitle={t("showcase:implementation")}
 					logo={<AnthropicLogo />}
-					cta="Running"
+					cta={t("showcase:running")}
 					tone="danger"
 					delay={0.2}
 				/>
 				<Card
 					title={t("showcase:terminal")}
-					subtitle="Focused tests"
+					subtitle={t("showcase:focused_tests")}
 					logo={<ForkIcon />}
-					cta="16 passed"
+					cta={t("showcase:tests_passed")}
 					tone="default"
 					delay={0.4}
 				/>
 				<Card
 					title="Codex"
-					subtitle="Diff review"
+					subtitle={t("showcase:diff_review")}
 					logo={<OpenAILogo />}
-					cta="Reviewing"
+					cta={t("showcase:in_review")}
 					tone="success"
 					delay={0.6}
 				/>
@@ -66,7 +66,7 @@ export const SharedWorktreeSkeleton = () => {
 export const ContextReviewSkeleton = () => {
 	const { message: t } = useWebsiteMessages();
 
-	const text = `Review the current diff and verify checkout recovery without editing.`;
+	const text = t("showcase:review_checkout_prompt");
 	const randomWidth = 78;
 
 	return (
@@ -211,18 +211,18 @@ export const EvidenceTimelineSkeleton = () => {
 	const deployCards = [
 		{
 			title: t("showcase:claude_implementation"),
-			subtitle: "running",
+			subtitle: t("showcase:running"),
 			branch: "agent/checkout-recovery",
 		},
 		{
 			title: t("showcase:codex_diff_review"),
-			subtitle: "2 findings",
+			subtitle: t("showcase:two_findings"),
 			branch: "agent/checkout-recovery",
 			variant: "success" as const,
 		},
 		{
 			title: t("showcase:terminal_focused_tests"),
-			subtitle: "16 passed",
+			subtitle: t("showcase:tests_passed"),
 			branch: "agent/checkout-recovery",
 			variant: "success" as const,
 		},
@@ -234,13 +234,13 @@ export const EvidenceTimelineSkeleton = () => {
 		},
 		{
 			title: t("showcase:codex_review_resolved"),
-			subtitle: "2 fixes",
+			subtitle: t("showcase:two_fixes"),
 			branch: "agent/checkout-recovery",
 			variant: "warning" as const,
 		},
 		{
 			title: t("showcase:pr_814_ready"),
-			subtitle: "checks passed",
+			subtitle: t("showcase:checks_passed"),
 			branch: "agent/checkout-recovery",
 			variant: "success" as const,
 		},

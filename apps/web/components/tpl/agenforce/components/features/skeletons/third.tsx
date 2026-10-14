@@ -34,16 +34,18 @@ export const SkeletonThree = () => {
 					{t("showcase:1_8_gb_reclaimed")}
 				</p>
 				<div className="mt-3 space-y-2">
-					{[
-						[IconGitBranch, "Branch preserved"],
-						[IconHistory, "Commits + run history kept"],
-						[IconCheck, "Worktree removed"],
-					].map(([Icon, label]) => (
+					{(
+						[
+							[IconGitBranch, "showcase:branch_preserved"],
+							[IconHistory, "showcase:commits_run_history_kept"],
+							[IconCheck, "showcase:worktree_removed"],
+						] as const
+					).map(([Icon, label]) => (
 						<p
-							key={label as string}
+							key={label}
 							className="text-muted-foreground flex items-center gap-2 text-[10px]"
 						>
-							<Icon className="text-primary size-3.5" /> {label as string}
+							<Icon className="text-primary size-3.5" /> {t(label)}
 						</p>
 					))}
 				</div>

@@ -9,11 +9,11 @@ import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import { cn } from "@/components/tpl/agenforce/lib/utils";
 
 const STEPS = [
-	["Plan attached", "done"],
-	["Transcript attached", "done"],
-	["Diff · 12 files", "done"],
-	["Tests · 16 passing", "done"],
-	["Codex reviewing", "active"],
+	["showcase:plan_attached", "done"],
+	["showcase:transcript_attached", "done"],
+	["showcase:diff_files", "done"],
+	["showcase:tests_passing", "done"],
+	["showcase:codex_reviewing", "active"],
 ] as const;
 
 export const SkeletonTwo = () => {
@@ -41,7 +41,7 @@ export const SkeletonTwo = () => {
 				<div className="absolute inset-0 rounded-2xl bg-[image:repeating-linear-gradient(315deg,_var(--pattern-fg)_0,_var(--pattern-fg)_1px,_transparent_0,_transparent_50%)] bg-[size:10px_10px]" />
 				<div className="bg-card absolute inset-0 h-full w-full -translate-y-2 translate-x-2 rounded-2xl transition-transform duration-300 group-hover:translate-x-0 group-hover:translate-y-0 motion-reduce:transform-none motion-reduce:transition-none">
 					{STEPS.map(([label, state], index) => (
-						<div key={label}>
+						<div key={t(label)}>
 							<div className="flex items-center justify-between px-4 py-2">
 								<div className="flex items-center gap-2">
 									<span
@@ -57,7 +57,7 @@ export const SkeletonTwo = () => {
 										)}
 									</span>
 									<p className="text-muted-foreground text-xs font-medium">
-										{label}
+										{t(label)}
 									</p>
 								</div>
 								{index === 2 && (

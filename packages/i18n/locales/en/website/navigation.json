@@ -35,5 +35,9 @@
 	"tagline": "All your coding agents in one workspace, with isolated tasks and shared context.",
 	"light_theme": "Switch to light theme",
 	"dark_theme": "Switch to dark theme",
-	"pricing": "Pricing"
+	"pricing": "Pricing",
+	"open_source_cloud_agents": "Open source cloud agents",
+	"open_source_devin_alternative": "Open source Devin alternative",
+	"sitemap": "Sitemap",
+	"dither_studio": "Dither studio"
 }

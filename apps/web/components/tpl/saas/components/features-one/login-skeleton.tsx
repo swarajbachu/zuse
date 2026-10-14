@@ -26,7 +26,11 @@ export function LoginSkeleton({ className }: { className?: string }) {
 					<p className="text-muted-foreground text-[8px] font-medium uppercase">
 						{t("showcase:local_profiles")}
 					</p>
-					<Browser icon={IconBrandChrome} name="Chrome · Profile 1" active />
+					<Browser
+						icon={IconBrandChrome}
+						name={t("showcase:chrome_profile")}
+						active
+					/>
 					<Browser icon={IconBrandSafari} name="Safari" />
 				</div>
 				<div className="border-primary/30 bg-card absolute top-0 right-0 w-[48%] rotate-2 rounded-2xl border p-3 shadow-xl">
@@ -60,12 +64,12 @@ export function LoginSkeleton({ className }: { className?: string }) {
 					<Note
 						icon={IconCookie}
 						title={t("showcase:cookies_only")}
-						detail="Passwords stay in your browser"
+						detail={t("showcase:passwords_stay_in_your_browser")}
 					/>
 					<Note
 						icon={IconLock}
 						title={t("showcase:local_transfer")}
-						detail="Never written into agent chat"
+						detail={t("showcase:never_written_into_agent_chat")}
 					/>
 				</div>
 			</div>

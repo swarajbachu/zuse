@@ -1,6 +1,9 @@
 "use client";
 import { IconFileDiff, IconMessageCircle } from "@tabler/icons-react";
-import { WebsiteRichMessage } from "@zuse/i18n/website/react";
+import {
+	useWebsiteMessages,
+	WebsiteRichMessage,
+} from "@zuse/i18n/website/react";
 import { motion, useReducedMotion } from "motion/react";
 import { cn } from "@/components/tpl/agenforce/lib/utils";
 
@@ -17,24 +20,40 @@ const TILES = [
 ];
 
 export const SkeletonTwo = () => {
+	const { message: t } = useWebsiteMessages();
 	const reduceMotion = useReducedMotion();
+	const tiles = TILES.map((tile) => ({
+		tile,
+		label:
+			tile === "16 passed"
+				? t("showcase:tests_passed")
+				: tile === "review"
+					? t("showcase:review")
+					: tile === "2 comments"
+						? t("showcase:two_comments")
+						: tile === "resolved"
+							? t("showcase:resolved")
+							: tile,
+	}));
 	return (
 		<div className="flex h-full w-full flex-1 flex-col items-center justify-center gap-3 px-8">
 			<div className="grid w-full max-w-md grid-cols-4 gap-2">
-				{TILES.slice(0, 4).map((tile, index) => (
+				{tiles.slice(0, 4).map(({ tile, label }, index) => (
 					<DiffTile
 						key={tile}
 						tile={tile}
+						label={label}
 						index={index}
 						reduceMotion={reduceMotion}
 					/>
 				))}
 			</div>
 			<div className="grid w-full max-w-lg grid-cols-5 gap-2">
-				{TILES.slice(4).map((tile, index) => (
+				{tiles.slice(4).map(({ tile, label }, index) => (
 					<DiffTile
 						key={tile}
 						tile={tile}
+						label={label}
 						index={index + 4}
 						reduceMotion={reduceMotion}
 					/>
@@ -57,11 +76,13 @@ export const SkeletonTwo = () => {
 };
 
 function DiffTile({
+	label,
 	tile,
 	index,
 	reduceMotion,
 }: {
 	tile: string;
+	label: string;
 	index: number;
 	reduceMotion: boolean | null;
 }) {
@@ -81,7 +102,7 @@ function DiffTile({
 					!positive && !negative && "text-muted-foreground",
 				)}
 			>
-				{index === 0 ? <IconFileDiff className="size-4" /> : tile}
+				{index === 0 ? <IconFileDiff className="size-4" /> : label}
 			</motion.div>
 			<div className="absolute inset-0 rounded-xl bg-[image:repeating-linear-gradient(315deg,var(--color-border)_0,var(--color-border)_1px,transparent_0,transparent_50%)] bg-[size:5px_5px]" />
 		</div>

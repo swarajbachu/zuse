@@ -24,25 +24,25 @@ const getACTIVITY = (t: WebsiteMessage) =>
 		{
 			icon: IconFiles,
 			title: t("showcase:changed_files"),
-			detail: "9 modified · 2 added · 1 deleted",
+			detail: t("showcase:file_change_summary"),
 			badge: t("showcase:12_files"),
 		},
 		{
 			icon: IconFileDiff,
 			title: t("showcase:branch_diff"),
-			detail: "+182 additions · −47 deletions",
+			detail: t("showcase:line_change_summary"),
 			badge: t("showcase:diff_2"),
 		},
 		{
 			icon: IconListCheck,
 			title: t("showcase:uncommitted_work"),
-			detail: "3 files ready to review",
+			detail: t("showcase:files_ready_to_review"),
 			badge: t("showcase:local"),
 		},
 		{
 			icon: IconCheck,
 			title: t("showcase:review_range_ready"),
-			detail: "Compared with origin/main",
+			detail: t("showcase:compared_with_main"),
 			badge: t("showcase:ready"),
 		},
 	] as const;

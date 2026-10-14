@@ -69,7 +69,7 @@ export function WebsiteRichMessage({
 	components: Readonly<Record<string, ReactElement>>;
 }) {
 	return (
-		<Trans
+		<Trans<WebsiteMessageKey, "website">
 			i18nKey={id}
 			values={values}
 			components={components}
