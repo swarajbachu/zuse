@@ -41,7 +41,7 @@ export const loadPricedUsageCached = (
 	const load = opts.load ?? loadPricedUsage;
 	const promise = load({
 		readOptions: { zuseDbPath },
-		pricing: { cacheDir },
+		pricing: { cacheDir, preferCached: !forceRefresh },
 	})
 		.then((value) => {
 			pricedCache = { at: (opts.now ?? Date.now)(), value };
