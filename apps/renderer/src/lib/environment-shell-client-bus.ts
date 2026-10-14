@@ -766,6 +766,31 @@ export const environmentShellSnapshot = (
 		getRendererClientBus().snapshot(environmentShellResourceKey(ref)),
 	);
 
+/** Usage reads are side requests; they must not enter the workspace mutation lane. */
+export const readEnvironmentUsage = async <Result>(
+	environmentId: EnvironmentId,
+	kind: "usage.limits" | "usage.limits.history",
+	payload: Readonly<Record<string, unknown>>,
+): Promise<Result> => {
+	const bus = getRendererClientBus();
+	const key = environmentShellResourceKey({ environmentId });
+	const lease = bus.retain(key, { activation: "connect" });
+	try {
+		await waitForEnvironmentGateway(environmentId, key);
+		const client = bus.client(environmentId);
+		if (client === null) throw new Error("Usage connection is unavailable.");
+		const request: Effect.Effect<unknown, unknown> = client[kind](
+			payload as never,
+		);
+		const result = await Effect.runPromise(request);
+		if (bus.client(environmentId) !== client)
+			throw new Error("Usage connection changed during the request.");
+		return result as Result;
+	} finally {
+		lease.release();
+	}
+};
+
 export const dispatchEnvironmentShellCommand = <Payload, Result>(input: {
 	readonly environmentId: EnvironmentId;
 	readonly kind: string;
