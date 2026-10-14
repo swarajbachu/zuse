@@ -9,6 +9,10 @@ import {
 	yieldToEventLoop,
 } from "../fs-util.ts";
 
+import { createParsedFileCache } from "../parsed-file-cache.ts";
+
+const fileCache = createParsedFileCache<CodexEvent>();
+
 const FALLBACK_MODEL = "gpt-5";
 
 interface RawUsage {
@@ -109,73 +113,67 @@ const parseSessionFile = async (
 	let previousTotals: RawUsage | null = null;
 	let currentModel: string | undefined;
 
-	try {
-		for await (const line of readLines(file)) {
-			if (!line.includes("token_count") && !line.includes("turn_context"))
-				continue;
-			let entry: Record<string, unknown> | null;
-			try {
-				entry = asRecord(JSON.parse(line));
-			} catch {
-				continue;
-			}
-			if (entry === null) continue;
-			const type = typeof entry.type === "string" ? entry.type : undefined;
-			const payload = asRecord(entry.payload);
-
-			if (type === "turn_context") {
-				const model = payload === null ? undefined : extractModel(payload);
-				if (model !== undefined) currentModel = model;
-				continue;
-			}
-			if (
-				type !== "event_msg" ||
-				payload === null ||
-				payload.type !== "token_count"
-			)
-				continue;
-			const timestamp =
-				typeof entry.timestamp === "string" ? entry.timestamp : undefined;
-			if (timestamp === undefined) continue;
-
-			const info = asRecord(payload.info);
-			const lastUsage = normalizeRawUsage(info?.last_token_usage);
-			const totalUsage = normalizeRawUsage(info?.total_token_usage);
-			let raw = lastUsage;
-			if (raw === null && totalUsage !== null)
-				raw = subtract(totalUsage, previousTotals);
-			if (totalUsage !== null) previousTotals = totalUsage;
-			if (raw === null) continue;
-
-			const cached = Math.min(raw.cached_input_tokens, raw.input_tokens);
-			if (
-				raw.input_tokens === 0 &&
-				raw.output_tokens === 0 &&
-				raw.reasoning_output_tokens === 0
-			) {
-				continue;
-			}
-
-			const model = extractModel(payload) ?? currentModel;
-			if (model !== undefined) currentModel = model;
-			events.push({
-				sessionId,
-				timestamp,
-				model: model ?? FALLBACK_MODEL,
-				inputTokens: raw.input_tokens,
-				cachedInputTokens: cached,
-				outputTokens: raw.output_tokens,
-				reasoningOutputTokens: raw.reasoning_output_tokens,
-				totalTokens:
-					raw.total_tokens > 0
-						? raw.total_tokens
-						: raw.input_tokens +
-							raw.output_tokens +
-							raw.reasoning_output_tokens,
-			});
+	for await (const line of readLines(file)) {
+		if (!line.includes("token_count") && !line.includes("turn_context"))
+			continue;
+		let entry: Record<string, unknown> | null;
+		try {
+			entry = asRecord(JSON.parse(line));
+		} catch {
+			continue;
 		}
-	} catch {
-		return [];
+		if (entry === null) continue;
+		const type = typeof entry.type === "string" ? entry.type : undefined;
+		const payload = asRecord(entry.payload);
+
+		if (type === "turn_context") {
+			const model = payload === null ? undefined : extractModel(payload);
+			if (model !== undefined) currentModel = model;
+			continue;
+		}
+		if (
+			type !== "event_msg" ||
+			payload === null ||
+			payload.type !== "token_count"
+		)
+			continue;
+		const timestamp =
+			typeof entry.timestamp === "string" ? entry.timestamp : undefined;
+		if (timestamp === undefined) continue;
+
+		const info = asRecord(payload.info);
+		const lastUsage = normalizeRawUsage(info?.last_token_usage);
+		const totalUsage = normalizeRawUsage(info?.total_token_usage);
+		let raw = lastUsage;
+		if (raw === null && totalUsage !== null)
+			raw = subtract(totalUsage, previousTotals);
+		if (totalUsage !== null) previousTotals = totalUsage;
+		if (raw === null) continue;
+
+		const cached = Math.min(raw.cached_input_tokens, raw.input_tokens);
+		if (
+			raw.input_tokens === 0 &&
+			raw.output_tokens === 0 &&
+			raw.reasoning_output_tokens === 0
+		) {
+			continue;
+		}
+
+		const model = extractModel(payload) ?? currentModel;
+		if (model !== undefined) currentModel = model;
+		events.push({
+			sessionId,
+			timestamp,
+			model: model ?? FALLBACK_MODEL,
+			inputTokens: raw.input_tokens,
+			cachedInputTokens: cached,
+			outputTokens: raw.output_tokens,
+			reasoningOutputTokens: raw.reasoning_output_tokens,
+			totalTokens:
+				raw.total_tokens > 0
+					? raw.total_tokens
+					: raw.input_tokens + raw.output_tokens + raw.reasoning_output_tokens,
+		});
 	}
 	return events;
 };
@@ -212,7 +210,15 @@ export const readCodexJsonl = async (input: {
 		files.push(...dirFiles);
 		for (const file of dirFiles) {
 			if (++processed % YIELD_EVERY === 0) await yieldToEventLoop();
-			for (const event of await parseSessionFile(sessionsDir, file)) {
+			let events: CodexEvent[];
+			try {
+				events = await fileCache.read(file, sessionsDir, () =>
+					parseSessionFile(sessionsDir, file),
+				);
+			} catch {
+				continue;
+			}
+			for (const event of events) {
 				const key = eventKey(event);
 				if (seen.has(key)) continue;
 				seen.add(key);

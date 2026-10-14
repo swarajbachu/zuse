@@ -9,6 +9,10 @@ import {
 	yieldToEventLoop,
 } from "../fs-util.ts";
 
+import { createParsedFileCache } from "../parsed-file-cache.ts";
+
+const fileCache = createParsedFileCache<ParsedEntry>();
+
 const USAGE_MARKER = '"usage":{';
 
 interface AnthropicUsage {
@@ -72,73 +76,84 @@ export const readAnthropicJsonl = async (input: {
 	for (const file of files) {
 		if (++processed % YIELD_EVERY === 0) await yieldToEventLoop();
 		try {
-			const project = projectFromPath(file, projectsDir);
-			for await (const line of readLines(file)) {
-				if (!line.includes(USAGE_MARKER)) continue;
-				let data: AnthropicLine;
-				try {
-					data = JSON.parse(line) as AnthropicLine;
-				} catch {
-					continue;
-				}
-				const usage = data.message?.usage;
-				if (
-					data.isApiErrorMessage === true ||
-					usage === undefined ||
-					typeof usage.input_tokens !== "number" ||
-					typeof usage.output_tokens !== "number"
-				) {
-					continue;
-				}
-				const counts = {
-					inputTokens: num(usage.input_tokens),
-					outputTokens: num(usage.output_tokens),
-					cacheReadTokens: num(usage.cache_read_input_tokens),
-					cacheCreationTokens: num(usage.cache_creation_input_tokens),
-					reasoningTokens: 0,
-				};
-				const messageId = data.message?.id ?? null;
-				const requestId = data.requestId ?? null;
-				const uniqueHash =
-					messageId === null
-						? null
-						: requestId === null
-							? messageId
-							: `${messageId}:${requestId}`;
-				const sessionId =
-					data.sessionId ??
-					file
-						.split(sep)
-						.pop()
-						?.replace(/\.jsonl$/i, "") ??
-					null;
-				parsed.push({
-					uniqueHash,
-					tokenTotal:
-						counts.inputTokens +
-						counts.outputTokens +
-						counts.cacheReadTokens +
-						counts.cacheCreationTokens,
-					record: makeUsageRecord({
-						sourceId: input.sourceId,
-						sourceLabel: input.sourceLabel,
-						providerId: input.sourceId,
-						model: data.message?.model ?? null,
-						sessionId,
-						projectPath: project,
-						workspacePath: data.cwd ?? project,
-						startedAt: data.timestamp,
-						endedAt: data.timestamp,
-						counts,
-						loggedCostUsd:
-							typeof data.costUSD === "number" ? data.costUSD : null,
-						fast: usage.speed === "fast",
-						provenance: `${file}#${messageId ?? "?"}`,
-						confidence: "exact",
-						fingerprintParts: [uniqueHash ?? `${file}:${data.timestamp ?? ""}`],
-					}),
-				});
-			}
+			const entries = await fileCache.read(
+				file,
+				JSON.stringify([input.sourceId, input.sourceLabel, projectsDir]),
+				async () => {
+					const fileEntries: ParsedEntry[] = [];
+					const project = projectFromPath(file, projectsDir);
+					for await (const line of readLines(file)) {
+						if (!line.includes(USAGE_MARKER)) continue;
+						let data: AnthropicLine;
+						try {
+							data = JSON.parse(line) as AnthropicLine;
+						} catch {
+							continue;
+						}
+						const usage = data.message?.usage;
+						if (
+							data.isApiErrorMessage === true ||
+							usage === undefined ||
+							typeof usage.input_tokens !== "number" ||
+							typeof usage.output_tokens !== "number"
+						) {
+							continue;
+						}
+						const counts = {
+							inputTokens: num(usage.input_tokens),
+							outputTokens: num(usage.output_tokens),
+							cacheReadTokens: num(usage.cache_read_input_tokens),
+							cacheCreationTokens: num(usage.cache_creation_input_tokens),
+							reasoningTokens: 0,
+						};
+						const messageId = data.message?.id ?? null;
+						const requestId = data.requestId ?? null;
+						const uniqueHash =
+							messageId === null
+								? null
+								: requestId === null
+									? messageId
+									: `${messageId}:${requestId}`;
+						const sessionId =
+							data.sessionId ??
+							file
+								.split(sep)
+								.pop()
+								?.replace(/\.jsonl$/i, "") ??
+							null;
+						fileEntries.push({
+							uniqueHash,
+							tokenTotal:
+								counts.inputTokens +
+								counts.outputTokens +
+								counts.cacheReadTokens +
+								counts.cacheCreationTokens,
+							record: makeUsageRecord({
+								sourceId: input.sourceId,
+								sourceLabel: input.sourceLabel,
+								providerId: input.sourceId,
+								model: data.message?.model ?? null,
+								sessionId,
+								projectPath: project,
+								workspacePath: data.cwd ?? project,
+								startedAt: data.timestamp,
+								endedAt: data.timestamp,
+								counts,
+								loggedCostUsd:
+									typeof data.costUSD === "number" ? data.costUSD : null,
+								fast: usage.speed === "fast",
+								provenance: `${file}#${messageId ?? "?"}`,
+								confidence: "exact",
+								fingerprintParts: [
+									uniqueHash ?? `${file}:${data.timestamp ?? ""}`,
+								],
+							}),
+						});
+					}
+					return fileEntries;
+				},
+			);
+			for (const entry of entries) parsed.push(entry);
 		} catch {
 			// Ignore unreadable or truncated history files.
 		}
