@@ -63,6 +63,7 @@ import {
 	type PowerThermalState,
 	PowerWorkloadState,
 	PRODUCTION_API_URL,
+	SelfHostedSetupRequest,
 	STAGING_API_URL,
 	SYSTEM_RESUME_CHANNEL,
 	TailnetShareState,
@@ -719,6 +720,7 @@ const cloudSyncManager = new CloudSyncManager(
 	(id, path, signal) => cloudSyncFiles.read(id, path, signal),
 );
 let sshEnvironmentManager: SshEnvironmentManager | null = null;
+let stopSelfHostedSetupWatch: (() => void) | null = null;
 const portForwardManager = new PortForwardManager();
 let tailnetEnvironmentManager: TailnetEnvironmentManager | null = null;
 let optionalDesktopReadiness: OptionalDesktopReadiness | null = null;
@@ -2067,6 +2069,10 @@ async function createMainWindow() {
 	sshEnvironmentManager ??= new SshEnvironmentManager(userData);
 	tailnetEnvironmentManager ??= new TailnetEnvironmentManager(userData);
 	const sshManager = sshEnvironmentManager;
+	stopSelfHostedSetupWatch?.();
+	stopSelfHostedSetupWatch = sshManager.onSetupEvent((event) => {
+		mainWindow?.webContents.send("ssh:selfHostedSetupEvent", event);
+	});
 	const tailnetManager = tailnetEnvironmentManager;
 	const tailnetShareOptions: TailnetShareOptions = {
 		ownershipDir: userData,
@@ -2499,6 +2505,18 @@ async function createMainWindow() {
 
 	ipcMain.handle("ssh:discoverHosts", async () =>
 		(await readySshEnvironmentManager()).discoverHosts(),
+	);
+	ipcMain.handle("ssh:startSelfHostedSetup", async (_event, input: unknown) =>
+		(await readySshEnvironmentManager()).startSelfHostedSetup(
+			Schema.decodeUnknownSync(SelfHostedSetupRequest)(input),
+		),
+	);
+	ipcMain.handle(
+		"ssh:cancelSelfHostedSetup",
+		async (_event, operationId: unknown) => {
+			if (typeof operationId !== "string") return;
+			(await readySshEnvironmentManager()).cancelSelfHostedSetup(operationId);
+		},
 	);
 	ipcMain.handle("ssh:listProfiles", async () =>
 		(await readySshEnvironmentManager()).listProfiles(),
@@ -3919,6 +3937,8 @@ const finishQuitAfterSshCleanup = (event: {
 	deliverAuthUrl = null;
 	stopBrowserCookieWatch?.();
 	stopBrowserCookieWatch = null;
+	stopSelfHostedSetupWatch?.();
+	stopSelfHostedSetupWatch = null;
 	void Promise.allSettled([
 		cloudSyncManager.dispose(),
 		host?.close() ?? Promise.resolve(),

@@ -57,6 +57,7 @@ export * from "./pty.ts";
 export * from "./repository-settings.ts";
 export * from "./rpc.ts";
 export * from "./rpc-authorization.ts";
+export * from "./self-hosted.ts";
 export * from "./serve.ts";
 export * from "./session.ts";
 export * from "./session-attempts.ts";

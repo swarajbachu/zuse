@@ -4,11 +4,15 @@ import {
 	mergeDiscoveredHosts,
 	parseHostAliases,
 	parseLaunchResult,
+	parseSelfHostedCliEvent,
+	parseSelfHostedPreflight,
 	parseSshGConfig,
 	parseTailscaleStatus,
 	remoteBootstrapScript,
 	remoteLaunchScript,
 	SSH_MANAGED_SERVE_PORT,
+	selfHostedBootstrapScript,
+	selfHostedRemoteLaunchScript,
 	sshGArgs,
 	tunnelArgs,
 	validateSshTargetSafety,
@@ -44,6 +48,56 @@ describe("@zuse/ssh", () => {
 		expect(() => remoteBootstrapScript("latest; rm -rf /")).toThrow(
 			"Invalid compatible Serve runtime version",
 		);
+	});
+
+	test("builds a pinned self-hosted installer and parses lifecycle output", () => {
+		const script = selfHostedBootstrapScript("0.1.2");
+		expect(script).toContain("@zusehq/serve@$VERSION");
+		expect(script).toContain("SHASUMS256.txt");
+		expect(script).toContain(
+			"for prerequisite in git curl gh xz make g++ python3",
+		);
+		expect(script).toContain("xz-utils build-essential python3");
+		expect(script).toContain("--self-hosted --json");
+		expect(selfHostedRemoteLaunchScript).toContain(
+			"systemctl --user start zuse-serve.service",
+		);
+		expect(() => selfHostedBootstrapScript("latest; touch /tmp/nope")).toThrow(
+			"Invalid compatible Serve runtime version",
+		);
+		expect(
+			parseSelfHostedCliEvent(
+				'{"version":1,"type":"authorization_required","userCode":"ABCD-EFGH","verificationUri":"https://example.test"}',
+			),
+		).toMatchObject({ type: "authorization_required", userCode: "ABCD-EFGH" });
+		expect(parseSelfHostedCliEvent("not-json")).toBeNull();
+	});
+
+	test.each([
+		"x86_64",
+		"arm64",
+	])("accepts Ubuntu 26.04 on %s", (architecture) => {
+		expect(
+			parseSelfHostedPreflight(
+				`os_id=ubuntu\nos_version=26.04\narchitecture=${architecture}\nhome=/root\ndisk_kib=35950428\nsystemd_user=1\nlinger=0\nsudo=1\nusername=root\n`,
+			),
+		).toMatchObject({ supported: true, architecture, blockingReason: null });
+	});
+
+	test("accepts only the guided Linux and architecture combinations", () => {
+		expect(
+			parseSelfHostedPreflight(
+				"os_id=ubuntu\nos_version=24.04\narchitecture=arm64\nhome=/home/zuse\ndisk_kib=1024\nnode_version=v22\ngit_version=git version 2\nsystemd_user=1\nlinger=1\nsudo=0\nusername=zuse\n",
+			),
+		).toMatchObject({ supported: true, architecture: "arm64" });
+		expect(
+			parseSelfHostedPreflight(
+				"os_id=alpine\nos_version=3.20\narchitecture=x86_64\nsystemd_user=1\nlinger=1\nsudo=0\nusername=zuse\n",
+			),
+		).toMatchObject({
+			supported: false,
+			blockingReason: "unsupported_linux_distribution",
+		});
 	});
 
 	test("discovers online Tailnet peers and omits self and offline peers", () => {

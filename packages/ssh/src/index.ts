@@ -5,7 +5,13 @@ import { readFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { type DiscoveredSshHost, SshEnvironmentTarget } from "@zuse/contracts";
+import {
+	type DiscoveredSshHost,
+	type SelfHostedCliEvent,
+	SelfHostedCliEvent as SelfHostedCliEventSchema,
+	SelfHostedPreflight,
+	SshEnvironmentTarget,
+} from "@zuse/contracts";
 import { Effect, Schema } from "effect";
 
 export class SshError extends Schema.TaggedErrorClass<SshError>()("SshError", {
@@ -36,6 +42,175 @@ type TailscaleStatusJson = {
 export type LaunchResult = {
 	remotePort: number;
 	serverKind: "zuse";
+};
+
+const SELF_HOSTED_NODE_VERSION = "22.22.0";
+
+export const selfHostedPreflightScript = `
+set -eu
+read_os() {
+  if [ -r /etc/os-release ]; then . /etc/os-release; fi
+  printf 'os_id=%s\n' "\${ID:-unknown}"
+  printf 'os_version=%s\n' "\${VERSION_ID:-unknown}"
+}
+arch="$(uname -m)"
+case "$arch" in
+  x86_64|amd64) arch=x86_64 ;;
+  aarch64|arm64) arch=arm64 ;;
+  *) arch=unsupported ;;
+esac
+read_os
+printf 'architecture=%s\n' "$arch"
+printf 'home=%s\n' "$HOME"
+printf 'disk_kib=%s\n' "$(df -Pk "$HOME" | awk 'NR==2 { print $4 }')"
+printf 'node_version=%s\n' "$(node --version 2>/dev/null || true)"
+printf 'git_version=%s\n' "$(git --version 2>/dev/null || true)"
+if command -v systemctl >/dev/null 2>&1; then
+  export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  export DBUS_SESSION_BUS_ADDRESS="\${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+  if systemctl --user show-environment >/dev/null 2>&1; then printf 'systemd_user=1\n'; else printf 'systemd_user=0\n'; fi
+else
+  printf 'systemd_user=0\n'
+fi
+if command -v loginctl >/dev/null 2>&1 && [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || true)" = yes ]; then
+  printf 'linger=1\n'
+else
+  printf 'linger=0\n'
+fi
+if [ "$(id -u)" = 0 ] || sudo -n true >/dev/null 2>&1; then printf 'sudo=1\n'; else printf 'sudo=0\n'; fi
+printf 'username=%s\n' "$(id -un)"
+`;
+
+const fieldsFrom = (output: string): ReadonlyMap<string, string> => {
+	const fields = new Map<string, string>();
+	for (const line of output.split(/\r?\n/u)) {
+		const index = line.indexOf("=");
+		if (index <= 0) continue;
+		fields.set(line.slice(0, index), line.slice(index + 1));
+	}
+	return fields;
+};
+
+export const parseSelfHostedPreflight = (
+	output: string,
+): SelfHostedPreflight => {
+	const fields = fieldsFrom(output);
+	const osId = fields.get("os_id") ?? "unknown";
+	const osVersion = fields.get("os_version") ?? "unknown";
+	const architecture = fields.get("architecture");
+	const supportedOs =
+		(osId === "ubuntu" && ["22.04", "24.04", "26.04"].includes(osVersion)) ||
+		(osId === "debian" && osVersion === "12");
+	const supportedArchitecture =
+		architecture === "x86_64" || architecture === "arm64";
+	const systemdUserAvailable = fields.get("systemd_user") === "1";
+	const lingerEnabled = fields.get("linger") === "1";
+	const passwordlessSudo = fields.get("sudo") === "1";
+	let blockingReason: string | null = null;
+	if (!supportedOs) blockingReason = "unsupported_linux_distribution";
+	else if (!supportedArchitecture) blockingReason = "unsupported_architecture";
+	else if (!systemdUserAvailable && !passwordlessSudo)
+		blockingReason = "systemd_user_unavailable";
+	const username = fields.get("username") ?? "user";
+	return SelfHostedPreflight.make({
+		osId,
+		osVersion,
+		architecture: supportedArchitecture ? architecture : "x86_64",
+		homeDirectory: fields.get("home") ?? "",
+		availableDiskBytes: Number(fields.get("disk_kib") ?? 0) * 1024,
+		nodeVersion: fields.get("node_version") || null,
+		gitVersion: fields.get("git_version") || null,
+		systemdUserAvailable,
+		lingerEnabled,
+		passwordlessSudo,
+		supported: blockingReason === null,
+		blockingReason,
+		manualCommand:
+			!lingerEnabled && !passwordlessSudo
+				? `sudo loginctl enable-linger ${username}`
+				: null,
+	});
+};
+
+export const selfHostedBootstrapScript = (version: string): string => {
+	if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u.test(version)) {
+		throw new Error("Invalid compatible Serve runtime version");
+	}
+	return `
+set -eu
+VERSION="${version}"
+NODE_VERSION="${SELF_HOSTED_NODE_VERSION}"
+ROOT="$HOME/.zuse/self-hosted"
+BIN="$HOME/.zuse/bin"
+mkdir -p "$ROOT" "$BIN" "$HOME/zuse"
+arch="$(uname -m)"
+case "$arch" in x86_64|amd64) node_arch=x64 ;; aarch64|arm64) node_arch=arm64 ;; *) echo unsupported_architecture >&2; exit 1 ;; esac
+missing_prerequisites=0
+for prerequisite in git curl gh xz make g++ python3; do
+  command -v "$prerequisite" >/dev/null 2>&1 || missing_prerequisites=1
+done
+if [ "$missing_prerequisites" = 1 ]; then
+  if [ "$(id -u)" = 0 ]; then apt-get update >&2 && apt-get install -y git gh curl ca-certificates xz-utils build-essential python3 >&2
+  elif sudo -n true >/dev/null 2>&1; then sudo -n apt-get update >&2 && sudo -n apt-get install -y git gh curl ca-certificates xz-utils build-essential python3 >&2
+  else echo missing_prerequisites_and_sudo >&2; exit 1
+  fi
+fi
+NODE_ROOT="$ROOT/node-v$NODE_VERSION-linux-$node_arch"
+if [ ! -x "$NODE_ROOT/bin/node" ]; then
+  archive="node-v$NODE_VERSION-linux-$node_arch.tar.xz"
+  base="https://nodejs.org/dist/v$NODE_VERSION"
+  curl --fail --location --proto '=https' --tlsv1.2 "$base/$archive" -o "$ROOT/$archive" >&2
+  curl --fail --location --proto '=https' --tlsv1.2 "$base/SHASUMS256.txt" -o "$ROOT/SHASUMS256.txt" >&2
+  (cd "$ROOT" && grep "  $archive$" SHASUMS256.txt | sha256sum -c - >&2)
+  tar -xJf "$ROOT/$archive" -C "$ROOT"
+  rm -f "$ROOT/$archive" "$ROOT/SHASUMS256.txt"
+fi
+ln -sfn "$NODE_ROOT/bin/node" "$BIN/node"
+ln -sfn "$NODE_ROOT/bin/npm" "$BIN/npm"
+ln -sfn "$NODE_ROOT/bin/npx" "$BIN/npx"
+export PATH="$BIN:$NODE_ROOT/bin:$PATH"
+export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="\${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+if command -v loginctl >/dev/null 2>&1 && [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || true)" != yes ]; then
+  if [ "$(id -u)" = 0 ]; then loginctl enable-linger "$(id -un)" >&2
+  elif sudo -n true >/dev/null 2>&1; then sudo -n loginctl enable-linger "$(id -un)" >&2
+  else echo linger_required >&2; exit 1
+  fi
+fi
+PREFIX="$ROOT/runtime/$VERSION"
+ZUSE_BIN="$PREFIX/node_modules/@zusehq/serve/dist/bin.mjs"
+if [ ! -f "$ZUSE_BIN" ]; then npm install --prefix "$PREFIX" --no-audit --no-fund --save-exact "@zusehq/serve@$VERSION" >&2; fi
+ZUSE_NO_OPEN=1 "$BIN/node" "$ZUSE_BIN" serve start --self-hosted --json --data-dir "$ROOT/data"
+`;
+};
+
+/** Starts an already-installed account-linked service and exposes its loopback port. */
+export const selfHostedRemoteLaunchScript = `
+set -eu
+PORT=4859
+NODE="$HOME/.zuse/bin/node"
+export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="\${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+systemctl --user start zuse-serve.service >&2
+for i in $(seq 1 150); do
+  if "$NODE" -e "const s=require('net').connect($PORT,'127.0.0.1');s.on('connect',()=>process.exit(0));s.on('error',()=>process.exit(1))" >/dev/null 2>&1; then
+    printf '{"remotePort":%s,"serverKind":"zuse"}\n' "$PORT"
+    exit 0
+  fi
+  sleep 0.2
+done
+echo self_hosted_runtime_unreachable >&2
+exit 1
+`;
+
+export const parseSelfHostedCliEvent = (
+	line: string,
+): SelfHostedCliEvent | null => {
+	try {
+		return Schema.decodeUnknownSync(SelfHostedCliEventSchema)(JSON.parse(line));
+	} catch {
+		return null;
+	}
 };
 
 export type TunnelHandle = {

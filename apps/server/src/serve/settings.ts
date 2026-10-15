@@ -8,6 +8,7 @@ import { join } from "node:path";
  */
 export interface ServeSettings {
 	readonly sshManaged?: boolean;
+	readonly selfHosted?: boolean;
 	readonly tailscale?: boolean;
 	readonly noAccount?: boolean;
 	readonly lan?: boolean;
@@ -24,6 +25,7 @@ export const readServeSettings = async (
 	try {
 		const raw = JSON.parse(await readFile(settingsPath(dataDir), "utf8")) as {
 			readonly sshManaged?: unknown;
+			readonly selfHosted?: unknown;
 			readonly tailscale?: unknown;
 			readonly noAccount?: unknown;
 			readonly lan?: unknown;
@@ -32,6 +34,7 @@ export const readServeSettings = async (
 		};
 		return {
 			sshManaged: raw.sshManaged === true,
+			selfHosted: raw.selfHosted === true,
 			tailscale: raw.tailscale === true,
 			noAccount: raw.noAccount === true,
 			lan: raw.lan === true,

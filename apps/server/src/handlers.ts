@@ -25,6 +25,7 @@ import { PreviewsHandlersLayer } from "./previews/handlers.ts";
 import { ProviderHandlersLayer } from "./provider/handlers.ts";
 import { PtyHandlersLayer } from "./pty/handlers.ts";
 import { RepositorySettingsHandlersLayer } from "./repository-settings/handlers.ts";
+import { SelfHostedHostHandlersLayer } from "./self-hosted/handlers.ts";
 import { SkillHandlersLayer } from "./skill/handlers.ts";
 import { UsageHandlersLayer } from "./usage/handlers.ts";
 import { VoiceHandlersLayer } from "./voice/handlers.ts";
@@ -50,6 +51,7 @@ export const HandlersLayer = Layer.mergeAll(
 	LanAuthHandlersLayer,
 	ApiHandlersLayer,
 	OrganizationHandlersLayer,
+	SelfHostedHostHandlersLayer,
 	AuthHandlersLayer,
 	MachineHandlersLayer,
 	WorkspaceHandlersLayer,

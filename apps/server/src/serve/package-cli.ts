@@ -65,7 +65,7 @@ export const SERVE_HELP = `Zuse Serve
 Run and manage Zuse on this computer.
 
 Usage:
-  zuse serve [start] [--foreground] [--ssh-managed] [--tailscale] [--no-account]
+  zuse serve [start] [--foreground] [--ssh-managed | --self-hosted] [--tailscale] [--no-account]
              [--lan | --host <addr>] [--port <n>] [--data-dir <path>]
   zuse serve status [--json] [--data-dir <path>]
   zuse serve stop [--data-dir <path>]
@@ -91,6 +91,7 @@ Commands:
 Options:
   --foreground       Run in the current terminal
   --ssh-managed      Run loopback-only without account linking for SSH tunnels
+  --self-hosted      Account-link a user-owned SSH server
   --tailscale        Also share privately over Tailscale Serve HTTPS
   --no-account       Skip account sign-in and the managed tunnel
   --lan              Listen on the local network (same as --host 0.0.0.0)
@@ -103,6 +104,25 @@ Options:
   -V, --version      Show the package version`;
 const workosClientId = (env: NodeJS.ProcessEnv): string =>
 	(env.WORKOS_CLIENT_ID ?? "").trim() || WORKOS_PUBLIC_CLIENT_ID;
+
+const selfHostedEvent = (
+	json: boolean,
+	event:
+		| {
+				type: "phase";
+				phase: "installing" | "starting" | "verifying";
+				message: string;
+		  }
+		| {
+				type: "authorization_required";
+				userCode: string;
+				verificationUri: string;
+		  }
+		| { type: "ready"; environmentId: string },
+): void => {
+	if (!json) return;
+	console.log(JSON.stringify({ version: 1, ...event }));
+};
 
 /**
  * Account sign-in (and the managed tunnel it unlocks) is the default access
@@ -690,6 +710,7 @@ export const runServePackageCli = async (
 		command.action === "start"
 			? {
 					sshManaged: command.sshManaged,
+					selfHosted: command.selfHosted,
 					tailscale: command.tailscale,
 					noAccount: command.noAccount,
 					lan: command.lan,
@@ -701,6 +722,8 @@ export const runServePackageCli = async (
 		dataDir,
 		sshManaged: settings.sshManaged,
 	});
+	if (settings.selfHosted === true) env.ZUSE_SELF_HOSTED = "1";
+	else delete env.ZUSE_SELF_HOSTED;
 	const installService = (executable: string) =>
 		installServeService({
 			executable,
@@ -744,6 +767,11 @@ export const runServePackageCli = async (
 					ensureServeSession({
 						clientId: workosClientId(env),
 						onPrompt: async (grant) => {
+							selfHostedEvent(command.json && command.selfHosted, {
+								type: "authorization_required",
+								userCode: grant.userCode,
+								verificationUri: grant.verificationUriComplete,
+							});
 							console.log("Authorize this computer");
 							console.log(`Code       ${grant.userCode}`);
 							console.log(`Open       ${grant.verificationUriComplete}`);
@@ -844,6 +872,11 @@ export const runServePackageCli = async (
 
 	await mkdir(dataDir, { recursive: true, mode: 0o700 });
 	await writeServeSettings(dataDir, settings);
+	selfHostedEvent(command.json && command.selfHosted, {
+		type: "phase",
+		phase: "installing",
+		message: "Installing the durable Zuse runtime",
+	});
 	const session = await authorizeAccount();
 	let installedExecutable: string;
 	try {
@@ -870,6 +903,11 @@ export const runServePackageCli = async (
 			"Zuse Serve was installed, but the background host did not become reachable. Run `zuse serve status --json` for diagnostics.",
 		);
 	}
+	selfHostedEvent(command.json && command.selfHosted, {
+		type: "phase",
+		phase: "verifying",
+		message: "Verifying the account connection",
+	});
 	const tailnetOrigin = await enableTailnet();
 	await writeActiveServeRuntime(dataDir, {
 		version: options.packageVersion ?? "0.0.0",
@@ -880,6 +918,12 @@ export const runServePackageCli = async (
 			? readLocalApiConfig(dataDir)
 			: await waitForApiConfig(dataDir, 30_000);
 	const pairing = await readServePairingBootstrap(dataDir);
+	if (command.selfHosted && api !== null) {
+		selfHostedEvent(command.json, {
+			type: "ready",
+			environmentId: api.environmentId,
+		});
+	}
 
 	console.log("");
 	console.log("Zuse Serve is ready");
