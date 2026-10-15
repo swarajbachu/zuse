@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -51,4 +51,45 @@ it("prices usage immediately while a slow pricing download runs in the backgroun
 		(await loadPricingTable({ cacheDir, preferCached: true })).get("test-model")
 			?.input_cost_per_token,
 	).toBe(0.01);
+});
+
+it("refreshes expired in-memory prices after 24 hours", async () => {
+	const cacheDir = mkdtempSync(join(tmpdir(), "usage-pricing-expiry-"));
+	directories.push(cacheDir);
+	const firstTime = Date.now();
+	const later = firstTime + 24 * 60 * 60 * 1000 + 1;
+	const response = (price: number) =>
+		new Response(
+			JSON.stringify({ "test-model": { input_cost_per_token: price } }),
+		);
+	let finish!: (response: Response) => void;
+	const download = new Promise<Response>((resolve) => {
+		finish = resolve;
+	});
+	const fetcher = vi
+		.fn()
+		.mockResolvedValueOnce(response(0.01))
+		.mockReturnValueOnce(download);
+	vi.stubGlobal("fetch", fetcher);
+	await loadPricingTable({ cacheDir, now: firstTime });
+	utimesSync(
+		join(cacheDir, "litellm-prices.json"),
+		new Date(firstTime),
+		new Date(firstTime),
+	);
+	try {
+		expect(
+			(
+				await loadPricingTable({ cacheDir, now: later, preferCached: true })
+			).get("test-model")?.input_cost_per_token,
+		).toBe(0.01);
+		expect(fetcher).toHaveBeenCalledTimes(2);
+	} finally {
+		finish(response(0.02));
+		await loadPricingTable({ cacheDir, now: later });
+	}
+	expect(
+		(await loadPricingTable({ cacheDir, now: later })).get("test-model")
+			?.input_cost_per_token,
+	).toBe(0.02);
 });

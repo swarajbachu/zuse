@@ -50,6 +50,7 @@ describe("usage limits store", () => {
 			loading: false,
 			loadingProviders: [],
 			error: null,
+			errorsByProvider: {},
 			lastLoadedAt: null,
 		});
 	});
@@ -237,5 +238,45 @@ describe("usage limits store", () => {
 		await Promise.all([pending, history]);
 		expect(useUsageLimitsStore.getState().providers).toEqual([]);
 		expect(useUsageLimitsStore.getState().loadingProviders).toEqual([]);
+	});
+	it("ignores superseded failures when marking a full load fresh", async () => {
+		let rejectOld!: (error: Error) => void;
+		const old = new Promise<never>((_, reject) => {
+			rejectOld = reject;
+		});
+		rpc.mockImplementation(({ providerId }) =>
+			providerId === "claude" ? old : Promise.resolve({ providers: [] }),
+		);
+		const full = useUsageLimitsStore.getState().load();
+		rpc.mockResolvedValue({ providers: [value("claude", 50)] });
+		await useUsageLimitsStore.getState().refresh(true, "claude");
+		rejectOld(new Error("old failure"));
+		await full;
+		expect(useUsageLimitsStore.getState().lastLoadedAt).not.toBeNull();
+		expect(useUsageLimitsStore.getState().error).toBeNull();
+		await useUsageLimitsStore.getState().load();
+		expect(rpc).toHaveBeenCalledTimes(6);
+	});
+	it("keeps errors scoped to providers and clears them on recovery or account invalidation", async () => {
+		rpc.mockImplementation(({ providerId }) =>
+			providerId === "claude"
+				? Promise.reject(new Error("Claude offline"))
+				: Promise.resolve({ providers: [] }),
+		);
+		await useUsageLimitsStore.getState().refresh(true);
+		expect(useUsageLimitsStore.getState().errorsByProvider).toEqual({
+			claude: "Claude offline",
+		});
+		rpc.mockResolvedValue({ providers: [] });
+		await useUsageLimitsStore.getState().refresh(true, "codex");
+		expect(useUsageLimitsStore.getState().error).toBe("Claude offline");
+		await useUsageLimitsStore.getState().refresh(true, "claude");
+		expect(useUsageLimitsStore.getState().errorsByProvider).toEqual({});
+		expect(useUsageLimitsStore.getState().error).toBeNull();
+		rpc.mockRejectedValue(new Error("Claude offline"));
+		await useUsageLimitsStore.getState().refresh(true, "claude");
+		useUsageLimitsStore.getState().invalidate("claude");
+		expect(useUsageLimitsStore.getState().errorsByProvider).toEqual({});
+		expect(useUsageLimitsStore.getState().error).toBeNull();
 	});
 });

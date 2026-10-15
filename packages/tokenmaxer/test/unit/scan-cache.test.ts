@@ -21,6 +21,7 @@ vi.mock("../../src/sources/fs-util.ts", async (importOriginal) => {
 const roots: string[] = [];
 afterEach(() => {
 	vi.mocked(readLines).mockClear();
+	vi.useRealTimers();
 	for (const root of roots.splice(0))
 		rmSync(root, { recursive: true, force: true });
 });
@@ -120,4 +121,41 @@ it("does not cache a file changed while parsing, and retries failed parses", asy
 		"complete",
 	]);
 	expect(recovered).toHaveBeenCalledTimes(2);
+});
+
+it.each([
+	undefined,
+	"invalid-date",
+])("does not reuse fallback timestamps across scans (%s)", async (timestamp) => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	const firstTime = new Date("2026-10-12T12:00:00Z");
+	const later = new Date("2026-10-15T12:00:00Z");
+	vi.setSystemTime(firstTime);
+	const dir = root();
+	const project = join(dir, "projects", "project");
+	mkdirSync(project, { recursive: true });
+	writeFileSync(
+		join(project, "missing-time.jsonl"),
+		JSON.stringify({
+			timestamp,
+			message: {
+				id: "missing-time",
+				usage: { input_tokens: 10, output_tokens: 1 },
+			},
+		}),
+	);
+	const read = () =>
+		readAnthropicJsonl({
+			sourceId: "claude",
+			sourceLabel: "Claude",
+			roots: [dir],
+		});
+	const first = await read();
+	expect(first.records[0]?.startedAt).toEqual(firstTime);
+	vi.setSystemTime(later);
+	const second = await read();
+	expect(second.records[0]?.startedAt).toEqual(later);
+	expect(second.records[0]?.fingerprint).not.toBe(
+		first.records[0]?.fingerprint,
+	);
 });

@@ -1,6 +1,6 @@
 import { join, sep } from "node:path";
 
-import { makeUsageRecord } from "../../normalize.ts";
+import { coerceDate, makeUsageRecord } from "../../normalize.ts";
 import type { UsageRecord, UsageSourceId } from "../../types.ts";
 import {
 	collectFiles,
@@ -11,7 +11,10 @@ import {
 
 import { createParsedFileCache } from "../parsed-file-cache.ts";
 
-const fileCache = createParsedFileCache<ParsedEntry>();
+const fileCache = createParsedFileCache<ParsedEntry>((entries) =>
+	entries.every((entry) => entry.stableTimestamp),
+);
+const INVALID_TIMESTAMP = new Date(Number.NaN);
 
 const USAGE_MARKER = '"usage":{';
 
@@ -50,6 +53,7 @@ const projectFromPath = (path: string, projectsDir: string): string => {
 };
 
 interface ParsedEntry {
+	readonly stableTimestamp: boolean;
 	readonly uniqueHash: string | null;
 	readonly tokenTotal: number;
 	readonly record: UsageRecord;
@@ -122,6 +126,9 @@ export const readAnthropicJsonl = async (input: {
 								?.replace(/\.jsonl$/i, "") ??
 							null;
 						fileEntries.push({
+							stableTimestamp:
+								coerceDate(data.timestamp, INVALID_TIMESTAMP) !==
+								INVALID_TIMESTAMP,
 							uniqueHash,
 							tokenTotal:
 								counts.inputTokens +

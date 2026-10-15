@@ -11,7 +11,10 @@ const fingerprint = async (path: string): Promise<string> => {
 	);
 };
 
-export const createParsedFileCache = <A>() => {
+/** Cache bounded parsed snapshots only when file metadata and parser eligibility permit reuse. */
+export const createParsedFileCache = <A>(
+	canCache: (rows: ReadonlyArray<A>) => boolean = () => true,
+) => {
 	const entries = new Map<string, { fingerprint: string; rows: A[] }>();
 	let rowCount = 0;
 	const remove = (key: string) => {
@@ -39,6 +42,7 @@ export const createParsedFileCache = <A>() => {
 			// reading, but do not reuse it as a complete snapshot on the next scan.
 			if (
 				rows.length <= MAX_ROWS &&
+				canCache(rows) &&
 				(await fingerprint(path).catch(() => null)) === before
 			) {
 				remove(key);

@@ -105,7 +105,7 @@ export interface LoadPricingOptions {
 }
 
 let inFlight: Promise<PricingTable> | null = null;
-let memo: PricingTable | null = null;
+let memo: { readonly at: number; readonly value: PricingTable } | null = null;
 
 const resolveCacheDir = (cacheDir?: string): string =>
 	cacheDir ?? join(process.env.TMPDIR ?? "/tmp", "tokenmaxer");
@@ -155,7 +155,8 @@ export const loadPricingTable = async (
 		return cached.size > 0 ? cached : loadBundledPricing();
 	}
 
-	if (memo !== null) return memo;
+	if (memo !== null && now - memo.at <= CACHE_TTL_MS) return memo.value;
+	memo = null;
 	if (options.preferCached === true) {
 		const data = readJsonFile(cachePath);
 		const cached = data === null ? new Map() : parsePricingRecord(data);
@@ -179,7 +180,7 @@ export const loadPricingTable = async (
 			const table = parsePricingRecord(data);
 			if (table.size === 0) throw new Error("pricing fetch returned no models");
 			writeCache(cachePath, data);
-			memo = table;
+			memo = { at: options.now ?? Date.now(), value: table };
 			return table;
 		} catch {
 			const staleData = readJsonFile(cachePath);

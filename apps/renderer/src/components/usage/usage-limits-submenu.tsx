@@ -130,7 +130,9 @@ function ProviderMenuItem({ providerId }: { providerId: ProviderId }) {
 	const loading = useUsageLimitsStore((state) =>
 		state.loadingProviders.includes(providerId),
 	);
-	const error = useUsageLimitsStore((state) => state.error);
+	const error = useUsageLimitsStore(
+		(state) => state.errorsByProvider[providerId],
+	);
 	const waitingForInitialData =
 		loading && provider.fetchedAt === PLACEHOLDER_FETCHED_AT;
 	const summary = provider.windows

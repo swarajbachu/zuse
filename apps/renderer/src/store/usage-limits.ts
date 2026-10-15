@@ -26,12 +26,26 @@ export const setUsageCommandForTest = (command: UsageCommand): void => {
 	runUsageCommand = command;
 };
 
+type ProviderErrors = Readonly<Record<string, string>>;
+const errorState = (errorsByProvider: ProviderErrors) => ({
+	errorsByProvider,
+	error: Object.values(errorsByProvider)[0] ?? null,
+});
+const clearProviderError = (
+	errors: ProviderErrors,
+	providerId: string,
+): ProviderErrors =>
+	Object.fromEntries(
+		Object.entries(errors).filter(([id]) => id !== providerId),
+	);
+
 type State = {
 	providers: ReadonlyArray<ProviderUsageLimits>;
 	history: ReadonlyArray<UsageLimitHistoryPoint>;
 	loading: boolean;
 	loadingProviders: ReadonlyArray<string>;
 	error: string | null;
+	errorsByProvider: ProviderErrors;
 	lastLoadedAt: number | null;
 	load: () => Promise<void>;
 	invalidate: (providerId: import("@zuse/contracts").ProviderId) => void;
@@ -47,6 +61,7 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 	loading: false,
 	loadingProviders: [],
 	error: null,
+	errorsByProvider: {},
 	lastLoadedAt: null,
 	invalidate: (providerId) => {
 		historyVersion++;
@@ -61,6 +76,7 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 			providers: get().providers.filter((p) => p.providerId !== providerId),
 			history: get().history.filter((p) => p.providerId !== providerId),
 			lastLoadedAt: null,
+			...errorState(clearProviderError(get().errorsByProvider, providerId)),
 		});
 	},
 	load: async () => {
@@ -119,12 +135,11 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 			: ["claude", "codex", "grok", "gemini", "kiro"];
 		for (const id of targets) latestByProvider.set(id, sequence);
 		activeRequests++;
-		set({ loading: true, error: null });
+		set({ loading: true });
 		for (const id of targets)
 			activeProviders.set(id, (activeProviders.get(id) ?? 0) + 1);
 		set({ loadingProviders: [...activeProviders.keys()] });
 		const pending = (async () => {
-			let failed = false;
 			try {
 				// Publish each provider as it answers. One slow CLI must not hold
 				// every other card behind the all-provider RPC's response barrier.
@@ -147,6 +162,7 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 							);
 							const acceptedIds = new Set(accepted.map((p) => p.providerId));
 							set({
+								...errorState(clearProviderError(get().errorsByProvider, id)),
 								providers: [
 									...get().providers.filter(
 										(p) => !acceptedIds.has(p.providerId),
@@ -155,10 +171,13 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 								],
 							});
 						} catch (error) {
-							failed = true;
 							if (latestByProvider.get(id) === sequence)
 								set({
-									error: error instanceof Error ? error.message : String(error),
+									...errorState({
+										...get().errorsByProvider,
+										[id]:
+											error instanceof Error ? error.message : String(error),
+									}),
 								});
 						} finally {
 							const remaining = (activeProviders.get(id) ?? 1) - 1;
@@ -169,7 +188,7 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 					}),
 				);
 				if (
-					!failed &&
+					!targets.some((id) => get().errorsByProvider[id] !== undefined) &&
 					providerId === undefined &&
 					accountVersion === historyVersion &&
 					targets.some((id) => latestByProvider.get(id) === sequence)
