@@ -9,7 +9,10 @@ import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 import { dispatchLocalDeviceCommand } from "./local-device-client-bus.ts";
 import { rendererPlatformCapabilities } from "./platform-capabilities.ts";
 
-const LOCAL_DEVICE_STATUS_TIMEOUT_MS = 500;
+const LOCAL_DEVICE_READY_TIMEOUT_MS = 30_000;
+const LOCAL_DEVICE_RETRY_MS = 500;
+
+let pendingLocalDevice: Promise<DeviceBridgeStatus | null> | undefined;
 
 export const localDeviceBridge = (
 	action: DeviceBridgeControl,
@@ -19,18 +22,36 @@ export const localDeviceBridge = (
 export const commandEnabledLocalDevice =
 	async (): Promise<DeviceBridgeStatus | null> => {
 		if (!rendererPlatformCapabilities().desktop) return null;
-		const result = await Promise.race([
-			localDeviceBridge({ _tag: "status" }).catch(() => null),
-			new Promise<null>((resolve) =>
-				setTimeout(() => resolve(null), LOCAL_DEVICE_STATUS_TIMEOUT_MS),
-			),
-		]);
-		return result !== null &&
-			"version" in result &&
-			result.connected &&
-			result.enabled
-			? result
-			: null;
+		if (pendingLocalDevice !== undefined) return pendingLocalDevice;
+		const waitForDevice = async (): Promise<DeviceBridgeStatus | null> => {
+			const deadline = Date.now() + LOCAL_DEVICE_READY_TIMEOUT_MS;
+			while (Date.now() < deadline) {
+				let timer: ReturnType<typeof setTimeout> | undefined;
+				let result: DeviceBridgeResult | null;
+				try {
+					result = await Promise.race([
+						localDeviceBridge({ _tag: "status" }).catch(() => null),
+						new Promise<null>((resolve) => {
+							timer = setTimeout(() => resolve(null), deadline - Date.now());
+						}),
+					]);
+				} finally {
+					clearTimeout(timer);
+				}
+				if (result !== null && "version" in result && result.connected)
+					return result.enabled ? result : null;
+				const remaining = deadline - Date.now();
+				if (remaining <= 0) return null;
+				await new Promise<void>((resolve) =>
+					setTimeout(resolve, Math.min(LOCAL_DEVICE_RETRY_MS, remaining)),
+				);
+			}
+			return null;
+		};
+		pendingLocalDevice = waitForDevice().finally(() => {
+			pendingLocalDevice = undefined;
+		});
+		return pendingLocalDevice;
 	};
 
 type CloudDeviceBindingDependencies = {

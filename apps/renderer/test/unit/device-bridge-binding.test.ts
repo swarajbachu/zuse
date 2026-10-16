@@ -73,6 +73,67 @@ describe("cloud device binding", () => {
 		expect(bridgeFakes.cloudCommand).not.toHaveBeenCalled();
 	});
 
+	it("binds after slow desktop discovery without delaying the message", async () => {
+		vi.useFakeTimers();
+		try {
+			bridgeFakes.localCommand.mockImplementation(
+				() =>
+					new Promise((resolve) =>
+						setTimeout(() => resolve(connectedDevice()), 1_000),
+					),
+			);
+			const binding = bindCloudWorkspaceToLocalDevice("workspace-1");
+			await vi.advanceTimersByTimeAsync(500);
+			await expect(binding).resolves.toBe(false);
+			expect(bridgeFakes.cloudCommand).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(500);
+			expect(bridgeFakes.cloudCommand).toHaveBeenCalledWith({
+				workspaceId: "workspace-1",
+				action: { _tag: "status" },
+				targetDeviceId: "mac-one",
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("waits for automatic registration and shares discovery across cloud chats", async () => {
+		vi.useFakeTimers();
+		try {
+			bridgeFakes.localCommand
+				.mockResolvedValueOnce({
+					...connectedDevice(),
+					connected: false,
+					enabled: false,
+				})
+				.mockResolvedValue(connectedDevice());
+			const first = bindCloudWorkspaceToLocalDevice("workspace-1");
+			const second = bindCloudWorkspaceToLocalDevice("workspace-2");
+			await vi.advanceTimersByTimeAsync(500);
+			await Promise.all([first, second]);
+			expect(bridgeFakes.localCommand).toHaveBeenCalledTimes(2);
+			expect(
+				bridgeFakes.cloudCommand.mock.calls.map(([input]) => input.workspaceId),
+			).toEqual(["workspace-1", "workspace-2"]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("stops discovery when the desktop remains unavailable", async () => {
+		vi.useFakeTimers();
+		try {
+			bridgeFakes.localCommand.mockImplementation(() => new Promise(() => {}));
+			const binding = bindCloudWorkspaceToLocalDevice("workspace-1");
+			await vi.advanceTimersByTimeAsync(30_000);
+			await expect(binding).resolves.toBe(false);
+			expect(bridgeFakes.cloudCommand).not.toHaveBeenCalled();
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("leaves the target unchanged when local command access is disabled", async () => {
 		bridgeFakes.localCommand.mockResolvedValue({
 			...connectedDevice("disabled-mac"),
