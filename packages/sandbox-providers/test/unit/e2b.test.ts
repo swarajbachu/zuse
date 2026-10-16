@@ -115,6 +115,19 @@ test.each([
 	expect(http.calls).toHaveLength(1);
 });
 
+test("missing snapshot forks preserve not-found for recovery", async () => {
+	const http = makeHttp([{ status: 404 }]);
+	await expect(
+		Effect.runPromise(
+			makeAdapter(http.client).fork({
+				...createInput,
+				snapshotId: "missing-snapshot:default",
+			}),
+		),
+	).rejects.toMatchObject({ code: "not-found" });
+	expect(http.calls).toHaveLength(1);
+});
+
 const decodeConnectJsonBody = (body: BodyInit | null | undefined): unknown => {
 	if (!(body instanceof Uint8Array))
 		throw new Error("expected Connect envelope");

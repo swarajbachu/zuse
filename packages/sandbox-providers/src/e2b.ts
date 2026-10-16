@@ -366,11 +366,6 @@ export const makeE2bSandboxProvider = (
 			...networkCreateFields(input.network),
 			autoPause: input.onTimeout === "pause",
 		}).pipe(
-			Effect.catchTag("SandboxProviderError", (error) =>
-				Effect.fail(
-					error.code === "not-found" ? providerError("rejected") : error,
-				),
-			),
 			Effect.tap((created) =>
 				Effect.sync(() => rememberControlConnection(created)),
 			),
@@ -772,7 +767,13 @@ export const makeE2bSandboxProvider = (
 				}),
 			),
 		create: (input) =>
-			createSandbox({ ...input, templateId: config.templateId }),
+			createSandbox({ ...input, templateId: config.templateId }).pipe(
+				Effect.catchTag("SandboxProviderError", (error) =>
+					Effect.fail(
+						error.code === "not-found" ? providerError("rejected") : error,
+					),
+				),
+			),
 		fork: (input) =>
 			createSandbox({
 				sandboxId: input.sandboxId,
