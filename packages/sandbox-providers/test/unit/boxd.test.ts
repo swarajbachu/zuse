@@ -759,6 +759,22 @@ describe("boxd sandbox provider", () => {
 		expect(client.store.has("vm_1")).toBe(true);
 	});
 
+	test.each([
+		[
+			"Org VM limit reached (50/50). Destroy an org VM first.",
+			"quota-exceeded",
+		],
+		["Too many requests. Try again later.", "transient"],
+	])("classifies Boxd resource exhaustion: %s", async (message, code) => {
+		const client = new FakeBoxd();
+		client.fail("machines.create", new RateLimitError(message, 8));
+		await expect(
+			run(makeAdapter(client).create(createInput)),
+		).rejects.toMatchObject({ code });
+		expect(client.methods("machines.create")).toHaveLength(1);
+		expect(client.methods("machines.delete")).toHaveLength(0);
+	});
+
 	test("does not retry a create the provider rejected outright", async () => {
 		const client = new FakeBoxd();
 		client.fail(

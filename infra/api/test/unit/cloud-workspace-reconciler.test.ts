@@ -1172,6 +1172,46 @@ describe("cloud workspace reconciler", () => {
 		);
 	});
 
+	test("stops allocation when the provider machine quota requires account action", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-quota",
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "provisioning-queued",
+					requestConfig: { allocationAttempted: false },
+				});
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+				});
+				const provider = yield* (yield* SandboxProviders).get("fake");
+				const fork = vi
+					.spyOn(provider, "fork")
+					.mockReturnValue(
+						Effect.fail(new SandboxProviderError({ code: "quota-exceeded" })),
+					);
+				try {
+					yield* reconcileCloudWorkspace(workspace.workspaceId);
+					expect(fork).toHaveBeenCalledTimes(1);
+					return yield* store.getWorkspace(workspace.workspaceId);
+				} finally {
+					fork.mockRestore();
+				}
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result).toMatchObject({
+			state: "failed",
+			statusCode: "provider-quota-exceeded",
+			runtimeState: "offline",
+			nextActionAtMs: Number.MAX_SAFE_INTEGER,
+		});
+		expect(result?.providerSandboxId).toBeUndefined();
+	});
+
 	test("a lost first allocation response recovers the created machine without a second fork", async () => {
 		await Effect.runPromise(
 			Effect.gen(function* () {
