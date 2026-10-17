@@ -212,6 +212,17 @@ jobs:
             dist/preview*.yml
             dist/*.blockmap
 
+  # Qualification lane only. Public Windows assets stay excluded from publish
+  # until signing, update migration, and constrained Windows 11 tests pass.
+  windows-candidate:
+    needs: [resolve, verify]
+    if: needs.resolve.outputs.channel == 'preview'
+    uses: ./.github/workflows/windows-tests.yml
+    secrets: inherit
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+      release_metadata: true
+
   publish:
     needs: [resolve, build]
     runs-on: ubuntu-24.04

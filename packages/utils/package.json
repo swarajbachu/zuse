@@ -35,7 +35,9 @@
 		"./html-document": "./src/html-document.ts",
 		"./public-network-proxy": "./src/public-network-proxy.ts",
 		"./process-env": "./src/process-env.ts",
-		"./generative-ui": "./src/generative-ui.ts"
+		"./generative-ui": "./src/generative-ui.ts",
+		"./spawn-command": "./src/spawn-command.ts",
+		"./shell-command": "./src/shell-command.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",
@@ -45,12 +47,14 @@
 	},
 	"dependencies": {
 		"@openuidev/lang-core": "0.3.0",
-		"fflate": "0.8.2",
+		"cross-spawn": "7.0.6",
 		"effect": "catalog:",
+		"fflate": "0.8.2",
 		"zod": "^4.0.0"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",
+		"@types/cross-spawn": "6.0.6",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
 	}

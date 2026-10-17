@@ -5,76 +5,140 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { createBrowserCookieHostAdapter } from "../../src/host/browser-cookie.ts";
-import { ghosttyWorkingDirectoryArgs, terminalShellCommand } from "../../src/host/open-targets.ts";
+import {
+	ghosttyWorkingDirectoryArgs,
+	listPortableOpenTargets,
+	terminalShellCommand,
+} from "../../src/host/open-targets.ts";
 
 describe("Linux open targets", () => {
-  it("passes Ghostty's working directory as one option", () => {
-    expect(ghosttyWorkingDirectoryArgs("/tmp/a repo")).toEqual(["--working-directory=/tmp/a repo"]);
-  });
+	it("passes Ghostty's working directory as one option", () => {
+		expect(ghosttyWorkingDirectoryArgs("/tmp/a repo")).toEqual([
+			"--working-directory=/tmp/a repo",
+		]);
+	});
 
-  it("opens the portable terminal in the requested directory", () => {
-    expect(terminalShellCommand("/tmp/a repo")).toEqual([
-      "-e",
-      "sh",
-      "-c",
-      `cd -- "$1" && exec "\${SHELL:-/bin/sh}" -l`,
-      "zuse-terminal",
-      "/tmp/a repo",
-    ]);
-  });
+	it("opens the portable terminal in the requested directory", () => {
+		expect(terminalShellCommand("/tmp/a repo")).toEqual([
+			"-e",
+			"sh",
+			"-c",
+			`cd -- "$1" && exec "\${SHELL:-/bin/sh}" -l`,
+			"zuse-terminal",
+			"/tmp/a repo",
+		]);
+	});
+});
+
+describe("Windows open targets", () => {
+	it("exposes File Explorer, editors, and Windows Terminal", async () => {
+		const targets = await listPortableOpenTargets("win32");
+		expect(targets.map(({ id }) => id)).toEqual([
+			"finder",
+			"cursor",
+			"vscode",
+			"windsurf",
+			"terminal",
+		]);
+		expect(targets[0]).toMatchObject({
+			id: "finder",
+			label: "File Explorer",
+			available: true,
+		});
+	});
 });
 
 describe("browser cookie host adapter", () => {
-  it("discovers XDG, Snap, and Flatpak Chromium profiles on Linux", () => {
-    const adapter = createBrowserCookieHostAdapter({
-      platform: "linux",
-      home: "/home/tester",
-      env: { XDG_CONFIG_HOME: "/data/config" },
-    });
+	it("discovers XDG, Snap, and Flatpak Chromium profiles on Linux", () => {
+		const adapter = createBrowserCookieHostAdapter({
+			platform: "linux",
+			home: "/home/tester",
+			env: { XDG_CONFIG_HOME: "/data/config" },
+		});
 
-    expect(adapter.profileSearchRoots).toContain("/data/config");
-    expect(adapter.profileSearchRoots).toContain("/home/tester/snap/chromium/common/chromium");
-    expect(adapter.profileSearchRoots).toContain(
-      "/home/tester/.var/app/org.chromium.Chromium/config",
-    );
-    expect(adapter.normalizeDefaultBrowserId("google-chrome.desktop\n")).toBe("google chrome");
-    expect(adapter.decryptionKeys(null)).toHaveLength(1);
-    expect(adapter.decryptionKeys("secret")).toHaveLength(2);
-  });
+		expect(adapter.profileSearchRoots).toContain("/data/config");
+		expect(adapter.profileSearchRoots).toContain(
+			"/home/tester/snap/chromium/common/chromium",
+		);
+		expect(adapter.profileSearchRoots).toContain(
+			"/home/tester/.var/app/org.chromium.Chromium/config",
+		);
+		expect(adapter.normalizeDefaultBrowserId("google-chrome.desktop\n")).toBe(
+			"google chrome",
+		);
+		expect(adapter.decryptionKeys(null)).toHaveLength(1);
+		expect(adapter.decryptionKeys("secret")).toHaveLength(2);
+	});
 
-  it("leaves Windows browser import explicitly unimplemented", () => {
-    const adapter = createBrowserCookieHostAdapter({
-      platform: "win32",
-      home: "C:\\Users\\tester",
-    });
-    expect(adapter.profileSearchRoots).toEqual([]);
-    expect(adapter.defaultBrowserCommand).toBeNull();
-    expect(adapter.decryptionKeys("secret")).toEqual([]);
-  });
+	it("leaves Windows browser import explicitly unimplemented", () => {
+		const adapter = createBrowserCookieHostAdapter({
+			platform: "win32",
+			home: "C:\\Users\\tester",
+		});
+		expect(adapter.profileSearchRoots).toEqual([]);
+		expect(adapter.defaultBrowserCommand).toBeNull();
+		expect(adapter.decryptionKeys("secret")).toEqual([]);
+	});
 });
 
 const rendererFiles = async (directory: string): Promise<string[]> => {
-  const files: string[] = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const path = Path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...(await rendererFiles(path)));
-    else if (/\.[cm]?[jt]sx?$/u.test(entry.name)) files.push(path);
-  }
-  return files;
+	const files: string[] = [];
+	for (const entry of await readdir(directory, { withFileTypes: true })) {
+		const path = Path.join(directory, entry.name);
+		if (entry.isDirectory()) files.push(...(await rendererFiles(path)));
+		else if (/\.[cm]?[jt]sx?$/u.test(entry.name)) files.push(path);
+	}
+	return files;
 };
 
 describe("renderer host boundary", () => {
-  it("does not infer the operating system from browser globals", async () => {
-    const root = Path.resolve(
-      Path.dirname(fileURLToPath(import.meta.url)),
-      "../../../renderer/src",
-    );
-    const violations: string[] = [];
-    for (const path of await rendererFiles(root)) {
-      const source = await readFile(path, "utf8");
-      if (/navigator\.(?:platform|userAgent)/u.test(source))
-        violations.push(Path.relative(root, path));
-    }
-    expect(violations).toEqual([]);
-  });
+	it("does not infer the operating system from browser globals", async () => {
+		const root = Path.resolve(
+			Path.dirname(fileURLToPath(import.meta.url)),
+			"../../../renderer/src",
+		);
+		const violations: string[] = [];
+		for (const path of await rendererFiles(root)) {
+			const source = await readFile(path, "utf8");
+			if (/navigator\.(?:platform|userAgent)/u.test(source))
+				violations.push(Path.relative(root, path));
+		}
+		expect(violations).toEqual([]);
+	}, 15_000);
 });
+
+it.skipIf(process.platform !== "win32")(
+	"opens an editor cmd shim with literal Unicode and shell-sensitive paths",
+	async () => {
+		const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+		const { tmpdir } = await import("node:os");
+		const { openPathWithPortableTarget } = await import(
+			"../../src/host/open-targets.ts"
+		);
+		const root = await mkdtemp(Path.join(tmpdir(), "zuse editor ü-"));
+		const previousPath = process.env.PATH;
+		const resultFile = Path.join(root, "result.json");
+		try {
+			await writeFile(
+				Path.join(root, "code.cmd"),
+				`@echo off\r\n"${process.execPath}" "%~dp0probe.cjs" %*\r\n`,
+			);
+			await writeFile(
+				Path.join(root, "probe.cjs"),
+				`require('node:fs').writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify(process.argv.slice(2)))`,
+			);
+			process.env.PATH = `${root}${Path.delimiter}${previousPath ?? ""}`;
+			const project = Path.join(root, "project ü & more");
+			expect(await openPathWithPortableTarget("win32", "vscode", project)).toBe(
+				"opened",
+			);
+			await expect
+				.poll(async () => JSON.parse(await readFile(resultFile, "utf8")))
+				.toEqual([project]);
+		} finally {
+			if (previousPath === undefined) delete process.env.PATH;
+			else process.env.PATH = previousPath;
+			await rm(root, { recursive: true, force: true });
+		}
+	},
+);

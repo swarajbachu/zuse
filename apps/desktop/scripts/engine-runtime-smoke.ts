@@ -176,8 +176,14 @@ try {
 	assert.equal(initial.buildId, buildId);
 	const first = await connect(initial);
 	const project = join(directory, "project");
+	const readToolStarted = () =>
+		readFile(join(project, "tool-started.txt"), "utf8").then((text) =>
+			text.replaceAll("\r\n", "\n"),
+		);
 	await mkdir(project);
 	const folder = await first.call("workspace.add", { path: project });
+	assert(folder !== null && typeof folder === "object");
+	const expectedWorkspaces = [{ ...folder, kind: "project" }];
 	if (accountOutage !== undefined) {
 		const descriptor = await first.call("connect.describe", null);
 		assert(
@@ -195,7 +201,7 @@ try {
 	first.channel.close();
 	await first.channel.closed;
 	const second = await connect(initial);
-	assert.deepEqual(await second.call("workspace.list", {}), [folder]);
+	assert.deepEqual(await second.call("workspace.list", {}), expectedWorkspaces);
 	assert.equal((await readEngineEndpoint(directory))?.pid, initial.pid);
 	console.log(
 		"PASS: renderer detach and reattach preserve the engine and its data",
@@ -212,7 +218,7 @@ try {
 		),
 	);
 	let third = await connect(recovered);
-	assert.deepEqual(await third.call("workspace.list", {}), [folder]);
+	assert.deepEqual(await third.call("workspace.list", {}), expectedWorkspaces);
 	console.log(
 		"PASS: worker crash restarts the engine with durable data and a fresh capability",
 	);
@@ -252,12 +258,7 @@ try {
 		await within(
 			(async () => {
 				while (true) {
-					if (
-						(await readFile(join(project, "tool-started.txt"), "utf8").catch(
-							() => "",
-						)) === "started\n"
-					)
-						return;
+					if ((await readToolStarted().catch(() => "")) === "started\n") return;
 					await delay(100);
 				}
 			})(),
@@ -369,10 +370,7 @@ try {
 			})(),
 			10_000,
 		);
-		assert.equal(
-			await readFile(join(project, "tool-started.txt"), "utf8"),
-			"started\n",
-		);
+		assert.equal(await readToolStarted(), "started\n");
 		const history = await third.call("messages.list", {
 			sessionId: session.id,
 		});
@@ -381,7 +379,14 @@ try {
 			"PASS: real provider worker loss cleans the tool process, preserves history, and reaches a terminal turn without replaying the command",
 		);
 	}
-	supervisor.kill("SIGTERM");
+	// Windows implements child.kill(SIGTERM) as forced termination, with no
+	// signal handler. Use the engine's authenticated cooperative shutdown there.
+	if (process.platform === "win32") {
+		assert.equal(
+			await requestIdleEngineShutdown(recovered, { userData: directory }),
+			"stopped",
+		);
+	} else supervisor.kill("SIGTERM");
 	await within(exited, 10_000);
 	await within(third.channel.closed, 5_000);
 	assert.equal(await readEngineEndpoint(directory), null);
@@ -406,7 +411,7 @@ try {
 	});
 	const idle = await waitReady();
 	const fourth = await connect(idle);
-	assert.deepEqual(await fourth.call("workspace.list", {}), [folder]);
+	assert.deepEqual(await fourth.call("workspace.list", {}), expectedWorkspaces);
 	assert.equal(
 		await requestIdleEngineShutdown(idle, { userData: directory }),
 		"stopped",

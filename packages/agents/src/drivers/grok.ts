@@ -1,4 +1,4 @@
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
@@ -17,6 +17,7 @@ import {
 	type ThreadGoalSetInput,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
+import { spawn } from "@zuse/utils/spawn-command";
 import { type Cause, Effect, Queue, Stream } from "effect";
 import { makeAcpPermissionContext } from "../kernel/acp-permission-context.ts";
 import { createAcpSession } from "../kernel/acp-session.ts";

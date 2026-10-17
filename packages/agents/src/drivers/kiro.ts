@@ -1,4 +1,4 @@
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import * as readline from "node:readline";
 import { decodeJsonRpcLine } from "@zuse/acp/protocol";
 import { AcpRpcClient } from "@zuse/acp/rpc-client";
@@ -11,6 +11,7 @@ import {
 	type StartSessionInput,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
+import { spawn } from "@zuse/utils/spawn-command";
 import { type Cause, Effect, Queue, Stream } from "effect";
 import { ACP_CLIENT_CAPABILITIES } from "../kernel/acp-capabilities.ts";
 import { formatAcpError } from "../kernel/acp-error.ts";

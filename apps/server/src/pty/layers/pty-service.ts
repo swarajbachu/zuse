@@ -18,7 +18,10 @@ import {
 import { childProcessEnv } from "@zuse/utils/process-env";
 import { Effect, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
 import * as pty from "node-pty";
-import { ensureNodePtySpawnHelperExecutable } from "../node-pty-helper.ts";
+import {
+	ensureNodePtySpawnHelperExecutable,
+	releaseWindowsPtyOnExit,
+} from "../node-pty-helper.ts";
 import { PtyEventJournal } from "../pty-event-journal.ts";
 import { PtyService } from "../services/pty-service.ts";
 
@@ -193,6 +196,7 @@ export const PtyServiceLive = Layer.effect(
 						else consumer(event);
 					};
 					try {
+						releaseWindowsPtyOnExit(child);
 						child.onData((bytes) => capture({ _tag: "data", bytes }));
 						child.onExit(({ exitCode, signal }) =>
 							capture({

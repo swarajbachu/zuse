@@ -1,5 +1,6 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { childProcessEnv } from "@zuse/utils/process-env";
+import { spawn } from "@zuse/utils/spawn-command";
 import type { AcpPermissionContext } from "../../kernel/acp-permission-context.ts";
 import { getBashPolicy } from "../../kernel/policy.ts";
 import { ensureUnderCwd } from "./fs.ts";

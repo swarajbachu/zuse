@@ -1,0 +1,155 @@
+name: Windows compatibility
+
+on:
+  push:
+    branches-ignore: [main]
+    paths:
+      - '.github/workflows/windows-tests.yml'
+      - '.gitattributes'
+      - 'apps/desktop/**'
+      - 'apps/server/src/pty/**'
+      - 'apps/server/src/provider/**'
+      - 'packages/agents/**'
+      - 'packages/acp/**'
+      - 'packages/utils/**'
+      - 'apps/renderer/vite.config.ts'
+      - 'scripts/dev*.mjs'
+      - 'scripts/dist-windows.mjs'
+      - 'tests/system/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'patches/app-builder-lib@*.patch'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+      release_metadata:
+        type: boolean
+        default: false
+
+concurrency:
+  group: windows-compatibility-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      ZUSE_DISABLE_DEEP_ENERGY_PROFILE: '1'
+      RELEASE_METADATA: ${{ inputs.release_metadata && 'desktop-release.json' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+      - name: Restore dependency downloads
+        id: bun-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.bun/install/cache
+          key: windows-bun-1.3.10-${{ hashFiles('bun.lock') }}
+          restore-keys: windows-bun-1.3.10-
+      - name: Install Windows dependencies and rebuild Electron native bindings
+        env:
+          HUGEICONS_TOKEN: ${{ inputs.release_metadata && secrets.HUGEICONS_TOKEN || '' }}
+        run: |
+          bun install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Explicit: a prior interrupted install may leave postinstall unfinished.
+          bun run --cwd apps/desktop postinstall
+          exit $LASTEXITCODE
+      # Save before validation so a later compatibility failure does not discard
+      # the download cache. Native modules are still rebuilt on every runner.
+      - name: Save dependency downloads
+        if: steps.bun-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ steps.bun-cache.outputs.cache-primary-key }}
+      - name: Check Windows changes with Biome
+        run: bunx biome check scripts/dev.mjs scripts/dev-startup.test.mjs scripts/dist-windows.mjs apps/desktop/src/package-content.ts apps/desktop/scripts/check-package-windows.mjs apps/desktop/scripts/cursor-sdk-package.mjs apps/desktop/scripts/dev-app-process.mjs apps/desktop/scripts/dev-electron.mjs apps/desktop/scripts/package-content-smoke.ts apps/desktop/scripts/package-native-runtime-smoke.cjs tests/system/scripts/windows-dev-smoke.ts tests/system/scripts/windows-installer-smoke.ts tests/system/scripts/packaged-desktop-smoke.ts tests/system/src/power-benchmark.ts
+      - name: Type checks
+        run: |
+          bun run --cwd apps/desktop check-types
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          bun run --cwd tests/system check-types
+          exit $LASTEXITCODE
+      - name: Development runner and packaging regression tests
+        run: |
+          node --test scripts/dev-startup.test.mjs apps/desktop/scripts/dev-app-process.test.mjs apps/desktop/scripts/cursor-sdk-package.test.mjs apps/desktop/scripts/packaging-config.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          bunx vitest run apps/desktop/test/unit/package-content.test.ts tests/system/test/unit/power-benchmark.test.ts packages/utils/test/unit/owned-process-retry.test.ts packages/utils/test/unit/spawn-command.test.ts apps/server/test/unit/node-pty-helper.test.ts apps/desktop/test/unit/owned-open-dialog.test.ts packages/utils/test/unit/shell-command.test.ts apps/server/test/unit/availability.test.ts apps/server/test/unit/provider-update-process.test.ts apps/desktop/test/unit/host-adapters.test.ts packages/utils/test/unit/port-inspector.test.ts tests/system/test/unit/engine-readiness.test.ts
+          exit $LASTEXITCODE
+      - name: Reproduce development startup and repeated shutdown
+        run: node --import tsx tests/system/scripts/windows-dev-smoke.ts
+      - name: Download Preview release metadata
+        if: inputs.release_metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-release-metadata
+          path: ${{ github.workspace }}
+      - name: Set Preview candidate version
+        if: inputs.release_metadata
+        run: node scripts/desktop-release.mjs version
+      - name: Verify Preview icons
+        if: inputs.release_metadata
+        run: bun run icons:status --expect=paid
+      - name: Build unsigned Windows candidate and validate native runtime
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          ZUSE_POSTHOG_KEY: ${{ inputs.release_metadata && secrets.ZUSE_POSTHOG_KEY || '' }}
+          VITE_POSTHOG_KEY: ${{ inputs.release_metadata && secrets.VITE_POSTHOG_KEY || '' }}
+        run: bun run dist:win:unsigned
+      - name: Install, launch, reinstall, and uninstall candidate
+        run: |
+          $installers = @(Get-ChildItem dist/Zuse-*-windows-x64-setup.exe)
+          if ($installers.Count -ne 1) { throw 'Expected exactly one Windows installer' }
+          node --import tsx tests/system/scripts/windows-installer-smoke.ts $installers[0].FullName
+          exit $LASTEXITCODE
+      - name: Engine recovery and interrupted provider streams
+        run: |
+          $env:PATH = "$(Join-Path $env:GITHUB_WORKSPACE 'node_modules/.bin');$env:PATH"
+          node --import tsx apps/desktop/scripts/engine-runtime-smoke.ts --provider-fixture --account-outage
+          exit $LASTEXITCODE
+      - name: Collect Windows crash events
+        if: always()
+        run: |
+          New-Item -ItemType Directory -Force .context/windows | Out-Null
+          $events = @(Get-WinEvent -FilterHashtable @{ LogName='Application'; Id=1000,1001; StartTime=(Get-Date).AddHours(-1) } -ErrorAction SilentlyContinue | Where-Object { $_.Message -match '(?i)zuse|electron|nsis|system\.dll' } | Select-Object -First 20 | ForEach-Object {
+            [pscustomobject]@{ time=$_.TimeCreated; id=$_.Id; message=$_.Message.Substring(0, [Math]::Min(4000, $_.Message.Length)) }
+          })
+          ConvertTo-Json -InputObject $events -Depth 3 | Set-Content .context/windows/crash-events.json
+          # An empty event log is normal on successful runs.
+          exit 0
+      - name: Upload bounded diagnostic reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-diagnostics-${{ github.run_id }}
+          path: .context/windows/
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Upload internal candidate (not a public release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-candidate-${{ github.run_id }}
+          path: |
+            dist/Zuse-*-windows-x64-setup.exe
+            dist/*.exe.blockmap
+          retention-days: 7
+          if-no-files-found: error

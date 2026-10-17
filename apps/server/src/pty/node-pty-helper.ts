@@ -1,9 +1,37 @@
 import { chmodSync, existsSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import type { IPty } from "node-pty";
 
 const require = createRequire(import.meta.url);
 let helperReady = false;
+
+/** Windows node-pty owns an output worker even after the shell exits naturally. */
+export const releaseWindowsPtyOnExit = (
+	child: Pick<IPty, "kill" | "onExit">,
+	platform: NodeJS.Platform = process.platform,
+): void => {
+	if (platform !== "win32") return;
+	const kill = child.kill.bind(child);
+	let released = false;
+	child.kill = (signal) => {
+		if (released) return;
+		released = true;
+		try {
+			kill(signal);
+		} catch (error) {
+			released = false;
+			throw error;
+		}
+	};
+	child.onExit(() => {
+		try {
+			child.kill();
+		} catch (error) {
+			console.warn("[pty] Windows terminal resource cleanup failed", error);
+		}
+	});
+};
 
 const unpackedPath = (path: string): string =>
 	path

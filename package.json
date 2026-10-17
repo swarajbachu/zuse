@@ -4,17 +4,17 @@
 	"license": "AGPL-3.0-only",
 	"scripts": {
 		"build": "turbo run build",
-		"build:desktop": "turbo run build --filter=renderer --filter=desktop",
-		"dev": "node scripts/dev.mjs",
+		"build:desktop": "bun run --cwd apps/renderer build && bun run --cwd apps/desktop build",
+		"dev": "node --import tsx scripts/dev.mjs",
 		"dev:turbo": "turbo run dev --filter=renderer --filter=desktop",
-		"dev:desktop": "node scripts/dev.mjs",
-		"test:dev-runner": "node --test scripts/dev-instance.test.mjs",
+		"dev:desktop": "node --import tsx scripts/dev.mjs",
+		"test:dev-runner": "node --test scripts/dev-instance.test.mjs scripts/dev-startup.test.mjs",
 		"test:icons": "node --test scripts/icon-runtime.test.mjs scripts/check-icons.test.mjs",
 		"test:architecture": "node --test scripts/check-architecture-boundaries.test.mjs",
 		"icons:install-paid": "node scripts/install-paid-icons.mjs",
 		"icons:status": "node scripts/check-icons.mjs",
 		"postinstall": "node scripts/install-paid-icons.mjs",
-		"kill-port": "node scripts/kill-port.mjs",
+		"kill-port": "node --import tsx scripts/kill-port.mjs",
 		"lint": "biome check .",
 		"catalog:generate": "tsx scripts/generate-model-catalog.ts",
 		"catalog:check": "tsx scripts/generate-model-catalog.ts --check",
@@ -41,7 +41,7 @@
 		"discord:setup:dry-run": "node --env-file=.env scripts/setup-discord-community.mjs --dry-run",
 		"discord:enhance": "node --env-file=.env scripts/enhance-discord-community.mjs",
 		"discord:enhance:dry-run": "node --env-file=.env scripts/enhance-discord-community.mjs --dry-run",
-		"rebuild:pty": "cd apps/desktop && electron-rebuild -f -w node-pty",
+		"rebuild:pty": "bun run --cwd apps/desktop postinstall",
 		"build:ghostty:wasm": "node scripts/build-ghostty-wasm.mjs",
 		"build:ghostty:ios": "node scripts/build-ghostty-ios.mjs",
 		"dist:mac": "NODE_ENV=production bun run build:desktop && cd apps/desktop && bun run dist:mac",
@@ -50,7 +50,9 @@
 		"dist:linux:unsigned": "NODE_ENV=production bun run build:desktop && cd apps/desktop && bun run dist:linux:unsigned",
 		"i18n:generate": "node scripts/generate-i18n.mjs",
 		"check:i18n": "node scripts/check-i18n.mjs && node scripts/check-website-i18n.mjs",
-		"test:i18n": "node --test scripts/check-i18n.test.mjs && bun run --filter @zuse/i18n test"
+		"test:i18n": "node --test scripts/check-i18n.test.mjs && bun run --filter @zuse/i18n test",
+		"dist:win": "node scripts/dist-windows.mjs",
+		"dist:win:unsigned": "node scripts/dist-windows.mjs --unsigned"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.3",
@@ -107,6 +109,7 @@
 	},
 	"patchedDependencies": {
 		"@legendapp/list@3.3.3": "patches/@legendapp%2Flist@3.3.3.patch",
-		"@effect/platform-node@4.0.0-beta.102": "patches/@effect%2Fplatform-node@4.0.0-beta.102.patch"
+		"@effect/platform-node@4.0.0-beta.102": "patches/@effect%2Fplatform-node@4.0.0-beta.102.patch",
+		"app-builder-lib@25.1.8": "patches/app-builder-lib@25.1.8.patch"
 	}
 }

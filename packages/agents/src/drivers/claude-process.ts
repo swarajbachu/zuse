@@ -1,8 +1,9 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import type {
 	SpawnedProcess,
 	SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
+import { spawn } from "@zuse/utils/spawn-command";
 import {
 	stopProviderProcess,
 	watchProviderProcess,

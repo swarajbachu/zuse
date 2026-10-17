@@ -14,6 +14,8 @@ export const workspaceCreationProgressIsActive = (input: {
 	readonly creationPhase: ChatCreationPhase | null;
 }): boolean =>
 	input.workspaceRequested &&
+	input.creationPhase !== "failed" &&
+	input.creationPhase !== "cancelled" &&
 	input.setupStatus !== "succeeded" &&
 	input.setupStatus !== "skipped" &&
 	input.creationPhase !== "starting_agent" &&

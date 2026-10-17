@@ -1,4 +1,4 @@
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -25,6 +25,7 @@ import {
 	type StartSessionInput,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
+import { spawn } from "@zuse/utils/spawn-command";
 import { type Cause, Effect, Queue, Stream } from "effect";
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";

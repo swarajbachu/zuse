@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-
 import {
 	parseLsofListeners,
 	parseNetstatListeners,
 	parseProcListeners,
 	parseSsListeners,
 } from "../../src/port-inspector.js";
+import { parseWindowsTcpListeners } from "../../src/port-inspector.ts";
 
 describe("listening server parsers", () => {
 	it("excludes all runtime ports, including anonymous bridge listeners", () => {
@@ -97,4 +97,20 @@ describe("listening server parsers", () => {
 			{ name: "localhost", port: 8888, loopbackOnly: false },
 		]);
 	});
+});
+
+it("recognizes localized Windows listeners without including established sockets", () => {
+	const output = `TCP 127.0.0.1:5733 0.0.0.0:0 ABHÖREN 42
+TCP [::]:5733 [::]:0 ÉCOUTE 43
+TCP 127.0.0.1:5733 127.0.0.1:6000 ESTABLISHED 44
+TCP 127.0.0.1:57330 0.0.0.0:0 LISTENING 45`;
+	expect(
+		parseWindowsTcpListeners(output)
+			.filter((item) => item.port === 5733)
+			.map((item) => item.pid),
+	).toEqual([42, 43]);
+	expect(
+		parseNetstatListeners(output).find((item) => item.port === 5733)
+			?.loopbackOnly,
+	).toBe(false);
 });

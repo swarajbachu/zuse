@@ -39,12 +39,19 @@ describe("renderer dependency optimization", () => {
 		expect(viteConfig).toContain('"@base-ui/react/**"');
 	});
 
-	it("prebundles runtime dependencies from renderer and shared UI sources", () => {
+	it("accounts for runtime dependencies from renderer and shared UI sources", () => {
 		const config = rendererFile("vite.config.ts");
 		const include = config.match(/include:\s*\[([\s\S]*?)\]/)?.[1] ?? "";
 		const patterns = [...include.matchAll(/"([^"]+)"/g)].flatMap((match) =>
 			match[1] ? [match[1]] : [],
 		);
+		const exclude = config.match(/exclude:\s*\[([\s\S]*?)\]/)?.[1] ?? "";
+		const directEsm = new Set(
+			[...exclude.matchAll(/"([^"]+)"/g)].flatMap((match) =>
+				match[1] ? [match[1]] : [],
+			),
+		);
+		expect([...directEsm]).toEqual(["mermaid", "shiki"]);
 		const missing = new Set<string>();
 		for (const relativeRoot of [
 			"src",
@@ -74,6 +81,7 @@ describe("renderer dependency optimization", () => {
 					)
 						return;
 					if (
+						!directEsm.has(name) &&
 						!patterns.some((pattern) =>
 							pattern.endsWith("/**")
 								? name.startsWith(pattern.slice(0, -2))

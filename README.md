@@ -2,7 +2,22 @@
 
 A chat-first desktop app for developers who work with AI coding agents. Wraps Claude Code, Codex, Grok, Gemini, Cursor, and OpenCode in a persistent, project-aware interface — structured chat history, rich composer, file viewer, integrated terminal, git worktrees, and session management, all stored locally.
 
-> Supports macOS and x64 Linux. Requires at least one supported agent CLI installed.
+> Supports macOS and x64 Linux, with Windows x64 available as a test candidate. Requires at least one supported agent CLI installed.
+
+---
+
+## Install on Windows
+
+Download the `windows-candidate-*` artifact from a successful
+[Windows compatibility run](https://github.com/swarajbachu/zuse/actions/workflows/windows-tests.yml),
+extract the ZIP, and run `Zuse-*-windows-x64-setup.exe`. These unsigned test
+installers are not yet public releases; artifacts expire after seven days. The per-user installer does not require administrator access
+and creates Start menu and desktop shortcuts.
+
+Before starting an agent session, install and authenticate at least one of the
+[supported agent CLIs](#supported-agents). Zuse discovers `.exe`, `.cmd`, and
+`.bat` provider commands from `PATH` and uses Windows Credential Manager for
+stored credentials.
 
 ---
 
@@ -128,6 +143,7 @@ Pi: install with `npm install -g --ignore-scripts @earendil-works/pi-coding-agen
 - Keychain-backed API keys (no plaintext storage)
 - Signed + notarized macOS universal `.dmg` (Apple Silicon + Intel)
 - Linux x64 `.AppImage` and Debian/Ubuntu `.deb`
+- Windows x64 NSIS test installer (public release and update qualification pending)
 - In-app auto-update via GitHub Releases
 
 ---
@@ -209,9 +225,15 @@ bun run dist:linux
 
 # Package Linux without publishing
 bun run dist:linux:unsigned
+
+# Package Windows installer without publishing (PowerShell)
+bun run dist:win:unsigned
 ```
 
-Requires: Bun 1.3.10+, Node.js ≥ 22.13, and macOS or x64 Linux.
+Use Bun 1.3.10 and Node.js 24 for Windows builds. Run these commands from
+PowerShell with Python and Visual Studio C++ build tools installed: native
+`node-pty` and `keytar` bindings are rebuilt for Electron. See the
+[Windows qualification guide](internal-docs/desktop/windows-qualification.md).
 
 Changes to the macOS awake controller require the
 [physical MacBook release check](internal-docs/testing/mac-computer-awake.md), including
@@ -228,8 +250,9 @@ workspace dependency graph. If lifecycle scripts were disabled, run
 `bun run icons:install-paid`, then confirm the active set with
 `bun run icons:status --expect=paid`.
 
-The packaging commands build x64 artifacts into `dist/`. End-user installation
-instructions are in [Install on Linux](#install-on-linux).
+The packaging commands build artifacts into `dist/`. End-user installation
+instructions are in [Install on Windows](#install-on-windows) and
+[Install on Linux](#install-on-linux).
 
 ---
 

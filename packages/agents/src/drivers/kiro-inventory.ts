@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process";
 import type { KiroInventory, KiroInventoryModel } from "@zuse/contracts";
 import { humanizeModelId } from "@zuse/contracts";
+import { spawn } from "@zuse/utils/spawn-command";
 import { Effect } from "effect";
 
 import {

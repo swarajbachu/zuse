@@ -27,7 +27,7 @@
 		"test:engine": "bun run build && node --import tsx scripts/engine-runtime-smoke.ts",
 		"test:engine-reliability": "bun run build && node --import tsx scripts/engine-runtime-smoke.ts --provider-fixture --account-outage",
 		"test:integration": "vp test run test/integration --passWithNoTests",
-		"postinstall": "electron-rebuild -f -o node-pty,keytar",
+		"postinstall": "node scripts/rebuild-native.mjs",
 		"icon": "node scripts/make-icon.mjs",
 		"dmg:background": "node scripts/make-dmg-background.mjs",
 		"native:build": "node scripts/build-local-connectivity-helper.mjs",
@@ -39,7 +39,10 @@
 		"dist:mac:unsigned": "electron-builder --mac --universal -c.mac.identity=null --publish never",
 		"dist:linux": "electron-builder --linux AppImage deb --x64 && bun run check-package:linux",
 		"dist:linux:unsigned": "electron-builder --linux AppImage deb --x64 --publish never && bun run check-package:linux",
-		"test:engine-provider": "bun run build && node --import tsx scripts/engine-runtime-smoke.ts --provider-fixture"
+		"test:engine-provider": "bun run build && node --import tsx scripts/engine-runtime-smoke.ts --provider-fixture",
+		"check-package:win": "node scripts/check-package-windows.mjs",
+		"dist:win": "electron-builder --win nsis --x64 --publish never -c.forceCodeSigning=true && bun run check-package:win",
+		"dist:win:unsigned": "electron-builder --win nsis --x64 --publish never && bun run check-package:win"
 	},
 	"dependencies": {
 		"@cursor/sdk": "1.0.32",

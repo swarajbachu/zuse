@@ -1,4 +1,3 @@
-import { spawn, spawnSync } from "node:child_process";
 import {
 	copyFileSync,
 	existsSync,
@@ -9,6 +8,7 @@ import {
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn, spawnSync } from "@zuse/utils/spawn-command";
 
 /**
  * Kiro CLI stores the live OIDC token in its app-support SQLite DB under

@@ -18,4 +18,9 @@ if (process.platform === "linux") {
 	delete config.linux.files;
 }
 
+if (process.platform === "win32") {
+	config.files = [...config.files, ...config.win.files];
+	delete config.win.files;
+}
+
 module.exports = config;

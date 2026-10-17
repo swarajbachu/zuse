@@ -15,10 +15,15 @@ if (archiveArgument === undefined) {
 
 const archivePath = Path.resolve(archiveArgument);
 const entries = listPackage(archivePath);
-validateDesktopPackageEntries(entries);
-validateDesktopMainBundle(
-	extractFile(archivePath, "dist-electron/main.cjs").toString("utf8"),
-);
+if (process.platform !== "linux" && process.platform !== "win32") {
+	throw new Error("Package content smoke supports Linux and Windows x64");
+}
+validateDesktopPackageEntries(entries, process.platform);
+for (const entry of ["main", "engine-main"]) {
+	validateDesktopMainBundle(
+		extractFile(archivePath, `dist-electron/${entry}.cjs`).toString("utf8"),
+	);
+}
 const resourcesRoot = Path.dirname(archivePath);
 const cursorLicense = await readFile(
 	Path.join(resourcesRoot, "app/licenses/Cursor-SDK.LICENSE.md"),
@@ -31,10 +36,10 @@ for (const executable of ["cursorsandbox", "rg"]) {
 	await access(
 		Path.join(
 			`${archivePath}.unpacked`,
-			"node_modules/@cursor/sdk/node_modules/@cursor/sdk-linux-x64/bin",
-			executable,
+			`node_modules/@cursor/sdk/node_modules/@cursor/sdk-${process.platform}-x64/bin`,
+			process.platform === "win32" ? `${executable}.exe` : executable,
 		),
-		constants.X_OK,
+		process.platform === "win32" ? constants.F_OK : constants.X_OK,
 	);
 }
 console.log(

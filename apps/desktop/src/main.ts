@@ -128,6 +128,7 @@ import {
 	readLocalePreference,
 	writeLocalePreference,
 } from "./locale-preference.ts";
+import { showOwnedOpenDialog } from "./owned-open-dialog.ts";
 import { desktopRemoteAccessPolicy } from "./remote-access-policy.ts";
 import {
 	createTitleBarOverlay,
@@ -602,6 +603,18 @@ const startAuthLoopback = async (): Promise<void> => {
 
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL?.trim() || "";
 const isDevelopment = Boolean(DEV_SERVER_URL);
+if (isDevelopment && process.send !== undefined) {
+	process.on("message", (message: unknown) => {
+		if (
+			typeof message === "object" &&
+			message !== null &&
+			"type" in message &&
+			message.type === "zuse:dev-shutdown"
+		)
+			app.quit();
+	});
+	process.once("disconnect", () => app.quit());
+}
 const remoteAccessPolicy = desktopRemoteAccessPolicy(isDevelopment);
 
 const APP_NAME = isDevelopment ? "Zuse (Beta) (Dev)" : "Zuse (Beta)";
@@ -1308,10 +1321,7 @@ ipcMain.handle(
 				"openDirectory" | "createDirectory"
 			>,
 		};
-		const selection =
-			mainWindow === null
-				? await dialog.showOpenDialog(options)
-				: await dialog.showOpenDialog(mainWindow, options);
+		const selection = await showOwnedOpenDialog(dialog, mainWindow, options);
 		const directory = selection.filePaths[0];
 		if (selection.canceled || directory === undefined) return null;
 		const timestamp = report.summary.startedAt
@@ -1825,7 +1835,7 @@ const attachDesktopHost = () => {
 		request: async (request, signal) => {
 			signal.throwIfAborted();
 			if (request.method === "pickFolder") {
-				const result = await dialog.showOpenDialog({
+				const result = await showOwnedOpenDialog(dialog, mainWindow, {
 					defaultPath: app.getPath("home"),
 					properties: ["openDirectory", "createDirectory", "showHiddenFiles"],
 				});
@@ -1990,6 +2000,11 @@ async function createMainWindow() {
 	// ipcRenderer.send() frame when no ipcMain listener exists yet.
 	installEngineServerBridge(mainWindow.webContents, desktopEngine);
 	attachDesktopHost();
+
+	// The renderer can request its update channel as soon as navigation starts.
+	// Register these handlers before loading it, independently of engine readiness.
+	if (isDevelopment) registerUpdaterDemo(mainWindow);
+	else startAutoUpdater(mainWindow);
 
 	if (isDevelopment) {
 		void mainWindow.loadURL(DEV_SERVER_URL);
@@ -3675,13 +3690,6 @@ void app.whenReady().then(async () => {
 
 	installAppMenu(() => mainWindow, lastAccelerators, getLastStatus());
 	await mainWindowReady;
-	if (mainWindow !== null) {
-		if (isDevelopment) {
-			registerUpdaterDemo(mainWindow);
-		} else {
-			startAutoUpdater(mainWindow);
-		}
-	}
 
 	app.on("activate", () => {
 		void localeController

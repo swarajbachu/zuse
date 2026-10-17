@@ -1,9 +1,9 @@
-import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import Path from "node:path";
 
 import type { HostPlatform } from "@zuse/contracts";
+import { spawn } from "@zuse/utils/spawn-command";
 
 export type PortableOpenTarget = {
 	readonly id: string;
@@ -84,11 +84,37 @@ const windowsTargets: ReadonlyArray<PortableOpenTarget> = [
 		command: null,
 		args: () => [],
 	},
+	{
+		id: "cursor",
+		label: "Cursor",
+		command: "cursor",
+		args: (path) => [path],
+	},
+	{
+		id: "vscode",
+		label: "VS Code",
+		command: "code",
+		args: (path) => [path],
+	},
+	{
+		id: "windsurf",
+		label: "Windsurf",
+		command: "windsurf",
+		args: (path) => [path],
+	},
+	{
+		id: "terminal",
+		label: "Windows Terminal",
+		command: "wt",
+		args: (path) => ["-d", path],
+	},
 ];
 
-export const executableOnPath = async (command: string): Promise<boolean> => {
+const resolveExecutableOnPath = async (
+	command: string,
+): Promise<string | null> => {
 	const path = process.env.PATH;
-	if (path === undefined) return false;
+	if (path === undefined) return null;
 	const extensions =
 		process.platform === "win32"
 			? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";")
@@ -100,12 +126,15 @@ export const executableOnPath = async (command: string): Promise<boolean> => {
 					Path.join(directory, `${command}${extension}`),
 					constants.X_OK,
 				);
-				return true;
+				return Path.join(directory, `${command}${extension}`);
 			} catch {}
 		}
 	}
-	return false;
+	return null;
 };
+
+export const executableOnPath = async (command: string): Promise<boolean> =>
+	(await resolveExecutableOnPath(command)) !== null;
 
 const definitionsFor = (
 	platform: HostPlatform,
@@ -137,9 +166,10 @@ export const openPathWithPortableTarget = async (
 	const target = definitionsFor(platform).find(({ id }) => id === targetId);
 	if (target === undefined) return "unavailable";
 	if (target.command === null) return "reveal";
-	if (!(await executableOnPath(target.command))) return "unavailable";
+	const executable = await resolveExecutableOnPath(target.command);
+	if (executable === null) return "unavailable";
 	await new Promise<void>((resolve, reject) => {
-		const child = spawn(target.command as string, target.args(path), {
+		const child = spawn(executable, target.args(path), {
 			detached: true,
 			stdio: "ignore",
 		});

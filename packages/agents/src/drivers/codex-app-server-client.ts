@@ -1,9 +1,10 @@
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import readline from "node:readline";
 import type { ClientRequest } from "@zuse/agents/codex-generated/ClientRequest";
 import type { InitializeResponse } from "@zuse/agents/codex-generated/InitializeResponse";
 import type { ServerNotification } from "@zuse/agents/codex-generated/ServerNotification";
 import type { ServerRequest } from "@zuse/agents/codex-generated/ServerRequest";
+import { spawn } from "@zuse/utils/spawn-command";
 import {
 	stopProviderProcess,
 	watchProviderProcess,

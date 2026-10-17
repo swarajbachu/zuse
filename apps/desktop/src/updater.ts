@@ -587,11 +587,11 @@ export function triggerUpdateInstall(): void {
  */
 export function registerUpdaterDemo(window: UpdaterWindow): void {
 	attachRenderer(window);
+	if (started) return;
+	started = true;
 	initialization = initializeChannels(false);
 	registerChannelHandlers();
 	ipcMain.handle("zuse:update-demo-set", (_event, status: UpdateStatus) => {
-		if (window.isDestroyed()) return;
-
 		emit(status);
 	});
 }

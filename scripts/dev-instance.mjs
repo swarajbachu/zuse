@@ -74,7 +74,7 @@ const instanceResources = (repoRoot, instance) => {
 		instanceRoot,
 		userDataDir: resolve(instanceRoot, "user-data"),
 		cliAccessFile: resolve(instanceRoot, "cli-access.json"),
-		viteCacheDir: resolve(instanceRoot, "vite-cache"),
+		viteCacheDir: resolve(instanceRoot, "vite-cache-v2"),
 		packDir: resolve(
 			repoRoot,
 			"apps",
@@ -109,7 +109,7 @@ const defaultInstanceResources = (repoRoot) => ({
 		".zuse",
 		"dev-instances",
 		"default",
-		"vite-cache",
+		"vite-cache-v2",
 	),
 });
 
@@ -151,6 +151,7 @@ export const initialDevInstance = ({ argv, env, repoRoot }) => {
 	return {
 		instance,
 		automaticInstance: requestedInstance === undefined,
+		defaultProfile: useExistingDevProfile && !explicitUserDataDir,
 		repoRoot,
 		dryRun: parsed.dryRun,
 		rendererPort,
@@ -171,14 +172,17 @@ export const withScannedPorts = async (
 	initial,
 	isAvailable,
 	reservePair = async () => () => {},
+	isReusable = async () => false,
 ) => {
 	let rendererPort = initial.rendererPort;
 	let websocketPort = initial.websocketPort;
 	for (let attempts = 0; attempts < 200; attempts += 1) {
-		const [rendererAvailable, websocketAvailable] = await Promise.all([
+		const [rendererAvailable, websocketPortAvailable] = await Promise.all([
 			isAvailable(rendererPort, "renderer"),
 			isAvailable(websocketPort, "websocket"),
 		]);
+		const websocketAvailable =
+			websocketPortAvailable || (await isReusable(websocketPort, "websocket"));
 		const releaseReservation =
 			rendererAvailable && websocketAvailable
 				? await reservePair(rendererPort, websocketPort)

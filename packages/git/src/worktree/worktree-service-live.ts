@@ -25,6 +25,7 @@ import {
 	type WorktreeSetupStatus,
 	WorktreeSetupStatusEvent,
 } from "@zuse/contracts";
+import { shellCommandForPlatform } from "@zuse/utils/shell-command";
 import {
 	type Cause,
 	DateTime,
@@ -121,6 +122,9 @@ const rowToWorktree = (
 
 const SETUP_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_SETUP_OUTPUT = 80_000;
+const SETUP_STARTED_MESSAGE = "Running setup script...\n";
+const SETUP_INTERRUPTED_MESSAGE =
+	"Setup was interrupted when Zuse stopped. Retry setup to continue.\n";
 const LOCKFILES = [
 	"bun.lock",
 	"bun.lockb",
@@ -134,22 +138,7 @@ const truncateOutput = (value: string): string =>
 		? value
 		: value.slice(value.length - MAX_SETUP_OUTPUT);
 
-export const shellCommandForPlatform = (
-	platform: NodeJS.Platform,
-	env: NodeJS.ProcessEnv,
-): { readonly command: string; readonly args: ReadonlyArray<string> } => {
-	if (platform === "win32") {
-		return {
-			command: env.COMSPEC?.trim() || "cmd.exe",
-			args: ["/d", "/s", "/c"],
-		};
-	}
-	return {
-		command:
-			env.SHELL?.trim() || (platform === "darwin" ? "/bin/zsh" : "/bin/sh"),
-		args: ["-lc"],
-	};
-};
+export { shellCommandForPlatform } from "@zuse/utils/shell-command";
 
 const readIfExists = async (path: string): Promise<Buffer | null> => {
 	try {
@@ -356,6 +345,24 @@ export const WorktreeServiceLive = Layer.effect(
       `.pipe(Effect.orDie);
 		}
 
+		// A setup child cannot survive the desktop host that launched it. Mark any
+		// persisted `running` rows terminal during startup so a previous crash or
+		// forced dev restart cannot leave the UI waiting forever.
+		const recoveredAt = (yield* DateTime.nowAsDate).toISOString();
+		yield* sql`
+			UPDATE worktrees
+			SET setup_status = 'failed',
+				setup_output = CASE
+					WHEN trim(setup_output) = '' THEN ${SETUP_INTERRUPTED_MESSAGE}
+					ELSE setup_output || ${`\n${SETUP_INTERRUPTED_MESSAGE}`}
+				END,
+				setup_finished_at = ${recoveredAt}
+			WHERE setup_status = 'running'
+		`.pipe(Effect.orDie);
+
+		// Live setup-output fan-out. Each `setupStream` subscriber gets its own
+		// mailbox registered here; `runSetupFor` offers events to every mailbox
+		// for the worktree as setup progresses. Mirrors the pty subscriber model.
 		const subscribers = new Map<
 			string,
 			Set<Queue.Queue<WorktreeSetupEvent, Cause.Done>>
@@ -1988,7 +1995,6 @@ export const WorktreeServiceLive = Layer.effect(
 			if (prep.length > 0) {
 				emit(worktreeId, WorktreeSetupChunk.make({ worktreeId, output: prep }));
 			}
-
 			if (script.length === 0) {
 				const finishedAtDate = yield* DateTime.nowAsDate;
 				const finishedAt = finishedAtDate.toISOString();
@@ -1998,7 +2004,8 @@ export const WorktreeServiceLive = Layer.effect(
                 setup_output = ${prep},
                 setup_finished_at = ${finishedAt}
             WHERE id = ${worktreeId}
-          `.pipe(Effect.orDie);
+				`.pipe(Effect.orDie);
+				emit(worktreeId, WorktreeSetupChunk.make({ worktreeId, output: prep }));
 				emitStatus(worktreeId, "skipped", startedAtDate, finishedAtDate);
 				const updated = yield* get(worktreeId);
 				return updated === null
@@ -2009,6 +2016,20 @@ export const WorktreeServiceLive = Layer.effect(
 					: updated;
 			}
 
+			// Persist a visible heartbeat before spawning the command. Setup tools can
+			// buffer stdout for minutes (notably a fresh `bun install` on Windows), and
+			// subscribers commonly attach after this detached setup has already begun.
+			const startingOutput = truncateOutput(`${prep}${SETUP_STARTED_MESSAGE}`);
+			yield* sql`
+				UPDATE worktrees
+				SET setup_output = ${startingOutput}
+				WHERE id = ${worktreeId}
+			`.pipe(Effect.orDie);
+			emit(
+				worktreeId,
+				WorktreeSetupChunk.make({ worktreeId, output: startingOutput }),
+			);
+
 			const runScript = runShellScript({
 				script,
 				cwd: worktree.path,
@@ -2018,7 +2039,7 @@ export const WorktreeServiceLive = Layer.effect(
 						worktreeId,
 						WorktreeSetupChunk.make({
 							worktreeId,
-							output: truncateOutput(`${prep}${acc}`),
+							output: truncateOutput(`${startingOutput}${acc}`),
 						}),
 					),
 			}).pipe(
@@ -2036,7 +2057,7 @@ export const WorktreeServiceLive = Layer.effect(
 			const finishedAtDate = yield* DateTime.nowAsDate;
 			const finishedAt = finishedAtDate.toISOString();
 			const status = result.exitCode === 0 ? "succeeded" : "failed";
-			const output = truncateOutput(`${prep}${result.output}`);
+			const output = truncateOutput(`${startingOutput}${result.output}`);
 			yield* sql`
           UPDATE worktrees
           SET setup_status = ${status},

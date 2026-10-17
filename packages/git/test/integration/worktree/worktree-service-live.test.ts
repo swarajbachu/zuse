@@ -244,9 +244,12 @@ describe("WorktreeServiceLive", () => {
 
 		expect(first.id).toBe(requestedId);
 		expect(replayed).toEqual(first);
-		expect(git(repositoryRoot, "worktree", "list", "--porcelain")).toContain(
-			first.path,
-		);
+		expect(
+			git(repositoryRoot, "worktree", "list", "--porcelain").replaceAll(
+				"\\",
+				"/",
+			),
+		).toContain(first.path.replaceAll("\\", "/"));
 		const rows = await runSql(
 			(sql) =>
 				sql<{ readonly count: number }>`
@@ -981,7 +984,10 @@ describe("WorktreeServiceLive", () => {
 	});
 
 	test("runs setup commands and streams a succeeded terminal state", async () => {
-		setupScript = "printf setup-ok > setup-result.txt";
+		setupScript =
+			process.platform === "win32"
+				? "echo setup-ok> setup-result.txt"
+				: "printf setup-ok > setup-result.txt";
 		const created = await run((service) => service.create(projectId));
 		const events = await run((service) =>
 			service.setupStream(created.id).pipe(Stream.runCollect),
@@ -994,13 +1000,17 @@ describe("WorktreeServiceLive", () => {
 				.map((event) => event.status),
 		).toContain("succeeded");
 		expect(persisted?.setupStatus).toBe("succeeded");
+		expect(persisted?.setupOutput).toContain("Running setup script...");
 		expect(git(created.path, "status", "--short")).toContain(
 			"setup-result.txt",
 		);
 	});
 
 	test("persists and streams setup command failures", async () => {
-		setupScript = "printf setup-failed; exit 7";
+		setupScript =
+			process.platform === "win32"
+				? "echo setup-failed & exit /b 7"
+				: "printf setup-failed; exit 7";
 		const created = await run((service) => service.create(projectId));
 		const events = await run((service) =>
 			service.setupStream(created.id).pipe(Stream.runCollect),
@@ -1020,7 +1030,9 @@ describe("WorktreeServiceLive", () => {
 
 	test("truncates setup output while preserving the newest bytes", async () => {
 		setupScript =
-			"head -c 90000 /dev/zero | tr '\\0' x; printf setup-output-end";
+			process.platform === "win32"
+				? "node -e process.stdout.write(Buffer.alloc(90000,120));process.stdout.write('setup-output-end')"
+				: "head -c 90000 /dev/zero | tr '\\0' x; printf setup-output-end";
 		const created = await run((service) => service.create(projectId));
 		await run((service) =>
 			service.setupStream(created.id).pipe(Stream.runCollect),

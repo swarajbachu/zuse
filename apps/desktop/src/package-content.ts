@@ -45,10 +45,8 @@ const REQUIRED_RUNTIME_ENTRIES = [
 ] as const;
 
 const DECLARATION_OR_SOURCE_EXTENSION = /\.(?:cts|mts|ts|tsx)$/u;
-const NON_LINUX_X64_PREBUILD = /\/prebuilds\/(?!linux-x64(?:\/|$))[^/]+/u;
-const NON_LINUX_X64_CURSOR_SDK =
-	/\/node_modules\/@cursor\/sdk-(?!linux-x64(?:\/|$))[^/]+/u;
-const LINUX_RUNTIME_UNUSED_VENDOR_ENTRY_PATTERNS = [
+
+const RUNTIME_UNUSED_VENDOR_ENTRY_PATTERNS = [
 	/\/node_modules\/@cursor\/sdk\/dist\/esm(?:\/|$)/u,
 	/\/node_modules\/node-pty\/(?:binding\.gyp|deps\/|scripts\/|src\/|typings\/|node_modules\/node-addon-api\/|build\/(?!Release(?:\/|$)))/u,
 	/\/node_modules\/node-pty\/lib\/(?:.*\/)?[^/]+\.test\.js/u,
@@ -71,7 +69,11 @@ export const validateDesktopMainBundle = (source: string): void => {
 
 export const validateDesktopPackageEntries = (
 	entries: ReadonlyArray<string>,
+	platform: "linux" | "win32" = "linux",
 ): void => {
+	entries = entries.map((entry) => entry.replaceAll("\\", "/"));
+	const target = `${platform}-x64`;
+	const label = platform === "linux" ? "Linux" : "Windows";
 	const entrySet = new Set(entries);
 	const declarationsOrSources = entries.filter((entry) =>
 		DECLARATION_OR_SOURCE_EXTENSION.test(entry),
@@ -81,28 +83,41 @@ export const validateDesktopPackageEntries = (
 			`Desktop package contains TypeScript-only files:\n${declarationsOrSources.join("\n")}`,
 		);
 	}
-	const wrongPlatformNativeEntries = entries.filter(
-		(entry) =>
-			NON_LINUX_X64_PREBUILD.test(entry) ||
-			NON_LINUX_X64_CURSOR_SDK.test(entry),
+	const wrongPlatformNativeEntries = entries.filter((entry) =>
+		[
+			entry.match(/\/prebuilds\/([^/]+)/u)?.[1],
+			entry.match(/\/node_modules\/@cursor\/sdk-([^/]+)/u)?.[1],
+		].some((value) => value !== undefined && value !== target),
 	);
 	if (wrongPlatformNativeEntries.length > 0) {
 		throw new Error(
-			`Linux x64 package contains wrong-platform native entries:\n${wrongPlatformNativeEntries.join("\n")}`,
+			`${label} x64 package contains wrong-platform native entries:\n${wrongPlatformNativeEntries.join("\n")}`,
 		);
 	}
 	const unusedVendorEntries = entries.filter((entry) =>
-		LINUX_RUNTIME_UNUSED_VENDOR_ENTRY_PATTERNS.some((pattern) =>
-			pattern.test(entry),
-		),
+		RUNTIME_UNUSED_VENDOR_ENTRY_PATTERNS.some((pattern) => pattern.test(entry)),
 	);
 	if (unusedVendorEntries.length > 0) {
 		throw new Error(
-			`Linux package contains build-time vendor entries:\n${unusedVendorEntries.join("\n")}`,
+			`${label} package contains build-time vendor entries:\n${unusedVendorEntries.join("\n")}`,
 		);
 	}
 
-	const missingRuntimeEntries = REQUIRED_RUNTIME_ENTRIES.filter(
+	const requiredEntries = REQUIRED_RUNTIME_ENTRIES.map((entry) => {
+		if (platform === "linux") return entry;
+		return entry
+			.replaceAll("linux-x64", target)
+			.replace(/\/bin\/(cursorsandbox|rg)$/u, "/bin/$1.exe")
+			.replace("/Release/pty.node", "/Release/conpty.node")
+			.replace("/lib/unixTerminal.js", "/lib/windowsTerminal.js");
+	});
+	if (platform === "win32")
+		requiredEntries.push(
+			"/node_modules/node-pty/build/Release/conpty_console_list.node",
+			"/node_modules/node-pty/lib/windowsPtyAgent.js",
+			"/node_modules/node-pty/lib/conpty_console_list_agent.js",
+		);
+	const missingRuntimeEntries = requiredEntries.filter(
 		(entry) => !entrySet.has(entry),
 	);
 	if (missingRuntimeEntries.length > 0) {

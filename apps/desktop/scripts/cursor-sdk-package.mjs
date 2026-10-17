@@ -28,7 +28,10 @@ export async function stageCursorHelpers(
 			if (!name.startsWith(`sdk-${platform}-`) || staged.has(name)) continue;
 			const source = join(scope, name, "bin");
 			for (const binary of ["cursorsandbox", "rg"]) {
-				await access(join(source, binary), constants.X_OK);
+				await access(
+					join(source, platform === "win32" ? `${binary}.exe` : binary),
+					platform === "win32" ? constants.F_OK : constants.X_OK,
+				);
 			}
 			const target = join(contentsRoot, "node_modules", "@cursor", name, "bin");
 			await mkdir(target, { recursive: true });
@@ -48,7 +51,7 @@ export async function stageCursorHelpers(
 /** Stage final app helpers before signing, leaving temporary universal slices untouched. */
 export default async function afterPack(context) {
 	const platform = context.electronPlatformName;
-	if (platform !== "darwin" && platform !== "linux") return;
+	if (!["darwin", "linux", "win32"].includes(platform)) return;
 	const { Arch } = await import("electron-builder");
 	// Universal builds run this hook for each temporary architecture and again
 	// after merging. Stage only after the merge, before signing, so architecture

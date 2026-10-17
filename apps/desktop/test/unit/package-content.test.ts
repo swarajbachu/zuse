@@ -163,3 +163,42 @@ describe("desktop package content", () => {
 		);
 	});
 });
+
+const windowsEntries = requiredRuntimeEntries.map((entry) =>
+	entry
+		.replaceAll("linux-x64", "win32-x64")
+		.replace(/\/bin\/(cursorsandbox|rg)$/u, "/bin/$1.exe")
+		.replace("/Release/pty.node", "/Release/conpty.node")
+		.replace("/lib/unixTerminal.js", "/lib/windowsTerminal.js"),
+);
+windowsEntries.push(
+	"/node_modules/node-pty/build/Release/conpty_console_list.node",
+	"/node_modules/node-pty/lib/windowsPtyAgent.js",
+	"/node_modules/node-pty/lib/conpty_console_list_agent.js",
+);
+it("validates Windows runtime entries including ConPTY and executable helpers", () => {
+	expect(() =>
+		validateDesktopPackageEntries(windowsEntries, "win32"),
+	).not.toThrow();
+	expect(() =>
+		validateDesktopPackageEntries(
+			windowsEntries.map((entry) => entry.replaceAll("/", "\\")),
+			"win32",
+		),
+	).not.toThrow();
+	expect(() =>
+		validateDesktopPackageEntries(
+			windowsEntries.filter((entry) => !entry.endsWith("conpty.node")),
+			"win32",
+		),
+	).toThrow("missing runtime entries");
+	expect(() =>
+		validateDesktopPackageEntries(
+			[
+				...windowsEntries,
+				"/node_modules/native/prebuilds/linux-x64/native.node",
+			],
+			"win32",
+		),
+	).toThrow("wrong-platform");
+});

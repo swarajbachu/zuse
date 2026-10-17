@@ -1,5 +1,5 @@
 import { pbkdf2Sync } from "node:crypto";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 
 export interface BrowserCookieHostAdapter {
 	readonly profileSearchRoots: ReadonlyArray<string>;
@@ -23,16 +23,16 @@ const linuxProfileRoots = (
 	home: string,
 	env: Readonly<Record<string, string | undefined>>,
 ): ReadonlyArray<string> => {
-	const config = env.XDG_CONFIG_HOME?.trim() || join(home, ".config");
+	const config = env.XDG_CONFIG_HOME?.trim() || posix.join(home, ".config");
 	return unique([
 		config,
-		join(home, "snap", "chromium", "common", "chromium"),
-		join(home, "snap", "brave", "common", "brave"),
-		join(home, ".var", "app", "com.google.Chrome", "config"),
-		join(home, ".var", "app", "org.chromium.Chromium", "config"),
-		join(home, ".var", "app", "com.brave.Browser", "config"),
-		join(home, ".var", "app", "com.microsoft.Edge", "config"),
-		join(home, ".var", "app", "com.vivaldi.Vivaldi", "config"),
+		posix.join(home, "snap", "chromium", "common", "chromium"),
+		posix.join(home, "snap", "brave", "common", "brave"),
+		posix.join(home, ".var", "app", "com.google.Chrome", "config"),
+		posix.join(home, ".var", "app", "org.chromium.Chromium", "config"),
+		posix.join(home, ".var", "app", "com.brave.Browser", "config"),
+		posix.join(home, ".var", "app", "com.microsoft.Edge", "config"),
+		posix.join(home, ".var", "app", "com.vivaldi.Vivaldi", "config"),
 	]);
 };
 

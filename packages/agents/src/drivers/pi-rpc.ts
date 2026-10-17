@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn } from "@zuse/utils/spawn-command";
 import {
 	stopProviderProcess,
 	watchProviderProcess,

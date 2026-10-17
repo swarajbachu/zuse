@@ -29,7 +29,12 @@ const command = (bin, args) =>
 		maxBuffer: 16 * 1024 * 1024,
 	}).trim();
 const git = (...args) => command("git", args);
-const gh = (...args) => command("gh", args);
+const gh = (...args) => {
+	const testScript = process.env.ZUSE_RELEASE_GH_SCRIPT?.trim();
+	return testScript
+		? command(process.execPath, [testScript, ...args])
+		: command("gh", args);
+};
 
 export function validateNotes(notes) {
 	if (!/^### (Added|Changed|Fixed)$/m.test(notes) || !/^[-*] \S/m.test(notes)) {

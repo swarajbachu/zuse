@@ -24,6 +24,7 @@ export type PowerBenchmarkScenario = (typeof POWER_BENCHMARK_SCENARIOS)[number];
 export interface ProcessTreeMetric {
 	readonly pid: number;
 	readonly parentPid: number;
+	readonly startedAtMs?: number;
 	readonly cpuPercent: number;
 	readonly residentMemoryBytes: number;
 	readonly command: string;
@@ -118,6 +119,8 @@ export const descendantProcessTree = (
 	processes: ReadonlyArray<ProcessTreeMetric>,
 	rootPid: number,
 ): ReadonlyArray<ProcessTreeMetric> => {
+	const byPid = new Map(processes.map((process) => [process.pid, process]));
+	if (!byPid.has(rootPid)) return [];
 	const included = new Set([rootPid]);
 	let changed = true;
 	while (changed) {
@@ -126,6 +129,15 @@ export const descendantProcessTree = (
 			if (!included.has(process.parentPid) || included.has(process.pid)) {
 				continue;
 			}
+			// Windows preserves an exited parent's PID. It can later identify a
+			// completely unrelated process, so ancestry must also respect creation time.
+			const parent = byPid.get(process.parentPid);
+			if (
+				parent?.startedAtMs !== undefined &&
+				process.startedAtMs !== undefined &&
+				process.startedAtMs < parent.startedAtMs
+			)
+				continue;
 			included.add(process.pid);
 			changed = true;
 		}
@@ -133,15 +145,82 @@ export const descendantProcessTree = (
 	return processes.filter((process) => included.has(process.pid));
 };
 
+/** Windows reports resident bytes directly; perf counters report percent across all cores. */
+export const parseWindowsProcessTree = (
+	output: string,
+): ProcessTreeMetric[] => {
+	const values: unknown = JSON.parse(output.replace(/^\uFEFF/u, ""));
+	if (!Array.isArray(values))
+		throw new Error("Expected a Windows process snapshot array");
+	return values.map((value) => {
+		if (typeof value !== "object" || value === null)
+			throw new Error("Invalid process snapshot");
+		const row = value as Record<string, unknown>;
+		for (const field of [
+			"pid",
+			"parentPid",
+			"cpuPercent",
+			"residentMemoryBytes",
+			"startedAtMs",
+		]) {
+			if (
+				typeof row[field] !== "number" ||
+				!Number.isFinite(row[field]) ||
+				row[field] < 0
+			)
+				throw new Error(`Invalid Windows process field: ${field}`);
+		}
+		if (typeof row.command !== "string")
+			throw new Error("Invalid Windows process name");
+		return {
+			pid: Number(row.pid),
+			parentPid: Number(row.parentPid),
+			startedAtMs: Number(row.startedAtMs),
+			cpuPercent: Number(row.cpuPercent),
+			residentMemoryBytes: Number(row.residentMemoryBytes),
+			command: row.command,
+		};
+	});
+};
+
+export const readProcessTreeSnapshot = async (): Promise<
+	ReadonlyArray<ProcessTreeMetric>
+> => {
+	if (process.platform === "win32") {
+		const { stdout } = await execFileAsync(
+			"powershell.exe",
+			[
+				"-NoProfile",
+				"-NonInteractive",
+				"-Command",
+				`
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$cpu = @{}
+Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | ForEach-Object { $cpu[[int]$_.IDProcess] = [double]$_.PercentProcessorTime }
+$rows = @(Get-CimInstance Win32_Process | ForEach-Object {
+ $started = if ($null -ne $_.CreationDate) { ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() } else { 0 }
+ [PSCustomObject]@{ pid = [int]$_.ProcessId; parentPid = [int]$_.ParentProcessId; startedAtMs = $started; cpuPercent = [double]$cpu[[int]$_.ProcessId]; residentMemoryBytes = [double]$_.WorkingSetSize; command = $_.Name }
+})
+ConvertTo-Json -InputObject $rows -Compress
+`,
+			],
+			{ timeout: 15_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
+		);
+		return parseWindowsProcessTree(stdout);
+	}
+	const { stdout } = await execFileAsync(
+		"/bin/ps",
+		["-axo", "pid=,ppid=,%cpu=,rss=,comm="],
+		{ timeout: 5_000, maxBuffer: 4 * 1024 * 1024 },
+	);
+	return parseProcessTree(stdout);
+};
+
 export const readDescendantProcessTree = async (
 	rootPid: number,
 ): Promise<ReadonlyArray<ProcessTreeMetric>> => {
-	if (process.platform !== "darwin") return [];
-	const { stdout } = await execFileAsync("/bin/ps", [
-		"-axo",
-		"pid=,ppid=,%cpu=,rss=,comm=",
-	]);
-	return descendantProcessTree(parseProcessTree(stdout), rootPid);
+	return descendantProcessTree(await readProcessTreeSnapshot(), rootPid);
 };
 
 export const powermetricsReleaseBenchmarkArguments = (input: {

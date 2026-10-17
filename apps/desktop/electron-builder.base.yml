@@ -86,6 +86,8 @@ asarUnpack:
   - "node_modules/@cursor/sdk-darwin-x64/**"
   - "node_modules/@cursor/sdk-linux-arm64/**"
   - "node_modules/@cursor/sdk-linux-x64/**"
+  - "node_modules/@cursor/sdk-win32-arm64/**"
+  - "node_modules/@cursor/sdk-win32-x64/**"
 
 # We rebuild the remaining native modules via the postinstall hook.
 # electron-builder's npmRebuild step doesn't understand bun workspaces.
@@ -193,3 +195,35 @@ publish:
   repo: zuse
   channel: latest
   releaseType: draft
+
+win:
+  files:
+
+    - "!node_modules/{node-pty,tree-sitter,tree-sitter-javascript,tree-sitter-json,tree-sitter-typescript}/prebuilds/{darwin-*,linux-*,win32-arm64,win32-ia32}/**"
+    - "!node_modules/**/@cursor/sdk-{darwin-*,linux-*,win32-arm64,win32-ia32}/**"
+
+    - "!node_modules/tree-sitter-{javascript,json}/{binding.gyp,grammar.js,*.wasm,bindings/node/*_test.js}"
+    - "!node_modules/tree-sitter-{javascript,json}/src/{grammar.json,parser.c,scanner.c,tree_sitter/**}"
+    - "!node_modules/tree-sitter-typescript/{binding.gyp,common/**,*.wasm,bindings/node/*_test.js}"
+    - "!node_modules/tree-sitter-typescript/{typescript,tsx}/grammar.js"
+    - "!node_modules/tree-sitter-typescript/{typescript,tsx}/src/{grammar.json,parser.c,scanner.c,tree_sitter/**}"
+    - "!node_modules/@cursor/sdk/dist/esm/**"
+    - "!node_modules/node-pty/lib/**/*.test.js"
+    - "!node_modules/node-pty/{src,scripts,deps,typings}/**"
+    - "!node_modules/node-pty/build/!(Release){,/**}"
+    - "!node_modules/node-pty/node_modules/node-addon-api/**"
+  target:
+    - target: nsis
+      arch: x64
+  executableName: Zuse
+  icon: build/icon.png
+  artifactName: Zuse-${version}-windows-${arch}-setup.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Zuse (Beta)

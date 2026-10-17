@@ -100,10 +100,32 @@ export const parseSsListeners = (
 	return collect(entries).filter((server) => !excludedPorts.has(server.port));
 };
 
+/** Windows netstat state labels are localized; use the TCP remote endpoint. */
+export const parseWindowsTcpListeners = (stdout: string) => {
+	const listeners: { host: string; port: number; pid: number }[] = [];
+	for (const line of stdout.split(/\r?\n/u)) {
+		const parts = line.trim().split(/\s+/u);
+		if (parts[0]?.toUpperCase() !== "TCP") continue;
+		if (!/^(?:0\.0\.0\.0|\[::\]):0$/u.test(parts[2] ?? "")) continue;
+		const match = parts[1]?.match(/^(.*):(\d+)$/u);
+		const port = validPort(match?.[2]);
+		const pid = Number(parts.at(-1));
+		if (!match || port === null || !Number.isInteger(pid) || pid <= 0) continue;
+		listeners.push({ host: match[1] ?? "", port, pid });
+	}
+	return listeners;
+};
+
 export const parseNetstatListeners = (
 	stdout: string,
 ): ReadonlyArray<ListeningServer> => {
-	const entries: ListenerEntry[] = [];
+	const entries: ListenerEntry[] = parseWindowsTcpListeners(stdout).map(
+		({ host, port }) => ({
+			name: "localhost",
+			port,
+			loopback: isLoopbackHost(host),
+		}),
+	);
 	for (const line of stdout.split("\n")) {
 		if (!/\bLISTEN(?:ING)?\b/iu.test(line)) continue;
 		const match = line.match(

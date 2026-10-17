@@ -1,6 +1,6 @@
-import { accessSync, constants, statSync } from "node:fs";
+import { accessSync, constants, existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { extname, isAbsolute, join, win32 } from "node:path";
 import type { PlanType } from "@zuse/agents/codex-generated/PlanType";
 import type { Account } from "@zuse/agents/codex-generated/v2/Account";
 import type { GetAccountResponse } from "@zuse/agents/codex-generated/v2/GetAccountResponse";
@@ -184,8 +184,31 @@ const splitCommandPaths = (stdout: string): ReadonlyArray<string> =>
 export const selectCliPathCandidate = (
 	cliBinary: string,
 	candidates: ReadonlyArray<string>,
+	platform: NodeJS.Platform = process.platform,
+	pathExists: (path: string) => boolean = existsSync,
 ): string | null => {
 	if (candidates.length === 0) return null;
+	if (platform === "win32" && cliBinary === "claude") {
+		// `where.exe claude` returns npm's extensionless POSIX shim first and its
+		// `.cmd` wrapper second. Neither can be passed to Node's spawn() as the
+		// SDK's native executable. Prefer a native install; otherwise use npm's
+		// JavaScript entrypoint, which the SDK intentionally launches through Node.
+		const native = candidates.find(
+			(candidate) => extname(candidate).toLowerCase() === ".exe",
+		);
+		if (native !== undefined) return native;
+		for (const candidate of candidates) {
+			const npmEntrypoint = win32.join(
+				win32.dirname(candidate),
+				"node_modules",
+				"@anthropic-ai",
+				"claude-code",
+				"cli.js",
+			);
+			if (pathExists(npmEntrypoint)) return npmEntrypoint;
+		}
+		return null;
+	}
 	if (cliBinary !== "codex") return candidates[0] ?? null;
 
 	return (
@@ -275,8 +298,9 @@ export const resolveCliPath = (
 			const pinned = executableCliPath(join(toolchain, cliBinary));
 			if (pinned !== null) return pinned;
 		}
+		const locator = cliLocatorCommand(process.platform, cliBinary);
 		const result = yield* runCapture(
-			Command.make("which", ["-a", cliBinary]),
+			Command.make(locator.command, locator.args),
 		).pipe(
 			Effect.timeoutOption(PROBE_TIMEOUT),
 			Effect.catch(() => Effect.succeedNone),
@@ -316,6 +340,23 @@ export const resolveCliPath = (
 		);
 		return selectNewestCliPathCandidate(usable);
 	});
+
+export const cliLocatorCommand = (
+	platform: NodeJS.Platform,
+	cliBinary: string,
+): { readonly command: string; readonly args: ReadonlyArray<string> } =>
+	platform === "win32"
+		? { command: "where.exe", args: [cliBinary] }
+		: { command: "which", args: ["-a", cliBinary] };
+
+export const cliInvocationCommand = (
+	cliPath: string,
+	args: ReadonlyArray<string>,
+	platform: NodeJS.Platform = process.platform,
+): { readonly command: string; readonly args: ReadonlyArray<string> } =>
+	platform === "win32" && /\.(?:c|m)?js$/iu.test(cliPath)
+		? { command: "node", args: [cliPath, ...args] }
+		: { command: cliPath, args };
 
 export interface CliVersion {
 	readonly major: number;
@@ -395,8 +436,9 @@ export const probeCliVersion = (
 	CommandExecutor.ChildProcessSpawner
 > =>
 	Effect.gen(function* () {
+		const invocation = cliInvocationCommand(cliBinary, ["--version"]);
 		const result = yield* runCapture(
-			Command.make(cliBinary, ["--version"]),
+			Command.make(invocation.command, invocation.args),
 		).pipe(
 			Effect.timeoutOption(PROBE_TIMEOUT),
 			Effect.catch(() => Effect.succeedNone),
@@ -498,8 +540,14 @@ const isManagedCodexShimPath = (p: string): boolean =>
 	/\/application support\/[^/]+\/bin\/codex$/.test(p) ||
 	(p.includes("/agent-binaries/codex/") && p.endsWith("/codex"));
 
+// A plain `npm i -g <pkg>@latest` re-install fails with ENOTEMPTY during npm's
+// "retire old dir" rename step when a prior install left files behind (common
+// with packages shipping optional per-platform binaries, e.g.
+// @anthropic-ai/claude-code). Uninstall first so install lays down a clean
+// tree. npm treats an already-absent global package as a successful uninstall,
+// so `&&` remains portable across POSIX shells and Windows cmd.exe.
 const npmGlobalUpdate = (pkg: string): string =>
-	`npm uninstall -g ${pkg} || true; npm install -g ${pkg}@latest`;
+	`npm uninstall -g ${pkg} && npm install -g ${pkg}@latest`;
 
 /**
  * Pure resolver: pick the update command for a provider given the candidate
@@ -511,6 +559,7 @@ const npmGlobalUpdate = (pkg: string): string =>
 export const buildUpdateCommand = (
 	providerId: ProviderId,
 	candidatePaths: ReadonlyArray<string>,
+	platform: NodeJS.Platform = "linux",
 ): string | null => {
 	const probe = PROBES.find((p) => p.providerId === providerId);
 	if (probe === undefined) return null;
@@ -546,7 +595,8 @@ export const buildUpdateCommand = (
 		return npmGlobalUpdate(probe.npmPackage);
 	}
 
-	return probe.upgradeCommand;
+	// Non-npm providers reinstall via their official one-liner.
+	return platform === "win32" ? null : probe.upgradeCommand;
 };
 
 /**
@@ -566,13 +616,19 @@ export const resolveUpdateCommand = (
 		if (probe === undefined) return null;
 		const cliPath = yield* resolveCliPath(probe.cliBinary);
 		if (cliPath === null) {
-			return buildUpdateCommand(providerId, []);
+			// Not on PATH — fall back to a path-less resolution (npm default /
+			// install one-liner) so the command still does something sensible.
+			return buildUpdateCommand(providerId, [], process.platform);
 		}
 		const fs = yield* FileSystem.FileSystem;
 		const realPath = yield* fs
 			.realPath(cliPath)
 			.pipe(Effect.catch(() => Effect.succeed(cliPath)));
-		return buildUpdateCommand(providerId, [cliPath, realPath]);
+		return buildUpdateCommand(
+			providerId,
+			[cliPath, realPath],
+			process.platform,
+		);
 	});
 
 interface AccountInfo {
@@ -972,8 +1028,13 @@ const probeNamedClaudeAccount = (
 	home: string,
 ): Effect.Effect<AccountInfo, never, CommandExecutor.ChildProcessSpawner> =>
 	Effect.gen(function* () {
+		const invocation = cliInvocationCommand(cliPath, [
+			"auth",
+			"status",
+			"--json",
+		]);
 		const result = yield* runCapture(
-			Command.make(cliPath, ["auth", "status", "--json"], {
+			Command.make(invocation.command, invocation.args, {
 				env: isolatedProviderAccountEnv("claude", home, process.env),
 				extendEnv: false,
 			}),
@@ -1035,8 +1096,9 @@ const probeOne = (
 			});
 		}
 
+		const versionInvocation = cliInvocationCommand(cliPath, ["--version"]);
 		const versionResult = yield* runCapture(
-			Command.make(cliPath, ["--version"]),
+			Command.make(versionInvocation.command, versionInvocation.args),
 		).pipe(
 			Effect.timeoutOption(PROBE_TIMEOUT),
 			Effect.catch(() => Effect.succeedNone),
@@ -1083,7 +1145,11 @@ const probeOne = (
 			.realPath(cliPath)
 			.pipe(Effect.catch(() => Effect.succeed(cliPath)));
 		const updateCommand =
-			buildUpdateCommand(probe.providerId, [cliPath, realPath]) ?? undefined;
+			buildUpdateCommand(
+				probe.providerId,
+				[cliPath, realPath],
+				process.platform,
+			) ?? undefined;
 
 		const accountHome = accountHomes[probe.providerId];
 		const account = yield* accountHome && probe.providerId === "claude"
