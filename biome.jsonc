@@ -22,6 +22,14 @@
 	},
 	"overrides": [
 		{
+			"includes": ["apps/web/public/schemas/*.json"],
+			"formatter": {
+				"indentStyle": "space",
+				"indentWidth": 2,
+				"expand": "always"
+			}
+		},
+		{
 			"includes": ["apps/mobile/global.css"],
 			"linter": {
 				"rules": {

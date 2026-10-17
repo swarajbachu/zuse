@@ -243,6 +243,41 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 		);
 		let result: unknown;
 		switch (command.kind) {
+			case "simulators.configure":
+				result = await Effect.runPromise(
+					client["simulators.configure"](payload as never),
+				);
+				break;
+			case "simulators.fix":
+				result = await Effect.runPromise(
+					client["simulators.fix"](payload as never),
+				);
+				break;
+			case "simulators.refresh":
+				result = await Effect.runPromise(
+					client["simulators.refresh"](payload as never),
+				);
+				break;
+			case "simulators.open":
+				result = await Effect.runPromise(
+					client["simulators.open"](payload as never),
+				);
+				break;
+			case "simulators.close":
+				result = await Effect.runPromise(
+					client["simulators.close"](payload as never),
+				);
+				break;
+			case "simulators.input":
+				result = await Effect.runPromise(
+					client["simulators.input"](payload as never),
+				);
+				break;
+			case "simulators.screenshot":
+				result = await Effect.runPromise(
+					client["simulators.screenshot"](payload as never),
+				);
+				break;
 			case "deviceBridge.control":
 				result = await Effect.runPromise(
 					client["deviceBridge.control"](payload as never),

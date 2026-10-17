@@ -32,7 +32,14 @@ const register = (
 };
 register("handshake", false, ["connect.handshake", "ping.ping"]);
 
-register("catalog", false, ["machine.resources.watch"]);
+// Aggregate resource usage only; host configuration and runtime control stay denied.
+register("catalog", false, ["machine.resources.watch", "simulators.state"]);
+register("chat", false, ["simulators.frames", "simulators.screenshot"]);
+register("chat", true, [
+	"simulators.open",
+	"simulators.close",
+	"simulators.input",
+]);
 register("catalog", false, ["permission.requests"]);
 register("catalog", true, ["permission.decide"]);
 register("session", false, [

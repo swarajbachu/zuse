@@ -100,6 +100,10 @@ import {
 import { TitleGeneratorLive } from "./provider/title-generator.ts";
 import { PtyServiceLive } from "./pty/layers/pty-service.ts";
 import { RepositorySettingsServiceLive } from "./repository-settings/layers/repository-settings-service.ts";
+import {
+	SimulatorServiceLive,
+	SimulatorToolsLive,
+} from "./simulators/service.ts";
 import { SkillBridgeLive } from "./skill/layers/skill-bridge.ts";
 import { SkillDiscoveryServiceLive } from "./skill/layers/skill-discovery.ts";
 import { UsageLimitsPollerLive } from "./usage/limits/poller.ts";
@@ -448,6 +452,14 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 
 	const BrowserBridgeLayer = BrowserBridgeServiceLive;
+	const SimulatorLayer = SimulatorServiceLive.pipe(
+		Layer.provide(AppPathsLayer),
+		Layer.provide(ConfigStoreLayer),
+		Layer.provide(MigratedSqlite),
+	);
+	const SimulatorAgentLayer = SimulatorToolsLive.pipe(
+		Layer.provide(SimulatorLayer),
+	);
 
 	const AttachmentLayer = AttachmentServiceLive.pipe(
 		Layer.provide(MigratedSqlite),
@@ -487,6 +499,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(NodeServices.layer),
 	);
 	const HarnessProviderLayer = HarnessProviderLive.pipe(
+		Layer.provide(SimulatorAgentLayer),
 		Layer.provide(SkillDiscoveryLayer),
 		Layer.provide(ModelConnectionsLayer),
 		Layer.provide(AppPathsLayer),
@@ -514,6 +527,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 
 	const ProviderLayer = ProviderServiceLive.pipe(
 		Layer.provide(AutomationLayer),
+		Layer.provide(SimulatorAgentLayer),
 		Layer.provide(ProviderAccountsLayer),
 		Layer.provide(AcpAgentLayer),
 		Layer.provide(HarnessProviderLayer),
@@ -747,6 +761,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		ProviderAccountsLayer,
 		AcpAgentLayer,
 		DeviceBridgeLayer,
+		SimulatorLayer,
 		WorkspaceLayer,
 		PtyLayer,
 		GitLayer,

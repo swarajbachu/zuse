@@ -71,6 +71,9 @@ export type MergePrefs = typeof MergePrefs.Type;
  */
 export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
 	schemaVersion: Schema.Literal(1),
+	simulatorSupportEnabled: Schema.optional(Schema.Boolean),
+	simulatorAgentAccessEnabled: Schema.optional(Schema.Boolean),
+	simulatorOnboardingCompleted: Schema.optional(Schema.Boolean),
 	defaultProviderId: ProviderId,
 	defaultModelByProvider: Schema.Record(ProviderId, Schema.String),
 	defaultRuntimeMode: RuntimeMode,
@@ -204,6 +207,9 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
  * `subagents` payload rather than a deep merge.
  */
 export const SettingsPatch = Schema.Struct({
+	simulatorSupportEnabled: Schema.optional(Schema.Boolean),
+	simulatorAgentAccessEnabled: Schema.optional(Schema.Boolean),
+	simulatorOnboardingCompleted: Schema.optional(Schema.Boolean),
 	defaultProviderId: Schema.optional(ProviderId),
 	defaultModelByProvider: Schema.optional(
 		Schema.Record(ProviderId, Schema.String),

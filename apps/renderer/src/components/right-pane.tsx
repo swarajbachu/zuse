@@ -1,4 +1,6 @@
 import { isHostedProduct } from "../lib/hosted-session.ts";
+import { useSimulatorReveal } from "../lib/simulator-client-bus.ts";
+import { SimulatorPane } from "./simulator/simulator-pane.tsx";
 import { WorkspacePanelTab } from "./workspace-panel-tab.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -21,6 +23,7 @@ import {
 	GitPullRequestIcon,
 	GlobeIcon,
 	MagicWand01Icon,
+	SmartPhone02Icon,
 } from "@zuse/icons/solid-rounded";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Plus } from "lucide-react";
@@ -93,6 +96,7 @@ import { MarkdownBody } from "./markdown-body.tsx";
 import { PrPane } from "./pr-pane.tsx";
 import { SubagentsPane } from "./subagents-pane.tsx";
 import { TerminalSlotPane, TerminalTabControls } from "./terminal-pane.tsx";
+import { CompactEmptyState } from "./ui/compact-empty-state.tsx";
 import {
 	Menu,
 	MenuItem,
@@ -160,6 +164,7 @@ const PANEL_META: Record<
 		},
 		icon: CheckListIcon,
 	},
+	device: { label: "Simulator", icon: SmartPhone02Icon },
 	browser: {
 		get label() {
 			return uiMessage("chat:right_pane_browser");
@@ -188,6 +193,7 @@ const LIVE_PANEL_KINDS = new Set<PanelKind>([
 	"changes",
 	"pr",
 	"browser",
+	"device",
 ]);
 
 const PRIMARY_PANEL_ORDER: ReadonlyArray<PanelKind> = [
@@ -196,6 +202,7 @@ const PRIMARY_PANEL_ORDER: ReadonlyArray<PanelKind> = [
 	"changes",
 	"terminal",
 	"browser",
+	"device",
 ];
 
 const latestAssistantText = (
@@ -285,8 +292,10 @@ const panelChoices = (
  */
 export function RightPane({
 	directoryUnavailable = false,
+	visible = true,
 }: {
 	directoryUnavailable?: boolean;
+	visible?: boolean;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 
@@ -501,6 +510,10 @@ export function RightPane({
 		[],
 	);
 
+	const simulatorState = useSimulatorReveal(
+		chatRef,
+		executionRef?.environmentId ?? null,
+	);
 	const panels = useUiStore((s) =>
 		chatKey ? (s.rightPanelsByChat[chatKey] ?? EMPTY_PANELS) : EMPTY_PANELS,
 	);
@@ -726,7 +739,11 @@ export function RightPane({
 	const tabLabel = (panel: PanelInstance): string =>
 		panel.kind === "terminal"
 			? (termList[panel.slot]?.title ?? PANEL_META.terminal.label)
-			: PANEL_META[panel.kind].label;
+			: panel.kind === "device" && panel.deviceId
+				? (simulatorState?.devices.find(
+						(device) => device.id === panel.deviceId,
+					)?.name ?? PANEL_META.device.label)
+				: PANEL_META[panel.kind].label;
 
 	const tabBadge = (panel: PanelInstance): React.ReactNode => {
 		if (panel.kind === "changes") {
@@ -915,7 +932,11 @@ export function RightPane({
 								className="flex min-h-0 min-w-0 flex-1 flex-col"
 							>
 								<PanelBody
+									executionReady={
+										ctx.status === "ready" && !directoryUnavailable
+									}
 									panel={panel}
+									active={visible && panel.id === effectiveActiveId}
 									folderId={executionFolderId ?? selected.id}
 									projectId={selected.id}
 									environmentId={
@@ -975,7 +996,9 @@ export function RightPane({
 }
 
 function PanelBody({
+	executionReady,
 	panel,
+	active,
 	folderId,
 	projectId,
 	environmentId,
@@ -988,7 +1011,9 @@ function PanelBody({
 	cloudUnavailable,
 	localTerminal,
 }: {
+	executionReady: boolean;
 	panel: PanelInstance;
+	active: boolean;
 	folderId: FolderId;
 	projectId: FolderId;
 	environmentId: EnvironmentId;
@@ -1066,6 +1091,24 @@ function PanelBody({
 			);
 		case "plan":
 			return <PlanPane markdown={planMarkdown} />;
+		case "device":
+			if (!executionReady)
+				return (
+					<CompactEmptyState
+						className="m-auto"
+						title="Environment not connected"
+						description="Connect this chat’s environment to use its simulators."
+					/>
+				);
+			return chatRef === null ? null : (
+				<SimulatorPane
+					panelRef={chatRef}
+					refTarget={{ ...chatRef, environmentId }}
+					panelId={panel.id}
+					deviceId={panel.deviceId}
+					active={active}
+				/>
+			);
 		case "browser":
 			return null;
 		case "subagents":

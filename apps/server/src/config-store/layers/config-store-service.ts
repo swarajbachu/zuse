@@ -536,6 +536,9 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 
 	return SettingsFile.make({
 		schemaVersion: 1,
+		simulatorSupportEnabled: obj.simulatorSupportEnabled === true,
+		simulatorAgentAccessEnabled: obj.simulatorAgentAccessEnabled === true,
+		simulatorOnboardingCompleted: obj.simulatorOnboardingCompleted === true,
 		defaultProviderId: provider,
 		defaultModelByProvider: models,
 		defaultRuntimeMode: runtime,
@@ -781,6 +784,18 @@ export const ConfigStoreServiceLive = Layer.effect(
 				const cur = yield* Ref.get(settingsRef);
 				const next: SettingsFile = SettingsFile.make({
 					schemaVersion: 1,
+					simulatorSupportEnabled:
+						patch.simulatorSupportEnabled ??
+						cur.simulatorSupportEnabled ??
+						false,
+					simulatorAgentAccessEnabled:
+						patch.simulatorAgentAccessEnabled ??
+						cur.simulatorAgentAccessEnabled ??
+						false,
+					simulatorOnboardingCompleted:
+						patch.simulatorOnboardingCompleted ??
+						cur.simulatorOnboardingCompleted ??
+						false,
 					defaultProviderId: patch.defaultProviderId ?? cur.defaultProviderId,
 					defaultModelByProvider:
 						patch.defaultModelByProvider ?? cur.defaultModelByProvider,

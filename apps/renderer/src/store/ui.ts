@@ -49,6 +49,7 @@ export type SettingsSection =
 				| "sharing";
 	  }
 	| { readonly kind: "browser" }
+	| { readonly kind: "simulator" }
 	| { readonly kind: "pokedex" }
 	| { readonly kind: "diagnostics" }
 	| { readonly kind: "shortcuts" }
@@ -89,6 +90,7 @@ export type PanelKind =
 	| "pr"
 	| "plan"
 	| "browser"
+	| "device"
 	| "subagents";
 
 /**
@@ -118,6 +120,11 @@ export type PanelInstance =
 	| { readonly id: string; readonly kind: "pr" }
 	| { readonly id: string; readonly kind: "plan" }
 	| { readonly id: string; readonly kind: "browser" }
+	| {
+			readonly id: string;
+			readonly kind: "device";
+			readonly deviceId?: string;
+	  }
 	| { readonly id: string; readonly kind: "subagents" }
 	| { readonly id: string; readonly kind: "terminal"; readonly slot: number };
 
@@ -284,7 +291,13 @@ type UiState = {
 	readonly setChangesListMode: (mode: ChangesListMode) => void;
 
 	readonly addPanel: (ref: ChatRef, kind: PanelKind) => void;
-
+	readonly openDevicePanel: (
+		ref: ChatRef,
+		deviceId: string,
+		panelId?: string,
+	) => void;
+	/** Return a simulator tab to its picker; the simulator session keeps running. */
+	readonly showDevicePicker: (ref: ChatRef, panelId: string) => void;
 	readonly addTerminalPanelForSlot: (ref: ChatRef, slot: number) => void;
 
 	readonly closePanel: (ref: ChatRef, id: string) => void;
@@ -753,6 +766,56 @@ export const useUiStore = create<UiState>((set, get) => ({
 		persistChangesListMode(mode);
 		set({ changesListMode: mode });
 	},
+	openDevicePanel: (ref, deviceId, panelId) => {
+		get().setRightSidebarOpenForChat(ref, true);
+		set((s) => {
+			const key = rightPaneKey(ref);
+			const panels = s.rightPanelsByChat[key] ?? EMPTY_PANELS;
+			const existing = panels.find(
+				(panel) => panel.kind === "device" && panel.deviceId === deviceId,
+			);
+			// A picker tab that resolves to an already-open simulator folds into it.
+			if (existing)
+				return writePanels(
+					s,
+					key,
+					panels.filter(
+						(p) =>
+							p.id === existing.id ||
+							p.id !== panelId ||
+							p.kind !== "device" ||
+							p.deviceId !== undefined,
+					),
+					existing.id,
+				);
+			const panel: PanelInstance = {
+				id: panelId ?? newPanelId(),
+				kind: "device",
+				deviceId,
+			};
+			return writePanels(
+				s,
+				key,
+				[...panels.filter((p) => p.id !== panelId), panel],
+				panel.id,
+			);
+		});
+	},
+	showDevicePicker: (ref, panelId) =>
+		set((s) => {
+			const key = rightPaneKey(ref);
+			const panels = s.rightPanelsByChat[key] ?? EMPTY_PANELS;
+			return writePanels(
+				s,
+				key,
+				panels.map((panel) =>
+					panel.id === panelId && panel.kind === "device"
+						? { id: panel.id, kind: "device" }
+						: panel,
+				),
+				panelId,
+			);
+		}),
 	addPanel: (ref, kind) =>
 		set((s) => {
 			const key = rightPaneKey(ref);
@@ -770,7 +833,10 @@ export const useUiStore = create<UiState>((set, get) => ({
 				const panel = { id: newPanelId(), kind } as PanelInstance;
 				return writePanels(s, key, [...panels, panel], panel.id);
 			}
-
+			if (kind === "device") {
+				const panel: PanelInstance = { id: newPanelId(), kind: "device" };
+				return writePanels(s, key, [...panels, panel], panel.id);
+			}
 			const slot = panels.filter((p) => p.kind === "terminal").length;
 			const panel: PanelInstance = { id: newPanelId(), kind: "terminal", slot };
 			return writePanels(s, key, [...panels, panel], panel.id);

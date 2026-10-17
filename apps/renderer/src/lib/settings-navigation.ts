@@ -14,6 +14,7 @@ import {
 	PuzzleIcon,
 	Settings01Icon,
 	SmartPhone01Icon,
+	SmartPhone02Icon,
 	TaskDone01Icon,
 	UserGroupIcon,
 } from "@zuse/icons/solid-rounded";
@@ -85,6 +86,12 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 		section: { kind: "browser" },
 	},
 	{
+		id: "simulator",
+		label: "Simulators",
+		Icon: SmartPhone02Icon,
+		section: { kind: "simulator" },
+	},
+	{
 		id: "pokedex",
 		get label() {
 			return uiMessage("settings:settings_navigation_pokedex");
@@ -131,7 +138,9 @@ export function settingsNavigationFor(
 ) {
 	if (scope?.kind === "organization") return ORGANIZATION_NAVIGATION;
 	return SETTINGS_NAVIGATION.filter(
-		(item) => desktop || item.section.kind !== "machines",
+		(item) =>
+			desktop ||
+			(item.section.kind !== "machines" && item.section.kind !== "simulator"),
 	);
 }
 
