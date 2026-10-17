@@ -13,6 +13,7 @@ import {
 	getDefaultPluginClient,
 	pluginCliEnv,
 } from "@zuse/agents/drivers/plugin-tools";
+import { SimulatorTools } from "@zuse/agents/drivers/simulator-tools";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import type {
 	GoalCapableSessionHandle,
@@ -159,6 +160,7 @@ export const ProviderServiceLive = Layer.effect(
 		const workspace = yield* WorkspaceService;
 		const permissions = yield* PermissionService;
 		const attachmentService = yield* AttachmentService;
+		const simulatorTools = yield* SimulatorTools;
 		const htmlTools = yield* Effect.acquireRelease(
 			Effect.sync(() => createHtmlTools(attachmentService)),
 			(tools) => Effect.promise(() => tools.close()),
@@ -705,9 +707,21 @@ export const ProviderServiceLive = Layer.effect(
 											orchestration: orchestrationTools !== null,
 											plugins: client !== undefined,
 											html: true,
+											simulators: true,
 										},
 										ctx: {
 											html: { client: htmlTools.client, cwd },
+											simulators: {
+												client: simulatorTools,
+												requestPermission: (kind, options) =>
+													buildRequestPermission(
+														input.folderId,
+														permissionAuthority,
+													)(sessionId, kind, options),
+												getRuntimeMode: () =>
+													getRuntimeMode?.() ?? "approval-required",
+												getPermissionMode: () => managedPermissionMode,
+											},
 											...(orchestrationTools === null
 												? {}
 												: {
@@ -1261,6 +1275,7 @@ export const ProviderServiceLive = Layer.effect(
 						startupPermits.withPermits(1)(
 							start.pipe(
 								Effect.provideService(HtmlTools, htmlTools.client),
+								Effect.provideService(SimulatorTools, simulatorTools),
 								Effect.onError(() =>
 									Effect.promise(async () => {
 										await managedPlugins?.close();

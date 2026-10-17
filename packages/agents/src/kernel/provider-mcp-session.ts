@@ -14,6 +14,7 @@ import { getDefaultDeviceCommandClient } from "../drivers/device-command-tools.t
 import { HtmlTools } from "../drivers/html-tools.ts";
 import type { OrchestrationSessionTools } from "../drivers/orchestration-tools.ts";
 import { getDefaultPluginClient } from "../drivers/plugin-tools.ts";
+import { SimulatorTools } from "../drivers/simulator-tools.ts";
 import {
 	type AppMcpInteractionOptions,
 	issueMcpGatewaySession,
@@ -42,6 +43,7 @@ export const issueProviderMcpSession = Effect.fn("ProviderMcpSession.issue")(
 		startup: ProviderStartup,
 		options: ProviderMcpSessionOptions,
 	): Effect.fn.Return<McpGatewaySession, AgentSessionStartError> {
+		const simulators = yield* Effect.serviceOption(SimulatorTools);
 		const html = yield* Effect.serviceOption(HtmlTools);
 		const plugins = yield* Effect.promise(getDefaultPluginClient);
 		return yield* Effect.tryPromise({
@@ -57,6 +59,7 @@ export const issueProviderMcpSession = Effect.fn("ProviderMcpSession.issue")(
 									orchestration: options.orchestrationTools !== null,
 									images: true,
 									html: Option.isSome(html),
+									simulators: Option.isSome(simulators),
 									deviceCommands: getDefaultDeviceCommandClient() !== undefined,
 									interaction: options.interaction !== undefined,
 								},
@@ -70,6 +73,16 @@ export const issueProviderMcpSession = Effect.fn("ProviderMcpSession.issue")(
 											}
 										: undefined,
 									images: { cwd: options.cwd },
+									...(Option.isSome(simulators)
+										? {
+												simulators: {
+													client: simulators.value,
+													requestPermission: options.requestPermission,
+													getRuntimeMode: options.getRuntimeMode,
+													getPermissionMode: options.getPermissionMode,
+												},
+											}
+										: {}),
 									...(Option.isSome(html)
 										? { html: { client: html.value, cwd: options.cwd } }
 										: {}),

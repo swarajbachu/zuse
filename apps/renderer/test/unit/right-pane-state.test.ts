@@ -48,6 +48,46 @@ describe("chat-scoped right pane state", () => {
 		});
 	});
 
+	it("keeps device viewers separate by environment and chat, and replaces the setup tab", () => {
+		const ui = useUiStore.getState();
+		ui.addPanel(chatA, "device");
+		const starter = useUiStore.getState().rightPanelsByChat[keyA]?.[0];
+		ui.openDevicePanel(chatA, "ABC", starter?.id);
+		ui.openDevicePanel(chatA, "ABC");
+		ui.openDevicePanel(chatA, "DEF");
+		ui.openDevicePanel(chatB, "ABC");
+		expect(useUiStore.getState().rightPanelsByChat[keyA]).toHaveLength(2);
+		expect(useUiStore.getState().rightPanelsByChat[keyB]).toHaveLength(1);
+		expect(useUiStore.getState().rightPanelsByChat[keyA]?.[0]).toMatchObject({
+			id: starter?.id,
+			kind: "device",
+			deviceId: "ABC",
+		});
+		expect(useUiStore.getState().rightPaneLayoutByChat[keyA]?.open).toBe(true);
+	});
+
+	it("returns a simulator tab to its picker and folds duplicate pickers", () => {
+		const ui = useUiStore.getState();
+		ui.openDevicePanel(chatA, "ABC");
+		const viewer = useUiStore.getState().rightPanelsByChat[keyA]?.[0];
+		ui.showDevicePicker(chatA, viewer?.id ?? "");
+		expect(useUiStore.getState().rightPanelsByChat[keyA]?.[0]).toEqual({
+			id: viewer?.id,
+			kind: "device",
+		});
+		ui.openDevicePanel(chatA, "DEF");
+		ui.addPanel(chatA, "device");
+		const picker = useUiStore.getState().rightPanelsByChat[keyA]?.at(-1);
+		ui.openDevicePanel(chatA, "DEF", picker?.id);
+		const panels = useUiStore.getState().rightPanelsByChat[keyA] ?? [];
+		expect(
+			panels.map((panel) => panel.kind === "device" && panel.deviceId),
+		).toEqual([undefined, "DEF"]);
+		expect(useUiStore.getState().activeRightPanelByChat[keyA]).toBe(
+			panels[1]?.id,
+		);
+	});
+
 	it("keeps visibility and width independent between chats", () => {
 		const ui = useUiStore.getState();
 		ui.setRightSidebarOpenForChat(chatA, true);

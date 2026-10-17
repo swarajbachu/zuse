@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { OrchestrationSessionTools } from "@zuse/agents/drivers/orchestration-tools";
+import { SimulatorTools } from "@zuse/agents/drivers/simulator-tools";
 import { AccountBroker } from "@zuse/agents/harness/account-broker";
 import { digest } from "@zuse/agents/harness/cache";
 import { requestModel } from "@zuse/agents/harness/model";
@@ -28,10 +29,11 @@ import {
 	PermissionService,
 	type RequestOptions,
 } from "../provider/services/permission-service.ts";
+import { simulatorHarnessTools } from "../simulators/harness.ts";
 import { SkillDiscoveryService } from "../skill/services/skill-discovery.ts";
 import { ModelConnections } from "./connections-service.ts";
 import { makeHarnessJournal } from "./journal.ts";
-import { createNativeHarness } from "./native-runtime.ts";
+import { combineAppTools, createNativeHarness } from "./native-runtime.ts";
 import { makeHarnessOrchestrationTools } from "./orchestration-tools.ts";
 import { makeHarnessSession } from "./provider-session.ts";
 import { resolveHarnessRipgrep } from "./ripgrep.ts";
@@ -91,7 +93,7 @@ export const HarnessProviderLive = Layer.effect(
 		const permissions = yield* PermissionService;
 		const attachments = yield* AttachmentService;
 		const skillsService = yield* Effect.serviceOption(SkillDiscoveryService);
-
+		const simulators = yield* Effect.serviceOption(SimulatorTools);
 		const discover = (cwd: string) =>
 			Option.isSome(skillsService)
 				? Effect.runPromise(skillsService.value.discover("zuse", cwd)).then(
@@ -444,20 +446,38 @@ export const HarnessProviderLive = Layer.effect(
 								rootId,
 								model: input.model ?? "",
 								dataDirectory: paths.userData,
-								appTools: orchestrationTools
-									? makeHarnessOrchestrationTools(orchestrationTools.deps, {
-											getRuntimeMode: runtimeMode,
-											requestPermission: (context) => (kind, options) =>
-												Effect.runPromise(
-													permissions.request(sessionId, kind, {
-														...permissionAuthority,
-														...options,
-														projectId: input.folderId,
-													}),
-													{ signal: context.signal },
-												),
-										})
-									: undefined,
+								appTools: combineAppTools(
+									orchestrationTools
+										? makeHarnessOrchestrationTools(orchestrationTools.deps, {
+												getRuntimeMode: runtimeMode,
+												requestPermission: (context) => (kind, options) =>
+													Effect.runPromise(
+														permissions.request(sessionId, kind, {
+															...permissionAuthority,
+															...options,
+															projectId: input.folderId,
+														}),
+														{ signal: context.signal },
+													),
+											})
+										: undefined,
+									Option.isSome(simulators)
+										? simulatorHarnessTools({
+												client: simulators.value,
+												sessionId,
+												getRuntimeMode: runtimeMode,
+												requestPermission: (kind, options, signal) =>
+													Effect.runPromise(
+														permissions.request(sessionId, kind, {
+															...permissionAuthority,
+															...options,
+															projectId: input.folderId,
+														}),
+														{ signal },
+													),
+											})
+										: undefined,
+								),
 								host: {
 									...journal,
 									load: async () => {

@@ -44,7 +44,15 @@ export type WorktreeRef = Readonly<{
 	worktreeId: WorktreeId;
 }>;
 
+export type SimulatorRef = Readonly<{
+	environmentId: EnvironmentId;
+	chatId: ChatId;
+	deviceId: string;
+	format: "avcc" | "mjpeg";
+}>;
+
 export type ResourceRef =
+	| SimulatorRef
 	| EnvironmentRef
 	| ProjectRef
 	| ChatRef
@@ -58,6 +66,8 @@ const part = (value: string): string => encodeURIComponent(value);
 /** A stable, collision-safe key for an environment-qualified reference. */
 export const resourceRefKey = (ref: ResourceRef): string => {
 	const environment = part(ref.environmentId);
+	if ("deviceId" in ref)
+		return `simulator:${environment}:${part(ref.chatId)}:${part(ref.deviceId)}:${ref.format}`;
 	if ("sessionId" in ref) {
 		return `session:${environment}:${part(ref.sessionId)}`;
 	}
@@ -86,6 +96,8 @@ export const resourceRefKey = (ref: ResourceRef): string => {
 };
 
 export type ResourceKind =
+	| "environment-simulators"
+	| "simulator-video"
 	| "environment-shell"
 	| "environment-permissions"
 	| "environment-question-attachments"

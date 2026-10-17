@@ -908,7 +908,10 @@ export function MainShell() {
 							<div className="flex min-h-0 flex-1 flex-col">
 								{shouldMountRightPane(rightSidebarOpen && !fullWidthPage) ? (
 									<Suspense fallback={<SurfaceFallback />}>
-										<RightPane directoryUnavailable={directoryUnavailable} />
+										<RightPane
+											directoryUnavailable={directoryUnavailable}
+											visible={rightSidebarOpen && !fullWidthPage}
+										/>
 									</Suspense>
 								) : null}
 							</div>

@@ -64,7 +64,9 @@
 		"./organization-control-client": "./src/organization-control-client.ts",
 		"./control-api-error": "./src/control-api-error.ts",
 		"./html-render": "./src/html-render.ts",
-		"./generative-ui": "./src/generative-ui.ts"
+		"./generative-ui": "./src/generative-ui.ts",
+		"./simulators/video": "./src/simulators/video.ts",
+		"./simulators/reveal": "./src/simulators/reveal.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",

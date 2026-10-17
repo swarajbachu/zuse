@@ -7,6 +7,10 @@ import {
 	type OrchestrationSessionTools,
 	type OrchestrationToolDeps,
 } from "@zuse/agents/drivers/orchestration-tools";
+import {
+	SimulatorTools,
+	type SimulatorToolsClient,
+} from "@zuse/agents/drivers/simulator-tools";
 import { requestModel } from "@zuse/agents/harness/model";
 import type { HarnessModelOutput } from "@zuse/agents/harness/types";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
@@ -43,7 +47,11 @@ afterEach(() => {
 	vi.unstubAllEnvs();
 	vi.clearAllMocks();
 });
-async function setup(contextWindow?: number, autoCompactTokenLimit?: number) {
+async function setup(
+	contextWindow?: number,
+	autoCompactTokenLimit?: number,
+	simulatorClient?: SimulatorToolsClient,
+) {
 	const dir = await mkdtemp(join(tmpdir(), "zuse-provider-test-"));
 	vi.stubEnv("ZUSE_CONFIG_DIR", join(dir, "config"));
 	const fetcher = vi.fn(async () =>
@@ -126,7 +134,14 @@ async function setup(contextWindow?: number, autoCompactTokenLimit?: number) {
 		}),
 	);
 	const runtime = ManagedRuntime.make(
-		HarnessProviderLive.pipe(Layer.provideMerge(deps)),
+		HarnessProviderLive.pipe(
+			Layer.provideMerge(deps),
+			Layer.provide(
+				simulatorClient
+					? Layer.succeed(SimulatorTools, simulatorClient)
+					: Layer.empty,
+			),
+		),
 	);
 	await runtime.runPromise(Migration0061HarnessExecutions);
 	const provider = await runtime.runPromise(HarnessProvider);
@@ -626,6 +641,54 @@ it("passes session environment bindings to native shell without changing process
 		} finally {
 			await env.runtime.runPromise(handle.close());
 		}
+	} finally {
+		await env.close();
+	}
+});
+
+it("exposes and executes device tools through the native provider model loop", async () => {
+	const call = vi.fn(async () => ({
+		content: [{ type: "text" as const, text: '{"devices":[]}' }],
+	}));
+	const env = await setup(undefined, undefined, { call });
+	try {
+		await env.enable(true);
+		vi.mocked(requestModel)
+			.mockImplementationOnce(async (input) => {
+				expect(input.tools.device_list).toBeDefined();
+				expect(input.tools.device_open).toBeDefined();
+				return tool("device_list", "device-list", {});
+			})
+			.mockImplementationOnce(async () => output("Devices checked"));
+		const handle = await env.runtime.runPromise(
+			makeTurnScopedSessionHandle(await env.start()),
+		);
+		const events: AgentEvent[] = [];
+		const reading = env.runtime.runPromise(
+			Stream.runForEach(handle.events, (event) =>
+				Effect.sync(() => {
+					if (event.event._tag !== "QuestionCallbackReleased")
+						events.push(event.event);
+				}),
+			),
+		);
+		await env.runtime.runPromise(
+			handle.send(AgentTurnId.make("device-turn"), "List devices"),
+		);
+		await expect
+			.poll(() => events.some((event) => event._tag === "Completed"), {
+				timeout: 5000,
+			})
+			.toBe(true);
+		expect(call).toHaveBeenCalledWith(
+			"test-session",
+			"device_list",
+			{},
+			expect.any(AbortSignal),
+		);
+		expect(env.requestPermission).not.toHaveBeenCalled();
+		await env.runtime.runPromise(handle.close());
+		await reading;
 	} finally {
 		await env.close();
 	}

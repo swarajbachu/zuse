@@ -63,6 +63,18 @@
     "onboardingCompleted": {
       "type": "boolean"
     },
+    "simulatorSupportEnabled": {
+      "type": "boolean",
+      "default": false
+    },
+    "simulatorAgentAccessEnabled": {
+      "type": "boolean",
+      "default": false
+    },
+    "simulatorOnboardingCompleted": {
+      "type": "boolean",
+      "default": false
+    },
     "appearanceMode": {
       "enum": [
         "system",
