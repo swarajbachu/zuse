@@ -9,6 +9,7 @@ import {
 } from "@zuse/client-runtime/cloud-control-client";
 import { controlApiErrorCode } from "@zuse/client-runtime/control-api-error";
 import { makeOrganizationAutoJoinControlClient } from "@zuse/client-runtime/organization-control-client";
+import { BridgeDeviceList, DEVICE_BRIDGE_API_PATH } from "@zuse/contracts";
 import { resolveAccountApiUrl } from "../api/api-url.ts";
 import { AppPaths } from "../app-paths.ts";
 import { LocalPlugins, withLocalPlugins } from "./local-plugins.ts";
@@ -232,10 +233,15 @@ export interface MachineControlServiceShape {
 	readonly prepareCloudProject: (
 		input: CloudProjectPrepareRequest,
 	) => Effect.Effect<CloudProjectBuild, MachineControlError>;
+	readonly bridgeDevices: () => Effect.Effect<
+		typeof BridgeDeviceList.Type,
+		MachineControlError
+	>;
 	readonly deviceBridge: (
 		workspaceId: string,
 		action: DeviceBridgeAction,
 		targetDeviceId?: string,
+		bindOnlyIfUnbound?: boolean,
 	) => Effect.Effect<typeof DeviceBridgeResult.Type, MachineControlError>;
 	readonly cloudWorkspaces: (
 		projectId?: string,
@@ -736,12 +742,14 @@ export const MachineControlServiceLive: Layer.Layer<
 					"POST",
 					input,
 				),
-			deviceBridge: (workspaceId, action, targetDeviceId) =>
+			bridgeDevices: () =>
+				request(`${DEVICE_BRIDGE_API_PATH}/devices`, BridgeDeviceList),
+			deviceBridge: (workspaceId, action, targetDeviceId, bindOnlyIfUnbound) =>
 				request(
 					ApiPaths.cloudWorkspaceDeviceBridge(workspaceId),
 					DeviceBridgeResult,
 					"POST",
-					{ action, targetDeviceId },
+					{ action, targetDeviceId, bindOnlyIfUnbound },
 				),
 			cloudWorkspaces: (projectId) =>
 				request(

@@ -1,7 +1,8 @@
 import { DeviceBridgeError, MemoizeRpcs } from "@zuse/contracts";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { DeviceBridgeService } from "./service.ts";
-export const DeviceBridgeHandlersLayer = MemoizeRpcs.toLayerHandler(
+
+const DeviceBridgeControlHandler = MemoizeRpcs.toLayerHandler(
 	"deviceBridge.control",
 	(action) =>
 		Effect.gen(function* () {
@@ -16,4 +17,23 @@ export const DeviceBridgeHandlersLayer = MemoizeRpcs.toLayerHandler(
 					}),
 			});
 		}),
+);
+
+const SetEnabled = MemoizeRpcs.toLayerHandler(
+	"deviceBridge.setEnabled",
+	({ enabled }) =>
+		Effect.gen(function* () {
+			const service = yield* DeviceBridgeService;
+			return yield* Effect.tryPromise({
+				try: () => service.setEnabled(enabled),
+				catch: () =>
+					new DeviceBridgeError({
+						reason: "Could not change cloud device access",
+					}),
+			});
+		}),
+);
+export const DeviceBridgeHandlersLayer = Layer.merge(
+	DeviceBridgeControlHandler,
+	SetEnabled,
 );

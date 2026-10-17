@@ -65,7 +65,7 @@ export class DeviceBridgeController {
 				{
 					status: null,
 					error:
-						"Local computer unavailable. Check desktop Devices settings and runtime support.",
+						"Couldn’t check cloud device access. Choose a computer or check Cloud device access on the host.",
 				},
 				generation,
 			);

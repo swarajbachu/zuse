@@ -1,3 +1,4 @@
+import { groupHostedComputers } from "@zuse/client-runtime/remote-computer-catalog";
 import { Atom } from "effect/unstable/reactivity";
 
 import { connectionErrorMessage } from "../lib/connection-error-message.ts";
@@ -34,17 +35,26 @@ const patchPresence = (environmentId: string, presence: Presence): void => {
 	);
 };
 
+let discoveryGeneration = 0;
 export const refreshEnvironments = async (): Promise<void> => {
+	const generation = ++discoveryGeneration;
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(environmentsLoadingAtom, true);
 		appAtomRegistry.set(environmentsErrorAtom, null);
 	});
 	try {
 		const list = await listEnvironments();
+		if (generation !== discoveryGeneration) return;
+		const environments = [
+			...list.environments.filter(
+				(environment) => environment.providerKind === "cloud",
+			),
+			...groupHostedComputers(list.environments).map((group) => group.computer),
+		];
 		batchAtomUpdates(() => {
 			appAtomRegistry.set(
 				environmentsAtom,
-				list.environments.map((environment) => ({
+				environments.map((environment) => ({
 					environmentId: environment.environmentId,
 					label: visibleConnectionLabel(environment.label),
 					presence: "unknown" as const,
@@ -54,11 +64,13 @@ export const refreshEnvironments = async (): Promise<void> => {
 		});
 
 		await Promise.all(
-			list.environments.map(async (environment) => {
+			environments.map(async (environment) => {
 				try {
 					const status = await getEnvironmentStatus(environment.environmentId);
-					patchPresence(environment.environmentId, status.status);
+					if (generation === discoveryGeneration)
+						patchPresence(environment.environmentId, status.status);
 				} catch (cause) {
+					if (generation !== discoveryGeneration) return;
 					const error = connectionErrorMessage(cause);
 					if (
 						error.startsWith("Could not authorize") ||
@@ -68,11 +80,12 @@ export const refreshEnvironments = async (): Promise<void> => {
 						appAtomRegistry.set(environmentsErrorAtom, error);
 						return;
 					}
-					patchPresence(environment.environmentId, "offline");
+					patchPresence(environment.environmentId, "unknown");
 				}
 			}),
 		);
 	} catch (cause) {
+		if (generation !== discoveryGeneration) return;
 		batchAtomUpdates(() => {
 			appAtomRegistry.set(environmentsLoadingAtom, false);
 			appAtomRegistry.set(environmentsErrorAtom, connectionErrorMessage(cause));
@@ -99,6 +112,7 @@ export const connectToEnvironment = async (
 };
 
 export const resetEnvironmentsRuntime = (): void => {
+	discoveryGeneration++;
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(environmentsAtom, []);
 		appAtomRegistry.set(environmentsLoadingAtom, false);

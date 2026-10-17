@@ -147,6 +147,8 @@ import { ContextSaveTextRpc } from "./context.ts";
 import {
 	CloudDeviceBridgeRpc,
 	DeviceBridgeControlRpc,
+	DeviceBridgeDevicesRpc,
+	DeviceBridgeSetEnabledRpc,
 } from "./device-bridge.ts";
 import {
 	DiagnosticsCaptureRpc,
@@ -496,6 +498,8 @@ export const MemoizeRpcs = RpcGroup.make(
 	PluginsRequestRpc,
 	LocalPluginsRequestRpc,
 	DeviceBridgeControlRpc,
+	DeviceBridgeSetEnabledRpc,
+	DeviceBridgeDevicesRpc,
 	CloudDeviceBridgeRpc,
 	PingRpc,
 	PreviewsListServersRpc,

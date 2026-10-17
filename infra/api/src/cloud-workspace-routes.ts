@@ -195,6 +195,7 @@ import {
 	verifyWorkspaceRuntimeTicket,
 } from "./crypto.ts";
 import { forwardDeviceBridge } from "./device-bridge.ts";
+import { requireBridgeDevice } from "./device-bridge-routes.ts";
 import {
 	type ApiError,
 	badRequest,
@@ -2045,20 +2046,17 @@ const routeCloudWorkspaceRequestWithAccess = (
 				Schema.Struct({
 					action: DeviceBridgeAction,
 					targetDeviceId: Schema.optional(Schema.String),
+					bindOnlyIfUnbound: Schema.optional(Schema.Boolean),
 				}),
 				request,
 			);
-			if (body.targetDeviceId !== undefined) {
+			if (
+				body.targetDeviceId !== undefined &&
+				!(body.bindOnlyIfUnbound && workspace.requestConfig.localDeviceId)
+			) {
 				if (actor !== "user" || body.action._tag !== "status")
 					return yield* Effect.fail(forbidden("device_bridge_user_required"));
-				const devices = yield* ApiStore;
-				const device = yield* devices.getEnvironment(body.targetDeviceId);
-				if (
-					!device ||
-					device.accountId !== workspace.accountId ||
-					device.providerKind !== "desktop"
-				)
-					return yield* Effect.fail(forbidden("device_bridge_target_rejected"));
+				yield* requireBridgeDevice(workspace.accountId, body.targetDeviceId);
 				const bound = yield* store.bindLocalDevice({
 					workspaceId,
 					accountId: workspace.accountId,

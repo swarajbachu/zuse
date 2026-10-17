@@ -107,10 +107,13 @@ export const makeManagedClientSession = async <
 	makeClient: (
 		scope: Scope.Scope,
 	) => Effect.Effect<Client, ClientError, Requirements>,
+	signal?: AbortSignal,
 ): Promise<ClientSession<Client>> => {
 	const runtime = ManagedRuntime.make(layer);
 	try {
-		const client = await runtime.runPromise(makeClient(runtime.scope));
+		const client = await runtime.runPromise(makeClient(runtime.scope), {
+			signal,
+		});
 		return { client, dispose: () => runtime.dispose() };
 	} catch (cause) {
 		await runtime.dispose();
@@ -133,46 +136,51 @@ export const makeRpcClientSession = <
 		RpcClient.RpcClient<Rpcs, RpcClientError>,
 		HandshakeError
 	>,
+	signal?: AbortSignal,
 ) =>
-	makeManagedClientSession(layer, (scope) =>
-		Effect.gen(function* () {
-			const client = yield* RpcClient.make(group).pipe(
-				Effect.provideService(Scope.Scope, scope),
-			);
-			if (handshake !== undefined) {
-				const attempt = (version: number) =>
-					handshake
-						.perform(client, { protocolVersion: version })
-						.pipe(
-							Effect.flatMap((welcome) =>
-								validateProtocolVersion(version, welcome.protocolVersion).pipe(
-									Effect.as(welcome),
-								),
-							),
-						);
-				const welcome = yield* attempt(handshake.protocolVersion).pipe(
-					Effect.catch((cause) => {
-						if (
-							handshake.allowLegacyCloud === true &&
-							handshake.protocolVersion === WIRE_PROTOCOL_VERSION &&
-							Schema.is(WireProtocolRejected)(cause) &&
-							cause.receivedVersion === handshake.protocolVersion &&
-							(cause.expectedVersion === 5 || cause.expectedVersion === 6)
-						)
-							return attempt(cause.expectedVersion);
-						return Effect.fail(cause);
-					}),
-					// Opening a gateway socket does not establish a working runtime.
-					// Bound the full negotiation so a silent peer releases the scoped
-					// transport and returns control to the connection supervisor.
-					Effect.timeout("30 seconds"),
+	makeManagedClientSession(
+		layer,
+		(scope) =>
+			Effect.gen(function* () {
+				const client = yield* RpcClient.make(group).pipe(
+					Effect.provideService(Scope.Scope, scope),
 				);
-				Object.defineProperty(client, clientProtocolVersion, {
-					value: welcome.protocolVersion,
-				});
-				handshake.onNegotiated?.(welcome.protocolVersion);
-				return withRuntimeRpcCompatibility(client, welcome.protocolVersion);
-			}
-			return client;
-		}),
+				if (handshake !== undefined) {
+					const attempt = (version: number) =>
+						handshake
+							.perform(client, { protocolVersion: version })
+							.pipe(
+								Effect.flatMap((welcome) =>
+									validateProtocolVersion(
+										version,
+										welcome.protocolVersion,
+									).pipe(Effect.as(welcome)),
+								),
+							);
+					const welcome = yield* attempt(handshake.protocolVersion).pipe(
+						Effect.catch((cause) => {
+							if (
+								handshake.allowLegacyCloud === true &&
+								handshake.protocolVersion === WIRE_PROTOCOL_VERSION &&
+								Schema.is(WireProtocolRejected)(cause) &&
+								cause.receivedVersion === handshake.protocolVersion &&
+								(cause.expectedVersion === 5 || cause.expectedVersion === 6)
+							)
+								return attempt(cause.expectedVersion);
+							return Effect.fail(cause);
+						}),
+						// Opening a gateway socket does not establish a working runtime.
+						// Bound the full negotiation so a silent peer releases the scoped
+						// transport and returns control to the connection supervisor.
+						Effect.timeout("30 seconds"),
+					);
+					Object.defineProperty(client, clientProtocolVersion, {
+						value: welcome.protocolVersion,
+					});
+					handshake.onNegotiated?.(welcome.protocolVersion);
+					return withRuntimeRpcCompatibility(client, welcome.protocolVersion);
+				}
+				return client;
+			}),
+		signal,
 	);

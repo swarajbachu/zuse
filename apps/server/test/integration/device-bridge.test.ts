@@ -12,6 +12,7 @@ import { expect, it } from "vitest";
 import { AuthService } from "../../src/auth/services/auth-service.ts";
 import { CloudDeviceCommandClient } from "../../src/device-bridge/cloud-client.ts";
 import {
+	DeviceBridgeChannelFactory,
 	DeviceBridgeService,
 	DeviceBridgeServiceLive,
 } from "../../src/device-bridge/service.ts";
@@ -89,15 +90,37 @@ it.each([
 			),
 	} as AuthService["Service"]);
 	const auth = Layer.succeed(LanAuthService, {
-		getApiConfig: () => Effect.succeed(apiConfig),
+		getApiConfig: () => Effect.succeed(null),
 		environmentId: () => Effect.succeed(apiConfig.environmentId),
 	} as unknown as LanAuthService["Service"]);
+	let receive: (token: string, body: string) => Promise<unknown> = async () => {
+		throw new Error("Channel not started");
+	};
+	const channel = Layer.succeed(DeviceBridgeChannelFactory, {
+		make: (options) => {
+			receive = (token, body) => options.receive(token, body, apiConfig);
+			let connected = false;
+			return {
+				start: () => {
+					connected = true;
+				},
+				stop: () => {
+					connected = false;
+				},
+				restart: () => {
+					connected = true;
+				},
+				snapshot: () => ({ connected, error: null, accountId: "account" }),
+			};
+		},
+	});
 	const makeRuntime = () =>
 		ManagedRuntime.make(
 			DeviceBridgeServiceLive.pipe(
 				Layer.provide(migratedSql),
 				Layer.provide(account),
 				Layer.provide(auth),
+				Layer.provide(channel),
 			),
 		);
 	let runtime = makeRuntime();
@@ -135,9 +158,7 @@ it.each([
 			const actionBody = JSON.stringify(JSON.parse(body).action);
 			response.setHeader("content-type", "application/json");
 			response.end(
-				JSON.stringify(
-					await service.receive(await sign(actionBody), actionBody),
-				),
+				JSON.stringify(await receive(await sign(actionBody), actionBody)),
 			);
 		} catch {
 			response.writeHead(403).end();
@@ -160,17 +181,17 @@ it.each([
 		};
 		expect(await client.request({ _tag: "execute", input })).toMatchObject({
 			state: "pending",
-			deviceName: "Test Mac",
+			deviceId: "desktop",
 		});
 		const decision = JSON.stringify({
 			_tag: "decide",
 			id: input.id,
 			decision: "AllowForSession",
 		});
-		await expect(
-			service.receive(await sign(decision), decision),
-		).rejects.toThrow("User approval");
-		await service.receive(await sign(decision, "user"), decision);
+		await expect(receive(await sign(decision), decision)).rejects.toThrow(
+			"User approval",
+		);
+		await receive(await sign(decision, "user"), decision);
 		let completed = false;
 		for (let attempt = 0; attempt < 100; attempt++) {
 			const result = await client.request({ _tag: "poll", id: input.id });
@@ -185,19 +206,16 @@ it.each([
 		expect(completed).toBe(true);
 		const status = JSON.stringify({ _tag: "status" });
 		await expect(
-			service.receive(
-				await sign(status, "runtime", { accountId: "attacker" }),
-				status,
-			),
+			receive(await sign(status, "runtime", { accountId: "attacker" }), status),
 		).rejects.toThrow("Account mismatch");
 		await expect(
-			service.receive(
+			receive(
 				await sign(status),
 				JSON.stringify({ _tag: "cancel", id: input.id }),
 			),
 		).rejects.toThrow("Invalid bridge request");
 		await expect(
-			service.receive(await sign(status, "runtime", {}, true), status),
+			receive(await sign(status, "runtime", {}, true), status),
 		).rejects.toThrow();
 		await runtime.dispose();
 		runtime = makeRuntime();

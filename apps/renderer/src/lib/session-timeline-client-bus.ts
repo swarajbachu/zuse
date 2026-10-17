@@ -243,6 +243,11 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 		);
 		let result: unknown;
 		switch (command.kind) {
+			case "deviceBridge.setEnabled":
+				result = await Effect.runPromise(
+					client["deviceBridge.setEnabled"](payload as never),
+				);
+				break;
 			case "deviceBridge.control":
 				result = await Effect.runPromise(
 					client["deviceBridge.control"](payload as never),

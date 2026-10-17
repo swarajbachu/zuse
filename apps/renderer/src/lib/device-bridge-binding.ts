@@ -49,6 +49,7 @@ const defaultBindingDependencies: CloudDeviceBindingDependencies = {
 				workspaceId,
 				action: { _tag: "status" },
 				targetDeviceId,
+				bindOnlyIfUnbound: true,
 			}),
 		),
 };

@@ -9,7 +9,7 @@ import {
 import { layer as configurationLayer } from "../../src/config.ts";
 import { sha256Hex } from "../../src/crypto.ts";
 import { forwardDeviceBridge } from "../../src/device-bridge.ts";
-import { ApiStore, ApiStoreMemory } from "../../src/store.ts";
+import { ApiStoreMemory } from "../../src/store.ts";
 
 afterEach(() => vi.unstubAllGlobals());
 const workspace: CloudWorkspaceRecord = {
@@ -35,12 +35,30 @@ const workspace: CloudWorkspaceRecord = {
 	lastActivityAtMs: 0,
 };
 const setup = async () => {
+	const dispatch = vi.fn().mockResolvedValue(new Response("{}"));
 	const keys = await generateKeyPair("EdDSA", { extractable: true });
 	const runtime = ManagedRuntime.make(
 		Layer.mergeAll(
 			ApiStoreMemory,
 			CloudWorkspaceStoreMemory,
 			configurationLayer({
+				deviceBridgeGateway: async (accountId, request) => {
+					if (new URL(request.url).pathname === "/devices")
+						return Response.json(
+							accountId === "account"
+								? [
+										{
+											deviceId: "desktop",
+											label: "Test",
+											connected: true,
+											revoked: false,
+											lastSeen: 0,
+										},
+									]
+								: [],
+						);
+					return dispatch(request);
+				},
 				apiIssuer: "https://api.test",
 				workosJwksUrl: "https://auth.test/jwks",
 				workosIssuer: "https://auth.test",
@@ -51,37 +69,12 @@ const setup = async () => {
 			}),
 		),
 	);
-	const store = await runtime.runPromise(ApiStore);
-	await runtime.runPromise(
-		store.registerEnvironment(
-			{
-				environmentId: "desktop",
-				accountId: "account",
-				providerKind: "desktop",
-				environmentPublicKey: "unused",
-				httpBaseUrl: "http://127.0.0.1",
-				wsBaseUrl: "ws://127.0.0.1",
-				tunnelHostname: "desktop.test",
-				tunnelStatus: "ready",
-				linkedAtMs: 0,
-			},
-			null,
-			"replace-same-account",
-		),
-	);
-	await runtime.runPromise(
-		store.setTunnelAllocation("desktop", {
-			tunnelHostname: "desktop.test",
-			tunnelStatus: "ready",
-			tunnelId: "tunnel",
-			dnsRecordId: "dns",
-		}),
-	);
-	return { runtime, keys };
+
+	return { runtime, keys, dispatch };
 };
 describe("device bridge API authority", () => {
 	it("signs only the exact operation and binds the account, chat, workspace, and target", async () => {
-		const { runtime, keys } = await setup();
+		const { runtime, keys, dispatch } = await setup();
 		try {
 			const fetch = vi.fn().mockResolvedValue(new Response("{}"));
 			vi.stubGlobal("fetch", fetch);
@@ -92,10 +85,17 @@ describe("device bridge API authority", () => {
 			await runtime.runPromise(
 				forwardDeviceBridge(workspace, action, "runtime"),
 			);
-			const [url, options] = fetch.mock.calls[0] ?? [];
-			expect(url).toBe("https://desktop.test/device-bridge");
+			const request = dispatch.mock.calls[0]?.[0] as Request;
+			expect(request.url).toBe(
+				"https://bridge.internal/dispatch?deviceId=desktop",
+			);
+			const envelope = (await request.json()) as {
+				token: string;
+				body: string;
+			};
+
 			const { payload, protectedHeader } = await jwtVerify(
-				options.headers.authorization.slice(7),
+				envelope.token,
 				keys.publicKey,
 				{ issuer: "https://api.test", audience: "device-bridge:desktop" },
 			);
@@ -107,13 +107,13 @@ describe("device bridge API authority", () => {
 				actor: "runtime",
 				bodyHash: await Effect.runPromise(sha256Hex(JSON.stringify(action))),
 			});
-			expect(options.redirect).toBe("manual");
+			expect(fetch).not.toHaveBeenCalled();
 		} finally {
 			await runtime.dispose();
 		}
 	});
 	it("rejects redirects without forwarding the bridge credential", async () => {
-		const { runtime } = await setup();
+		const { runtime, dispatch } = await setup();
 		try {
 			const fetch = vi.fn().mockResolvedValue(
 				new Response(null, {
@@ -121,20 +121,20 @@ describe("device bridge API authority", () => {
 					headers: { location: "https://other.test" },
 				}),
 			);
-			vi.stubGlobal("fetch", fetch);
+			dispatch.mockImplementation((request: Request) => fetch(request));
 			await expect(
 				runtime.runPromise(
 					forwardDeviceBridge(workspace, { _tag: "status" }, "runtime"),
 				),
 			).rejects.toThrow();
 			expect(fetch).toHaveBeenCalledTimes(1);
-			expect(fetch.mock.calls[0]?.[1].redirect).toBe("manual");
+			expect(dispatch).toHaveBeenCalledTimes(1);
 		} finally {
 			await runtime.dispose();
 		}
 	});
 	it("blocks self-approval, other accounts, archived chats, and old runtimes before forwarding", async () => {
-		const { runtime } = await setup();
+		const { runtime, dispatch } = await setup();
 		try {
 			const fetch = vi.fn();
 			vi.stubGlobal("fetch", fetch);
@@ -175,6 +175,7 @@ describe("device bridge API authority", () => {
 				),
 			).rejects.toThrow();
 			expect(fetch).not.toHaveBeenCalled();
+			expect(dispatch).not.toHaveBeenCalled();
 		} finally {
 			await runtime.dispose();
 		}

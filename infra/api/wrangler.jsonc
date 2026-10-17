@@ -153,6 +153,7 @@
 	],
 	"durable_objects": {
 		"bindings": [
+			{ "name": "DEVICE_BRIDGE_GATEWAY", "class_name": "DeviceBridgeGateway" },
 			{ "name": "PLUGIN_VAULT", "class_name": "PluginVault" },
 			{ "name": "CLOUD_AUTH_EXECUTOR", "class_name": "CloudAuthExecutor" },
 			{ "name": "WORKSPACE_STARTUP", "class_name": "WorkspaceStartup" },
@@ -183,6 +184,7 @@
 		{
 			"tag": "cloud-auth-executor-v1",
 			"new_sqlite_classes": ["CloudAuthExecutor"]
-		}
+		},
+		{ "tag": "device-bridge-v1", "new_sqlite_classes": ["DeviceBridgeGateway"] }
 	]
 }

@@ -6,8 +6,8 @@ import type { CloudWorkspaceRecord } from "./cloud-workspace-store.ts";
 import { workspaceDestructionFence } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import { parseJwk, sha256Hex } from "./crypto.ts";
+import { requireBridgeDevice } from "./device-bridge-routes.ts";
 import { forbidden, serviceUnavailable } from "./errors.ts";
-import { ApiStore } from "./store.ts";
 
 /** The API signs the exact operation; runtimes never receive a desktop RPC token. */
 export const forwardDeviceBridge = Effect.fn("forwardDeviceBridge")(function* (
@@ -35,19 +35,18 @@ export const forwardDeviceBridge = Effect.fn("forwardDeviceBridge")(function* (
 	const target = workspace.requestConfig.localDeviceId;
 	if (typeof target !== "string")
 		return yield* Effect.fail(serviceUnavailable("device_bridge_no_target"));
-	const store = yield* ApiStore;
-	const environment = yield* store.getEnvironment(target);
-	if (
-		!environment ||
-		environment.accountId !== workspace.accountId ||
-		environment.providerKind !== "desktop"
-	)
-		return yield* Effect.fail(forbidden("device_bridge_target_rejected"));
-
-	if (!environment.tunnelHostname || environment.tunnelStatus !== "ready")
-		return yield* Effect.fail(
-			serviceUnavailable("device_bridge_desktop_offline"),
-		);
+	const device = yield* requireBridgeDevice(workspace.accountId, target);
+	if (action._tag === "status" && !device.connected)
+		return Response.json({
+			version: DEVICE_BRIDGE_VERSION,
+			deviceId: device.deviceId,
+			deviceName: device.label,
+			enabled: true,
+			connected: false,
+			homeDirectory: "",
+			commands: [],
+			grants: [],
+		});
 	const config = yield* ApiConfiguration;
 	const body = JSON.stringify(action);
 	const bodyHash = yield* sha256Hex(body);
@@ -77,18 +76,14 @@ export const forwardDeviceBridge = Effect.fn("forwardDeviceBridge")(function* (
 	});
 	return yield* Effect.tryPromise({
 		try: async () => {
-			const response = await fetch(
-				`https://${environment.tunnelHostname}/device-bridge`,
-				{
-					method: "POST",
-					headers: {
-						authorization: `Bearer ${token}`,
-						"content-type": "application/json",
-					},
-					body,
-					redirect: "manual",
-					signal: AbortSignal.timeout(8000),
-				},
+			const gateway = config.deviceBridgeGateway;
+			if (!gateway) throw new Error("Bridge transport unavailable");
+			const response = await gateway(
+				workspace.accountId,
+				new Request(
+					`https://bridge.internal/dispatch?deviceId=${encodeURIComponent(target)}`,
+					{ method: "POST", body: JSON.stringify({ token, body }) },
+				),
 			);
 
 			if (response.status >= 300 && response.status < 400)

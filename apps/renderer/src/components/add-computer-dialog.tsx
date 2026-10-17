@@ -1,9 +1,6 @@
+import { remoteConnectionPresentation } from "@zuse/client-runtime/remote-connection-presentation";
 import "@zuse/i18n/english/providers";
-import {
-	type DiscoveredSshHost,
-	isEnvironmentPresenceFresh,
-	type SshEnvironmentTarget,
-} from "@zuse/contracts";
+import type { DiscoveredSshHost, SshEnvironmentTarget } from "@zuse/contracts";
 import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Pencil, RotateCw, Unplug } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
@@ -116,16 +113,12 @@ const LINK_KIND_SUBTEXT: Record<
 };
 
 export const apiStatusText = (entry: EnvironmentCatalogEntry): string => {
+	if (entry.connectionPhase)
+		return remoteConnectionPresentation(entry.connectionPhase).label;
 	if (entry.status === "connected") return "Connected";
 	if (entry.status === "connecting") return "Connecting…";
-	if (entry.status === "error") return entry.error ?? "Connection failed";
-	if (
-		entry.connectionKind === "api" &&
-		isEnvironmentPresenceFresh(entry.lastHeartbeat)
-	) {
-		return "Online";
-	}
-	return "Offline";
+	if (entry.status === "error") return "Couldn’t connect";
+	return entry.status === "not-connected" ? "Not connected" : "Connection lost";
 };
 
 export function StatusDot({

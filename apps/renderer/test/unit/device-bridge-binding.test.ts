@@ -59,6 +59,7 @@ describe("cloud device binding", () => {
 			workspaceId: "workspace-from-slack",
 			action: { _tag: "status" },
 			targetDeviceId: "current-mac",
+			bindOnlyIfUnbound: true,
 		});
 	});
 

@@ -3,6 +3,10 @@ import {
 	makeRpcClientSession,
 	withWireProtocolVersion,
 } from "@zuse/client-runtime/connection";
+import {
+	grantRouteEndpoints,
+	raceConnectionRoutes,
+} from "@zuse/client-runtime/connection-routes";
 import { parseEnvironmentRoute } from "@zuse/client-runtime/environment-scope";
 import {
 	type ConnectionSnapshot,
@@ -11,6 +15,7 @@ import {
 	defaultClassifyError,
 } from "@zuse/client-runtime/supervisor";
 import type { WebSocketCloseInfo } from "@zuse/client-runtime/ws-protocol";
+import type { ApiConnectGrant } from "@zuse/contracts";
 import {
 	type CloudWorkspaceConnection,
 	MemoizeRpcs,
@@ -69,6 +74,10 @@ type RendererConnectionOptions =
 			readonly protocols?: ReadonlyArray<string>;
 			readonly account?: RendererAccountSnapshot;
 			readonly refreshWsUrl?: () => Promise<string>;
+			readonly routes?: readonly string[];
+			readonly expectedEnvironmentId?: string;
+			readonly onRouteSelected?: (url: string) => void;
+			readonly refreshRoutes?: () => Promise<readonly string[]>;
 			readonly refreshConnection?: () => Promise<CloudWorkspaceConnection>;
 	  };
 
@@ -207,6 +216,11 @@ const prepareRendererConnectionOptions = async (
 			protocols: [connection.protocol, connection.credential],
 		};
 	}
+	if (options.refreshRoutes) {
+		const routes = await options.refreshRoutes();
+		assertConnectionAccount(options);
+		return { ...options, routes, wsUrl: routes[0] ?? options.wsUrl };
+	}
 	const prepared =
 		options.refreshWsUrl === undefined
 			? options
@@ -262,8 +276,33 @@ export const isAuthCodedConnectionError = (cause: unknown): boolean => {
 const makeRendererRpcSession = async (
 	options: RendererConnectionOptions,
 	onClose: (event: WebSocketCloseInfo) => void,
+	signal?: AbortSignal,
 ): Promise<RendererRpcSession> => {
 	assertConnectionAccount(options);
+	if (options.kind === "websocket" && options.routes) {
+		let selected: string | undefined;
+		const result = await raceConnectionRoutes(options.routes, (url, signal) =>
+			makeRendererRpcSession(
+				{ ...options, wsUrl: url, routes: undefined },
+				(event) => {
+					if (selected === url) onClose(event);
+				},
+				signal,
+			),
+		);
+		try {
+			assertConnectionAccount(options);
+		} catch (cause) {
+			await result.session.dispose();
+			throw cause;
+		}
+		selected = result.route;
+		const address = new URL(result.route);
+		address.search = "";
+		address.hash = "";
+		options.onRouteSelected?.(address.toString());
+		return result.session;
+	}
 	let closed = false;
 	const notifyClose = (event: WebSocketCloseInfo): void => {
 		if (closed) return;
@@ -303,22 +342,37 @@ const makeRendererRpcSession = async (
 				);
 	assertConnectionAccount(options);
 	const session = instrumentRendererRpcClient(
-		await makeRpcClientSession(protocolLayer, MemoizeRpcs, {
-			protocolVersion: WIRE_PROTOCOL_VERSION,
-			allowLegacyCloud: legacyCloud,
-			onNegotiated: (version) => {
-				negotiatedVersion = version;
-				if (legacyCloud)
-					reportCloudRuntimeConnection(
-						options.key.slice("workspace:".length),
-						version,
-					);
+		await makeRpcClientSession(
+			protocolLayer,
+			MemoizeRpcs,
+			{
+				protocolVersion: WIRE_PROTOCOL_VERSION,
+				allowLegacyCloud: legacyCloud,
+				onNegotiated: (version) => {
+					negotiatedVersion = version;
+					if (legacyCloud)
+						reportCloudRuntimeConnection(
+							options.key.slice("workspace:".length),
+							version,
+						);
+				},
+				perform: (client, hello) => client["connect.handshake"](hello),
 			},
-			perform: (client, hello) => client["connect.handshake"](hello),
-		}),
+			signal,
+		),
 	);
 	try {
 		assertConnectionAccount(options);
+		if (options.kind === "websocket" && options.expectedEnvironmentId) {
+			const descriptor = await Effect.runPromise(
+				session.client["connect.describe"](),
+				{ signal },
+			);
+			if (descriptor.environmentId !== options.expectedEnvironmentId)
+				throw new Error(
+					"This route belongs to another computer. Pair again to verify its identity.",
+				);
+		}
 	} catch (cause) {
 		await session.dispose();
 		throw cause;
@@ -652,6 +706,40 @@ export const registerApiEnvironment = (
 				return value;
 			}
 			return refreshWsUrl();
+		},
+	});
+};
+
+export const registerApiEnvironmentRoutes = (
+	environmentId: string,
+	initial: ApiConnectGrant,
+	refresh: () => Promise<ApiConnectGrant>,
+	account: RendererAccountSnapshot,
+	onRouteSelected?: (url: string) => void,
+): void => {
+	assertRendererAccountCurrent(account);
+	const routes = (grant: ApiConnectGrant) =>
+		grantRouteEndpoints(grant, window.location.protocol === "https:").map(
+			(endpoint) => {
+				const url = new URL(endpoint.wsBaseUrl);
+				url.searchParams.set("token", grant.connectToken);
+				url.searchParams.set("wireVersion", String(WIRE_PROTOCOL_VERSION));
+				return url.toString();
+			},
+		);
+	let first: ApiConnectGrant | null = initial;
+	environmentConnections.set(environmentId, {
+		key: `environment:${environmentId}`,
+		kind: "websocket",
+		account,
+		wsUrl: initial.endpoint.wsBaseUrl,
+		expectedEnvironmentId: environmentId,
+		onRouteSelected,
+		refreshRoutes: async () => {
+			const grant = first ?? (await refresh());
+			first = null;
+			assertRendererAccountCurrent(account);
+			return routes(grant);
 		},
 	});
 };

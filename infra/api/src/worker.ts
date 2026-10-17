@@ -82,12 +82,14 @@ import {
 	WorkspaceStartupTask,
 } from "./workspace-startup.ts";
 
+export { DeviceBridgeGateway } from "./device-bridge-gateway.ts";
 export { PluginVault } from "./plugin-vault.ts";
 export { WorkspaceGateway } from "./workspace-gateway.ts";
 
 import { WorkspaceMailbox as WorkspaceMailboxTask } from "./workspace-mailbox.ts";
 
 interface Env extends SlackBindings, BillingEnvironment {
+	readonly DEVICE_BRIDGE_GATEWAY?: Env["WORKSPACE_GATEWAY"];
 	readonly WORKSPACE_STARTUP: WorkspaceStartupNamespace;
 	readonly HYPERDRIVE: { readonly connectionString: string };
 	readonly WORKSPACE_GATEWAY: {
@@ -421,6 +423,13 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		env.GITHUB_APP_PRIVATE_KEY,
 	].every(isConfigured);
 	const configLayer = Config.layer({
+		deviceBridgeGateway: env.DEVICE_BRIDGE_GATEWAY
+			? (accountId, request) => {
+					const namespace = env.DEVICE_BRIDGE_GATEWAY;
+					if (!namespace) throw new Error("Device bridge unavailable");
+					return namespace.get(namespace.idFromName(accountId)).fetch(request);
+				}
+			: undefined,
 		organizationWorkspacesEnabled:
 			env.ORGANIZATION_WORKSPACES_ENABLED === "true",
 		organizationRolloutEnabled: env.ORGANIZATION_ROLLOUT_ENABLED === "true",
@@ -687,6 +696,33 @@ export default {
 		} catch (error) {
 			await api.dispose();
 			throw error;
+		}
+		const bridgeAccount = response.headers.get("x-zuse-bridge-account");
+		if (
+			bridgeAccount &&
+			response.ok &&
+			env.DEVICE_BRIDGE_GATEWAY &&
+			request.headers.get("upgrade")?.toLowerCase() === "websocket"
+		) {
+			await api.dispose();
+			const url = new URL(request.url);
+			const headers = new Headers({
+				upgrade: "websocket",
+				"x-zuse-device-secret":
+					request.headers
+						.get("sec-websocket-protocol")
+						?.split(",")
+						.map((value) => value.trim())
+						.find((value) => value.startsWith("device."))
+						?.slice(7) ?? "",
+			});
+			return env.DEVICE_BRIDGE_GATEWAY.get(
+				env.DEVICE_BRIDGE_GATEWAY.idFromName(bridgeAccount),
+			).fetch(
+				new Request(`https://bridge.internal/connect${url.search}`, {
+					headers,
+				}),
+			);
 		}
 		const mailboxResponse = await coordinateCloudMailboxResponse({
 			response,

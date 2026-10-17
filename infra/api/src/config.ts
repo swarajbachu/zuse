@@ -30,6 +30,10 @@ export interface ManagedTunnelConfig {
 }
 
 export interface ApiConfig {
+	readonly deviceBridgeGateway?: (
+		accountId: string,
+		request: Request,
+	) => Promise<Response>;
 	/** Global organization kill switch; targeted rollout can narrow enabled deployments. */
 	readonly organizationWorkspacesEnabled: boolean;
 	/** When enabled, PostHog must explicitly approve creation and team access. */

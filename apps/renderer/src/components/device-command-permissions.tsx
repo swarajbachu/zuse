@@ -1,26 +1,20 @@
 import "@zuse/i18n/english/chat";
-import {
-	DeviceBridgeController,
-	EMPTY_DEVICE_BRIDGE_VIEW,
-} from "@zuse/client-runtime/device-bridge-controller";
+import type { DeviceBridgeView } from "@zuse/client-runtime/device-bridge-controller";
 import type { DeviceBridgeControl } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
-import { useEffect, useMemo, useState } from "react";
-import { localDeviceBridge } from "../lib/device-bridge-binding.ts";
 import { Button } from "./ui/button.tsx";
 
 /** Saved command permissions remain revocable; commands and approvals live in chat. */
-export function DeviceCommandPermissions() {
+export function DeviceCommandPermissions({
+	view,
+	act,
+}: {
+	view: DeviceBridgeView;
+	act: (action: DeviceBridgeControl) => Promise<void>;
+}) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
 
-	const [view, setView] = useState(EMPTY_DEVICE_BRIDGE_VIEW);
 	const { status, error, busy } = view;
-	const controller = useMemo(
-		() => new DeviceBridgeController(localDeviceBridge),
-		[],
-	);
-	useEffect(() => controller.start(setView), [controller]);
-	const act = (action: DeviceBridgeControl) => controller.act(action);
 	if (!status?.grants.length) return null;
 	return (
 		<section

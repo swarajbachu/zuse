@@ -10,6 +10,7 @@ import { type ReactNode, useState } from "react";
 
 import {
 	accountPairingEndpoint,
+	type PairingMethod,
 	tailnetStatusLine,
 } from "../../../lib/remote-access.ts";
 import { Button } from "../../ui/button.tsx";
@@ -47,7 +48,7 @@ function AccessMethodRow({
 					{description}
 				</p>
 			</div>
-			<div className="flex min-h-11 shrink-0 items-center">{action}</div>
+			<div className="flex h-7 shrink-0 items-center">{action}</div>
 		</div>
 	);
 }
@@ -57,6 +58,7 @@ function AccessMethodRow({
  * compact alternatives. Pairing credentials are handled separately.
  */
 export function AccessMethodsCard({
+	unavailableMethods = [],
 	status,
 	tailnet,
 	network,
@@ -67,6 +69,7 @@ export function AccessMethodsCard({
 	onOpenAccessDialog,
 	onRequestNetworkMode,
 }: {
+	readonly unavailableMethods?: readonly PairingMethod[];
 	readonly status: ApiLinkStatus | null;
 	readonly tailnet: TailnetShareState | null;
 	readonly network: NetworkAccessState | null;
@@ -117,6 +120,7 @@ export function AccessMethodsCard({
 		if (line.action === "details") {
 			return (
 				<Button
+					className="h-7"
 					size="xs"
 					variant="ghost"
 					onClick={() => setServeDetailsOpen(true)}
@@ -127,9 +131,15 @@ export function AccessMethodsCard({
 		}
 		return (
 			<Button
+				className="h-7"
 				size="xs"
 				variant={tailscaleShareReady ? "ghost" : "outline"}
-				disabled={tailnetBusy || tailnetManaged || tailnetConflict}
+				disabled={
+					unavailableMethods.includes("tailscale") ||
+					tailnetBusy ||
+					tailnetManaged ||
+					tailnetConflict
+				}
 				onClick={() =>
 					onOpenAccessDialog(
 						tailscaleShareReady ? "tailscale-disable" : "tailscale-enable",
@@ -146,9 +156,9 @@ export function AccessMethodsCard({
 	})();
 
 	return (
-		<Frame>
+		<Frame className="min-w-0">
 			<RemoteAccessSectionHeader
-				title={uiMessage("settings:access_methods_card_connections")}
+				title={uiMessage("settings:remote_access_title")}
 				tooltip={uiMessage(
 					"settings:access_methods_card_choose_how_other_zuse_apps_and_browsers_can_reach_this_computer",
 				)}
@@ -160,23 +170,29 @@ export function AccessMethodsCard({
 						icon={<Server className="size-4" aria-hidden />}
 						title={uiMessage("settings:access_methods_card_zuse_serve")}
 						description={
-							accountShareReady && accountAddress !== null
-								? uiMessage("settings:access_methods_card_available_anywhere", {
-										accountAddress: String(accountAddress),
-									})
-								: linked
+							unavailableMethods.includes("account")
+								? uiMessage("settings:remote_serve_check_failed")
+								: accountShareReady && accountAddress !== null
 									? uiMessage(
-											"settings:access_methods_card_reconnecting_to_your_account",
+											"settings:access_methods_card_available_anywhere",
+											{
+												accountAddress: String(accountAddress),
+											},
 										)
-									: uiMessage(
-											"settings:access_methods_card_access_this_computer_from_your_signed_in_devices",
-										)
+									: linked
+										? uiMessage(
+												"settings:access_methods_card_reconnecting_to_your_account",
+											)
+										: uiMessage(
+												"settings:access_methods_card_access_this_computer_from_your_signed_in_devices",
+											)
 						}
 						action={
 							<Button
+								className="h-7"
 								size="xs"
 								variant={linked ? "ghost" : "outline"}
-								disabled={busy}
+								disabled={busy || unavailableMethods.includes("account")}
 								onClick={() =>
 									onOpenAccessDialog(linked ? "serve-disable" : "serve-enable")
 								}
@@ -193,11 +209,13 @@ export function AccessMethodsCard({
 						icon={<ShieldCheck className="size-4" aria-hidden />}
 						title={uiMessage("settings:access_methods_card_tailscale")}
 						description={
-							tailscaleShareReady && tailnet?.dnsName !== null
-								? uiMessage("settings:access_methods_card_private_access", {
-										dnsName: String(tailnet.dnsName),
-									})
-								: line.description
+							unavailableMethods.includes("tailscale")
+								? uiMessage("settings:remote_tailscale_check_failed")
+								: tailscaleShareReady && tailnet?.dnsName !== null
+									? uiMessage("settings:access_methods_card_private_access", {
+											dnsName: String(tailnet.dnsName),
+										})
+									: line.description
 						}
 						action={tailnetAction}
 					/>
@@ -205,24 +223,31 @@ export function AccessMethodsCard({
 						icon={<Wifi className="size-4" aria-hidden />}
 						title={uiMessage("settings:access_methods_card_local_network")}
 						description={
-							networkEnabled && networkAddress !== null
-								? uiMessage(
-										"settings:access_methods_card_available_on_this_network",
-										{ networkAddress: String(networkAddress) },
-									)
-								: !canManageNetwork
+							unavailableMethods.includes("local")
+								? uiMessage("settings:remote_lan_check_failed")
+								: networkEnabled && networkAddress !== null
 									? uiMessage(
-											"settings:access_methods_card_available_in_the_desktop_app",
+											"settings:access_methods_card_available_on_this_network",
+											{ networkAddress: String(networkAddress) },
 										)
-									: uiMessage(
-											"settings:access_methods_card_connect_from_another_device_on_the_same_wi_fi",
-										)
+									: !canManageNetwork
+										? uiMessage(
+												"settings:access_methods_card_available_in_the_desktop_app",
+											)
+										: uiMessage(
+												"settings:access_methods_card_connect_from_another_device_on_the_same_wi_fi",
+											)
 						}
 						action={
 							<Button
+								className="h-7"
 								size="xs"
 								variant={networkEnabled ? "ghost" : "outline"}
-								disabled={busy || !canManageNetwork}
+								disabled={
+									busy ||
+									!canManageNetwork ||
+									unavailableMethods.includes("local")
+								}
 								onClick={() => onRequestNetworkMode(!networkEnabled)}
 							>
 								{networkEnabled
@@ -249,7 +274,7 @@ export function AccessMethodsCard({
 						</DialogDescription>
 					</DialogHeader>
 					<DialogFooter>
-						<Button onClick={() => setServeDetailsOpen(false)}>
+						<Button className="h-7" onClick={() => setServeDetailsOpen(false)}>
 							{uiMessage("common:done")}
 						</Button>
 					</DialogFooter>

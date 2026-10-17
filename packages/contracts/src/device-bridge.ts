@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
+import { BridgeDeviceList } from "./device-bridge-channel.ts";
 
 /** Additive capability; independent from the desktop RPC wire version. */
 export const DEVICE_BRIDGE_VERSION = 1;
@@ -72,6 +73,7 @@ export const DeviceBridgeStatus = Schema.Struct({
 	version: Schema.Literal(DEVICE_BRIDGE_VERSION),
 	enabled: Schema.Boolean,
 	connected: Schema.Boolean,
+	connectionError: Schema.optional(Schema.NullOr(Schema.String)),
 	deviceId: Schema.String,
 	deviceName: Schema.String,
 	homeDirectory: Schema.String,
@@ -98,7 +100,20 @@ export const CloudDeviceBridgeRpc = Rpc.make("deviceBridge.cloud", {
 		workspaceId: Schema.String,
 		action: DeviceBridgeAction,
 		targetDeviceId: Schema.optional(Schema.String),
+		bindOnlyIfUnbound: Schema.optional(Schema.Boolean),
 	}),
 	success: DeviceBridgeResult,
+	error: DeviceBridgeError,
+});
+
+export const DeviceBridgeSetEnabledRpc = Rpc.make("deviceBridge.setEnabled", {
+	payload: Schema.Struct({ enabled: Schema.Boolean }),
+	success: Schema.Void,
+	error: DeviceBridgeError,
+});
+
+export const DeviceBridgeDevicesRpc = Rpc.make("deviceBridge.devices", {
+	payload: Schema.Struct({}),
+	success: BridgeDeviceList,
 	error: DeviceBridgeError,
 });

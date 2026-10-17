@@ -1,4 +1,8 @@
 import { makeRpcClientSession } from "@zuse/client-runtime/connection";
+import {
+	grantRouteEndpoints,
+	raceConnectionRoutes,
+} from "@zuse/client-runtime/connection-routes";
 import type { EnvironmentWakeIntent } from "@zuse/client-runtime/environment-runtime";
 import {
 	type ConnectionSnapshot,
@@ -42,8 +46,21 @@ const runtimeKey = (options: WsProtocolOptions) =>
 
 type PreparedOptions = WsProtocolOptions & {
 	readonly cloudProtocols?: readonly string[];
+	readonly routes?: readonly string[];
 };
-const makeClientSession = (options: PreparedOptions) => {
+const makeClientSession = async (
+	options: PreparedOptions,
+	signal?: AbortSignal,
+): Promise<{ client: MemoizeClient; dispose: () => Promise<void> }> => {
+	if (options.routes) {
+		const result = await raceConnectionRoutes(options.routes, (url, signal) =>
+			makeClientSession(
+				{ ...options, wsBaseUrl: url, routes: undefined },
+				signal,
+			),
+		);
+		return result.session;
+	}
 	logConnectionDiagnostic("runtime.create", {
 		key: runtimeKey(options),
 		api: options.environmentId !== undefined,
@@ -57,10 +74,29 @@ const makeClientSession = (options: PreparedOptions) => {
 		makeWebSocket: makeMobileWebSocket,
 		protocols: options.cloudProtocols,
 	}).pipe(Layer.orDie);
-	return makeRpcClientSession(protocolLayer, MemoizeRpcs, {
-		protocolVersion: WIRE_PROTOCOL_VERSION,
-		perform: (client, hello) => client["connect.handshake"](hello),
-	});
+	const session = await makeRpcClientSession(
+		protocolLayer,
+		MemoizeRpcs,
+		{
+			protocolVersion: WIRE_PROTOCOL_VERSION,
+			perform: (client, hello) => client["connect.handshake"](hello),
+		},
+		signal,
+	);
+	try {
+		if (options.environmentId && !options.cloudWorkspaceId) {
+			const descriptor = await Effect.runPromise(
+				session.client["connect.describe"](),
+				{ signal },
+			);
+			if (descriptor.environmentId !== options.environmentId)
+				throw new Error("This route belongs to another computer. Pair again.");
+		}
+		return session;
+	} catch (cause) {
+		await session.dispose();
+		throw cause;
+	}
 };
 
 const prepareOptions = async (
@@ -118,13 +154,15 @@ const prepareOptions = async (
 			(grant.endpoint.wsBaseUrl.startsWith("wss:") ? 443 : 80),
 		wsBaseUrl: grant.endpoint.wsBaseUrl,
 		token: grant.connectToken,
+		routes: grantRouteEndpoints(grant).map((endpoint) => endpoint.wsBaseUrl),
 	};
 };
 
 const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 	{
 		keyOf: runtimeKey,
-		maxAutomaticAttempts: 2,
+		maxAutomaticAttempts: (options) =>
+			options.cloudWorkspaceId ? 2 : Number.POSITIVE_INFINITY,
 		prepareOptions,
 		createClient: makeClientSession,
 		validateClient: async (client) => {

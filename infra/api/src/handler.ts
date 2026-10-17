@@ -41,6 +41,7 @@ import {
 	signConnectToken,
 	verifyEnvironmentLinkProof,
 } from "./crypto.ts";
+import { routeDeviceBridgeRequest } from "./device-bridge-routes.ts";
 import {
 	type ApiError,
 	badRequest,
@@ -392,6 +393,8 @@ const route = (
 		if (organizationResponse !== null) return organizationResponse;
 		const modelConnectionResponse = yield* routeModelConnectionRequest(request);
 		if (modelConnectionResponse !== null) return modelConnectionResponse;
+		const bridgeResponse = yield* routeDeviceBridgeRequest(request);
+		if (bridgeResponse !== null) return bridgeResponse;
 		const pluginResponse = yield* routePluginRequest(request);
 		if (pluginResponse !== null) return pluginResponse;
 		const machineResponse = yield* routeMachineRequest(request);

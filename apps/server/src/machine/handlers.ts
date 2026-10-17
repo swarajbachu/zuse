@@ -501,7 +501,12 @@ const CloudDeviceBridge = MemoizeRpcs.toLayerHandler(
 		Effect.gen(function* () {
 			const service = yield* MachineControlService;
 			return yield* service
-				.deviceBridge(input.workspaceId, input.action, input.targetDeviceId)
+				.deviceBridge(
+					input.workspaceId,
+					input.action,
+					input.targetDeviceId,
+					input.bindOnlyIfUnbound,
+				)
 				.pipe(
 					Effect.mapError(
 						(error) => new DeviceBridgeError({ reason: error.code }),
@@ -509,10 +514,23 @@ const CloudDeviceBridge = MemoizeRpcs.toLayerHandler(
 				);
 		}),
 );
+const BridgeDevices = MemoizeRpcs.toLayerHandler("deviceBridge.devices", () =>
+	Effect.gen(function* () {
+		const service = yield* MachineControlService;
+		return yield* service
+			.bridgeDevices()
+			.pipe(
+				Effect.mapError(
+					(error) => new DeviceBridgeError({ reason: error.code }),
+				),
+			);
+	}),
+);
 export const MachineHandlersLayer = Layer.mergeAll(
 	Plugins,
 	LocalPlugins,
 	CloudDeviceBridge,
+	BridgeDevices,
 	CloudAuthStatus,
 	CloudAuthProvision,
 	CloudAuthConfigure,

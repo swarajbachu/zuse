@@ -24,19 +24,21 @@ import { openAddComputerDialog } from "../add-computer-dialog.tsx";
 import { DitherCloudIcon } from "../dither-cloud-icon.tsx";
 
 const statusText = (item: ComputerPickerItem): string =>
-	item.retryable
-		? "Retry"
-		: !item.projectAvailable && item.status === "connected"
-			? item.setupAvailable
-				? "Clone project"
-				: "Git remote required"
-			: item.status === "connecting"
-				? "Connecting…"
-				: item.status === "error"
-					? "Can't connect"
-					: item.status === "offline"
-						? "Offline"
-						: "Connected";
+	item.status === "not-connected"
+		? "Connect"
+		: item.retryable
+			? "Retry"
+			: !item.projectAvailable && item.status === "connected"
+				? item.setupAvailable
+					? "Clone project"
+					: "Git remote required"
+				: item.status === "connecting"
+					? "Connecting…"
+					: item.status === "error"
+						? "Can't connect"
+						: item.status === "offline"
+							? "Offline"
+							: "Connected";
 
 export type CloudComputerPickerSize = {
 	readonly sizeId: string;

@@ -38,7 +38,7 @@ describe("device bridge client lifecycle", () => {
 		const controller = new DeviceBridgeController(send);
 		const close = controller.start(changed);
 		await vi.advanceTimersByTimeAsync(0);
-		expect(changed.mock.lastCall?.[0].error).toContain("unavailable");
+		expect(changed.mock.lastCall?.[0].error).toContain("cloud device access");
 		await vi.advanceTimersByTimeAsync(15000);
 		expect(changed.mock.lastCall?.[0]).toMatchObject({ status, error: null });
 		close();

@@ -34,6 +34,9 @@ export interface DeviceIdentity {
 	readonly deviceName: string;
 	readonly homeDirectory: string;
 	readonly connected: boolean;
+	readonly enabled?: boolean;
+	readonly accountId?: string | null;
+	readonly connectionError?: string | null;
 }
 export interface DeviceBridgeStorage {
 	loadConfig(): Promise<{ linkKey: string } | null>;
@@ -119,13 +122,13 @@ export class DeviceCommandBroker {
 		const config = await this.storage.loadConfig();
 		if (
 			config?.linkKey !== identity.linkKey ||
-			this.disabled === identity.connected
+			this.disabled === (identity.enabled ?? identity.connected)
 		) {
 			for (const command of await this.storage.commands())
 				if (active(command)) await this.stop(command, "interrupted");
 			await this.permissions.clear();
 			await this.storage.saveConfig(identity.linkKey);
-			this.disabled = !identity.connected;
+			this.disabled = !(identity.enabled ?? identity.connected);
 		}
 		return identity;
 	}
@@ -174,7 +177,8 @@ export class DeviceCommandBroker {
 			deviceName: identity.deviceName,
 			homeDirectory: identity.homeDirectory,
 			connected: identity.connected,
-			enabled: !this.disabled && !this.closed && identity.connected,
+			connectionError: identity.connectionError,
+			enabled: !this.disabled && !this.closed,
 			commands: commands
 				.sort((a, b) => b.createdAt - a.createdAt)
 				.slice(0, 20)
@@ -207,6 +211,12 @@ export class DeviceCommandBroker {
 		return this.exclusive(async () => {
 			if (this.closed) throw new Error("Device bridge stopped");
 			const identity = await this.synchronize();
+			if (
+				principal &&
+				identity.accountId !== undefined &&
+				identity.accountId !== principal.accountId
+			)
+				throw new Error("Account mismatch");
 			if (action._tag === "status") return this.statusUnlocked(principal);
 			const enabled = !this.disabled && !this.closed && identity.connected;
 			if (!enabled && (action._tag === "execute" || action._tag === "decide"))

@@ -1,0 +1,26 @@
+---
+title: Remote access and cloud devices
+description: Connect your devices and let cloud agents request local commands.
+---
+
+## Open a computer from another device
+
+On the computer you want to reach, open **Settings → Devices**. Under **Remote access to this computer**, choose a connection method:
+
+- **Zuse Serve** connects your signed-in devices over the Internet.
+- **Tailscale** connects devices on your private tailnet. Complete sign-in and HTTPS setup when prompted.
+- **Local network** connects devices on the same reachable network.
+
+Enable the methods you need. Use your account to discover a Zuse Serve computer, or create a pairing link for another device. Pairing links authorize a device; the selected network route must also be reachable.
+
+A computer can be saved without being connected. **Not connected** means Zuse has not established a session. Connection details show how it was added and, for account connections, the routes offered by the host. A failed status check does not mean the host is turned off.
+
+Keep the desktop app or your existing Zuse server running. Closing the host process or putting its computer to sleep can interrupt access.
+
+## Let a cloud agent use your computer
+
+**Cloud device access** is separate from remote access. A signed-in desktop appears automatically in your cloud chats without enabling Zuse Serve, Tailscale, or local network access.
+
+Choose a **Cloud device** in the chat. The desktop you use to start a cloud chat can be selected automatically when that chat has no device yet. Sending a message from another computer does not replace your selection.
+
+Commands require approval according to your saved permissions. You can revoke saved permissions or turn cloud device access off in settings. Turning remote access off does not disable cloud device access, and turning cloud device access off does not disable remote access.

@@ -39,7 +39,7 @@ export function RemoteAccessSectionHeader({
 								aria-label={uiMessage("settings:section_header_about", {
 									title: String(title),
 								})}
-								className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 outline-none hover:bg-muted hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+								className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 outline-none hover:bg-muted hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
 							>
 								<Info className="size-3.5" aria-hidden />
 							</button>

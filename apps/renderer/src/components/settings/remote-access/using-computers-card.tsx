@@ -22,7 +22,6 @@ const errorText = (cause: unknown): string =>
 	cause instanceof Error ? cause.message : String(cause);
 
 const connectionDescription = (entry: EnvironmentCatalogEntry): string => {
-	if (entry.error != null) return entry.error;
 	if (entry.connectionKind === "api") {
 		return `Zuse account · ${apiStatusText(entry)}`;
 	}
@@ -63,7 +62,7 @@ export function UsingComputersCard() {
 		<>
 			<Frame>
 				<RemoteAccessSectionHeader
-					title={uiMessage("settings:using_computers_card_computers")}
+					title={uiMessage("settings:remote_other_computers")}
 					tooltip={uiMessage(
 						"settings:using_computers_card_projects_and_chats_from_connected_computers_stay_in_the_same_sidebar",
 					)}
@@ -87,18 +86,54 @@ export function UsingComputersCard() {
 										<p className="truncate text-xs font-medium">
 											{entry.label}
 										</p>
-										<p className="truncate text-[11px] text-muted-foreground">
+										<p className="text-[11px] text-muted-foreground">
 											{connectionDescription(entry)}
+											{entry.error && (
+												<span className="block text-destructive">
+													{entry.error}
+												</span>
+											)}
 										</p>
+										<details className="mt-1 text-[11px] text-muted-foreground">
+											<summary className="cursor-pointer">
+												{uiMessage("settings:remote_connection_details")}
+												{entry.routeAddresses?.length
+													? uiMessage("settings:remote_route_count", {
+															count: entry.routeAddresses.length,
+														})
+													: ""}
+											</summary>
+											<p className="py-1">
+												{entry.connectionKind === "api"
+													? uiMessage("settings:remote_account_source")
+													: uiMessage("settings:remote_paired_source")}
+											</p>
+											{entry.status === "connected" && entry.activeRoute && (
+												<p className="break-all">
+													{uiMessage("settings:remote_in_use", {
+														address: entry.activeRoute,
+													})}
+												</p>
+											)}
+											{entry.routeAddresses?.map((address) => (
+												<p key={address} className="break-all">
+													{address}
+												</p>
+											))}
+										</details>
 									</div>
-									{entry.status === "error" || entry.status === "offline" ? (
+									{entry.status === "not-connected" ||
+									entry.status === "error" ||
+									entry.status === "offline" ? (
 										<Button
 											size="xs"
 											className="h-7"
 											variant="outline"
 											onClick={() => retryEntry(entry)}
 										>
-											{uiMessage("common:retry")}
+											{entry.status === "not-connected"
+												? uiMessage("settings:remote_connect")
+												: uiMessage("common:retry")}
 										</Button>
 									) : null}
 									<RemoveComputerButton entry={entry} />

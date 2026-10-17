@@ -89,6 +89,7 @@ import { Migration0083NativeCheckpointHistory } from "./migrations/0083_native_c
 import { Migration0086Automation } from "./migrations/0086_automation.ts";
 import { Migration0087ScratchFolders } from "./migrations/0087_scratch_folders.ts";
 import { Migration0088ScratchFoldersRepair } from "./migrations/0088_scratch_folders_repair.ts";
+import { Migration0089DeviceBridgeEnrollment } from "./migrations/0089_device_bridge_enrollment.ts";
 
 const MigrationDefinitionsThrough0045 = {
 	"0001_initial": Migration0001Initial,
@@ -239,6 +240,7 @@ const MigrationDefinitions = {
 	...MigrationDefinitionsThrough0086,
 	"0087_scratch_folders": Migration0087ScratchFolders,
 	"0088_scratch_folders_repair": Migration0088ScratchFoldersRepair,
+	"0089_device_bridge_enrollment": Migration0089DeviceBridgeEnrollment,
 } as const;
 
 /** Schema before projectless threads, retained for populated upgrade fixtures. */

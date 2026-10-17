@@ -5,6 +5,7 @@ import {
 	BillingPortal,
 	BillingPrepaidBalance,
 	type BillingPrepaidCheckoutRequest,
+	BridgeDeviceList,
 	ChatSharingDefaults,
 	ChatSharingState,
 	type ChatSharingUpdate,
@@ -50,6 +51,7 @@ import {
 	CommandAcceptance,
 	CommandChangePage,
 	CommandStatus,
+	DEVICE_BRIDGE_API_PATH,
 	type DeviceBridgeAction,
 	DeviceBridgeResult,
 	EntitlementList,
@@ -167,16 +169,23 @@ export const makeCloudControlClient = (request: CloudControlRequest) => ({
 		request(ApiPaths.billingPrepaidCheckout, BillingCheckout, "POST", input),
 	"machines.billingPortal": () =>
 		request(ApiPaths.billingPortal, BillingPortal, "POST", {}),
+	"deviceBridge.devices": (_input: Record<string, never> = {}) =>
+		request(`${DEVICE_BRIDGE_API_PATH}/devices`, BridgeDeviceList),
 	"deviceBridge.cloud": (input: {
 		workspaceId: string;
 		action: DeviceBridgeAction;
 		targetDeviceId?: string;
+		bindOnlyIfUnbound?: boolean;
 	}) =>
 		request(
 			ApiPaths.cloudWorkspaceDeviceBridge(input.workspaceId),
 			DeviceBridgeResult,
 			"POST",
-			{ action: input.action, targetDeviceId: input.targetDeviceId },
+			{
+				action: input.action,
+				targetDeviceId: input.targetDeviceId,
+				bindOnlyIfUnbound: input.bindOnlyIfUnbound,
+			},
 		),
 	"cloud.settings.get": () =>
 		request(ApiPaths.cloudSettings, WorkspaceSettings),

@@ -51,6 +51,12 @@ export const RpcAuthorizationLive = Layer.effect(
 					(Option.isNone(identity) || identity.value.kind !== "local")
 				)
 					return yield* new RpcAccessDeniedError({ code: "access-denied" });
+				if (
+					rpc._tag === "deviceBridge.setEnabled" &&
+					Option.isSome(identity) &&
+					identity.value.kind !== "local"
+				)
+					return yield* new RpcAccessDeniedError({ code: "access-denied" });
 				if (Option.isSome(identity) && identity.value.kind === "workspace")
 					return yield* authorizeWorkspaceRpc(
 						request,

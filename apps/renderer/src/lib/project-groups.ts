@@ -383,7 +383,10 @@ export const computerPickerItems = (
 				status: entry.status,
 				projectAvailable: true,
 				setupAvailable: false,
-				retryable: entry.status === "error" || entry.status === "offline",
+				retryable:
+					entry.status === "not-connected" ||
+					entry.status === "error" ||
+					entry.status === "offline",
 				selected: target?.environmentId === entry.environmentId,
 				disabled: entry.status === "connecting",
 			})),
@@ -407,13 +410,17 @@ export const computerPickerItems = (
 				status: member.status,
 				projectAvailable: true,
 				setupAvailable: false,
-				retryable: member.status === "error" || member.status === "offline",
+				retryable:
+					member.status === "not-connected" ||
+					member.status === "error" ||
+					member.status === "offline",
 				selected:
 					resolved !== null &&
 					member.environmentId === resolved.environmentId &&
 					member.folderId === resolved.folderId,
 				disabled:
 					!member.connected &&
+					member.status !== "not-connected" &&
 					member.status !== "error" &&
 					member.status !== "offline",
 			}),
@@ -436,7 +443,10 @@ export const computerPickerItems = (
 				projectAvailable: false,
 				setupAvailable:
 					entry.status === "connected" && group.origin?.cloneUrl !== undefined,
-				retryable: entry.status === "error" || entry.status === "offline",
+				retryable:
+					entry.status === "not-connected" ||
+					entry.status === "error" ||
+					entry.status === "offline",
 				selected:
 					resolved?.environmentId === entry.environmentId &&
 					resolved.folderId === null,
