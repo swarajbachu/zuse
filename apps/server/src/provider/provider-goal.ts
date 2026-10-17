@@ -20,6 +20,8 @@ export type GoalPublication<A> = (
 	residency: GoalResidency,
 ) => Effect.Effect<boolean | void>;
 
+const mutationRevisions = new WeakMap<object, number>();
+
 /** A delayed native goal reply can publish only while its exact process still owns the session. */
 export const runProviderGoal = <
 	A,
@@ -35,37 +37,33 @@ export const runProviderGoal = <
 	readonly entry: Entry;
 	readonly operation: (handle: GoalCapableSessionHandle) => Effect.Effect<A>;
 	readonly notificationDriven?: boolean;
+	readonly readOnly?: boolean;
 	readonly publish?: GoalPublication<A>;
 	readonly verify?: GoalCurrentCheck;
-}) =>
-	options.lifecycle.run(
-		options.sessionId,
+}) => {
+	const assertCurrent = Effect.gen(function* () {
+		if (
+			options.registry.lookup(options.sessionId) !== options.entry ||
+			options.registry.currentProviderSessionId(options.sessionId) !==
+				options.entry.providerSessionId ||
+			(options.verify !== undefined &&
+				!(yield* options.verify(options.entry))) ||
+			(options.entry.providerId !== "codex" &&
+				options.entry.providerId !== "grok")
+		)
+			return yield* new AgentSessionNotFoundError({
+				sessionId: options.sessionId,
+			});
+	});
+	const publish = (value: A, readRevision?: number) =>
 		Effect.gen(function* () {
-			const current = () =>
-				options.registry.lookup(options.sessionId) === options.entry &&
-				options.registry.currentProviderSessionId(options.sessionId) ===
-					options.entry.providerSessionId;
+			yield* assertCurrent;
+			// A read begun before a mutation cannot restore a paused or deleted goal.
 			if (
-				!current() ||
-				(options.verify !== undefined &&
-					!(yield* options.verify(options.entry))) ||
-				(options.entry.providerId !== "codex" &&
-					options.entry.providerId !== "grok")
+				readRevision !== undefined &&
+				(mutationRevisions.get(options.entry) ?? 0) !== readRevision
 			)
-				return yield* new AgentSessionNotFoundError({
-					sessionId: options.sessionId,
-				});
-			const value = yield* options.operation(
-				options.entry.handle as GoalCapableSessionHandle,
-			);
-			if (
-				!current() ||
-				(options.verify !== undefined &&
-					!(yield* options.verify(options.entry)))
-			)
-				return yield* new AgentSessionNotFoundError({
-					sessionId: options.sessionId,
-				});
+				return value;
 			if (
 				options.publish !== undefined &&
 				!(
@@ -83,5 +81,36 @@ export const runProviderGoal = <
 					});
 			}
 			return value;
+		});
+	if (options.readOnly === true)
+		return Effect.gen(function* () {
+			const revision = yield* options.lifecycle.run(
+				options.sessionId,
+				assertCurrent.pipe(
+					Effect.map(() => mutationRevisions.get(options.entry) ?? 0),
+				),
+			);
+			// Never hold the process lifecycle lock while awaiting a read-only RPC.
+			const value = yield* options.operation(
+				options.entry.handle as GoalCapableSessionHandle,
+			);
+			return yield* options.lifecycle.run(
+				options.sessionId,
+				publish(value, revision),
+			);
+		});
+	return options.lifecycle.run(
+		options.sessionId,
+		Effect.gen(function* () {
+			yield* assertCurrent;
+			mutationRevisions.set(
+				options.entry,
+				(mutationRevisions.get(options.entry) ?? 0) + 1,
+			);
+			const value = yield* options.operation(
+				options.entry.handle as GoalCapableSessionHandle,
+			);
+			return yield* publish(value);
 		}),
 	);
+};

@@ -55,6 +55,7 @@ const activeGoal = ThreadGoal.make({
 	updatedAt: 2,
 });
 let currentGoal: ThreadGoal | null = activeGoal;
+let pendingAction: "set" | "clear" | null = null;
 
 vi.mock("../../src/lib/session-goal-client-bus.ts", async (original) => ({
 	...(await original<
@@ -62,12 +63,24 @@ vi.mock("../../src/lib/session-goal-client-bus.ts", async (original) => ({
 	>()),
 	useSessionGoalResource: (ref: unknown) => ({
 		data: ref === null ? null : { goal: currentGoal },
+		pendingCommands:
+			pendingAction === null
+				? []
+				: [
+						{
+							kind:
+								pendingAction === "clear"
+									? "session.goal.clear"
+									: "session.goal.set",
+						},
+					],
 	}),
 }));
 
 describe("composer goal visibility", () => {
 	beforeEach(() => {
 		currentGoal = activeGoal;
+		pendingAction = null;
 	});
 	it.each([
 		"local-goal-environment",
@@ -93,6 +106,32 @@ describe("composer goal visibility", () => {
 		expect(html).toContain("Count from 1 to 100");
 		expect(html).toContain("Pause goal");
 		expect(html).toContain("0m 16s");
+	});
+	it.each([
+		"set",
+		"clear",
+	] as const)("shows pending feedback for a %s goal action", (action) => {
+		pendingAction = action;
+		const draft = useSessionsStore.getState().beginDraft({
+			projectId: FolderId.make("project-goal"),
+			providerId: "codex",
+			model: "gpt-5.6-sol",
+			runtimeMode: "full-access",
+		});
+		const html = renderToStaticMarkup(
+			<ChatComposer
+				session={Session.make({ ...draft, id: SessionId.make("goal-session") })}
+				environmentId={EnvironmentId.make("local-goal-environment")}
+			/>,
+		);
+		expect(html).toContain('aria-busy="true"');
+		expect(html).toContain('role="status"');
+		const controls =
+			html.match(
+				/<button[^>]*aria-label="(?:Pause goal|Delete goal|Edit goal)"[^>]*>/g,
+			) ?? [];
+		expect(controls).toHaveLength(3);
+		for (const control of controls) expect(control).toContain('disabled=""');
 	});
 	it.each([
 		["paused", "Goal paused"],

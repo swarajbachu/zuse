@@ -646,3 +646,79 @@ it.each([
 		resetSessionTimelineClientBusForTest();
 	}
 });
+
+it("makes queued feedback steerable while a goal send is awaiting its receipt", async () => {
+	resetSessionTimelineClientBusForTest();
+	registerWebSocketEnvironment(environmentId, "wss://example.test/rpc");
+	let finishGoalSend!: () => void;
+	const goalSendReceipt = new Promise<void>((resolve) => {
+		finishGoalSend = resolve;
+	});
+	let goalSendStarted = false;
+	let steered = false;
+	setSessionTimelineRpcClientForTest(
+		async () =>
+			({
+				"session.events": () => Stream.never,
+				"messages.send": () => {
+					goalSendStarted = true;
+					return Effect.promise(() => goalSendReceipt);
+				},
+				"messages.queue.add": ({
+					queueId,
+					input,
+				}: {
+					queueId: string;
+					input: ComposerInput;
+				}) =>
+					Effect.succeed(
+						QueuedMessage.make({
+							id: queueId,
+							sessionId,
+							input,
+							position: 0,
+							ready: true,
+							createdAt: new Date(),
+							updatedAt: new Date(),
+						}),
+					),
+				"messages.queue.runNext": () =>
+					Effect.sync(() => {
+						steered = true;
+					}),
+			}) as never,
+	);
+	const retained = retainSessionTimeline(ref, "connect");
+	const sending = sendSessionMessage(ref, "finish the goal", { asGoal: true });
+	try {
+		await waitUntil(() => goalSendStarted);
+		const input = ComposerInput.make({
+			text: "change direction",
+			attachments: [],
+			fileRefs: [],
+			skillRefs: [],
+		});
+		const queueId = queueSessionMessage(ref, input, {
+			persist: false,
+			ready: false,
+		});
+		const persisting = persistQueuedMessage(ref, queueId, input);
+		await expect
+			.poll(
+				() =>
+					getRendererClientBus()
+						.snapshot(retained.key)
+						.data?.queue.items.find((item) => item.id === queueId)?.ready,
+			)
+			.toBe(true);
+		expect(await persisting).toBe(true);
+		await runQueuedMessageNext(ref, queueId);
+		expect(steered).toBe(true);
+	} finally {
+		finishGoalSend();
+		retained.lease.release();
+		resetSessionTimelineClientBusForTest();
+		await sending;
+		usePendingSessionMessages.setState({ byResource: {} });
+	}
+});

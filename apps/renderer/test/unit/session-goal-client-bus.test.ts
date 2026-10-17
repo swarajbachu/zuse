@@ -4,6 +4,7 @@ import {
 	EnvironmentId,
 	RpcAccessDeniedError,
 	SessionId,
+	SessionNotFoundError,
 	ThreadGoal,
 } from "@zuse/contracts";
 import { Effect, Queue, Stream } from "effect";
@@ -235,4 +236,30 @@ describe("renderer session goal ClientBus adapter", () => {
 		expect(getRendererClientBus().snapshot(retained.key).data).toBeNull();
 		retained.lease.release();
 	});
+});
+
+it("receives goals when its subscription races session registration", async () => {
+	let attempts = 0;
+	const frames = Effect.runSync(Queue.unbounded());
+	setSessionTimelineRpcClientForTest(
+		async () =>
+			({
+				"session.goal.stream": () => {
+					attempts++;
+					return attempts === 1
+						? Stream.fail(new SessionNotFoundError({ sessionId }))
+						: Stream.fromQueue(frames);
+				},
+			}) as never,
+	);
+	const retained = retainSessionGoal(ref);
+	try {
+		await expect.poll(() => attempts).toBe(2);
+		Queue.offerUnsafe(frames, { sessionId, goal });
+		await expect
+			.poll(() => getRendererClientBus().snapshot(retained.key).data?.goal)
+			.toEqual(goal);
+	} finally {
+		retained.lease.release();
+	}
 });

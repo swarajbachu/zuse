@@ -8,6 +8,7 @@ import type { ResourceDriver } from "./client-bus";
 import { isRpcAccessDenied } from "./connection";
 import type { ResourceKey, SessionRef } from "./resource-ref";
 import type { SyncPhase } from "./resource-state";
+import { waitForSessionRegistration } from "./session-registration";
 import {
 	observeOptimisticTimelineProjection,
 	reduceSessionTimelineFrame,
@@ -193,17 +194,21 @@ export const makeSessionTimelineResourceDriver = <
 				});
 			};
 			const program = Stream.runForEach(
-				context.client["session.events"]({
-					sessionId: ref.sessionId,
-					...(backgroundHistory ? { historyMode: "background" as const } : {}),
-					afterVersion: state.cursor?.version,
-					streamEpoch: state.cursor?.epoch,
-					includeRuntime: true,
-					hasProjection:
-						state.projection !== null &&
-						state.projection.olderMessageSequence == null &&
-						!cachedTurnMayBeStale,
-				}),
+				waitForSessionRegistration(() =>
+					context.client["session.events"]({
+						sessionId: ref.sessionId,
+						...(backgroundHistory
+							? { historyMode: "background" as const }
+							: {}),
+						afterVersion: state.cursor?.version,
+						streamEpoch: state.cursor?.epoch,
+						includeRuntime: true,
+						hasProjection:
+							state.projection !== null &&
+							state.projection.olderMessageSequence == null &&
+							!cachedTurnMayBeStale,
+					}),
+				),
 				(frame) =>
 					Effect.sync(() => {
 						if (!active) return;

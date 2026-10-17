@@ -19,6 +19,7 @@ import {
 	emptyResourceView,
 	type ResourceView,
 } from "@zuse/client-runtime/resource-state";
+import { waitForSessionRegistration } from "@zuse/client-runtime/session-registration";
 import {
 	CommandId,
 	type ThreadGoal,
@@ -69,7 +70,9 @@ const makeSessionGoalDriver = (): ResourceDriver<
 			const epoch = `session-goal:${context.generation}:${crypto.randomUUID()}`;
 			let version = 0;
 			const program = Stream.runForEach(
-				context.client["session.goal.stream"]({ sessionId: ref.sessionId }),
+				waitForSessionRegistration(() =>
+					context.client["session.goal.stream"]({ sessionId: ref.sessionId }),
+				),
 				(event) =>
 					Effect.sync(() => {
 						if (

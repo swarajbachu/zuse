@@ -3972,3 +3972,103 @@ describe("ClientBus", () => {
 		await bus.dispose();
 	});
 });
+
+it("persists and steers queued feedback while a goal send is still pending", async () => {
+	const sendReply = deferred<void>();
+	const queueReply = deferred<void>();
+	const calls: string[] = [];
+	const bus = new ClientBus<Client>({
+		resolver: immediateResolver(),
+		persistence: new MemoryPersistence(),
+		commandExecutor: {
+			execute: async (_client, command) => {
+				calls.push(command.kind);
+				if (command.kind === "messages.send") await sendReply.promise;
+				if (command.kind === "messages.queue.add") await queueReply.promise;
+				return {
+					commandId: command.commandId,
+					receivedAt: 2,
+					result: undefined,
+				};
+			},
+		},
+	});
+	const command = (kind: string) => ({
+		kind,
+		commandId: CommandId.make(kind),
+		environmentId,
+		resource: timelineKey,
+		payload:
+			kind === "messages.send" ? { text: "finish the goal", asGoal: true } : {},
+		retry: "safe" as const,
+		createdAt: 1,
+	});
+	const send = bus.dispatch(command("messages.send"));
+	try {
+		await waitUntil(() => calls.length === 1);
+		const add = bus.dispatch(command("messages.queue.add"));
+		const steer = bus.dispatch(command("messages.queue.runNext"));
+		await waitUntil(() => calls.includes("messages.queue.add"));
+		expect(calls).toEqual(["messages.send", "messages.queue.add"]);
+		queueReply.resolve();
+		await waitUntil(() => calls.includes("messages.queue.runNext"));
+		await Promise.all([add, steer]);
+		expect(calls).toEqual([
+			"messages.send",
+			"messages.queue.add",
+			"messages.queue.runNext",
+		]);
+	} finally {
+		queueReply.resolve();
+		sendReply.resolve();
+		await send;
+		await bus.dispose();
+	}
+});
+
+it.each([
+	"messages.send",
+	"messages.queue.runNext",
+	"messages.interrupt",
+])("interrupts without waiting for a pending %s command", async (previousKind) => {
+	const previousReply = deferred<void>();
+	const calls: string[] = [];
+	const bus = new ClientBus<Client>({
+		resolver: immediateResolver(),
+		persistence: new MemoryPersistence(),
+		commandExecutor: {
+			execute: async (_client, command) => {
+				calls.push(command.kind);
+				if (command.commandId === "previous") await previousReply.promise;
+				return {
+					commandId: command.commandId,
+					receivedAt: 2,
+					result: undefined,
+				};
+			},
+		},
+	});
+	const command = (kind: string, id: string) => ({
+		kind,
+		commandId: CommandId.make(id),
+		environmentId,
+		resource: timelineKey,
+		payload: { expectedTurnId: id },
+		retry: "safe" as const,
+		createdAt: 1,
+	});
+	const previous = bus.dispatch(command(previousKind, "previous"));
+	try {
+		await waitUntil(() => calls.length === 1);
+		const stopping = bus.dispatch(
+			command("messages.interrupt", "stop-current-turn"),
+		);
+		await waitUntil(() => calls.length === 2);
+		expect(calls[1]).toBe("messages.interrupt");
+		await stopping;
+	} finally {
+		previousReply.resolve();
+		await previous;
+		await bus.dispose();
+	}
+});

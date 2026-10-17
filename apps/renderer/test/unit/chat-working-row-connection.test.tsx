@@ -56,3 +56,18 @@ describe("ChatWorkingRow cloud delivery", () => {
 		expect(markup).not.toContain("is working");
 	});
 });
+
+it("shows stopping instead of working after an interrupt is requested", () => {
+	const markup = renderToStaticMarkup(
+		<ChatWorkingRow
+			messages={[]}
+			chatId={null}
+			pendingCommands={[]}
+			runtimeState="stopping"
+			sessionId={SessionId.make("stopping")}
+			providerId="codex"
+		/>,
+	);
+	expect(markup).toContain("Stopping");
+	expect(markup).not.toContain("is working");
+});

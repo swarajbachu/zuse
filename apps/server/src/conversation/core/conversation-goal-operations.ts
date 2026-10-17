@@ -93,6 +93,10 @@ export const makeConversationGoalOperations = (
 						(residency) => options.isCurrent(sessionId, residency),
 					)
 					.pipe(
+						Effect.map((goal) => {
+							const current = options.state.current(sessionId);
+							return current === undefined ? goal : current;
+						}),
 						Effect.catchTag("AgentSessionNotFoundError", () =>
 							Effect.fail(new SessionNotFoundError({ sessionId })),
 						),

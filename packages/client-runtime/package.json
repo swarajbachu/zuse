@@ -44,6 +44,7 @@
 		"./session-timeline": "./src/session-timeline.ts",
 		"./session-activity": "./src/session-activity.ts",
 		"./session-presentation": "./src/session-presentation.ts",
+		"./session-registration": "./src/session-registration.ts",
 		"./session-timeline-driver": "./src/session-timeline-driver.ts",
 		"./session-timeline-cache": "./src/session-timeline-cache.ts",
 		"./timeline": "./src/timeline.ts",

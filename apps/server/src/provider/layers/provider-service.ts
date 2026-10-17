@@ -438,9 +438,12 @@ export const ProviderServiceLive = Layer.effect(
 		const goalOperation = <A>(
 			sessionId: AgentSessionId,
 			operation: (handle: GoalCapableHandle) => Effect.Effect<A>,
-			publish?: GoalPublication<A>,
-			notificationDriven = false,
-			verify?: GoalCurrentCheck,
+			options: {
+				readonly publish?: GoalPublication<A>;
+				readonly notificationDriven?: boolean;
+				readonly verify?: GoalCurrentCheck;
+				readonly readOnly?: boolean;
+			},
 		) =>
 			Effect.flatMap(lookup(sessionId), (entry) =>
 				runProviderGoal({
@@ -449,9 +452,7 @@ export const ProviderServiceLive = Layer.effect(
 					sessionId,
 					entry,
 					operation,
-					publish,
-					notificationDriven,
-					verify,
+					...options,
 				}),
 			);
 
@@ -1674,29 +1675,23 @@ export const ProviderServiceLive = Layer.effect(
 					),
 				),
 			getGoal: (sessionId, publish, verify) =>
-				goalOperation(
-					sessionId,
-					(handle) => handle.getGoal(),
+				goalOperation(sessionId, (handle) => handle.getGoal(), {
 					publish,
-					false,
 					verify,
-				),
+					readOnly: true,
+				}),
 			setGoal: (sessionId, goal, publish, verify) =>
-				goalOperation(
-					sessionId,
-					(handle) => handle.setGoal(goal),
+				goalOperation(sessionId, (handle) => handle.setGoal(goal), {
 					publish,
-					true,
 					verify,
-				),
+					notificationDriven: true,
+				}),
 			clearGoal: (sessionId, publish, verify) =>
-				goalOperation(
-					sessionId,
-					(handle) => handle.clearGoal(),
+				goalOperation(sessionId, (handle) => handle.clearGoal(), {
 					publish,
-					true,
 					verify,
-				),
+					notificationDriven: true,
+				}),
 		};
 	}),
 );

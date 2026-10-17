@@ -124,6 +124,19 @@ const installAppServer = (
 							return { data: [] };
 						case "thread/goal/get":
 							return null;
+						case "thread/goal/set":
+							return {
+								goal: {
+									threadId: record.threadId,
+									objective: "keep working",
+									status: "active",
+									tokenBudget: null,
+									tokensUsed: 0,
+									timeUsedSeconds: 0,
+									createdAt: 1,
+									updatedAt: 1,
+								},
+							};
 						case "thread/start":
 							options.onNotification({
 								method: "thread/started",
@@ -920,4 +933,55 @@ describe("Codex file attachments", () => {
 			expect(JSON.stringify(appServer.turnInputs[0])).toContain(path);
 		});
 	});
+});
+
+it("settles an interrupted native goal turn without waiting for a goal update", async () => {
+	await withSession(
+		{ resumeCursor: "resume-thread" },
+		async (handle, appServer) => {
+			await Effect.runPromise(
+				handle.setGoal({ objective: "keep working", status: "active" }),
+			);
+			const events: ProviderDriverEvent[] = [];
+			const subscription = Effect.runFork(
+				handle.events.pipe(
+					Stream.runForEach((event) =>
+						Effect.sync(() => {
+							events.push(event);
+						}),
+					),
+				),
+			);
+			try {
+				await expect
+					.poll(() => events.some((event) => event._tag === "GoalUpdated"))
+					.toBe(true);
+				events.length = 0;
+				appServer.notify({
+					method: "turn/started",
+					params: {
+						threadId: "resume-thread",
+						turn: { id: "native-goal-turn" },
+					},
+				} as never);
+				appServer.notify({
+					method: "turn/completed",
+					params: {
+						threadId: "resume-thread",
+						turn: { id: "native-goal-turn", status: "interrupted" },
+					},
+				} as never);
+				await expect
+					.poll(() =>
+						events.some(
+							(event) => event._tag === "Status" && event.status === "idle",
+						),
+					)
+					.toBe(true);
+				expect(events.some((event) => event._tag === "Interrupted")).toBe(true);
+			} finally {
+				await Effect.runPromise(Fiber.interrupt(subscription));
+			}
+		},
+	);
 });

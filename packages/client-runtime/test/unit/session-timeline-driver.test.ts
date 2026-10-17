@@ -7,6 +7,7 @@ import {
 	QueueState,
 	RpcAccessDeniedError,
 	SessionId,
+	SessionNotFoundError,
 	type SessionTimelineFrame,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
@@ -710,6 +711,45 @@ it("resumes a complete active 10,000-message cache using only the event cursor",
 			activeTurn: null,
 		});
 		expect(test.view().data?.messages).toHaveLength(10_000);
+	} finally {
+		driver.stop();
+	}
+});
+
+it("recovers a session stream subscribed before chat creation persisted", async () => {
+	let attempts = 0;
+	const frames = Effect.runSync(Queue.unbounded<SessionTimelineFrame>());
+	const h = harness({
+		key,
+		data: null,
+		cursor: null,
+		client: {
+			"session.events": () => {
+				attempts++;
+				return attempts === 1
+					? Stream.fail(new SessionNotFoundError({ sessionId }))
+					: Stream.fromQueue(frames);
+			},
+		},
+	});
+	const driver = makeSessionTimelineResourceDriver({ reportFailure: () => {} });
+	driver.start(h.context);
+	try {
+		await expect.poll(() => attempts).toBe(2);
+		Queue.offerUnsafe(frames, {
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 1,
+			cursor: { epoch: "created", version: 1 },
+			projection,
+		});
+		Queue.offerUnsafe(frames, {
+			kind: "synchronized",
+			sessionId,
+			throughVersion: 1,
+			cursor: { epoch: "created", version: 1 },
+		});
+		await expect.poll(() => h.view().sync).toBe("live");
 	} finally {
 		driver.stop();
 	}

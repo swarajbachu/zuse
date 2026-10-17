@@ -82,8 +82,18 @@ export const makeConversationGoalState = Effect.fn(
 				Effect.gen(function* () {
 					const dequeue = yield* PubSub.subscribe(yield* channel(sessionId));
 					const cached = currentBySession.get(sessionId);
-					const initial = cached === undefined ? yield* loadInitial : cached;
-					if (cached === undefined) currentBySession.set(sessionId, initial);
+					const loaded =
+						cached === undefined
+							? yield* Effect.raceFirst(
+									loadInitial,
+									PubSub.take(dequeue).pipe(Effect.map((event) => event.goal)),
+								)
+							: cached;
+					// A control update can arrive while the initial native read is pending.
+					// Deliver it immediately and keep its canonical state over a late read.
+					const current = currentBySession.get(sessionId);
+					const initial = current === undefined ? loaded : current;
+					if (current === undefined) currentBySession.set(sessionId, initial);
 					return Stream.concat(
 						Stream.succeed({ sessionId, goal: initial }),
 						Stream.fromSubscription(dequeue),

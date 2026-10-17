@@ -110,19 +110,21 @@ export function ChatWorkingRow({
 			>
 				{finalizing
 					? uiMessage("chat:checkpoints_saving")
-					: background.size > 0
-						? uiMessage("chat:native_background_running")
-						: waitingCommand !== null
-							? waitingCommand.label
-							: showStartup
-								? providerStartupLabel({
-										providerLabel,
-										failed: false,
-										delayed,
-									})
-								: uiMessage("chat:chat_working_row_is_working", {
-										providerLabel: String(providerLabel),
-									})}
+					: runtimeState === "stopping"
+						? uiMessage("chat:chat_composer_stopping")
+						: background.size > 0
+							? uiMessage("chat:native_background_running")
+							: waitingCommand !== null
+								? waitingCommand.label
+								: showStartup
+									? providerStartupLabel({
+											providerLabel,
+											failed: false,
+											delayed,
+										})
+									: uiMessage("chat:chat_working_row_is_working", {
+											providerLabel: String(providerLabel),
+										})}
 			</span>
 			<ShimmerText tone="lime" className="tabular-nums">
 				{formatElapsed(elapsed)}

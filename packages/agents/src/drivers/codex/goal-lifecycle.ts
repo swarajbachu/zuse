@@ -1,4 +1,5 @@
 import type { ThreadGoalStatus } from "@zuse/contracts";
+import type { TurnStatus } from "./generated/v2/TurnStatus.ts";
 /** Native goal status, rather than each autonomous native turn, owns goal completion. */
 export const makeCodexGoalLifecycle = () => {
 	let owned = false;
@@ -12,9 +13,9 @@ export const makeCodexGoalLifecycle = () => {
 		turnStarted: () => {
 			physicalTurn = true;
 		},
-		turnCompleted: (failed: boolean) => {
+		turnCompleted: (status: TurnStatus) => {
 			physicalTurn = false;
-			if (failed) active = false;
+			if (status === "failed" || status === "interrupted") active = false;
 			return !owned || !active;
 		},
 		updated: (status: ThreadGoalStatus) => {

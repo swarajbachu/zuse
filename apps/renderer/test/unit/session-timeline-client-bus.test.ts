@@ -25,7 +25,6 @@ import {
 	QueuedMessage,
 	QueueState,
 	SessionId,
-	SessionNotFoundError,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
 import { Effect, Queue, Schema, Stream } from "effect";
@@ -438,7 +437,9 @@ describe("renderer session timeline ClientBus adapter", () => {
 				"session.events": () => {
 					streamStarts += 1;
 					return streamStarts === 1
-						? Stream.fail(new SessionNotFoundError({ sessionId }))
+						? Stream.fail(
+								new Error("subscription failed before acknowledgement"),
+							)
 						: Stream.fromQueue(frames);
 				},
 			} as never,

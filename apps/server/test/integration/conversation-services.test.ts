@@ -194,6 +194,7 @@ let failProviderSend = false;
 let providerStartFailureReason = "scripted start failure";
 let providerStartBarrier: Promise<void> | null = null;
 let providerInterruptBarrier: Promise<void> | null = null;
+let providerGoalBarrier: Promise<void> | null = null;
 let providerInterruptCalls: Array<{
 	readonly sessionId: AgentSessionId;
 	readonly turnId: AgentTurnId;
@@ -496,6 +497,11 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 			providerGoals.set(sessionId, goal);
 			return goal;
 		}).pipe(
+			Effect.tap(() =>
+				providerGoalBarrier === null
+					? Effect.void
+					: Effect.promise(() => providerGoalBarrier as Promise<void>),
+			),
 			Effect.tap(
 				(goal) =>
 					publish?.(goal, {
@@ -1006,6 +1012,7 @@ beforeEach(() => {
 	providerStartFailureReason = "scripted start failure";
 	providerStartBarrier = null;
 	providerInterruptBarrier = null;
+	providerGoalBarrier = null;
 	providerInterruptCalls = [];
 	providerEventsBarrier = null;
 	providerEventsFinished = undefined;
@@ -6806,6 +6813,56 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await expect(paused).resolves.toMatchObject({
 				value: { goal: { status: "paused" } },
 			});
+		});
+	});
+	it("interrupts native work before a slow goal pause acknowledges", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "codex",
+						model: "gpt-5.6-sol",
+						initialPrompt: "keep working",
+					}),
+				),
+			);
+			providerGoals.set(
+				initialSession.id,
+				ThreadGoal.make({
+					threadId: initialSession.id,
+					objective: "keep working",
+					status: "active",
+					tokenBudget: null,
+					tokensUsed: 0,
+					timeUsedSeconds: 0,
+					createdAt: 1,
+					updatedAt: 1,
+				}),
+			);
+			await run(Effect.flatMap(store, (s) => s.getGoal(initialSession.id)));
+			const barrier = deferred<void>();
+			providerGoalBarrier = barrier.promise;
+			const stopping = run(
+				Effect.flatMap(store, (s) =>
+					s.interruptSession(
+						testCommandId("messages.interrupt"),
+						initialSession.id,
+					),
+				),
+			);
+			try {
+				await expect
+					.poll(() =>
+						providerInterruptCalls.some(
+							(call) => call.sessionId === initialSession.id,
+						),
+					)
+					.toBe(true);
+			} finally {
+				barrier.resolve(undefined);
+				await stopping;
+			}
 		});
 	});
 	it("manual interrupt pauses queued messages and blocks auto-flush", async () => {

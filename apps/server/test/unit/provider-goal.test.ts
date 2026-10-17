@@ -124,3 +124,70 @@ it("rejects canonical provider revocation while process retirement is still queu
 		).pipe(Effect.provide(layer({ filename: ":memory:" }))),
 	);
 });
+
+it.each([
+	"pause",
+	"clear",
+])("does not hold %s behind a slow goal read", async (kind) => {
+	await Effect.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				const sessionId = AgentSessionId.make("slow-read-session");
+				const entry = {
+					providerSessionId: "owner",
+					providerId: "codex" as const,
+					handle: {},
+				};
+				const registry = makeProviderSessionRegistry<
+					AgentSessionId,
+					typeof entry
+				>();
+				registry.publish(sessionId, registry.begin(sessionId, "owner"), entry);
+				const lifecycle = new KeyedEffectSerialWorker<AgentSessionId>();
+				const readEntered = yield* Deferred.make<void>();
+				const releaseRead = yield* Deferred.make<void>();
+				const controlEntered = yield* Deferred.make<void>();
+				const published: string[] = [];
+				const read = yield* runProviderGoal({
+					registry,
+					lifecycle,
+					sessionId,
+					entry,
+					readOnly: true,
+					operation: () =>
+						Deferred.succeed(readEntered, undefined).pipe(
+							Effect.andThen(Deferred.await(releaseRead)),
+							Effect.as("active"),
+						),
+					publish: (value) =>
+						Effect.sync(() => {
+							published.push(value);
+						}),
+				}).pipe(Effect.forkScoped);
+				yield* Deferred.await(readEntered);
+				const control = yield* runProviderGoal({
+					registry,
+					lifecycle,
+					sessionId,
+					entry,
+					notificationDriven: true,
+					operation: () =>
+						Deferred.succeed(controlEntered, undefined).pipe(Effect.as(kind)),
+					publish: (value) =>
+						Effect.sync(() => {
+							published.push(value);
+						}),
+				}).pipe(Effect.forkScoped);
+				const responsive = yield* Effect.raceFirst(
+					Deferred.await(controlEntered).pipe(Effect.as(true)),
+					Effect.sleep("20 millis").pipe(Effect.as(false)),
+				);
+				yield* Deferred.succeed(releaseRead, undefined);
+				yield* Fiber.join(control);
+				yield* Fiber.join(read);
+				expect(responsive).toBe(true);
+				expect(published).toEqual([kind]);
+			}),
+		),
+	);
+});

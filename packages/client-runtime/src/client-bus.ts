@@ -915,8 +915,10 @@ export class ClientBus<Client> {
 
 	/**
 	 * Commands which mutate the same qualified resource execute in submission
-	 * order. Different resources retain independent lanes, so a slow Git command
-	 * cannot delay terminal input or another session.
+	 * order. Session queue mutations have their own ordered lane: an in-flight
+	 * send can wait on provider startup or timeline reflection while the user
+	 * still needs to enqueue and steer feedback. Different resources retain
+	 * independent lanes, so a slow Git command cannot delay another session.
 	 */
 	private enqueueCommand<Result>(
 		command: ClientCommand<unknown, Result>,
@@ -932,10 +934,20 @@ export class ClientBus<Client> {
 	}
 
 	private reserveCommandLane(command: ClientCommand): CommandLaneReservation {
-		const lane =
+		const resourceLane =
 			command.resource === null
 				? `environment:${command.environmentId}:command:${command.kind}`
 				: resourceKeyId(command.resource);
+		// Stop must reach the server even while a send, steer, or earlier stop is
+		// waiting for its receipt. expectedTurnId fences it to the intended turn.
+		const lane =
+			command.resource?.kind === "session-timeline" &&
+			command.kind.startsWith("messages.queue.")
+				? `${resourceLane}:queue`
+				: command.resource?.kind === "session-timeline" &&
+						command.kind === "messages.interrupt"
+					? `${resourceLane}:interrupt:${command.commandId}`
+					: resourceLane;
 		const waitForTurn = (
 			this.commandLanes.get(lane) ?? Promise.resolve()
 		).catch(() => undefined);

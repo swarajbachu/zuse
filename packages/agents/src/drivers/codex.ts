@@ -2306,13 +2306,12 @@ export const startCodexSession = (
 					}
 					if (notification.params.threadId !== activeThreadId) return [];
 					currentTurnId = null;
-					if (
-						!goalLifecycle.turnCompleted(
-							notification.params.turn.status === "failed",
-						)
-					)
+					if (!goalLifecycle.turnCompleted(notification.params.turn.status))
 						return [];
 					return [
+						...(notification.params.turn.status === "interrupted"
+							? [{ _tag: "Interrupted" as const }]
+							: []),
 						{
 							_tag: "Status",
 							status:
