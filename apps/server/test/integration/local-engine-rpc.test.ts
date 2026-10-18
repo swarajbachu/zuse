@@ -13,6 +13,7 @@ import type { EngineFrame } from "../../src/desktop-engine/channel.ts";
 import { connectLocalEngine } from "../../src/desktop-engine/client.ts";
 import { EngineHost } from "../../src/desktop-engine/host.ts";
 import { localEngineProtocolLayer } from "../../src/desktop-engine/protocol.ts";
+import { ConnectionIdentity } from "../../src/lan-auth/services/connection-identity.ts";
 
 it("reattaches with reused RPC ids while engine-owned work continues", async () => {
 	const token = randomBytes(32).toString("hex");
@@ -29,7 +30,15 @@ it("reattaches with reused RPC ids while engine-owned work continues", async () 
 		}),
 	);
 	const handlers = Rpcs.toLayer({
-		read: () => Effect.sync(() => completedWork),
+		read: () =>
+			Effect.gen(function* () {
+				const identity = yield* Effect.serviceOption(ConnectionIdentity);
+				expect(identity).toMatchObject({
+					_tag: "Some",
+					value: { kind: "local" },
+				});
+				return completedWork;
+			}),
 		watch: () =>
 			Stream.fromEffect(
 				Effect.acquireRelease(

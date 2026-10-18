@@ -1,6 +1,7 @@
 import { type Cause, Effect, Fiber, Layer, Queue, Stream } from "effect";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import type { FromClientEncoded } from "effect/unstable/rpc/RpcMessage";
+import { ConnectionIdentity } from "../lan-auth/services/connection-identity.ts";
 import type { EngineChannel } from "./channel.ts";
 import type { EngineHost } from "./host.ts";
 import { listenLocalEngine } from "./listener.ts";
@@ -57,6 +58,10 @@ export const localEngineProtocolLayer = (options: {
 														yield* writeRequest(
 															clientId,
 															request as FromClientEncoded,
+														).pipe(
+															Effect.provideService(ConnectionIdentity, {
+																kind: "local",
+															}),
 														);
 												}),
 											),

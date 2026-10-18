@@ -1,4 +1,8 @@
-import type { GitHubObservation, GitHubTarget } from "@zuse/contracts";
+import {
+	type GitHubObservation,
+	type GitHubTarget,
+	RpcAccessDeniedError,
+} from "@zuse/contracts";
 import { emptyPr } from "@zuse/git/github-pr-info";
 import { afterEach, expect, test, vi } from "vitest";
 import {
@@ -112,7 +116,7 @@ test("a first failure is actionable rather than an endless empty loading state",
 		error: "Network unavailable",
 		value: {
 			pr: {
-				prCapability: "offline",
+				prCapability: "unknown",
 				observationError: "Network unavailable",
 				stale: true,
 			},
@@ -162,7 +166,7 @@ test("a transport that never settles cannot leave observation pending forever", 
 	await pending;
 	expect(observer.snapshot(target)).toMatchObject({
 		error: "GitHub request timed out.",
-		value: { pr: { stale: true } },
+		value: { pr: { stale: true, prCapability: "timeout" } },
 	});
 	stop();
 	observer.clear();
@@ -229,5 +233,48 @@ test("PR details are shared with cache-only surfaces and survive status refreshe
 	);
 	observer.clear();
 	expect(observer.snapshot(target).value).toBeNull();
+	observer.clear();
+});
+
+for (const cached of [false, true]) {
+	for (const code of ["access-denied", "credential-expired"] as const) {
+		test(`RPC ${code} is classified and clears private data with cached=${cached}`, async () => {
+			const observer = new GitHubObserver(
+				async () => {
+					throw new RpcAccessDeniedError({ code });
+				},
+				cached ? () => observation : undefined,
+			);
+			await observer.refresh(target);
+			expect(observer.snapshot(target).value).toMatchObject({
+				pr: {
+					prCapability: code === "access-denied" ? "access" : "authentication",
+					state: "none",
+					number: null,
+					stale: true,
+				},
+				details: null,
+			});
+			observer.clear();
+		});
+	}
+}
+
+test("an unclassified failure replaces an outdated offline classification", async () => {
+	const observer = new GitHubObserver(
+		async () => {
+			throw new Error("Unexpected response");
+		},
+		() => ({
+			...observation,
+			pr: { ...observation.pr, prCapability: "offline" },
+		}),
+	);
+	await observer.refresh(target);
+	expect(observer.snapshot(target).value?.pr).toMatchObject({
+		number: 42,
+		prCapability: "unknown",
+		stale: true,
+	});
 	observer.clear();
 });

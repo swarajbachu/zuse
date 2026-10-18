@@ -6,6 +6,7 @@ import {
 import { emptyPr } from "@zuse/git/github-pr-info";
 import { GitHubSharedReads } from "@zuse/git/github-shared-read";
 import { Schema } from "effect";
+import { isRpcAccessDenied, isRpcCredentialExpired } from "./connection.ts";
 
 export type GitHubRead = (
 	input: GitHubObserveRequest,
@@ -196,26 +197,37 @@ export class GitHubObserver {
 					controller.signal.reason?.name === "AbortError"
 				)
 					return;
+				const capability = isRpcAccessDenied(error)
+					? "access"
+					: isRpcCredentialExpired(error)
+						? "authentication"
+						: controller.signal.aborted
+							? "timeout"
+							: "unknown";
+				const denied =
+					capability === "access" || capability === "authentication";
 				const message =
-					error instanceof Error
-						? error.message
-						: "GitHub refresh failed. Retry or reconnect GitHub.";
-				const previous = entry.view.value;
+					capability === "access"
+						? "Zuse denied access to GitHub status."
+						: capability === "authentication"
+							? "Your Zuse connection has expired. Reconnect to refresh GitHub status."
+							: error instanceof Error
+								? error.message
+								: "GitHub refresh failed. Retry to refresh status.";
+				const previous = denied ? null : entry.view.value;
 				entry.view = {
 					...entry.view,
 					error: message,
-					value: previous
-						? {
-								...previous,
-								pr: { ...previous.pr, stale: true, observationError: message },
-							}
-						: {
-								pr: {
-									...emptyPr(target.branch, "offline"),
-									observationError: message,
-								},
-								details: null,
-							},
+					value: {
+						...(previous ?? { details: null }),
+						pr: {
+							...(previous?.pr ?? emptyPr(target.branch, capability)),
+							stale: true,
+							prCapability: capability,
+							observationError: message,
+							retryAt: null,
+						},
+					},
 				};
 				entry.failures++;
 			} finally {
