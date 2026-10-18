@@ -210,7 +210,12 @@ function MarkdownImage({
 	if (target !== null && preview?.target !== target)
 		return <span title={title}>{alt}</span>;
 	return (
-		<img src={target === null ? src : preview?.url} alt={alt} title={title} />
+		<img
+			src={target === null ? src : preview?.url}
+			alt={alt}
+			title={title}
+			className="h-auto max-h-60 w-auto max-w-[min(100%,320px)] object-contain"
+		/>
 	);
 }
 
