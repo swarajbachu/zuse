@@ -214,7 +214,7 @@ function MarkdownImage({
 			src={target === null ? src : preview?.url}
 			alt={alt}
 			title={title}
-			className="h-auto max-h-60 w-auto max-w-[min(100%,320px)] object-contain"
+			className="h-auto w-auto max-w-[min(100%,320px)]"
 		/>
 	);
 }
