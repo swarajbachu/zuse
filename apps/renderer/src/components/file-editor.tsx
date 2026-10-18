@@ -43,6 +43,7 @@ import {
 	readLocalExternalFile,
 	writeLocalExternalFile,
 } from "../lib/local-device-client-bus.ts";
+import { readImageFile } from "../lib/read-image-file.ts";
 import {
 	rendererWorkspaceSnapshot,
 	subscribeRendererWorkspace,
@@ -251,33 +252,7 @@ function FileImageBody({ openFile }: { openFile: EditableFile }) {
 
 		void (async () => {
 			try {
-				const result =
-					openFile.kind === "external"
-						? await readLocalExternalFile<typeof FsFileContent.Type>(
-								openFile.absPath,
-							)
-						: (
-								await dispatchFileTreeCommand<
-									Parameters<MemoizeClient["fs.readFile"]>[0],
-									typeof FsFileContent.Type
-								>({
-									ref: {
-										environmentId: EnvironmentId.make(
-											openFile.environmentId ?? getLocalEnvironmentId(),
-										),
-										folderId: openFile.folderId,
-										worktreeId: openFile.worktreeId,
-										rootPath: "",
-									},
-									kind: "fs.readFile",
-									commandId: CommandId.make(`fs-read:${crypto.randomUUID()}`),
-									payload: {
-										folderId: openFile.folderId,
-										path: openFile.path,
-										worktreeId: openFile.worktreeId,
-									},
-								})
-							).result;
+				const result = await readImageFile(openFile);
 				if (cancelled) return;
 				const mimeType = imageMimeForFile(openFile.name);
 				if (mimeType === null) return;

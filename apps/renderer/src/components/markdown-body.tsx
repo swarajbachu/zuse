@@ -25,12 +25,17 @@ import {
 	useRef,
 	useState,
 } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, {
+	type Components,
+	defaultUrlTransform,
+} from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 
+import { bytesForImageContent, imageMimeForFile } from "~/lib/image-preview";
 import { openExternal } from "~/lib/platform-capabilities";
+import { readImageFile } from "~/lib/read-image-file";
 import { knownSiteLink } from "~/lib/site-link";
 import { cn } from "~/lib/utils";
 import { useUiStore } from "~/store/ui";
@@ -158,6 +163,56 @@ const localFilePathFromHref = (href: string): string | null => {
 		return null;
 	}
 };
+
+function MarkdownImage({
+	src,
+	alt,
+	title,
+	target,
+}: {
+	src?: string;
+	alt?: string;
+	title?: string;
+	target: ReturnType<typeof resolveFileOpenTarget>;
+}) {
+	const [preview, setPreview] = useState<{
+		target: typeof target;
+		url: string;
+	} | null>(null);
+	useEffect(() => {
+		if (
+			target === null ||
+			(target.kind !== "text" && target.kind !== "external")
+		)
+			return;
+		let cancelled = false;
+		let url: string | null = null;
+		void readImageFile(target)
+			.then((result) => {
+				if (cancelled) return;
+				const mime = imageMimeForFile(target.name);
+				if (mime === null) return;
+				url = URL.createObjectURL(
+					new Blob([bytesForImageContent(result).slice().buffer], {
+						type: mime,
+					}),
+				);
+				setPreview({ target, url });
+			})
+			.catch(() => {
+				/* Keep the image description visible if access fails. */
+			});
+		return () => {
+			cancelled = true;
+			if (url !== null) URL.revokeObjectURL(url);
+		};
+	}, [target]);
+	if (target !== null && preview?.target !== target)
+		return <span title={title}>{alt}</span>;
+	return (
+		<img src={target === null ? src : preview?.url} alt={alt} title={title} />
+	);
+}
 
 const codeChildFromPre = (node: ReactNode): ReactNode => {
 	if (isValidElement(node) && node.type === "code") return node;
@@ -604,6 +659,29 @@ export const MarkdownBody = memo(function MarkdownBody({
 					{linkChildren}
 				</MarkdownLink>
 			),
+			img: function MarkdownImageElement({ src, alt, title }) {
+				const path =
+					typeof src === "string" && !/^(?:https?:)?\/\//i.test(src)
+						? (localFilePathFromHref(src) ??
+							(!/^[a-z][a-z0-9+.-]*:/i.test(src) ? decodeURI(src) : null))
+						: null;
+				const target = useMemo(
+					() =>
+						path === null
+							? null
+							: resolveFileOpenTarget({
+									relPath: path,
+									folderId,
+									worktreeId,
+									folderPath,
+									worktreePath,
+								}),
+					[path, folderId, worktreeId, folderPath, worktreePath],
+				);
+				return (
+					<MarkdownImage src={src} alt={alt} title={title} target={target} />
+				);
+			},
 			pre: MarkdownPre,
 		}),
 		[folderId, folderPath, openFileInTab, worktreeId, worktreePath],
@@ -612,6 +690,11 @@ export const MarkdownBody = memo(function MarkdownBody({
 	const markdown = useMemo(
 		() => (
 			<ReactMarkdown
+				urlTransform={(url, key) =>
+					key === "src" && url.toLowerCase().startsWith("file://")
+						? url
+						: defaultUrlTransform(url)
+				}
 				remarkPlugins={[remarkGfm]}
 				rehypePlugins={githubHtml ? [rehypeRaw, rehypeSanitize] : []}
 				components={components}
