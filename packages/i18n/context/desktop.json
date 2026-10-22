@@ -37836,5 +37836,135 @@
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:workflow_run_phases": {
+		"source": "Phases",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/workflow-run.tsx",
+				"line": 174
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:workflow_run_workflow": {
+		"source": "Workflow",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/workflow-run.tsx",
+				"line": 105
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:workflow_run_phase_empty": {
+		"source": "No agents ran in this phase",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/workflow-run.tsx",
+				"line": 326
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:workflow_run_script_expand": {
+		"source": "View script",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/workflow-run.tsx",
+				"line": 214
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:workflow_run_unphased": {
+		"source": "Agents",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/workflow-run.tsx",
+				"line": 312
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:workflow_run_label": {
+		"source": "Workflow: {{name}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/workflow-run.tsx",
+				"line": 130
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:workflow_run_result": {
+		"source": "Result",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/workflow-run.tsx",
+				"line": 500
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:workflow_run_agents_done": {
+		"source": "{{done}} of {{total}} agents done",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/workflow-run.tsx",
+				"line": 118
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:workflow_run_script_collapse": {
+		"source": "Hide script",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/workflow-run.tsx",
+				"line": 213
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:workflow_run_more": {
+		"source": "Show {{count}} more",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/workflow-run.tsx",
+				"line": 349
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:workflow_run_phase_waiting": {
+		"source": "Starts after the earlier phases finish",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/workflow-run.tsx",
+				"line": 325
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:workflow_run_prompt": {
+		"source": "Prompt",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/workflow-run.tsx",
+				"line": 494
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:workflow_run_queued": {
+		"source": "Queued",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/workflow-run.tsx",
+				"line": 400
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	}
 }

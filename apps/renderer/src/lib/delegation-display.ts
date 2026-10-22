@@ -187,7 +187,9 @@ export function groupDelegations(
 
 	for (const group of groups) {
 		if (group.kind === "subagent") {
+			if (group.workflowInput !== undefined) flush();
 			add({ kind: "subagent", id: group.parent.id, group });
+			if (group.workflowInput !== undefined) flush();
 			continue;
 		}
 		const content = group.message.content;

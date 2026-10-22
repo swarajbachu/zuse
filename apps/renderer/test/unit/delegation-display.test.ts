@@ -241,3 +241,47 @@ describe("delegation display", () => {
 		expect(failed.completedAt).toBe(at(9).getTime());
 	});
 });
+
+describe("native workflow grouping", () => {
+	it("keeps a workflow separate and enriches one canonical run", () => {
+		const script = "export const meta = { name: 'audit', phases: [] };";
+		const groups = groupDelegations(
+			groupMessages([
+				agentUse("before"),
+				message("workflow", {
+					_tag: "tool_use",
+					itemId: "workflow-tool",
+					tool: "Workflow",
+					input: { script },
+				} as Message["content"]),
+				message("workflow-start", {
+					_tag: "tool_use",
+					itemId: "workflow-tool",
+					tool: "Workflow",
+					input: {
+						script,
+						workflow_name: "audit",
+						description: "Audit project",
+					},
+					subagent: {
+						childSessionId: "workflow-run",
+						presentation: "detached",
+					},
+				} as Message["content"]),
+				agentUse("after"),
+			]),
+		);
+		expect(groups).toHaveLength(3);
+		const workflow = groups[1];
+		expect(workflow?.kind).toBe("delegation");
+		if (workflow?.kind !== "delegation") throw new Error("Missing workflow");
+		expect(workflow.members).toHaveLength(1);
+		expect(workflow.members[0]).toMatchObject({
+			kind: "subagent",
+			group: {
+				parent: { id: "workflow" },
+				workflowInput: { script, workflow_name: "audit" },
+			},
+		});
+	});
+});

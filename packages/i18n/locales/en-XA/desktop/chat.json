@@ -820,5 +820,18 @@
 	"startup_queue_preparing": "⟦ÀÀttààchïïng fïïlëës…⟧",
 	"startup_queue_failed": "⟦Fïïlëës wëërëën’t ààttààchëëd⟧",
 	"startup_queue_reattach": "⟦Rëëmôôvëë thïïs mëëssààgëë àànd ààttààch thëë fïïlëës ààgààïïn. Yôôüür prôômpt hààs nôôt bëëëën sëënt.⟧",
-	"question_composer_placeholder": "⟦Typëë yôôüür ôôwn àànswëër…⟧"
+	"question_composer_placeholder": "⟦Typëë yôôüür ôôwn àànswëër…⟧",
+	"workflow_run_phases": "⟦Phààsëës⟧",
+	"workflow_run_more": "⟦Shôôw {{count}} môôrëë⟧",
+	"workflow_run_agents_done": "⟦{{done}} ôôf {{total}} ààgëënts dôônëë⟧",
+	"workflow_run_script_collapse": "⟦Hïïdëë scrïïpt⟧",
+	"workflow_run_workflow": "⟦Wôôrkflôôw⟧",
+	"workflow_run_unphased": "⟦ÀÀgëënts⟧",
+	"workflow_run_prompt": "⟦Prôômpt⟧",
+	"workflow_run_phase_empty": "⟦Nôô ààgëënts rààn ïïn thïïs phààsëë⟧",
+	"workflow_run_phase_waiting": "⟦Stààrts ààftëër thëë ëëààrlïïëër phààsëës fïïnïïsh⟧",
+	"workflow_run_label": "⟦Wôôrkflôôw: {{name}}⟧",
+	"workflow_run_result": "⟦Rëësüült⟧",
+	"workflow_run_queued": "⟦Qüüëëüüëëd⟧",
+	"workflow_run_script_expand": "⟦Vïïëëw scrïïpt⟧"
 }

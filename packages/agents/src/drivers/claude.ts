@@ -23,6 +23,7 @@ import {
 	type StartSessionInput,
 	type UserQuestion,
 	type UserQuestionAnswer,
+	WORKFLOW_PROGRESS_KEY,
 } from "@zuse/contracts";
 import { fractionToPercent } from "@zuse/utils/usage-values";
 import { type Cause, Effect, Queue, Stream } from "effect";
@@ -40,6 +41,7 @@ import type { BrowserSend } from "./browser-tools.ts";
 import { scrubInheritedClaudeMarkers } from "./claude-env.ts";
 import { claudeForkPoint, claudeResumeOptions } from "./claude-fork-point.ts";
 import { makeClaudeProcessOwner } from "./claude-process.ts";
+import { claudeWorkflowProgress } from "./claude-workflow-progress.ts";
 import { applyClaudeWorktreeEnv } from "./claude-worktree-prompt.ts";
 import {
 	type CompactSnapshot,
@@ -251,6 +253,16 @@ interface TranslateState {
 	readonly streamedMessageIds: Set<string>;
 
 	pendingAgents: Map<string, PendingAgent>;
+	workflowInputs: Map<string, unknown>;
+	/** Launched workflow runs by tool item, with the last progress sent. */
+	workflowRuns: Map<
+		string,
+		{
+			readonly input: Record<string, unknown>;
+			readonly taskId: string;
+			progress: string;
+		}
+	>;
 
 	backgroundTaskParents: Map<string, AgentItemId>;
 
@@ -302,6 +314,8 @@ const newTranslateState = (
 	currentMessageId: null,
 	streamedMessageIds: new Set(),
 	pendingAgents: new Map(),
+	workflowInputs: new Map(),
+	workflowRuns: new Map(),
 	backgroundTaskParents: new Map(),
 	backgroundShellInputs: new Map(),
 	localBackgroundTasks: new Map(),
@@ -317,7 +331,9 @@ const newTranslateState = (
 
 const isAgentToolUse = (block: { type?: string; name?: string }): boolean =>
 	block.type === "tool_use" &&
-	(block.name === "Agent" || block.name === "Task");
+	(block.name === "Agent" ||
+		block.name === "Task" ||
+		block.name === "Workflow");
 
 const extractTextFromContent = (content: unknown): string => {
 	if (typeof content === "string") return content;
@@ -612,6 +628,9 @@ const translateMessage = (
 					if (block.name === "ExitPlanMode") {
 						state.exitPlanModeIds.add(id as string);
 					}
+					if (block.name === "Workflow") {
+						state.workflowInputs.set(id as string, block.input);
+					}
 					if (block.name === "Bash") {
 						state.backgroundShellInputs.set(id as string, {
 							input: block.input,
@@ -632,6 +651,7 @@ const translateMessage = (
 								? (inputObj.model as string)
 								: "inherit";
 						const background =
+							block.name === "Workflow" ||
 							inputObj?.run_in_background === true ||
 							inputObj?.is_background === true;
 						state.pendingAgents.set(id as string, {
@@ -918,7 +938,12 @@ const translateMessage = (
 					// collapsed. The summary's text is the sub-agent's final
 					// assistant message that the SDK packs into `tool_result.content`.
 					const pending = state.pendingAgents.get(id as string);
-					if (pending !== undefined && !pending.background) {
+					if (
+						pending !== undefined &&
+						(!pending.background ||
+							(state.workflowInputs.has(id) && block.is_error === true))
+					) {
+						state.workflowInputs.delete(id);
 						state.pendingAgents.delete(id as string);
 						out.push({
 							_tag: "SubagentSummary",
@@ -1058,27 +1083,45 @@ const translateMessage = (
 		}
 		if (msg.skip_transcript === true) return [];
 		const itemId = (msg.tool_use_id ?? `task_${msg.task_id}`) as AgentItemId;
+		const workflow =
+			msg.task_type === "local_workflow" || state.workflowInputs.has(itemId);
+		const workflowInput = state.workflowInputs.get(itemId);
 		const existing = state.pendingAgents.get(itemId as string);
 		state.backgroundTaskParents.set(msg.task_id, itemId);
 		state.pendingAgents.set(itemId as string, {
-			agentName: msg.task_type ?? existing?.agentName ?? "agent",
+			agentName:
+				msg.workflow_name ?? msg.task_type ?? existing?.agentName ?? "agent",
 			model: existing?.model ?? "inherit",
 			startedAt: existing?.startedAt ?? Date.now(),
 			background: true,
 			turnCount: existing?.turnCount ?? 0,
 		});
+		const input = {
+			...(workflowInput !== null && typeof workflowInput === "object"
+				? workflowInput
+				: {}),
+			...(workflow
+				? { workflow_name: msg.workflow_name, task_type: msg.task_type }
+				: {}),
+			description: msg.description,
+			prompt: msg.prompt ?? msg.description,
+			subagent_type: msg.task_type ?? "agent",
+			run_in_background: true,
+			task_id: msg.task_id,
+		};
+		if (workflow) {
+			state.workflowRuns.set(itemId, {
+				input,
+				taskId: msg.task_id,
+				progress: "",
+			});
+		}
 		return [
 			{
 				_tag: "ToolUse",
 				itemId,
-				tool: "Agent",
-				input: {
-					description: msg.description,
-					prompt: msg.prompt ?? msg.description,
-					subagent_type: msg.task_type ?? "agent",
-					run_in_background: true,
-					task_id: msg.task_id,
-				},
+				tool: workflow ? "Workflow" : "Agent",
+				input,
 				subagent: {
 					childSessionId: msg.task_id,
 					presentation: "detached",
@@ -1094,6 +1137,30 @@ const translateMessage = (
 		if (itemId === undefined) return [];
 		const pending = state.pendingAgents.get(itemId as string);
 		if (pending !== undefined) pending.turnCount += 1;
+		const run = state.workflowRuns.get(itemId);
+		const progress =
+			run === undefined
+				? null
+				: claudeWorkflowProgress(
+						(msg as { workflow_progress?: unknown }).workflow_progress,
+					);
+		if (run !== undefined && progress !== null) {
+			// Workflow agents run inside the CLI and never stream their own
+			// messages; re-issuing the launch with the latest snapshot updates the
+			// one workflow row in place.
+			const serialized = JSON.stringify(progress);
+			if (serialized === run.progress) return [];
+			run.progress = serialized;
+			return [
+				{
+					_tag: "ToolUse",
+					itemId,
+					tool: "Workflow",
+					input: { ...run.input, [WORKFLOW_PROGRESS_KEY]: progress },
+					subagent: { childSessionId: run.taskId, presentation: "detached" },
+				},
+			];
+		}
 		// Progress descriptions narrate tool calls the child already streams;
 		// as transcript text they would duplicate every call and split its tree.
 		return [];
@@ -1142,6 +1209,8 @@ const translateMessage = (
 			presentation: "detached",
 		});
 		state.pendingAgents.delete(itemId as string);
+		state.workflowInputs.delete(itemId);
+		state.workflowRuns.delete(itemId);
 		state.backgroundTaskParents.delete(msg.task_id);
 		return out;
 	}

@@ -27,6 +27,13 @@ const STATUS_LABEL_KEY = {
 	stopped: "chat:delegation_status_stopped",
 } as const satisfies Record<DelegationStatus, string>;
 
+export const STATUS_COUNT_KEY = {
+	working: "chat:delegation_group_working",
+	done: "chat:delegation_group_done",
+	failed: "chat:delegation_group_failed",
+	stopped: "chat:delegation_group_stopped",
+} as const satisfies Record<DelegationStatus, string>;
+
 export const useDelegationStatusLabel = () => {
 	const { message } = useUiMessages(["chat"]);
 	return (status: DelegationStatus) => message(STATUS_LABEL_KEY[status]);

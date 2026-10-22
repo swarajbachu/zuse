@@ -15,6 +15,7 @@ export type RenderGroup =
 			readonly agentName: string;
 			readonly prompt: string;
 			readonly modelRequested: string | undefined;
+			readonly workflowInput?: unknown;
 			readonly childSessionId: string | undefined;
 			readonly presentation: "inline" | "detached";
 			readonly rootCompleted?: boolean;
@@ -54,14 +55,16 @@ export const isAgentToolUse = (m: Message): boolean =>
 			return true;
 		if (
 			m.content._tag !== "tool_use" ||
-			(m.content.tool !== "Agent" && m.content.tool !== "Task") ||
+			(m.content.tool !== "Agent" &&
+				m.content.tool !== "Task" &&
+				m.content.tool !== "Workflow") ||
 			m.content.input === null ||
 			typeof m.content.input !== "object"
 		) {
 			return false;
 		}
 		const input = m.content.input as Record<string, unknown>;
-		return typeof input.prompt === "string";
+		return m.content.tool === "Workflow" || typeof input.prompt === "string";
 	})();
 
 /**
@@ -176,6 +179,9 @@ export function groupMessages(
 				agentName,
 				prompt,
 				modelRequested,
+				...(enrichedContent.tool === "Workflow"
+					? { workflowInput: enrichedContent.input }
+					: {}),
 				childSessionId: enrichedContent.subagent?.childSessionId,
 				presentation: enrichedContent.subagent?.presentation ?? "inline",
 				rootCompleted:

@@ -820,5 +820,18 @@
 	"startup_queue_preparing": "ファイルを添付中…",
 	"startup_queue_failed": "ファイルを添付できませんでした",
 	"startup_queue_reattach": "このメッセージを削除して、ファイルを添付し直してください。プロンプトは送信されていません。",
-	"question_composer_placeholder": "自分の回答を入力…"
+	"question_composer_placeholder": "自分の回答を入力…",
+	"workflow_run_phases": "フェーズ",
+	"workflow_run_more": "さらに {{count}} 件表示",
+	"workflow_run_agents_done": "{{total}} 件中 {{done}} 件のエージェントが完了",
+	"workflow_run_script_collapse": "スクリプトを隠す",
+	"workflow_run_workflow": "ワークフロー",
+	"workflow_run_unphased": "エージェント",
+	"workflow_run_prompt": "プロンプト",
+	"workflow_run_phase_empty": "このフェーズで実行されたエージェントはありません",
+	"workflow_run_phase_waiting": "前のフェーズが終わると開始します",
+	"workflow_run_label": "ワークフロー: {{name}}",
+	"workflow_run_result": "結果",
+	"workflow_run_queued": "待機中",
+	"workflow_run_script_expand": "スクリプトを表示"
 }

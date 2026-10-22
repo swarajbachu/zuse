@@ -820,5 +820,18 @@
 	"startup_queue_preparing": "Attaching files…",
 	"startup_queue_failed": "Files weren’t attached",
 	"startup_queue_reattach": "Remove this message and attach the files again. Your prompt has not been sent.",
-	"question_composer_placeholder": "Type your own answer…"
+	"question_composer_placeholder": "Type your own answer…",
+	"workflow_run_phases": "Phases",
+	"workflow_run_more": "Show {{count}} more",
+	"workflow_run_agents_done": "{{done}} of {{total}} agents done",
+	"workflow_run_script_collapse": "Hide script",
+	"workflow_run_workflow": "Workflow",
+	"workflow_run_unphased": "Agents",
+	"workflow_run_prompt": "Prompt",
+	"workflow_run_phase_empty": "No agents ran in this phase",
+	"workflow_run_phase_waiting": "Starts after the earlier phases finish",
+	"workflow_run_label": "Workflow: {{name}}",
+	"workflow_run_result": "Result",
+	"workflow_run_queued": "Queued",
+	"workflow_run_script_expand": "View script"
 }

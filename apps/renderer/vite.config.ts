@@ -92,6 +92,7 @@ export default defineConfig({
 		// its port on a cold Windows cache. Let Vite load them lazily instead.
 		exclude: ["mermaid", "shiki"],
 		include: [
+			"acorn",
 			// CommonJS dependency of the lazy ESM Mermaid package.
 			"mermaid > dayjs",
 			"react",

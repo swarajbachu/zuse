@@ -728,6 +728,32 @@ it("keeps exact child output after physical root completion and settles once aft
 		true,
 	);
 });
+it("forwards a running child's progress update after root completion", async () => {
+	const progress: AgentEvent = {
+		...childSpawn,
+		input: { workflow_progress: { phases: [], agents: [] } },
+	};
+	const scoped = await Effect.runPromise(
+		makeTurnScopedSessionHandle(
+			handleWithEvents([
+				childSpawn,
+				{ _tag: "Completed", reason: "ended" },
+				progress,
+				childSummary,
+			]),
+			turnId,
+		),
+	);
+	const events = await Effect.runPromise(Stream.runCollect(scoped.events));
+	expect(events.map((e) => e.event._tag)).toEqual([
+		"ToolUse",
+		"SubagentProgress",
+		"ToolUse",
+		"SubagentSummary",
+		"Completed",
+	]);
+	expect(events[2]?.event).toBe(progress);
+});
 it("does not wait for a child that already finished before the root", async () => {
 	const scoped = await Effect.runPromise(
 		makeTurnScopedSessionHandle(

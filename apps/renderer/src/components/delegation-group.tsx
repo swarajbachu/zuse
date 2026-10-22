@@ -10,7 +10,7 @@ import type {
 import { EnvironmentId as EnvironmentIdSchema } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ChevronDown } from "lucide-react";
-import { memo, useMemo } from "react";
+import { lazy, memo, Suspense, useMemo } from "react";
 import {
 	type DelegationMember,
 	type DelegationView,
@@ -33,18 +33,18 @@ import {
 	DelegationElapsed,
 	type DelegationInlineBody,
 	DelegationRow,
+	STATUS_COUNT_KEY,
 } from "./delegation-row.tsx";
 import { DelegationAvatar } from "./subagent-identity.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 
-const MAX_STACK = 3;
+const WorkflowRun = lazy(() =>
+	import("./workflow-run.tsx").then((module) => ({
+		default: module.WorkflowRun,
+	})),
+);
 
-const STATUS_COUNT_KEY = {
-	working: "chat:delegation_group_working",
-	done: "chat:delegation_group_done",
-	failed: "chat:delegation_group_failed",
-	stopped: "chat:delegation_group_stopped",
-} as const;
+const MAX_STACK = 3;
 
 const useSpawnedSessions = (
 	members: ReadonlyArray<DelegationMember>,
@@ -163,14 +163,32 @@ export const DelegationGroup = memo(function DelegationGroup({
 		return () => revealSubagent(chatRef, target.childSessionId);
 	};
 
-	const rows = entries.map(({ view, inline }) => (
-		<DelegationRow
-			key={view.id}
-			view={view}
-			onOpen={open(view)}
-			inline={inline}
-		/>
-	));
+	const rows = entries.map(({ view, inline }, index) => {
+		const member = members[index];
+		if (
+			member?.kind === "subagent" &&
+			member.group.workflowInput !== undefined
+		) {
+			return (
+				<Suspense
+					key={view.id}
+					fallback={
+						<DelegationRow view={view} onOpen={open(view)} inline={inline} />
+					}
+				>
+					<WorkflowRun input={member.group.workflowInput} view={view} />
+				</Suspense>
+			);
+		}
+		return (
+			<DelegationRow
+				key={view.id}
+				view={view}
+				onOpen={open(view)}
+				inline={inline}
+			/>
+		);
+	});
 
 	const views = entries.map((entry) => entry.view);
 	const working = views.filter((view) => view.status === "working").length;

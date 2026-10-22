@@ -820,5 +820,18 @@
 	"startup_queue_preparing": "Dateien werden angehängt…",
 	"startup_queue_failed": "Dateien wurden nicht angehängt",
 	"startup_queue_reattach": "Entferne diese Nachricht und hänge die Dateien erneut an. Deine Anfrage wurde nicht gesendet.",
-	"question_composer_placeholder": "Eigene Antwort eingeben…"
+	"question_composer_placeholder": "Eigene Antwort eingeben…",
+	"workflow_run_phases": "Phasen",
+	"workflow_run_more": "{{count}} weitere anzeigen",
+	"workflow_run_agents_done": "{{done}} von {{total}} Agenten fertig",
+	"workflow_run_script_collapse": "Skript ausblenden",
+	"workflow_run_workflow": "Workflow",
+	"workflow_run_unphased": "Agenten",
+	"workflow_run_prompt": "Prompt",
+	"workflow_run_phase_empty": "In dieser Phase liefen keine Agenten",
+	"workflow_run_phase_waiting": "Startet, sobald die vorherigen Phasen abgeschlossen sind",
+	"workflow_run_label": "Workflow: {{name}}",
+	"workflow_run_result": "Ergebnis",
+	"workflow_run_queued": "Wartet",
+	"workflow_run_script_expand": "Skript anzeigen"
 }

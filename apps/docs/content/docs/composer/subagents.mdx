@@ -24,6 +24,12 @@ These subagents use the parent session's environment. They are useful for focuse
 
 Provider support determines which controls and progress details are available. Global presets can enable supported subagents for new sessions and give them narrower instructions or tool access.
 
+## Native workflow boards
+
+When Claude Code starts a native workflow, Zuse shows its phases as a board in the conversation. Each phase lists its agents and completion count; narrow windows stack the phases vertically. The header shows the run status, elapsed time, and any reported agent failures.
+
+Select an agent tile to inspect its prompt and result previews. Use **Show more** in long phases to reveal additional agents, or **View script** to inspect the workflow source when it is available. Progress depends on what the provider reports; a declared phase can appear before its agents start.
+
 ## Delegated tasks and session tabs
 
 An agent can also coordinate visible Zuse tasks:

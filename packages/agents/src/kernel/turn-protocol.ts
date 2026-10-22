@@ -299,8 +299,10 @@ export const makeTurnScopedSessionHandle = (
 								event._tag !== "Error" &&
 								event._tag !== "Status"
 							) {
+								// A known child may re-issue its launch to report progress.
 								const known =
 									event._tag === "SubagentSummary" ||
+									(event._tag === "ToolUse" && event.subagent !== undefined) ||
 									(event._tag === "ToolResult" &&
 										active.children.get(event.itemId)?.childKind ===
 											"background")

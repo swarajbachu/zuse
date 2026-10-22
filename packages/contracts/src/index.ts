@@ -75,6 +75,7 @@ export * from "./update.ts";
 export * from "./usage.ts";
 export * from "./usage-limits.ts";
 export * from "./voice.ts";
+export * from "./workflow-progress.ts";
 export * from "./workspace.ts";
 export * from "./workspace-gateway.ts";
 export * from "./workspace-scope.ts";

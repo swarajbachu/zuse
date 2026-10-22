@@ -5,6 +5,194 @@ import { describe, expect, it } from "vitest";
 const sdk = (value: unknown): SDKMessage => value as SDKMessage;
 
 describe("Claude background agents", () => {
+	it("settles a rejected workflow launch instead of leaving it running", () => {
+		const events = translateClaudeSdkMessages([
+			sdk({
+				type: "assistant",
+				parent_tool_use_id: null,
+				message: {
+					content: [
+						{
+							type: "tool_use",
+							id: "rejected-workflow",
+							name: "Workflow",
+							input: { name: "audit" },
+						},
+					],
+				},
+			}),
+			sdk({
+				type: "user",
+				parent_tool_use_id: null,
+				message: {
+					content: [
+						{
+							type: "tool_result",
+							tool_use_id: "rejected-workflow",
+							content: "Invalid workflow script",
+							is_error: true,
+						},
+					],
+				},
+			}),
+		]);
+		expect(events).toContainEqual(
+			expect.objectContaining({
+				_tag: "SubagentSummary",
+				itemId: "rejected-workflow",
+				isError: true,
+				summary: "Invalid workflow script",
+			}),
+		);
+	});
+
+	it("updates a running workflow with its phase and agent snapshot", () => {
+		const input = { script: "export const meta = { name: 'audit' };" };
+		let tick = 0;
+		const progress = (state: string, extra: Record<string, unknown> = {}) => {
+			tick += 1;
+			return sdk({
+				type: "system",
+				subtype: "task_progress",
+				task_id: "task-1",
+				tool_use_id: "workflow-1",
+				description: "Map: map:files",
+				usage: { total_tokens: 10, tool_uses: 1, duration_ms: 5 },
+				workflow_progress: [
+					{ type: "workflow_phase", index: 1, title: "Map", kind: undefined },
+					{
+						type: "workflow_agent",
+						index: 1,
+						label: "map:files",
+						phaseIndex: 1,
+						phaseTitle: "Map",
+						state,
+						startedAt: 100,
+						promptPreview: "List files",
+						lastProgressAt: tick,
+						tokens: tick * 10,
+						...extra,
+					},
+					{ type: "workflow_log", message: "ignored" },
+				],
+			});
+		};
+		const events = translateClaudeSdkMessages([
+			sdk({
+				type: "assistant",
+				parent_tool_use_id: null,
+				message: {
+					content: [
+						{ type: "tool_use", id: "workflow-1", name: "Workflow", input },
+					],
+				},
+			}),
+			sdk({
+				type: "system",
+				subtype: "task_started",
+				task_id: "task-1",
+				tool_use_id: "workflow-1",
+				task_type: "local_workflow",
+				workflow_name: "audit",
+				description: "Audit",
+			}),
+			progress("progress"),
+			progress("progress"),
+			progress("done", { durationMs: 40, resultPreview: "3 files" }),
+		]);
+		const updates = events.filter(
+			(event) =>
+				event._tag === "ToolUse" &&
+				typeof event.input === "object" &&
+				event.input !== null &&
+				"workflow_progress" in event.input,
+		);
+		expect(updates).toHaveLength(2);
+		expect(updates[0]).toMatchObject({
+			itemId: "workflow-1",
+			tool: "Workflow",
+			subagent: { childSessionId: "task-1", presentation: "detached" },
+			input: {
+				...input,
+				workflow_name: "audit",
+				workflow_progress: {
+					phases: [{ index: 1, title: "Map" }],
+					agents: [
+						{
+							index: 1,
+							label: "map:files",
+							phaseIndex: 1,
+							phaseTitle: "Map",
+							state: "running",
+							startedAt: 100,
+							promptPreview: "List files",
+						},
+					],
+				},
+			},
+		});
+		expect(updates[1]).toMatchObject({
+			input: {
+				workflow_progress: {
+					agents: [{ state: "done", durationMs: 40, resultPreview: "3 files" }],
+				},
+			},
+		});
+	});
+
+	it("preserves native workflow identity and source through background completion", () => {
+		const input = {
+			script: "export const meta = { name: 'audit', phases: [] };",
+			resumeFromRunId: "prior-run",
+		};
+		const events = translateClaudeSdkMessages([
+			sdk({
+				type: "assistant",
+				parent_tool_use_id: null,
+				message: {
+					content: [
+						{ type: "tool_use", id: "workflow-1", name: "Workflow", input },
+					],
+				},
+			}),
+			sdk({
+				type: "system",
+				subtype: "task_started",
+				task_id: "run-1",
+				tool_use_id: "workflow-1",
+				task_type: "local_workflow",
+				workflow_name: "audit",
+				description: "Audit the project",
+			}),
+			sdk({
+				type: "system",
+				subtype: "task_notification",
+				task_id: "run-1",
+				status: "failed",
+				summary: "Build failed",
+				usage: { duration_ms: 2000, total_tokens: 1, tool_uses: 1 },
+			}),
+		]);
+		expect(events.filter((event) => event._tag === "ToolUse")).toEqual([
+			expect.objectContaining({ tool: "Workflow", input }),
+			expect.objectContaining({
+				tool: "Workflow",
+				itemId: "workflow-1",
+				input: expect.objectContaining({ ...input, workflow_name: "audit" }),
+				subagent: { childSessionId: "run-1", presentation: "detached" },
+			}),
+		]);
+		expect(events).toContainEqual(
+			expect.objectContaining({
+				_tag: "SubagentSummary",
+				itemId: "workflow-1",
+				agentName: "audit",
+				isError: true,
+				durationMs: 2000,
+			}),
+		);
+	});
+
 	it("keeps local background shell tasks out of the subagent lifecycle", () => {
 		const events = translateClaudeSdkMessages([
 			sdk({

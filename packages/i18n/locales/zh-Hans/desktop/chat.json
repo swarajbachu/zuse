@@ -820,5 +820,18 @@
 	"startup_queue_preparing": "正在添加文件…",
 	"startup_queue_failed": "文件未能添加",
 	"startup_queue_reattach": "请移除此消息并重新添加文件。你的提示尚未发送。",
-	"question_composer_placeholder": "输入你自己的回答…"
+	"question_composer_placeholder": "输入你自己的回答…",
+	"workflow_run_phases": "阶段",
+	"workflow_run_more": "再显示 {{count}} 个",
+	"workflow_run_agents_done": "{{total}} 个代理中已完成 {{done}} 个",
+	"workflow_run_script_collapse": "隐藏脚本",
+	"workflow_run_workflow": "工作流",
+	"workflow_run_unphased": "代理",
+	"workflow_run_prompt": "提示",
+	"workflow_run_phase_empty": "此阶段没有运行代理",
+	"workflow_run_phase_waiting": "前面的阶段完成后开始",
+	"workflow_run_label": "工作流：{{name}}",
+	"workflow_run_result": "结果",
+	"workflow_run_queued": "排队中",
+	"workflow_run_script_expand": "查看脚本"
 }

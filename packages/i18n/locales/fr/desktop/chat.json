@@ -824,5 +824,18 @@
 	"startup_queue_preparing": "Ajout des fichiers…",
 	"startup_queue_failed": "Les fichiers n’ont pas été joints",
 	"startup_queue_reattach": "Supprimez ce message et joignez à nouveau les fichiers. Votre demande n’a pas été envoyée.",
-	"question_composer_placeholder": "Saisissez votre propre réponse…"
+	"question_composer_placeholder": "Saisissez votre propre réponse…",
+	"workflow_run_phases": "Phases",
+	"workflow_run_more": "Afficher {{count}} de plus",
+	"workflow_run_agents_done": "{{done}} agents sur {{total}} terminés",
+	"workflow_run_script_collapse": "Masquer le script",
+	"workflow_run_workflow": "Workflow",
+	"workflow_run_unphased": "Agents",
+	"workflow_run_prompt": "Instruction",
+	"workflow_run_phase_empty": "Aucun agent n’a été exécuté dans cette phase",
+	"workflow_run_phase_waiting": "Démarre après la fin des phases précédentes",
+	"workflow_run_label": "Workflow : {{name}}",
+	"workflow_run_result": "Résultat",
+	"workflow_run_queued": "En attente",
+	"workflow_run_script_expand": "Voir le script"
 }

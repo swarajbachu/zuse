@@ -820,5 +820,18 @@
 	"startup_queue_preparing": "正在附加檔案…",
 	"startup_queue_failed": "未能附加檔案",
 	"startup_queue_reattach": "請移除此訊息並重新附加檔案。你的提示尚未傳送。",
-	"question_composer_placeholder": "輸入你自己的回答…"
+	"question_composer_placeholder": "輸入你自己的回答…",
+	"workflow_run_phases": "階段",
+	"workflow_run_more": "再顯示 {{count}} 個",
+	"workflow_run_agents_done": "{{total}} 個代理中已完成 {{done}} 個",
+	"workflow_run_script_collapse": "隱藏指令碼",
+	"workflow_run_workflow": "工作流程",
+	"workflow_run_unphased": "代理",
+	"workflow_run_prompt": "提示",
+	"workflow_run_phase_empty": "此階段沒有執行代理",
+	"workflow_run_phase_waiting": "前面的階段完成後開始",
+	"workflow_run_label": "工作流程：{{name}}",
+	"workflow_run_result": "結果",
+	"workflow_run_queued": "排隊中",
+	"workflow_run_script_expand": "檢視指令碼"
 }
