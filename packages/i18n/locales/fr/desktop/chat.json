@@ -871,5 +871,15 @@
 	"review_guide_ask_author": "Demander à l’auteur",
 	"review_guide_generate": "Rédiger le guide",
 	"review_guide_write_anyway": "Rédiger quand même",
-	"review_guide_unavailable_unsupported": "Les guides sont rédigés par des discussions Claude ou Codex."
+	"review_guide_unavailable_unsupported": "Les guides sont rédigés par des discussions Claude ou Codex.",
+	"image_gallery_zoom": "Agrandir l’image",
+	"image_gallery_image": "Image",
+	"image_gallery_next": "Image suivante",
+	"image_gallery_previous": "Image précédente",
+	"image_gallery_fit": "Ajuster l’image",
+	"image_gallery_unavailable": "Image indisponible",
+	"image_gallery_thumbnail": "Afficher l’image {{index}} : {{name}}",
+	"image_gallery_view": "Afficher l’image : {{name}}",
+	"image_gallery_loading": "Chargement de l’image…",
+	"image_gallery_title": "Images de la conversation"
 }

@@ -866,5 +866,15 @@
 	"review_guide_ask_author": "Ask author",
 	"review_guide_generate": "Write guide",
 	"review_guide_write_anyway": "Write anyway",
-	"review_guide_unavailable_unsupported": "Guides are written by Claude or Codex chats."
+	"review_guide_unavailable_unsupported": "Guides are written by Claude or Codex chats.",
+	"image_gallery_zoom": "Zoom image",
+	"image_gallery_image": "Image",
+	"image_gallery_next": "Next image",
+	"image_gallery_previous": "Previous image",
+	"image_gallery_fit": "Fit image",
+	"image_gallery_unavailable": "Image unavailable",
+	"image_gallery_thumbnail": "View image {{index}}: {{name}}",
+	"image_gallery_view": "View image: {{name}}",
+	"image_gallery_loading": "Loading image…",
+	"image_gallery_title": "Chat images"
 }

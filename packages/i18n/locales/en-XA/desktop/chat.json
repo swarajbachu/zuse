@@ -866,5 +866,15 @@
 	"review_guide_ask_author": "⟦ÀÀsk ààüüthôôr⟧",
 	"review_guide_generate": "⟦Wrïïtëë güüïïdëë⟧",
 	"review_guide_write_anyway": "⟦Wrïïtëë àànywàày⟧",
-	"review_guide_unavailable_unsupported": "⟦Güüïïdëës ààrëë wrïïttëën by Clààüüdëë ôôr Côôdëëx chààts.⟧"
+	"review_guide_unavailable_unsupported": "⟦Güüïïdëës ààrëë wrïïttëën by Clààüüdëë ôôr Côôdëëx chààts.⟧",
+	"image_gallery_zoom": "⟦Zôôôôm ïïmààgëë⟧",
+	"image_gallery_image": "⟦ÏÏmààgëë⟧",
+	"image_gallery_next": "⟦Nëëxt ïïmààgëë⟧",
+	"image_gallery_previous": "⟦Prëëvïïôôüüs ïïmààgëë⟧",
+	"image_gallery_fit": "⟦Fïït ïïmààgëë⟧",
+	"image_gallery_unavailable": "⟦ÏÏmààgëë üünààvààïïlààblëë⟧",
+	"image_gallery_thumbnail": "⟦Vïïëëw ïïmààgëë {{index}}: {{name}}⟧",
+	"image_gallery_view": "⟦Vïïëëw ïïmààgëë: {{name}}⟧",
+	"image_gallery_loading": "⟦Lôôààdïïng ïïmààgëë…⟧",
+	"image_gallery_title": "⟦Chààt ïïmààgëës⟧"
 }

@@ -1738,3 +1738,12 @@ html[data-sidebar-dragging] * {
 		transition: none;
 	}
 }
+
+/* Compact previews preserve the image's natural aspect ratio. */
+.chat-image-preview {
+	width: 240px;
+	margin: 0.25rem 0.5rem 0.25rem 0;
+}
+.fz-prose p:has(> .chat-image-preview):not(:has(> :not(.chat-image-preview))) {
+	display: inline;
+}

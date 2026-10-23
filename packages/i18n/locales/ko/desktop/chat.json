@@ -866,5 +866,15 @@
 	"review_guide_ask_author": "작성자에게 묻기",
 	"review_guide_generate": "가이드 작성",
 	"review_guide_write_anyway": "그래도 작성",
-	"review_guide_unavailable_unsupported": "가이드는 Claude 또는 Codex 채팅에서 작성됩니다."
+	"review_guide_unavailable_unsupported": "가이드는 Claude 또는 Codex 채팅에서 작성됩니다.",
+	"image_gallery_zoom": "이미지 확대",
+	"image_gallery_image": "이미지",
+	"image_gallery_next": "다음 이미지",
+	"image_gallery_previous": "이전 이미지",
+	"image_gallery_fit": "이미지 맞춤",
+	"image_gallery_unavailable": "이미지를 사용할 수 없습니다",
+	"image_gallery_thumbnail": "이미지 {{index}} 보기: {{name}}",
+	"image_gallery_view": "이미지 보기: {{name}}",
+	"image_gallery_loading": "이미지 로딩 중…",
+	"image_gallery_title": "채팅 이미지"
 }

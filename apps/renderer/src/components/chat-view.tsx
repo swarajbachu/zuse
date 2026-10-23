@@ -13,6 +13,7 @@ import {
 	useBoxdPreviewEnabled,
 	usePreviewServers,
 } from "../lib/use-preview-servers.ts";
+import { ChatImageGalleryProvider } from "./chat-image-gallery";
 import { ChatLoadingFallback } from "./chat-loading-fallback.tsx";
 import { ChatSelectionMenu } from "./chat-selection-menu.tsx";
 import { SessionForkRecovery } from "./session-fork-recovery.tsx";
@@ -918,192 +919,194 @@ export function ChatView({
 			folderId={session?.projectId ?? null}
 			worktreeId={session?.worktreeId ?? null}
 		>
-			<h1 className="sr-only">
-				{session.title || uiMessage("chat:chat_view_new_chat")}
-			</h1>
-			<SessionForkRecovery
-				key={`forks:${sessionRef.environmentId}:${sessionRef.sessionId}`}
-				sessionRef={sessionRef}
-			/>
-			{session.forkedFromSessionId !== null ? (
-				<div className="flex justify-end">
-					<SessionMergeBack
-						key={`merge:${sessionRef.environmentId}:${sessionRef.sessionId}`}
-						sessionRef={sessionRef}
-					/>
-				</div>
-			) : null}
-			<div
-				ref={viewportRef}
-				data-chat-viewport
-				className="relative flex min-h-0 min-w-0 flex-1 [container-type:inline-size]"
-			>
-				<ChatSelectionMenu rootRef={viewportRef} sessionRef={sessionRef} />
-				<div className="relative flex h-full min-h-0 flex-1 flex-col">
-					{messages.length === 0 ? (
-						<div
-							data-pane="chat"
-							tabIndex={-1}
-							ref={scrollElementRef}
-							className="flex h-full min-h-0 w-full flex-1 flex-col overflow-y-auto outline-none"
-						>
-							<div className="px-[var(--chat-row-gutter,0.75rem)]">
-								<div className="mx-auto w-full max-w-[var(--chat-reading-column,56rem)]">
-									<ChatCreationPromptBubble
-										prompt={pendingStartupTranscriptPrompt}
-									/>
-									<WorktreeSetupCard />
-								</div>
-							</div>
-							{cloudSummary !== null && timeline.projection === null ? (
-								cloudTranscriptIsLoading(timeline.view.sync) ? (
-									<ChatLoadingFallback />
-								) : null
-							) : shouldRenderEmptyChatState({
-									messageCount: messages.length,
-									hasPendingCreation: pendingCreation !== null,
-									setupActive: setupActive || cloudSetupActive,
-									agentStarting,
-								}) ? (
-								<div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
-									<HugeiconsIcon
-										icon={Message01Icon}
-										className="size-10 opacity-40"
-									/>
-									<div>
-										<p className="text-sm">
-											{session?.title ?? uiMessage("chat:chat_view_new_chat")}
-										</p>
-										<p className="mt-1 text-xs">
-											{uiMessage(
-												"chat:chat_view_type_a_message_below_to_get_started",
-											)}
-										</p>
-									</div>
-								</div>
-							) : null}
-						</div>
-					) : !readingReady ? (
-						<div
-							data-pane="chat"
-							tabIndex={-1}
-							ref={scrollElementRef}
-							className="flex h-full min-h-0 w-full flex-1 flex-col outline-none"
-						>
-							<ChatLoadingFallback />
-							{historyStatus === "failed" && (
-								<button
-									type="button"
-									className="h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
-									onClick={() => retryCloudHistory(sessionRef)}
-								>
-									{uiMessage("chat:cloud_history_retry")}
-								</button>
-							)}
-						</div>
-					) : (
-						<ChatLookupsProvider value={chatLookups}>
-							{cloudSummary !== null && historyStatus !== "idle" && (
-								<div
-									className="flex h-7 shrink-0 items-center justify-center gap-2 text-xs text-muted-foreground"
-									role="status"
-								>
-									{historyStatus === "loading" ? (
-										uiMessage("chat:cloud_history_loading")
-									) : (
-										<button
-											type="button"
-											className="h-7 hover:text-foreground"
-											onClick={() => retryCloudHistory(sessionRef)}
-										>
-											{uiMessage("chat:cloud_history_retry")}
-										</button>
-									)}
-								</div>
-							)}
-							<LegendList<ChatTimelineRow>
-								key={sessionId}
-								ref={listRef}
-								data={rows}
-								dataVersion={timelineVersion}
-								keyExtractor={(row) => row.id}
-								getItemType={(row) => row.kind}
-								renderItem={renderTimelineRow}
-								estimatedItemSize={96}
-								initialScrollAtEnd={initialTarget === null}
-								{...(initialTarget === null
-									? {}
-									: {
-											initialScrollIndex: {
-												index: initialTarget.index,
-												viewPosition: 0,
-												viewOffset: initialTarget.viewportOffset,
-											},
-										})}
-								{...(anchoredEndSpace === undefined
-									? {}
-									: {
-											anchoredEndSpace: {
-												...anchoredEndSpace,
-												onReady: () => {
-													coordinator.positionAnchoredTurn({
-														animated: false,
-														force: true,
-													});
-												},
-												onSizeChanged: markAnchoredContentOutOfView,
-											},
-										})}
-								maintainScrollAtEnd={false}
-								maintainVisibleContentPosition={{ data: true, size: true }}
-								contentInsetEndAdjustment={endInset}
-								onScroll={handleScroll}
-								className="h-full min-h-0 w-full flex-1 overflow-x-hidden pr-4 outline-none [overflow-anchor:none]"
+			<ChatImageGalleryProvider key={sessionId} messages={messages}>
+				<h1 className="sr-only">
+					{session.title || uiMessage("chat:chat_view_new_chat")}
+				</h1>
+				<SessionForkRecovery
+					key={`forks:${sessionRef.environmentId}:${sessionRef.sessionId}`}
+					sessionRef={sessionRef}
+				/>
+				{session.forkedFromSessionId !== null ? (
+					<div className="flex justify-end">
+						<SessionMergeBack
+							key={`merge:${sessionRef.environmentId}:${sessionRef.sessionId}`}
+							sessionRef={sessionRef}
+						/>
+					</div>
+				) : null}
+				<div
+					ref={viewportRef}
+					data-chat-viewport
+					className="relative flex min-h-0 min-w-0 flex-1 [container-type:inline-size]"
+				>
+					<ChatSelectionMenu rootRef={viewportRef} sessionRef={sessionRef} />
+					<div className="relative flex h-full min-h-0 flex-1 flex-col">
+						{messages.length === 0 ? (
+							<div
 								data-pane="chat"
 								tabIndex={-1}
-								ListFooterComponent={timelineFooter}
-							/>
-						</ChatLookupsProvider>
-					)}
-					<ChatTurnNavigator
-						turns={turns}
-						activeMessageId={activeTurnMessageId}
-						hasOutOfViewUpdates={hasOutOfViewUpdates}
-						onReaderIntent={() => {
-							coordinator.readerTookControl();
-						}}
-						onNavigate={(turn) => {
-							setTimelineAnchorMessageId(null);
-							coordinator.jumpToTurn(turn.rowIndex, {
-								viewportOffset: TRANSCRIPT_TURN_INSET_PX,
-								animated: !prefersReducedMotion,
-							});
-						}}
-					/>
-					<div
-						className="pointer-events-none absolute inset-x-0 z-30 px-[var(--chat-row-gutter,0.75rem)]"
-						style={{ bottom: Math.max(0, endInset - 8) }}
-					>
-						<div className="mx-auto flex w-full max-w-[var(--chat-reading-column,56rem)] items-center justify-between gap-2">
-							<JumpToLatestPill
-								visible={showPill}
-								streaming={inFlight && hasOutOfViewUpdates}
-								onClick={() => {
-									setHasOutOfViewUpdates(false);
-									coordinator.jumpToLatest({
-										animated: !prefersReducedMotion,
-									});
-								}}
-							/>
+								ref={scrollElementRef}
+								className="flex h-full min-h-0 w-full flex-1 flex-col overflow-y-auto outline-none"
+							>
+								<div className="px-[var(--chat-row-gutter,0.75rem)]">
+									<div className="mx-auto w-full max-w-[var(--chat-reading-column,56rem)]">
+										<ChatCreationPromptBubble
+											prompt={pendingStartupTranscriptPrompt}
+										/>
+										<WorktreeSetupCard />
+									</div>
+								</div>
+								{cloudSummary !== null && timeline.projection === null ? (
+									cloudTranscriptIsLoading(timeline.view.sync) ? (
+										<ChatLoadingFallback />
+									) : null
+								) : shouldRenderEmptyChatState({
+										messageCount: messages.length,
+										hasPendingCreation: pendingCreation !== null,
+										setupActive: setupActive || cloudSetupActive,
+										agentStarting,
+									}) ? (
+									<div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
+										<HugeiconsIcon
+											icon={Message01Icon}
+											className="size-10 opacity-40"
+										/>
+										<div>
+											<p className="text-sm">
+												{session?.title ?? uiMessage("chat:chat_view_new_chat")}
+											</p>
+											<p className="mt-1 text-xs">
+												{uiMessage(
+													"chat:chat_view_type_a_message_below_to_get_started",
+												)}
+											</p>
+										</div>
+									</div>
+								) : null}
+							</div>
+						) : !readingReady ? (
+							<div
+								data-pane="chat"
+								tabIndex={-1}
+								ref={scrollElementRef}
+								className="flex h-full min-h-0 w-full flex-1 flex-col outline-none"
+							>
+								<ChatLoadingFallback />
+								{historyStatus === "failed" && (
+									<button
+										type="button"
+										className="h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
+										onClick={() => retryCloudHistory(sessionRef)}
+									>
+										{uiMessage("chat:cloud_history_retry")}
+									</button>
+								)}
+							</div>
+						) : (
+							<ChatLookupsProvider value={chatLookups}>
+								{cloudSummary !== null && historyStatus !== "idle" && (
+									<div
+										className="flex h-7 shrink-0 items-center justify-center gap-2 text-xs text-muted-foreground"
+										role="status"
+									>
+										{historyStatus === "loading" ? (
+											uiMessage("chat:cloud_history_loading")
+										) : (
+											<button
+												type="button"
+												className="h-7 hover:text-foreground"
+												onClick={() => retryCloudHistory(sessionRef)}
+											>
+												{uiMessage("chat:cloud_history_retry")}
+											</button>
+										)}
+									</div>
+								)}
+								<LegendList<ChatTimelineRow>
+									key={sessionId}
+									ref={listRef}
+									data={rows}
+									dataVersion={timelineVersion}
+									keyExtractor={(row) => row.id}
+									getItemType={(row) => row.kind}
+									renderItem={renderTimelineRow}
+									estimatedItemSize={96}
+									initialScrollAtEnd={initialTarget === null}
+									{...(initialTarget === null
+										? {}
+										: {
+												initialScrollIndex: {
+													index: initialTarget.index,
+													viewPosition: 0,
+													viewOffset: initialTarget.viewportOffset,
+												},
+											})}
+									{...(anchoredEndSpace === undefined
+										? {}
+										: {
+												anchoredEndSpace: {
+													...anchoredEndSpace,
+													onReady: () => {
+														coordinator.positionAnchoredTurn({
+															animated: false,
+															force: true,
+														});
+													},
+													onSizeChanged: markAnchoredContentOutOfView,
+												},
+											})}
+									maintainScrollAtEnd={false}
+									maintainVisibleContentPosition={{ data: true, size: true }}
+									contentInsetEndAdjustment={endInset}
+									onScroll={handleScroll}
+									className="h-full min-h-0 w-full flex-1 overflow-x-hidden pr-4 outline-none [overflow-anchor:none]"
+									data-pane="chat"
+									tabIndex={-1}
+									ListFooterComponent={timelineFooter}
+								/>
+							</ChatLookupsProvider>
+						)}
+						<ChatTurnNavigator
+							turns={turns}
+							activeMessageId={activeTurnMessageId}
+							hasOutOfViewUpdates={hasOutOfViewUpdates}
+							onReaderIntent={() => {
+								coordinator.readerTookControl();
+							}}
+							onNavigate={(turn) => {
+								setTimelineAnchorMessageId(null);
+								coordinator.jumpToTurn(turn.rowIndex, {
+									viewportOffset: TRANSCRIPT_TURN_INSET_PX,
+									animated: !prefersReducedMotion,
+								});
+							}}
+						/>
+						<div
+							className="pointer-events-none absolute inset-x-0 z-30 px-[var(--chat-row-gutter,0.75rem)]"
+							style={{ bottom: Math.max(0, endInset - 8) }}
+						>
+							<div className="mx-auto flex w-full max-w-[var(--chat-reading-column,56rem)] items-center justify-between gap-2">
+								<JumpToLatestPill
+									visible={showPill}
+									streaming={inFlight && hasOutOfViewUpdates}
+									onClick={() => {
+										setHasOutOfViewUpdates(false);
+										coordinator.jumpToLatest({
+											animated: !prefersReducedMotion,
+										});
+									}}
+								/>
+							</div>
 						</div>
+						<p className="sr-only" aria-live="polite" aria-atomic="true">
+							{showPill && inFlight && hasOutOfViewUpdates
+								? uiMessage("chat:chat_view_response_is_streaming_out_of_view")
+								: ""}
+						</p>
 					</div>
-					<p className="sr-only" aria-live="polite" aria-atomic="true">
-						{showPill && inFlight && hasOutOfViewUpdates
-							? uiMessage("chat:chat_view_response_is_streaming_out_of_view")
-							: ""}
-					</p>
 				</div>
-			</div>
+			</ChatImageGalleryProvider>
 		</FileChipProvider>
 	);
 }

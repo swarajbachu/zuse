@@ -866,5 +866,15 @@
 	"review_guide_ask_author": "Autor fragen",
 	"review_guide_generate": "Leitfaden schreiben",
 	"review_guide_write_anyway": "Trotzdem schreiben",
-	"review_guide_unavailable_unsupported": "Leitfäden werden von Claude- oder Codex-Chats geschrieben."
+	"review_guide_unavailable_unsupported": "Leitfäden werden von Claude- oder Codex-Chats geschrieben.",
+	"image_gallery_zoom": "Bild vergrößern",
+	"image_gallery_image": "Bild",
+	"image_gallery_next": "Nächstes Bild",
+	"image_gallery_previous": "Vorheriges Bild",
+	"image_gallery_fit": "Bild einpassen",
+	"image_gallery_unavailable": "Bild nicht verfügbar",
+	"image_gallery_thumbnail": "Bild {{index}} ansehen: {{name}}",
+	"image_gallery_view": "Bild ansehen: {{name}}",
+	"image_gallery_loading": "Bild wird geladen…",
+	"image_gallery_title": "Chatbilder"
 }

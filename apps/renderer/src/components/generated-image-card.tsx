@@ -1,3 +1,4 @@
+import { useChatImageGallery } from "./chat-image-gallery";
 import "@zuse/i18n/english/common";
 import "@zuse/i18n/english/tools";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -55,6 +56,7 @@ export function GeneratedImageCard({
 	readonly startedAt: Date;
 }) {
 	const { message } = useMessages(["common", "tools"]);
+	const openGallery = useChatImageGallery();
 	const reduce = useReducedMotion() ?? false;
 	const [mountedPending] = useState(() => result === undefined);
 	const output = result?.output;
@@ -89,11 +91,9 @@ export function GeneratedImageCard({
 
 	return (
 		<figure aria-busy={active} className="ps-4.5 pe-4 py-1.5">
-			<div className="w-full max-w-80">
+			<div className="w-full max-w-60">
 				{status !== "error" ? (
 					<div
-						role="img"
-						aria-label={prompt === null ? label : `${label}: ${prompt}`}
 						style={{
 							aspectRatio:
 								image?.size == null
@@ -116,6 +116,16 @@ export function GeneratedImageCard({
 									ease: EASE_OUT,
 								}}
 								className="absolute inset-0 size-full object-cover"
+							/>
+						) : null}
+						{image !== null && openGallery ? (
+							<button
+								type="button"
+								aria-label={message("tools:tool_row_open_image")}
+								className="absolute inset-0 z-[1] cursor-zoom-in rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+								onClick={() =>
+									openGallery({ src: image.src, alt: prompt ?? label })
+								}
 							/>
 						) : null}
 						<AnimatePresence initial={false}>

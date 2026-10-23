@@ -33,15 +33,15 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 
-import { bytesForImageContent, imageMimeForFile } from "~/lib/image-preview";
 import { openExternal } from "~/lib/platform-capabilities";
-import { readImageFile } from "~/lib/read-image-file";
 import { knownSiteLink } from "~/lib/site-link";
 import { cn } from "~/lib/utils";
 import { useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
 import { useWorktreesStore } from "~/store/worktrees";
 
+import { useChatImageGallery } from "./chat-image-gallery";
+import { useChatImageSource, useChatImageTarget } from "./chat-image-source";
 import { CodeBlock } from "./code-block.tsx";
 import { resolveFileOpenTarget, useFileChipContext } from "./file-chip.tsx";
 import { SiteFavicon } from "./site-favicon.tsx";
@@ -175,47 +175,37 @@ function MarkdownImage({
 	title?: string;
 	target: ReturnType<typeof resolveFileOpenTarget>;
 }) {
-	const [preview, setPreview] = useState<{
-		target: typeof target;
-		url: string;
-	} | null>(null);
-	useEffect(() => {
-		if (
-			target === null ||
-			(target.kind !== "text" && target.kind !== "external")
-		)
-			return;
-		let cancelled = false;
-		let url: string | null = null;
-		void readImageFile(target)
-			.then((result) => {
-				if (cancelled) return;
-				const mime = imageMimeForFile(target.name);
-				if (mime === null) return;
-				url = URL.createObjectURL(
-					new Blob([bytesForImageContent(result).slice().buffer], {
-						type: mime,
-					}),
-				);
-				setPreview({ target, url });
-			})
-			.catch(() => {
-				/* Keep the image description visible if access fails. */
-			});
-		return () => {
-			cancelled = true;
-			if (url !== null) URL.revokeObjectURL(url);
-		};
-	}, [target]);
-	if (target !== null && preview?.target !== target)
-		return <span title={title}>{alt}</span>;
-	return (
+	const { message } = useUiMessages(["chat"]);
+	const { url } = useChatImageSource(src, target);
+	const openGallery = useChatImageGallery();
+	if (!url) return <span title={title}>{alt}</span>;
+	const image = (
 		<img
-			src={target === null ? src : preview?.url}
+			src={url}
 			alt={alt}
 			title={title}
-			className="h-auto w-auto max-w-[min(100%,320px)]"
+			className="h-auto w-auto max-w-full rounded-lg"
 		/>
+	);
+	return openGallery && src ? (
+		<button
+			type="button"
+			className="chat-image-preview inline-block max-w-full cursor-zoom-in align-top outline-none focus-visible:ring-2 focus-visible:ring-ring"
+			aria-label={message("chat:image_gallery_view", {
+				name: alt || message("chat:image_gallery_image"),
+			})}
+			onClick={(event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				openGallery({ src, alt: alt ?? "" });
+			}}
+		>
+			{image}
+		</button>
+	) : (
+		<span className="chat-image-preview inline-block max-w-full align-top">
+			{image}
+		</span>
 	);
 }
 
@@ -665,24 +655,7 @@ export const MarkdownBody = memo(function MarkdownBody({
 				</MarkdownLink>
 			),
 			img: function MarkdownImageElement({ src, alt, title }) {
-				const path =
-					typeof src === "string" && !/^(?:https?:)?\/\//i.test(src)
-						? (localFilePathFromHref(src) ??
-							(!/^[a-z][a-z0-9+.-]*:/i.test(src) ? decodeURI(src) : null))
-						: null;
-				const target = useMemo(
-					() =>
-						path === null
-							? null
-							: resolveFileOpenTarget({
-									relPath: path,
-									folderId,
-									worktreeId,
-									folderPath,
-									worktreePath,
-								}),
-					[path, folderId, worktreeId, folderPath, worktreePath],
-				);
+				const target = useChatImageTarget(src);
 				return (
 					<MarkdownImage src={src} alt={alt} title={title} target={target} />
 				);

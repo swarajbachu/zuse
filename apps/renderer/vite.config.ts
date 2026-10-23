@@ -149,6 +149,8 @@ export default defineConfig({
 			"rehype-raw",
 			"rehype-sanitize",
 			"remark-gfm",
+			"remark-parse",
+			"unified",
 			"tailwind-merge",
 		],
 	},

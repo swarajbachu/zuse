@@ -866,5 +866,15 @@
 	"review_guide_ask_author": "询问作者",
 	"review_guide_generate": "撰写导览",
 	"review_guide_write_anyway": "仍然撰写",
-	"review_guide_unavailable_unsupported": "导览由 Claude 或 Codex 对话撰写。"
+	"review_guide_unavailable_unsupported": "导览由 Claude 或 Codex 对话撰写。",
+	"image_gallery_zoom": "放大图片",
+	"image_gallery_image": "图片",
+	"image_gallery_next": "下一张图片",
+	"image_gallery_previous": "上一张图片",
+	"image_gallery_fit": "适应窗口",
+	"image_gallery_unavailable": "图片不可用",
+	"image_gallery_thumbnail": "查看图片 {{index}}：{{name}}",
+	"image_gallery_view": "查看图片：{{name}}",
+	"image_gallery_loading": "正在加载图片…",
+	"image_gallery_title": "聊天图片"
 }
