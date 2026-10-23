@@ -42,6 +42,7 @@ const SCRIPT_HEIGHT = 360;
 
 type PhaseState = "pending" | "active" | "done" | "failed" | "stopped";
 
+/** Derive the phase outcome from its agents, prioritizing failures over active work. */
 const phaseState = (
 	section: WorkflowSection,
 	run: DelegationStatus,
@@ -270,6 +271,7 @@ const PHASE_ICON: Record<
 	stopped: { icon: MinusSignCircleIcon, className: "text-muted-foreground/60" },
 };
 
+/** Show one phase and a bounded set of agent tiles, with optional expansion. */
 function PhaseColumn({
 	section,
 	state,
@@ -484,6 +486,7 @@ function AgentTile({
 	);
 }
 
+/** Show the selected agent's status and complete provider-supplied previews. */
 function AgentDetail({
 	agent,
 	providerId,
@@ -524,6 +527,7 @@ function AgentDetail({
 	);
 }
 
+/** Keep long prompt and result text readable within the transcript column. */
 function Preview({
 	title,
 	text,

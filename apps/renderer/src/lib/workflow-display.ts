@@ -144,6 +144,7 @@ const labelWithinPhase = (label: string, phase: string | undefined): string => {
 		: label;
 };
 
+/** Normalize agent previews and timing; active durations keep ticking between snapshots. */
 const agentView = (
 	agent: WorkflowAgentProgress,
 	run: DelegationStatus,

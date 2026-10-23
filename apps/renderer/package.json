@@ -21,6 +21,7 @@
 		"test:cloud-image-selection-browser": "node test/integration/cloud-image-selection.browser.mjs",
 		"test:secret-requests-browser": "node test/integration/session-secret-requests.browser.mjs",
 		"test:message-origin-browser": "node test/integration/message-origin.browser.mjs",
+		"test:workflow-results-browser": "node test/integration/workflow-results.browser.mjs",
 		"test:remote-device-access-browser": "node test/integration/remote-device-access.browser.mjs"
 	},
 	"dependencies": {
