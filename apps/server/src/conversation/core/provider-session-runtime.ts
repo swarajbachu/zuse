@@ -1,3 +1,4 @@
+import { orchestrationSessionTools } from "@zuse/agents/kernel/provider-mcp-session";
 import {
 	type AgentTurnId,
 	type AttachmentRef,
@@ -406,7 +407,7 @@ export const makeProviderSessionRuntime = (
 						},
 						session.providerThread?.nativeThreadRef.nativeId ?? null,
 						() => state.runtimeMode(session.id),
-						orchestrationTools,
+						orchestrationSessionTools(orchestrationTools),
 						session.providerThread?.nativeHeadRef?.nativeId ?? null,
 						admitted.pipe(
 							Effect.flatMap((owned) =>

@@ -74,7 +74,23 @@ export interface AppMcpInteractionOptions {
 	) => Promise<ReadonlyArray<AppMcpQuestionAnswer> | null>;
 }
 
+/**
+ * Tools a caller hands one session for its lifetime, beyond the built-in
+ * app tools. The gateway lists them and routes their calls; the toolset owns
+ * validation and permission, since only it knows what each tool does.
+ */
+export interface AppToolset {
+	readonly definitions: ReadonlyArray<AppToolDefinition>;
+	readonly call: (name: string, args: JsonObject) => Promise<AppToolResult>;
+}
+
+export type AppToolResult = {
+	readonly content: Array<{ readonly type: "text"; readonly text: string }>;
+	readonly isError?: boolean;
+};
+
 export interface McpGatewaySessionContext {
+	readonly toolsets?: ReadonlyArray<AppToolset>;
 	readonly plugins?: PluginPermissionOptions & {
 		readonly client: PluginClient;
 	};
@@ -313,7 +329,7 @@ const questionResult = (
 	};
 };
 
-type AppToolDefinition = {
+export type AppToolDefinition = {
 	readonly name: string;
 	readonly description: string;
 	readonly inputSchema: Record<string, unknown>;
@@ -347,6 +363,7 @@ const buildAppServer = (record: RegistryRecord): Server => {
 		...(record.scopes.interaction && record.ctx.interaction !== undefined
 			? [ASK_USER_QUESTION_TOOL]
 			: []),
+		...(record.ctx.toolsets ?? []).flatMap((toolset) => toolset.definitions),
 	];
 	const names = new Set<string>();
 	for (const definition of definitions) {
@@ -391,6 +408,10 @@ const buildAppServer = (record: RegistryRecord): Server => {
 					record.sessionId,
 					extra.signal,
 				);
+			const toolset = record.ctx.toolsets?.find((candidate) =>
+				candidate.definitions.some((definition) => definition.name === name),
+			);
+			if (toolset !== undefined) return await toolset.call(name, args);
 			if (PLUGIN_TOOLS.some((tool) => tool.name === name) && record.ctx.plugins)
 				return handlePluginTool(
 					name,

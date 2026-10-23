@@ -6,21 +6,7 @@ import { describe, expect, test, vi } from "vitest";
 import {
 	applyReviewConflictResolution,
 	resolveReviewConflictContents,
-	reviewFingerprint,
 } from "./changes-review.tsx";
-
-describe("reviewFingerprint", () => {
-	test("stays stable for the same rendered patch", () => {
-		const patch = "@@ -1 +1 @@\n-old\n+new\n";
-		expect(reviewFingerprint(patch)).toBe(reviewFingerprint(patch));
-	});
-
-	test("changes when the rendered patch changes", () => {
-		expect(reviewFingerprint("+first\n")).not.toBe(
-			reviewFingerprint("+second\n"),
-		);
-	});
-});
 
 describe("applyReviewConflictResolution", () => {
 	test("dispatches exactly one controlled conflict action", () => {

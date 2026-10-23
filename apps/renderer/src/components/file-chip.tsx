@@ -1,9 +1,8 @@
+import type { CodeAnnotation, FolderId, WorktreeId } from "@zuse/contracts";
 import { createContext, useContext } from "react";
 
-import type { CodeAnnotation, FolderId, WorktreeId } from "@zuse/contracts";
-
 import { cn } from "~/lib/utils";
-import { useUiStore, type FileView } from "~/store/ui";
+import { type FileView, useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
 import { useWorktreesStore } from "~/store/worktrees";
 import { FileIcon } from "./file-icon.tsx";
@@ -92,6 +91,41 @@ export const resolveFileOpenTarget = ({
 	return null;
 };
 
+/** Resolve a path against the current chat's workspace for opening in a tab. */
+export const useFileOpenTarget = ({
+	relPath,
+	absPath,
+	kind = "file",
+	view,
+}: {
+	readonly relPath: string;
+	readonly absPath?: string;
+	readonly kind?: "file" | "directory";
+	readonly view?: FileView;
+}) => {
+	const { folderId, worktreeId } = useFileChipContext();
+	const folderPath = useWorkspaceStore((s) => {
+		if (folderId === null) return null;
+		return s.folders.find((f) => f.id === folderId)?.path ?? null;
+	});
+	const worktreePath = useWorktreesStore((s) => {
+		if (folderId === null || worktreeId === null) return null;
+		const list = s.byProject[folderId] ?? [];
+		return list.find((w) => w.id === worktreeId)?.path ?? null;
+	});
+	const openTarget = resolveFileOpenTarget({
+		relPath,
+		absPath,
+		kind,
+		folderId,
+		worktreeId,
+		folderPath,
+		worktreePath,
+		view,
+	});
+	return { openTarget, folderPath, worktreePath };
+};
+
 const annotationRangeLabel = (a: CodeAnnotation): string =>
 	a.startLine === a.endLine ? `${a.startLine}` : `${a.startLine}-${a.endLine}`;
 
@@ -152,29 +186,10 @@ export function FileChip({
 	readonly diffStats?: { readonly added: number; readonly removed: number };
 	readonly className?: string;
 }) {
-	const { folderId, worktreeId } = useFileChipContext();
 	const openFileInTab = useUiStore((s) => s.openFileInTab);
-	const folderPath = useWorkspaceStore((s) => {
-		if (folderId === null) return null;
-		return s.folders.find((f) => f.id === folderId)?.path ?? null;
-	});
-	const worktreePath = useWorktreesStore((s) => {
-		if (folderId === null || worktreeId === null) return null;
-		const list = s.byProject[folderId] ?? [];
-		return list.find((w) => w.id === worktreeId)?.path ?? null;
-	});
+	const { openTarget } = useFileOpenTarget({ relPath, absPath, kind, view });
 
 	const name = basename(relPath);
-	const openTarget = resolveFileOpenTarget({
-		relPath,
-		absPath,
-		kind,
-		folderId,
-		worktreeId,
-		folderPath,
-		worktreePath,
-		view,
-	});
 	const canOpen = openTarget !== null;
 
 	const tooltip =

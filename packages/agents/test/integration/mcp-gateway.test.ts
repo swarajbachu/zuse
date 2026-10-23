@@ -446,6 +446,63 @@ describe("MCP gateway", () => {
 		expect(calls).toEqual(["b:Snapshot", "a:Snapshot"]);
 	});
 
+	test("serves a session's own toolsets only to that session", async () => {
+		const calls: string[] = [];
+		const toolset = {
+			definitions: [
+				{
+					name: "guide_ping",
+					description: "Test tool",
+					inputSchema: { type: "object", properties: {} },
+					annotations: { readOnlyHint: true },
+				},
+			],
+			call: async (name: string, args: Record<string, unknown>) => {
+				calls.push(`${name}:${JSON.stringify(args)}`);
+				return { content: [{ type: "text" as const, text: "pong" }] };
+			},
+		};
+		const owner = await issueMcpGatewaySession({
+			sessionId: "toolset-owner",
+			scopes: { browser: true, orchestration: false },
+			ctx: { toolsets: [toolset] },
+		});
+		const other = await issueMcpGatewaySession({
+			sessionId: "toolset-other",
+			scopes: { browser: false, orchestration: false },
+			ctx: {},
+		});
+		try {
+			const listed = (await listTools(owner.endpoint, owner.token)).body
+				?.result as { tools: Array<{ name: string }> };
+			expect(listed.tools.map((tool) => tool.name)).toContain("guide_ping");
+			const called = await callTool(owner.endpoint, owner.token, "guide_ping", {
+				a: 1,
+			});
+			expect(called.body?.result).toEqual({
+				content: [{ type: "text", text: "pong" }],
+			});
+			expect(calls).toEqual(['guide_ping:{"a":1}']);
+
+			const otherListed = (await listTools(other.endpoint, other.token)).body
+				?.result as { tools: Array<{ name: string }> };
+			expect(otherListed.tools.map((tool) => tool.name)).not.toContain(
+				"guide_ping",
+			);
+			const refused = await callTool(
+				other.endpoint,
+				other.token,
+				"guide_ping",
+				{},
+			);
+			expect(refused.body?.result).toMatchObject({ isError: true });
+			expect(calls).toHaveLength(1);
+		} finally {
+			await owner.close();
+			await other.close();
+		}
+	});
+
 	test("emit_ui is available through the gateway without a mutation approval", async () => {
 		const emitUi = vi.fn(async () => ({
 			ok: true as const,

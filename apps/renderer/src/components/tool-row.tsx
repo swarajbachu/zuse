@@ -9,10 +9,12 @@ import {
 	isRedundantShellDescription,
 	type UserQuestion,
 	type UserQuestionAnswer,
+	unwrapShellCommand,
 } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
 import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
+	AiImageIcon,
 	Analytics01Icon,
 	Brain01Icon,
 	BrowserIcon,
@@ -51,13 +53,16 @@ import {
 	subagentWaitAccessibleTiming,
 	subagentWaitLabel,
 } from "~/lib/subagent-wait";
-import { toolImageDataUrl, toolImageResult } from "~/lib/tool-image-result";
+import {
+	GENERATE_IMAGE_TOOL,
+	generatedImagePrompt,
+	toolImageDataUrl,
+	toolImageResult,
+} from "~/lib/tool-image-result";
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
 import { type FileView, useUiStore } from "~/store/ui";
-import { useWorkspaceStore } from "~/store/workspace";
-import { useWorktreesStore } from "~/store/worktrees";
-import { resolveFileOpenTarget, useFileChipContext } from "./file-chip.tsx";
+import { useFileOpenTarget } from "./file-chip.tsx";
 import { FileIcon } from "./file-icon.tsx";
 import {
 	diffStats,
@@ -114,6 +119,8 @@ export const iconForTool = (tool: string): IconHandle => {
 			return File01Icon;
 		case "ViewImage":
 			return Camera01Icon;
+		case GENERATE_IMAGE_TOOL:
+			return AiImageIcon;
 		case "Edit":
 		case "Write":
 		case "WriteFile":
@@ -184,6 +191,9 @@ const stringifyJson = (value: unknown): string => {
 
 const asString = (v: unknown): string | null =>
 	typeof v === "string" && v.length > 0 ? v : null;
+
+const shellCommandOf = (raw: string | null): string | null =>
+	raw === null ? null : unwrapShellCommand(raw);
 
 const basename = (p: string): string => {
 	const i = p.lastIndexOf("/");
@@ -285,25 +295,10 @@ function MutedFilePath({
 	const { message: uiMessage } = useUiMessages(["common", "tools"]);
 
 	const name = basename(path);
-	const { folderId, worktreeId } = useFileChipContext();
 	const openFileInTab = useUiStore((s) => s.openFileInTab);
-	const folderPath = useWorkspaceStore((s) => {
-		if (folderId === null) return null;
-		return s.folders.find((f) => f.id === folderId)?.path ?? null;
-	});
-	const worktreePath = useWorktreesStore((s) => {
-		if (folderId === null || worktreeId === null) return null;
-		const list = s.byProject[folderId] ?? [];
-		return list.find((w) => w.id === worktreeId)?.path ?? null;
-	});
-	const openTarget = resolveFileOpenTarget({
+	const { openTarget, folderPath, worktreePath } = useFileOpenTarget({
 		relPath: path,
 		absPath: path,
-		kind: "file",
-		folderId,
-		worktreeId,
-		folderPath,
-		worktreePath,
 		view,
 	});
 	const canOpen = openTarget !== null;
@@ -797,8 +792,9 @@ const buildToolView = (
 			: {};
 
 	if (presentation === "background-task") {
-		const cmd =
-			asString(obj.command) ?? asString(obj.cmd) ?? asString(obj.shell_command);
+		const cmd = shellCommandOf(
+			asString(obj.command) ?? asString(obj.cmd) ?? asString(obj.shell_command),
+		);
 		return {
 			icon: PlayIcon,
 			label: uiMessage("tools:tool_row_background_task"),
@@ -877,11 +873,12 @@ const buildToolView = (
 		case "run_terminal_cmd":
 		case "run_terminal_command":
 		case "Run Terminal Command": {
-			const cmd =
+			const cmd = shellCommandOf(
 				asString(obj.command) ??
-				asString(obj.cmd) ??
-				asString(obj.shell_command) ??
-				asString(input);
+					asString(obj.cmd) ??
+					asString(obj.shell_command) ??
+					asString(input),
+			);
 			const desc = asString(obj.description);
 			const fallbackLabel =
 				normalizedTool === "local_command_execute"
@@ -946,6 +943,32 @@ const buildToolView = (
 											value1: String(basename(path)),
 										})
 							}
+						/>
+					);
+				},
+			};
+		}
+
+		case GENERATE_IMAGE_TOOL: {
+			const prompt = generatedImagePrompt(result?.output);
+			return {
+				icon: AiImageIcon,
+				label:
+					result === undefined
+						? uiMessage("tools:tool_row_generating_image")
+						: uiMessage("tools:tool_row_generated_image"),
+				detail: prompt !== null ? <InlineTextHint value={prompt} /> : undefined,
+				resultPanel: (result) => {
+					const image = toolImageResult(result.output);
+					return image === null ? (
+						<PreBlock
+							text={toResultText(result.output)}
+							isError={result.isError}
+						/>
+					) : (
+						<ToolImagePreview
+							image={image}
+							alt={prompt ?? uiMessage("tools:tool_row_generated_image")}
 						/>
 					);
 				},

@@ -1,15 +1,7 @@
-import * as os from "node:os";
-import {
-	AgentSessionId,
-	AgentTurnId,
-	type BranchNamingStyle,
-	type FolderId,
-	type ProviderId,
-	type RuntimeMode,
-} from "@zuse/contracts";
+import type { BranchNamingStyle, FolderId, ProviderId } from "@zuse/contracts";
 import { Context, Effect, Layer, Option, Result, Stream } from "effect";
 
-import { ProviderService } from "./services/provider-service.ts";
+import { HiddenAgentRunner, limitHeadTail } from "./hidden-agent-run.ts";
 
 const TITLE_TIMEOUT_MS = 25_000;
 export const MAX_GENERATED_TITLE_LENGTH = 60;
@@ -61,12 +53,8 @@ export const buildNamingPrompt = (
 };
 
 /** Keep the head and tail of long requests: goals often sit in either. */
-export const limitNamingMessage = (text: string, limit = 6_000): string => {
-	const trimmed = text.trim();
-	if (trimmed.length <= limit) return trimmed;
-	const half = Math.floor(limit / 2);
-	return `${trimmed.slice(0, half).trimEnd()}\n[Content truncated]\n${trimmed.slice(-half).trimStart()}`;
-};
+export const limitNamingMessage = (text: string, limit = 6_000): string =>
+	limitHeadTail(text, limit);
 
 const clampWords = (text: string, limit: number): string => {
 	if (text.length <= limit) return text;
@@ -254,56 +242,41 @@ export class TitleGenerator extends Context.Service<
 export const TitleGeneratorLive = Layer.effect(
 	TitleGenerator,
 	Effect.gen(function* () {
-		const provider = yield* ProviderService;
+		const runner = yield* HiddenAgentRunner;
 
-		const scratchCwd = os.tmpdir();
-		const runtimeMode: RuntimeMode = "full-access";
-
+		// The title only needs the message text (it's in the prompt), so the run
+		// is text-only: an empty scratch cwd, never the worktree.
 		const generateText = (
 			input: Pick<GenerateNamesInput, "folderId" | "providerId" | "model">,
 			prompt: string,
 		) =>
-			Effect.gen(function* () {
-				const sid = AgentSessionId.make(`title-${crypto.randomUUID()}`);
-				const turnId = AgentTurnId.make(`title-turn-${crypto.randomUUID()}`);
-				return yield* Effect.gen(function* () {
-					yield* provider.start(
-						{
-							folderId: input.folderId,
-							providerId: input.providerId,
-							mode: "sdk",
-							sessionId: sid,
-							initialPrompt: prompt,
-							initialTurnId: turnId,
-							model: input.model,
-							cwdOverride: scratchCwd,
-							permissionMode: "default",
-						},
-						null,
-						() => runtimeMode,
-					);
-					const head = yield* provider.events(sid).pipe(
-						Stream.filterMap((envelope) =>
-							envelope.scope === "turn" &&
-							envelope.turnId === turnId &&
-							envelope.event._tag === "AssistantMessage" &&
-							envelope.event.text.trim().length > 0
-								? Result.succeed(envelope.event.text)
-								: Result.fail(undefined),
+			runner
+				.run(
+					{
+						label: "title",
+						folderId: input.folderId,
+						providerId: input.providerId,
+						model: input.model,
+						prompt,
+						access: { _tag: "TextOnly" },
+						timeout: `${TITLE_TIMEOUT_MS} millis`,
+					},
+					(events) =>
+						events.pipe(
+							Stream.filterMap((event) =>
+								event._tag === "AssistantMessage" &&
+								event.text.trim().length > 0
+									? Result.succeed(event.text)
+									: Result.fail(undefined),
+							),
+							Stream.take(1),
+							Stream.runHead,
 						),
-						Stream.take(1),
-						Stream.runHead,
-					);
-					return Option.getOrElse(head, () => "");
-				}).pipe(
-					Effect.ensuring(
-						provider.close(sid).pipe(Effect.catch(() => Effect.void)),
-					),
-					Effect.timeoutOption(`${TITLE_TIMEOUT_MS} millis`),
-					Effect.map((maybe) => Option.getOrElse(maybe, () => "")),
+				)
+				.pipe(
+					Effect.map((head) => Option.getOrElse(head, () => "")),
 					Effect.catch(() => Effect.succeed("")),
 				);
-			});
 
 		const generate: TitleGeneratorShape["generate"] = (input) =>
 			!input.title && !input.branch

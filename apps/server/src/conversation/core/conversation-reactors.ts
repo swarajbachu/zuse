@@ -25,6 +25,8 @@ import {
 	type ChatDeleteCommand,
 	chatArchiveReactorDefinition,
 	chatDeleteReactorDefinition,
+	type ReviewGuideRefreshCommand,
+	reviewGuideReactorDefinition,
 } from "@zuse/domain/reactors/conversation";
 import { Effect, Schema, type Scope, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -38,6 +40,9 @@ export type ChatArchiveReactorError =
 export interface ConversationReactorHandlers {
 	readonly autoName: (
 		input: ReactorDispatchInput<AutoNameCommand>,
+	) => Effect.Effect<void>;
+	readonly reviewGuide: (
+		input: ReactorDispatchInput<ReviewGuideRefreshCommand>,
 	) => Effect.Effect<void>;
 	readonly chatArchive: (
 		input: ReactorDispatchInput<ChatArchiveCommand>,
@@ -124,12 +129,21 @@ export const makeConversationReactorRuntime = Effect.fn(
 		ChatNotFoundError
 	>(chatStorage(), handlers.chatDelete, chatDeleteReactorDefinition);
 
+	const reviewGuide = new ReactorRunner<
+		StoredEvent,
+		ReviewGuideRefreshCommand,
+		SqlConsumerStorageError
+	>(sessionStorage, handlers.reviewGuide, reviewGuideReactorDefinition);
 	const runAutoName = yield* serialize(autoName.catchUp().pipe(Effect.orDie));
+	const runReviewGuide = yield* serialize(
+		reviewGuide.catchUp().pipe(Effect.orDie),
+	);
 	const runSession = (sessionId: string) =>
 		Effect.gen(function* () {
 			yield* drainProviderJobs(worker, sessionId);
 
 			yield* Effect.forkIn(runAutoName, serviceScope);
+			yield* Effect.forkIn(runReviewGuide, serviceScope);
 		});
 	const runProviderStop = (sessionId: string) =>
 		drainProviderJobs(worker, sessionId);
@@ -167,6 +181,7 @@ export const makeConversationReactorRuntime = Effect.fn(
 				[
 					["providers", worker.drain.pipe(Effect.orDie)],
 					["naming", runAutoName],
+					["review guides", runReviewGuide],
 					[
 						"chat lifecycle",
 						runChatArchive.pipe(Effect.andThen(runChatDelete)),

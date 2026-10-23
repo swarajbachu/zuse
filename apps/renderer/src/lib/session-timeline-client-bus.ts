@@ -781,6 +781,16 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["git.reviewIdentity"](payload as never),
 				);
 				break;
+			case "reviewGuide.generate":
+				result = await Effect.runPromise(
+					client["reviewGuide.generate"](payload as never),
+				);
+				break;
+			case "reviewGuide.cancel":
+				result = await Effect.runPromise(
+					client["reviewGuide.cancel"](payload as never),
+				);
+				break;
 			case "git.reviewFileContents":
 				result = await Effect.runPromise(
 					client["git.reviewFileContents"](payload as never),

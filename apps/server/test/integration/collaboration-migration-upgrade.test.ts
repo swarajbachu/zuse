@@ -257,6 +257,7 @@ it.each([
 						{ migration_id: 88, name: "scratch_folders_repair" },
 						{ migration_id: 89, name: "device_bridge_enrollment" },
 						{ migration_id: 90, name: "masters" },
+						{ migration_id: 91, name: "master_event_index" },
 					]);
 				}),
 			);

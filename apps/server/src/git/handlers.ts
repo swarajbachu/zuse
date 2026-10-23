@@ -1,8 +1,10 @@
 import {
+	type FolderId,
 	GitCommandError,
 	GitHubObservationError,
 	GitWorkspaceSnapshot,
 	MemoizeRpcs,
+	type WorktreeId,
 } from "@zuse/contracts";
 import { GitService } from "@zuse/git/git-service";
 import { GitHubClient, GitHubRequestScope } from "@zuse/git/github-client";
@@ -15,6 +17,8 @@ import {
 	withGitHubActor,
 	withGitHubActorStream,
 } from "../git/github-request-scope.ts";
+import { extendReviewPatch } from "../review/scope-context.ts";
+import { ReviewGuideService } from "../review-guide/service.ts";
 import { gitCheckoutIdentity } from "./checkout-projection-state.ts";
 import { GitPrMonitor, GitPrMonitorLive } from "./pr-monitor.ts";
 
@@ -366,7 +370,20 @@ const ReviewPatches = MemoizeRpcs.toLayerHandler(
 	({ folderId, worktreeId, scope }) =>
 		Stream.unwrap(
 			Effect.map(GitService, (svc) =>
-				svc.reviewPatches(folderId, worktreeId ?? null, scope ?? "branch"),
+				svc.reviewPatches(folderId, worktreeId ?? null, scope ?? "branch").pipe(
+					// Hunks start at their enclosing function for every client.
+					Stream.mapEffect(
+						(patch) =>
+							extendReviewPatch(
+								svc,
+								folderId,
+								worktreeId ?? null,
+								scope ?? "branch",
+								patch,
+							),
+						{ concurrency: 4 },
+					),
+				),
 			),
 		),
 );
@@ -396,12 +413,32 @@ const Diff = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+/**
+ * A commit or push is a natural moment to refresh the workspace's guided
+ * review. Fire-and-forget: the guide service debounces, and nothing about
+ * the guide may fail or slow the git operation.
+ */
+const refreshReviewGuide = (
+	folderId: FolderId,
+	worktreeId: WorktreeId | null,
+	reason: "commit" | "push",
+) =>
+	Effect.flatMap(ReviewGuideService, (guides) =>
+		guides.requestRefresh({ folderId, worktreeId }, reason),
+	);
+
 const Commit = MemoizeRpcs.toLayerHandler(
 	"git.commit",
 	({ folderId, worktreeId, message, paths }) =>
 		withGitHubActor(
 			Effect.flatMap(GitService, (svc) =>
-				svc.commit(folderId, message, worktreeId ?? null, paths),
+				svc
+					.commit(folderId, message, worktreeId ?? null, paths)
+					.pipe(
+						Effect.tap(() =>
+							refreshReviewGuide(folderId, worktreeId ?? null, "commit"),
+						),
+					),
 			),
 		),
 );
@@ -411,13 +448,14 @@ const Push = MemoizeRpcs.toLayerHandler(
 	({ folderId, worktreeId }) =>
 		withGitHubActor(
 			Effect.flatMap(GitService, (svc) =>
-				svc
-					.push(folderId, worktreeId ?? null)
-					.pipe(
-						Effect.tap(() =>
-							refreshPrSnapshot(svc, folderId, worktreeId ?? null),
-						),
+				svc.push(folderId, worktreeId ?? null).pipe(
+					Effect.tap(() =>
+						refreshPrSnapshot(svc, folderId, worktreeId ?? null),
 					),
+					Effect.tap(() =>
+						refreshReviewGuide(folderId, worktreeId ?? null, "push"),
+					),
+				),
 			),
 		),
 );

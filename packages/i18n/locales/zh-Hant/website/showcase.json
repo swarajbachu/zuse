@@ -191,5 +191,11 @@
 	"input": "輸入",
 	"click": "點擊",
 	"assert": "斷言",
-	"browser_steps_passed": "4/4 步通過 · 已儲存操作軌跡 · 1.8 秒"
+	"browser_steps_passed": "4/4 步通過 · 已儲存操作軌跡 · 1.8 秒",
+	"guided_review_title": "依閱讀順序的引導式審查",
+	"guided_review_body": "Zuse 會為每次變更撰寫一份指南：先是概覽，再把簡短的章節放在所解釋的程式碼旁邊。每次輪次、提交和推送後都會自動更新。",
+	"view_demo": "檢視示範",
+	"guided_review_tools_chapter": "工作階段自帶工具",
+	"guided_review_checks_chapter": "章節透過受檢工具寫入",
+	"guided_review_refresh_chapter": "指南自動保持最新"
 }

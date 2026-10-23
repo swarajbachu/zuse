@@ -1302,5 +1302,9 @@
 	"remote_paired_source": "이 기기에서 페어링되었습니다. 호스트 컴퓨터에서 접근 권한을 취소할 수 있습니다.",
 	"remote_in_use": "사용 중: {{address}}",
 	"remote_route_count": " · 경로 수: {{count}}",
-	"remote_connect": "연결"
+	"remote_connect": "연결",
+	"settings_page_review_guides_auto": "가이드 자동 새로고침",
+	"settings_page_review_guides": "가이드 리뷰",
+	"settings_page_review_guides_description": "변경 사항 탭의 diff 옆에 에이전트가 작성한 변경 사항 투어를 표시합니다.",
+	"settings_page_review_guides_auto_description": "턴이 끝나거나 커밋, 푸시할 때마다 가이드를 업데이트합니다. 채팅의 모델을 사용합니다."
 }

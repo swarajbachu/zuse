@@ -26,6 +26,7 @@ import { PreviewsHandlersLayer } from "./previews/handlers.ts";
 import { ProviderHandlersLayer } from "./provider/handlers.ts";
 import { PtyHandlersLayer } from "./pty/handlers.ts";
 import { RepositorySettingsHandlersLayer } from "./repository-settings/handlers.ts";
+import { ReviewGuideHandlersLayer } from "./review-guide/handlers.ts";
 import { SimulatorHandlersLayer } from "./simulators/handlers.ts";
 import { SkillHandlersLayer } from "./skill/handlers.ts";
 import { UsageHandlersLayer } from "./usage/handlers.ts";
@@ -40,6 +41,7 @@ import { WorktreeHandlersLayer } from "./worktree/handlers.ts";
  * sneaking into the handler boundary.
  */
 export const HandlersLayer = Layer.mergeAll(
+	ReviewGuideHandlersLayer,
 	AutomationHandlersLayer,
 	ExecutionHistoryHandlersLayer,
 	CheckpointHandlersLayer,

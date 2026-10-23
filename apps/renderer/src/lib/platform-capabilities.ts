@@ -80,6 +80,13 @@ const copyTextWithSelection = (text: string): boolean => {
 	return copied;
 };
 
+export const copyImage = async (image: Blob): Promise<void> => {
+	if (navigator.clipboard?.write === undefined) {
+		throw new Error("Clipboard access is unavailable");
+	}
+	await navigator.clipboard.write([new ClipboardItem({ [image.type]: image })]);
+};
+
 export const copyText = async (text: string): Promise<void> => {
 	const bridge = (globalThis.window?.zuse ?? globalThis.window?.memoize)?.app;
 	if (bridge?.copyText !== undefined) {

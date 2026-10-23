@@ -935,25 +935,66 @@ function ExperimentalPane() {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 
 	const threadListSidebar = useThreadListSidebarEnabled();
+	const reviewGuides = useSettingsStore((s) => s.reviewGuidesEnabled);
+	const reviewGuidesAuto = useSettingsStore((s) => s.reviewGuidesAutoGenerate);
+	const setReviewGuides = useSettingsStore((s) => s.setReviewGuidesEnabled);
+	const setReviewGuidesAuto = useSettingsStore(
+		(s) => s.setReviewGuidesAutoGenerate,
+	);
 
 	return (
-		<SettingsGroup
-			title={uiMessage("settings:settings_page_experimental_sidebar")}
-		>
-			<SettingsRow
-				title={uiMessage("settings:settings_page_thread_list_sidebar")}
-				description={uiMessage(
-					"settings:settings_page_thread_list_sidebar_description",
-				)}
-				action={
-					<Switch
-						checked={threadListSidebar}
-						onCheckedChange={setThreadListSidebarEnabled}
-						aria-label={uiMessage("settings:settings_page_thread_list_sidebar")}
-					/>
-				}
-			/>
-		</SettingsGroup>
+		<>
+			<SettingsGroup title={uiMessage("settings:settings_page_review_guides")}>
+				<SettingsRow
+					title={uiMessage("settings:settings_page_review_guides")}
+					description={uiMessage(
+						"settings:settings_page_review_guides_description",
+					)}
+					action={
+						<Switch
+							checked={reviewGuides}
+							onCheckedChange={setReviewGuides}
+							aria-label={uiMessage("settings:settings_page_review_guides")}
+						/>
+					}
+				/>
+				<SettingsRow
+					title={uiMessage("settings:settings_page_review_guides_auto")}
+					description={uiMessage(
+						"settings:settings_page_review_guides_auto_description",
+					)}
+					action={
+						<Switch
+							checked={reviewGuides && reviewGuidesAuto}
+							disabled={!reviewGuides}
+							onCheckedChange={setReviewGuidesAuto}
+							aria-label={uiMessage(
+								"settings:settings_page_review_guides_auto",
+							)}
+						/>
+					}
+				/>
+			</SettingsGroup>
+			<SettingsGroup
+				title={uiMessage("settings:settings_page_experimental_sidebar")}
+			>
+				<SettingsRow
+					title={uiMessage("settings:settings_page_thread_list_sidebar")}
+					description={uiMessage(
+						"settings:settings_page_thread_list_sidebar_description",
+					)}
+					action={
+						<Switch
+							checked={threadListSidebar}
+							onCheckedChange={setThreadListSidebarEnabled}
+							aria-label={uiMessage(
+								"settings:settings_page_thread_list_sidebar",
+							)}
+						/>
+					}
+				/>
+			</SettingsGroup>
+		</>
 	);
 }
 

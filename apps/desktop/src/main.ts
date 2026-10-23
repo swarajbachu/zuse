@@ -155,7 +155,11 @@ if (
 }
 
 import { resolveDesktopApiPort } from "./api-port.ts";
-import { makeBatchedLogWriter } from "./batched-log-writer.ts";
+import {
+	appendRotatingLogFile,
+	MAX_LOG_FILE_BYTES,
+	makeBatchedLogWriter,
+} from "./batched-log-writer.ts";
 import { type BatteryStatus, readBatteryStatus } from "./battery-status.ts";
 import {
 	BROWSER_PARTITION,
@@ -681,14 +685,21 @@ const cloudSyncFiles = new CloudSyncFileBridge((request) => {
 ipcMain.on("app:cloudSyncReadFileResult", (_event, requestId, value) =>
 	cloudSyncFiles.complete(requestId, value),
 );
+/** Last logged sync status per workspace; repeats are sent but not logged. */
+const loggedCloudSyncStatus = new Map<string, string>();
 const cloudSyncManager = new CloudSyncManager(
 	(status) => {
-		appendRemoteConnectionLog("cloud.sync.status", {
+		const fields = {
 			workspaceId: status.workspaceId,
 			state: status.state,
 			enabled: status.enabled,
 			error: status.error,
-		});
+		};
+		const logged = JSON.stringify(fields);
+		if (loggedCloudSyncStatus.get(status.workspaceId) !== logged) {
+			loggedCloudSyncStatus.set(status.workspaceId, logged);
+			appendRemoteConnectionLog("cloud.sync.status", fields);
+		}
 		mainWindow?.webContents.send("cloudSync:status", status);
 	},
 	undefined,
@@ -1369,7 +1380,7 @@ const appLogWriter = makeBatchedLogWriter({
 				}
 			}
 			await fs.mkdir(Path.dirname(filePath), { recursive: true });
-			await fs.appendFile(filePath, `${lines.join("\n")}\n`, "utf8");
+			await appendRotatingLogFile(filePath, `${lines.join("\n")}\n`);
 		} catch {}
 	},
 });
@@ -1392,6 +1403,13 @@ const appendRemoteConnectionLog = (
 		remoteConnectionLogScrubScheduled = true;
 		const scrub = (async () => {
 			try {
+				// The scrub reads the whole file into memory. An oversized log
+				// (older builds never rotated it) can't be scrubbed that way, so it
+				// is removed rather than read or kept unscrubbed.
+				if ((await fs.stat(logFilePath)).size > MAX_LOG_FILE_BYTES) {
+					await fs.unlink(logFilePath);
+					return;
+				}
 				const contents = await fs.readFile(logFilePath, "utf8");
 				const sanitized = sanitizeRemoteConnectionLog(contents);
 				if (sanitized === contents) return;

@@ -191,5 +191,11 @@
 	"input": "Eingabe",
 	"click": "Klick",
 	"assert": "Prüfung",
-	"browser_steps_passed": "4/4 Schritte bestanden · Trace gespeichert · 1,8 s"
+	"browser_steps_passed": "4/4 Schritte bestanden · Trace gespeichert · 1,8 s",
+	"guided_review_title": "Geführtes Review in Lesereihenfolge",
+	"guided_review_body": "Zuse schreibt zu jeder Änderung einen Leitfaden: einen Überblick, dann kurze Kapitel direkt neben dem Code, den sie erklären. Er wird nach jedem Zug, Commit und Push aktualisiert.",
+	"view_demo": "Demo ansehen",
+	"guided_review_tools_chapter": "Sitzungen bringen eigene Tools mit",
+	"guided_review_checks_chapter": "Kapitel kommen über geprüfte Tools",
+	"guided_review_refresh_chapter": "Leitfäden bleiben von selbst aktuell"
 }

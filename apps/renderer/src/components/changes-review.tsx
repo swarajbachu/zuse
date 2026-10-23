@@ -25,17 +25,32 @@ import {
 	type WorkerPoolOptions,
 } from "@pierre/diffs/react";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
+import {
+	type GuideViewChapter,
+	isChapterReviewed,
+	liveHunkIds,
+	projectGuide,
+	reviewChapter,
+	withoutFileHunks,
+} from "@zuse/client-runtime/review-guide-view";
+import {
+	detectMoves,
+	type MoveEnd,
+	reviewFingerprint,
+	splitPatchHunks,
+} from "@zuse/client-runtime/review-outline";
 import type {
 	CodeAnnotation,
 	FolderId,
 	GitReviewFile,
-	GitReviewFileContents,
 	GitReviewPatch,
 	WorktreeId,
 } from "@zuse/contracts";
 import { CommandId } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
+	ArrowLeft,
+	ArrowRight,
 	Check,
 	ChevronDown,
 	ChevronRight,
@@ -56,12 +71,12 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../hooks/use-auth.ts";
+import { insertTextWhenReady } from "../lib/context-handoff.ts";
 import { useZuseDiffTheme, ZUSE_DIFF_THEMES } from "../lib/diffs-theme.ts";
 import {
 	dispatchFileTreeCommand,
 	fileWriteCommandId,
 } from "../lib/file-tree-client-bus.ts";
-import { fnv1a } from "../lib/fnv1a.ts";
 import { formatError } from "../lib/format-error.ts";
 import {
 	dispatchGitWorkspaceCommand,
@@ -77,6 +92,17 @@ import {
 	configureReviewEditGuard,
 	requestReviewLeave,
 } from "../lib/review-edit-guard.ts";
+import {
+	loadReviewDiffFiles,
+	loadReviewFileContents,
+} from "../lib/review-file-contents.ts";
+import {
+	cancelReviewGuide,
+	generateReviewGuide,
+	useReviewGuide,
+} from "../lib/review-guide-client-bus.ts";
+import { openSession } from "../lib/session-navigation.ts";
+import { useSettingsStore } from "../lib/settings-client-bus.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
 import { useSessionsStore } from "../store/sessions.ts";
@@ -87,6 +113,11 @@ import {
 	SavedReviewAnnotation,
 	DraftReviewAnnotation as SharedDraftReviewAnnotation,
 } from "./review-annotation.tsx";
+import {
+	type GuideComments,
+	GuideDocument,
+} from "./review-guide/guide-document.tsx";
+import { type ReviewMode, ReviewTabs } from "./review-guide/review-tabs.tsx";
 import { Popover, PopoverPrimitive, PopoverTrigger } from "./ui/popover.tsx";
 import { Switch } from "./ui/switch.tsx";
 
@@ -95,6 +126,8 @@ type ReviewPreferences = {
 	readonly wrap: boolean;
 	readonly lineNumbers: boolean;
 	readonly indicators: "bars" | "classic" | "none";
+	/** The guided review or the plain review of every file. */
+	readonly view: ReviewMode;
 };
 
 const PREFERENCES_KEY = "zuse.review.preferences.v1";
@@ -104,6 +137,7 @@ const DEFAULT_PREFERENCES: ReviewPreferences = {
 	wrap: true,
 	lineNumbers: true,
 	indicators: "bars",
+	view: "overview",
 };
 
 const REVIEW_POOL_OPTIONS: WorkerPoolOptions = {
@@ -173,6 +207,34 @@ const loadPreferences = (): ReviewPreferences => {
 	}
 };
 
+/** Hunks checked off in guide chapters, per workspace. */
+const REVIEWED_HUNKS_STORAGE_KEY = "zuse.review.hunks.v1";
+const loadReviewedHunks = (workspace: string): ReadonlySet<string> => {
+	try {
+		const all = JSON.parse(
+			localStorage.getItem(REVIEWED_HUNKS_STORAGE_KEY) ?? "{}",
+		) as Record<string, ReadonlyArray<string>>;
+		return new Set(all[workspace] ?? []);
+	} catch {
+		return new Set();
+	}
+};
+const saveReviewedHunks = (
+	workspace: string,
+	hunks: ReadonlyArray<string>,
+): void => {
+	try {
+		const all = JSON.parse(
+			localStorage.getItem(REVIEWED_HUNKS_STORAGE_KEY) ?? "{}",
+		) as Record<string, ReadonlyArray<string>>;
+		if (hunks.length === 0) delete all[workspace];
+		else all[workspace] = hunks;
+		localStorage.setItem(REVIEWED_HUNKS_STORAGE_KEY, JSON.stringify(all));
+	} catch {
+		// Storage is optional; the state still holds for this session.
+	}
+};
+
 const loadViewed = (): Record<string, string> => {
 	try {
 		return JSON.parse(
@@ -183,12 +245,15 @@ const loadViewed = (): Record<string, string> => {
 	}
 };
 
-export const reviewFingerprint = (patch: string): string =>
-	`${patch.length}:${fnv1a(patch).toString(36)}`;
-
 type AnnotationMetadata =
 	| { readonly kind: "saved"; readonly annotation: CodeAnnotation }
-	| { readonly kind: "draft"; readonly selection: CodeViewLineSelection };
+	| { readonly kind: "draft"; readonly selection: CodeViewLineSelection }
+	| {
+			readonly kind: "move";
+			/** `out` sits on the removed block, `in` on where it landed. */
+			readonly direction: "in" | "out";
+			readonly other: MoveEnd;
+	  };
 
 type AnnotationDestination = "ai" | "github";
 
@@ -198,15 +263,20 @@ type AnnotationAuthor = {
 	readonly initial: string;
 };
 
+/** Shared empty list, so files without comments keep a stable prop. */
+const NO_ANNOTATIONS: DiffLineAnnotation<AnnotationMetadata>[] = [];
+
 const getAnnotationKey = (
 	annotations: readonly DiffLineAnnotation<AnnotationMetadata>[] | undefined,
 ): string => {
 	if (annotations === undefined) return "";
 	return annotations
 		.map(({ side, lineNumber, metadata }) =>
-			metadata.kind === "draft"
-				? `draft:${side}:${lineNumber}:${metadata.selection.range.side ?? ""}:${metadata.selection.range.start}:${metadata.selection.range.endSide ?? ""}:${metadata.selection.range.end}`
-				: `saved:${side}:${lineNumber}:${metadata.annotation.id}:${metadata.annotation.comment}`,
+			metadata.kind === "move"
+				? `move:${metadata.direction}:${side}:${lineNumber}:${metadata.other.path}:${metadata.other.startLine}`
+				: metadata.kind === "draft"
+					? `draft:${side}:${lineNumber}:${metadata.selection.range.side ?? ""}:${metadata.selection.range.start}:${metadata.selection.range.endSide ?? ""}:${metadata.selection.range.end}`
+					: `saved:${side}:${lineNumber}:${metadata.annotation.id}:${metadata.annotation.comment}`,
 		)
 		.join("\0");
 };
@@ -216,6 +286,39 @@ type HydratedFile = {
 	readonly newContent: string | null;
 	readonly mtime: string | null;
 };
+
+/** One end of a detected move, linking to the other end. */
+function MoveChip({
+	direction,
+	other,
+	label,
+}: {
+	readonly direction: "in" | "out";
+	readonly other: MoveEnd;
+	readonly label: string;
+}) {
+	return (
+		<div className="flex h-7 items-center px-3">
+			<button
+				type="button"
+				className="inline-flex h-6 min-w-0 items-center gap-1.5 rounded-md bg-muted/60 px-2 text-muted-foreground text-xs hover:bg-muted hover:text-foreground"
+				onClick={() =>
+					useUiStore
+						.getState()
+						.openChanges(
+							other.path,
+							other.startLine,
+							direction === "out" ? "additions" : "deletions",
+						)
+				}
+			>
+				{direction === "in" ? <ArrowLeft className="size-3.5" /> : null}
+				<span className="truncate font-mono">{label}</span>
+				{direction === "out" ? <ArrowRight className="size-3.5" /> : null}
+			</button>
+		</div>
+	);
+}
 
 export function ChangesReview() {
 	const { message: uiMessage } = useUiMessages(["chat"]);
@@ -281,6 +384,8 @@ function ChangesReviewReady({
 		useState<CodeViewLineSelection | null>(null);
 	const [draftSelection, setDraftSelection] =
 		useState<CodeViewLineSelection | null>(null);
+	/** The guide chapter a draft was started in; null in the plain diff. */
+	const [draftChapterId, setDraftChapterId] = useState<string | null>(null);
 	const [annotationError, setAnnotationError] = useState<string | null>(null);
 	const [editingPath, setEditingPath] = useState<string | null>(null);
 	const [hydrated, setHydrated] = useState<Record<string, HydratedFile>>({});
@@ -358,8 +463,47 @@ function ChangesReviewReady({
 	const updatePreferences = (patch: Partial<ReviewPreferences>) =>
 		setPreferences((current) => ({ ...current, ...patch }));
 
+	// Code cut from one place and pasted in another reads as one move, linked
+	// at both ends, instead of a red block and a green block to compare.
+	const moves = useMemo(
+		() =>
+			detectMoves(
+				Object.values(patches).flatMap((patch) =>
+					patch.error === null && patch.result.patch.length > 0
+						? [
+								{
+									path: patch.path,
+									hunks: splitPatchHunks(patch.result.patch).hunks,
+								},
+							]
+						: [],
+				),
+			),
+		[patches],
+	);
+
 	const annotationMap = useMemo(() => {
 		const map = new Map<string, DiffLineAnnotation<AnnotationMetadata>[]>();
+		const add = (
+			path: string,
+			entry: DiffLineAnnotation<AnnotationMetadata>,
+		) => {
+			const list = map.get(path) ?? [];
+			list.push(entry);
+			map.set(path, list);
+		};
+		for (const move of moves) {
+			add(move.from.path, {
+				side: "deletions",
+				lineNumber: move.from.startLine,
+				metadata: { kind: "move", direction: "out", other: move.to },
+			});
+			add(move.to.path, {
+				side: "additions",
+				lineNumber: move.to.startLine,
+				metadata: { kind: "move", direction: "in", other: move.from },
+			});
+		}
 		for (const annotation of annotations) {
 			const list = map.get(annotation.relPath) ?? [];
 			list.push({
@@ -381,7 +525,7 @@ function ChangesReviewReady({
 			}
 		}
 		return map;
-	}, [annotations, draftSelection, uiMessage]);
+	}, [annotations, draftSelection, moves, uiMessage]);
 
 	const items = useMemo(() => {
 		if (summary === null) return [];
@@ -466,10 +610,109 @@ function ChangesReviewReady({
 		uiMessage,
 	]);
 
+	const fileByPath = useMemo(
+		() => new Map(summary?.files.map((file) => [file.path, file]) ?? []),
+		[summary, uiMessage],
+	);
+
+	const viewedKey = useCallback((path: string) => `${key}:${path}`, [key]);
+	const isViewed = useCallback(
+		(path: string) => {
+			const patch = patches[path]?.result.patch ?? "";
+			return viewed[viewedKey(path)] === reviewFingerprint(patch);
+		},
+		[patches, viewed, viewedKey],
+	);
+	// Hunks checked off in guide chapters. The state names its workspace, so
+	// saving never writes one workspace's hunks under another's key.
+	const [hunkReview, setHunkReview] = useState(() => ({
+		workspace: key,
+		hunks: loadReviewedHunks(key),
+	}));
+	useEffect(() => {
+		setHunkReview((current) =>
+			current.workspace === key
+				? current
+				: { workspace: key, hunks: loadReviewedHunks(key) },
+		);
+	}, [key]);
+	useEffect(() => {
+		saveReviewedHunks(hunkReview.workspace, [...hunkReview.hunks]);
+	}, [hunkReview]);
+	const reviewedHunks = hunkReview.hunks;
+	const updateReviewedHunks = useCallback(
+		(update: (current: ReadonlySet<string>) => ReadonlySet<string>) =>
+			setHunkReview((current) => ({
+				...current,
+				hunks: update(current.hunks),
+			})),
+		[],
+	);
+	const toggleViewed = useCallback(
+		(path: string) => {
+			const storageKey = viewedKey(path);
+			const fingerprint = reviewFingerprint(patches[path]?.result.patch ?? "");
+			const unviewing = viewed[storageKey] === fingerprint;
+			// A file unchecked is unreviewed everywhere, including the hunks
+			// its chapters checked off.
+			if (unviewing)
+				updateReviewedHunks((current) => withoutFileHunks(current, path));
+			setViewed((current) => {
+				const next = { ...current };
+				if (next[storageKey] === fingerprint) delete next[storageKey];
+				else next[storageKey] = fingerprint;
+				localStorage.setItem(REVIEW_VIEWED_STORAGE_KEY, JSON.stringify(next));
+				window.dispatchEvent(new CustomEvent("zuse-review-viewed"));
+				return next;
+			});
+		},
+		[patches, updateReviewedHunks, viewed, viewedKey],
+	);
+	const toggleCollapsed = useCallback((path: string) => {
+		setCollapsed((current) => {
+			const next = new Set(current);
+			if (next.has(path)) next.delete(path);
+			else next.add(path);
+			return next;
+		});
+	}, []);
+
+	// Guided review: a document that walks the change chapter by chapter, each
+	// with its own part of the diff. Files keeps the plain review of every file.
+	const guidesEnabled = useSettingsStore((state) => state.reviewGuidesEnabled);
+	const guideState = useReviewGuide(guidesEnabled ? executionRef : null);
+	const reviewMode: ReviewMode = guidesEnabled ? preferences.view : "files";
+	const guideChapters =
+		guideState?.guide?.chapters ?? guideState?.run?.chapters ?? null;
+	const guideView = useMemo(() => {
+		if (!guidesEnabled || summary === null || guideChapters === null)
+			return null;
+		if (guideChapters.length === 0) return null;
+		return projectGuide(
+			guideChapters,
+			summary.files.flatMap((file) => {
+				const patch = patches[file.path];
+				return patch === undefined
+					? []
+					: [{ path: file.path, patch: patch.result.patch }];
+			}),
+			{
+				newTitle: uiMessage("chat:review_guide_new_title"),
+				newSummary: uiMessage("chat:review_guide_new_summary"),
+			},
+		);
+	}, [guideChapters, guidesEnabled, patches, summary, uiMessage]);
 	useEffect(() => {
 		if (navigation?.path === null || navigation?.path === undefined) return;
 		if (lastNavigationTokenRef.current === navigation.token) return;
 		if (!items.some((item) => item.id === navigation.path)) return;
+		// Links to a file or line land in the plain diff. Keep the request
+		// until that view's viewer exists, so it is never spent on nothing.
+		if (reviewMode !== "files") {
+			updatePreferences({ view: "files" });
+			return;
+		}
+		if (viewerRef.current === null) return;
 		const target =
 			navigation.line === null
 				? {
@@ -487,44 +730,73 @@ function ChangesReviewReady({
 					};
 		viewerRef.current?.scrollTo(target);
 		lastNavigationTokenRef.current = navigation.token;
-	}, [items, navigation]);
-
-	const fileByPath = useMemo(
-		() => new Map(summary?.files.map((file) => [file.path, file]) ?? []),
-		[summary, uiMessage],
+	}, [items, navigation, reviewMode]);
+	const fileHunks = useMemo(
+		() =>
+			new Map(
+				Object.values(patches).map((patch) => [
+					patch.path,
+					liveHunkIds([{ path: patch.path, patch: patch.result.patch }]),
+				]),
+			),
+		[patches],
 	);
-
-	const viewedKey = useCallback((path: string) => `${key}:${path}`, [key]);
-	const isViewed = useCallback(
-		(path: string) => {
-			const patch = patches[path]?.result.patch ?? "";
-			return viewed[viewedKey(path)] === reviewFingerprint(patch);
-		},
-		[patches, viewed, viewedKey],
+	const chapterReviewed = useCallback(
+		(chapter: GuideViewChapter) =>
+			isChapterReviewed(chapter, reviewedHunks, isViewed),
+		[isViewed, reviewedHunks],
 	);
-	const toggleViewed = useCallback(
-		(path: string) => {
-			const storageKey = viewedKey(path);
-			const fingerprint = reviewFingerprint(patches[path]?.result.patch ?? "");
-			setViewed((current) => {
-				const next = { ...current };
-				if (next[storageKey] === fingerprint) delete next[storageKey];
-				else next[storageKey] = fingerprint;
-				localStorage.setItem(REVIEW_VIEWED_STORAGE_KEY, JSON.stringify(next));
-				window.dispatchEvent(new CustomEvent("zuse-review-viewed"));
-				return next;
+	const setChapterReviewed = useCallback(
+		(chapter: GuideViewChapter, reviewed: boolean) => {
+			const next = reviewChapter(chapter, reviewed, {
+				reviewedHunks,
+				fileHunks,
+				isFileViewed: isViewed,
 			});
+			for (const path of next.toggleFiles) toggleViewed(path);
+			// Only hunks still in the change are worth remembering.
+			const live = [...fileHunks.values()].flat();
+			updateReviewedHunks(
+				() => new Set(live.filter((id) => next.reviewedHunks.has(id))),
+			);
 		},
-		[patches, viewedKey],
+		[fileHunks, isViewed, reviewedHunks, toggleViewed, updateReviewedHunks],
 	);
-	const toggleCollapsed = useCallback((path: string) => {
-		setCollapsed((current) => {
-			const next = new Set(current);
-			if (next.has(path)) next.delete(path);
-			else next.add(path);
-			return next;
-		});
-	}, []);
+	const askAboutChapter = useCallback(
+		(chapter: GuideViewChapter, question: string) => {
+			const text = `${uiMessage("chat:review_guide_ask_prefix", {
+				title: chapter.title,
+				files: chapter.files
+					.map((path) => path.slice(path.lastIndexOf("/") + 1))
+					.join(", "),
+			})}${question}`;
+			const origin = guideState?.guide?.originSessionId ?? null;
+			if (origin === null) {
+				insertTextWhenReady(text);
+				return;
+			}
+			const target = {
+				environmentId: executionRef.environmentId,
+				sessionId: origin,
+			};
+			void openSession(target).then((opened) =>
+				insertTextWhenReady(text, opened ? target : undefined),
+			);
+		},
+		[executionRef.environmentId, guideState?.guide?.originSessionId, uiMessage],
+	);
+	const writeGuide = useCallback(
+		(force: boolean) =>
+			void generateReviewGuide(executionRef, {
+				originSessionId: selectedSessionId,
+				force,
+			}),
+		[executionRef, selectedSessionId],
+	);
+	const stopGuide = useCallback(
+		() => void cancelReviewGuide(executionRef),
+		[executionRef],
+	);
 
 	const enterEdit = useCallback(
 		(file: GitReviewFile) => {
@@ -533,25 +805,7 @@ function ChangesReviewReady({
 				setEditDraft(null);
 				setEditError(null);
 				try {
-					const { result: content } = await dispatchGitWorkspaceCommand<
-						{
-							readonly folderId: FolderId;
-							readonly worktreeId: WorktreeId | null;
-							readonly path: string;
-							readonly oldPath: string | null;
-						},
-						GitReviewFileContents
-					>({
-						ref: executionRef,
-						kind: "git.reviewFileContents",
-						commandId: CommandId.make(`git-review-file:${crypto.randomUUID()}`),
-						payload: {
-							folderId,
-							worktreeId,
-							path: file.path,
-							oldPath: file.oldPath,
-						},
-					});
+					const content = await loadReviewFileContents(executionRef, file);
 					if (content.newContent === null || content.mtime === null) {
 						setEditError("This file cannot be edited in its current state.");
 						return;
@@ -883,7 +1137,7 @@ function ChangesReviewReady({
 	);
 
 	const createAnnotationDraft = useCallback(
-		(range: SelectedLineRange, itemId: string) => {
+		(range: SelectedLineRange, itemId: string, chapterId: string | null) => {
 			if (getReviewAnnotationAnchor(range) === null) {
 				setAnnotationError("Select an added or removed line to add a comment.");
 				return;
@@ -891,6 +1145,7 @@ function ChangesReviewReady({
 			const nextSelection = { id: itemId, range };
 			setSelectedLines(nextSelection);
 			setDraftSelection(nextSelection);
+			setDraftChapterId(chapterId);
 			setAnnotationError(null);
 		},
 		[],
@@ -910,6 +1165,22 @@ function ChangesReviewReady({
 				| LineAnnotation<AnnotationMetadata>,
 		) => {
 			const metadata = annotation.metadata;
+			if (metadata.kind === "move") {
+				return (
+					<MoveChip
+						direction={metadata.direction}
+						other={metadata.other}
+						label={uiMessage(
+							metadata.direction === "out"
+								? "chat:changes_review_moved_to"
+								: "chat:changes_review_moved_from",
+							{
+								location: `${metadata.other.path}:${metadata.other.startLine}`,
+							},
+						)}
+					/>
+				);
+			}
 			if (metadata.kind === "draft") {
 				return (
 					<SharedDraftReviewAnnotation
@@ -942,6 +1213,36 @@ function ChangesReviewReady({
 			cancelAnnotation,
 			saveAnnotation,
 			selectedSessionId,
+			uiMessage,
+		],
+	);
+
+	// Guide chapters comment through the same drafts, saved comments, and
+	// destinations as the plain diff. A file split across chapters shows an
+	// open draft only in the chapter it was started from.
+	const guideComments = useMemo<GuideComments<AnnotationMetadata>>(
+		() => ({
+			annotationsFor: (path, chapterId) => {
+				const list = annotationMap.get(path) ?? NO_ANNOTATIONS;
+				return draftSelection?.id !== path || draftChapterId === chapterId
+					? list
+					: list.filter((entry) => entry.metadata.kind !== "draft");
+			},
+			selectedFor: (path, chapterId) =>
+				selectedLines?.id === path && draftChapterId === chapterId
+					? selectedLines.range
+					: null,
+			renderAnnotation,
+			onStart: (range, path, chapterId) =>
+				createAnnotationDraft(range, path, chapterId),
+		}),
+		[
+			annotationMap,
+			createAnnotationDraft,
+			draftChapterId,
+			draftSelection?.id,
+			renderAnnotation,
+			selectedLines,
 		],
 	);
 
@@ -958,14 +1259,34 @@ function ChangesReviewReady({
 			controlledSelection: true,
 			lineHoverHighlight: "number",
 			hunkSeparators: "line-info",
-			layout: { paddingTop: 0, paddingBottom: 12, gap: 8 },
+			// Hunks expand into the surrounding code on demand; the file is read
+			// once, the first time a reader asks for more context.
+			loadDiffFiles: (fileDiff) =>
+				loadReviewDiffFiles(
+					executionRef,
+					{
+						path: fileDiff.name,
+						oldPath: fileByPath.get(fileDiff.name)?.oldPath ?? null,
+					},
+					fileDiff.cacheKey,
+				),
+			// Room under the last file for the floating review tabs.
+			layout: { paddingTop: 0, paddingBottom: guidesEnabled ? 88 : 12, gap: 8 },
 			onGutterUtilityClick(range, context) {
 				if (context.item.type === "diff") {
-					createAnnotationDraft(range, context.item.id);
+					createAnnotationDraft(range, context.item.id, null);
 				}
 			},
 		}),
-		[createAnnotationDraft, diffTheme, preferences, uiMessage],
+		[
+			createAnnotationDraft,
+			diffTheme,
+			executionRef,
+			fileByPath,
+			preferences,
+			uiMessage,
+			guidesEnabled,
+		],
 	);
 
 	if (summary === null && loading) {
@@ -1020,53 +1341,61 @@ function ChangesReviewReady({
 					</span>
 				</div>
 				<div className="ml-auto flex shrink-0 items-center gap-0.5">
-					<ToolbarButton
-						label={
-							preferences.diffStyle === "split"
-								? uiMessage("chat:changes_review_use_unified_view")
-								: uiMessage("chat:changes_review_use_split_view")
-						}
-						onClick={() =>
-							updatePreferences({
-								diffStyle:
-									preferences.diffStyle === "split" ? "unified" : "split",
-							})
-						}
-					>
-						{preferences.diffStyle === "split" ? <Columns2 /> : <PanelTop />}
-					</ToolbarButton>
-					<ToolbarButton
-						label={
-							collapsed.size === summary.files.length
-								? uiMessage("chat:changes_review_expand_all_files")
-								: uiMessage("chat:changes_review_collapse_all_files")
-						}
-						onClick={() =>
-							setCollapsed(
-								collapsed.size === summary.files.length
-									? new Set()
-									: new Set(summary.files.map((file) => file.path)),
-							)
-						}
-					>
-						<ChevronsUpDown />
-					</ToolbarButton>
-					<ToolbarButton
-						label={uiMessage("chat:changes_review_copy_all_patches")}
-						onClick={() =>
-							void navigator.clipboard.writeText(
-								summary.files
-									.map((file) => patches[file.path]?.result.patch ?? "")
-									.join("\n"),
-							)
-						}
-					>
-						<Copy />
-					</ToolbarButton>
-					<DisplaySettings
-						preferences={preferences}
-						onChange={updatePreferences}
-					/>
+					{reviewMode === "files" ? (
+						<>
+							<ToolbarButton
+								label={
+									preferences.diffStyle === "split"
+										? uiMessage("chat:changes_review_use_unified_view")
+										: uiMessage("chat:changes_review_use_split_view")
+								}
+								onClick={() =>
+									updatePreferences({
+										diffStyle:
+											preferences.diffStyle === "split" ? "unified" : "split",
+									})
+								}
+							>
+								{preferences.diffStyle === "split" ? (
+									<Columns2 />
+								) : (
+									<PanelTop />
+								)}
+							</ToolbarButton>
+							<ToolbarButton
+								label={
+									collapsed.size === summary.files.length
+										? uiMessage("chat:changes_review_expand_all_files")
+										: uiMessage("chat:changes_review_collapse_all_files")
+								}
+								onClick={() =>
+									setCollapsed(
+										collapsed.size === summary.files.length
+											? new Set()
+											: new Set(summary.files.map((file) => file.path)),
+									)
+								}
+							>
+								<ChevronsUpDown />
+							</ToolbarButton>
+							<ToolbarButton
+								label={uiMessage("chat:changes_review_copy_all_patches")}
+								onClick={() =>
+									void navigator.clipboard.writeText(
+										summary.files
+											.map((file) => patches[file.path]?.result.patch ?? "")
+											.join("\n"),
+									)
+								}
+							>
+								<Copy />
+							</ToolbarButton>
+							<DisplaySettings
+								preferences={preferences}
+								onChange={updatePreferences}
+							/>
+						</>
+					) : null}
 				</div>
 			</div>
 			{error !== null ? (
@@ -1088,7 +1417,34 @@ function ChangesReviewReady({
 				</div>
 			) : null}
 			<div className="relative min-h-0 flex-1 overflow-hidden">
-				{items.length === 0 && !loading ? (
+				{reviewMode !== "files" ? (
+					<GuideDocument
+						mode={reviewMode}
+						onModeChange={(view) => updatePreferences({ view })}
+						onFileReviewed={(path, reviewed) => {
+							if (isViewed(path) !== reviewed) toggleViewed(path);
+						}}
+						heading={{
+							head: summary.headRef,
+							base: summary.baseRef,
+							additions: summary.additions,
+							deletions: summary.deletions,
+							fileCount: summary.files.length,
+						}}
+						executionRef={executionRef}
+						state={guideState}
+						view={guideView}
+						files={fileByPath}
+						patches={patches}
+						isFileViewed={isViewed}
+						isChapterReviewed={chapterReviewed}
+						onChapterReviewed={setChapterReviewed}
+						onGenerate={writeGuide}
+						onCancel={stopGuide}
+						onAsk={askAboutChapter}
+						comments={guideComments}
+					/>
+				) : items.length === 0 && !loading ? (
 					<ReviewState
 						title={uiMessage("chat:changes_review_no_branch_changes_to_review")}
 					/>
@@ -1106,6 +1462,17 @@ function ChangesReviewReady({
 						className="fz-diff h-full overflow-auto overscroll-contain px-3"
 					/>
 				)}
+				{guidesEnabled ? (
+					<ReviewTabs
+						mode={reviewMode}
+						chapterCount={
+							guideView?.chapters.filter((chapter) => chapter.number !== null)
+								.length ?? null
+						}
+						fileCount={summary.files.length}
+						onModeChange={(view) => updatePreferences({ view })}
+					/>
+				) : null}
 				{selectedConflict !== null ? (
 					<ConflictReview
 						key={selectedConflict.path}

@@ -20,6 +20,7 @@ const knownPage = (pathname: string) =>
 	pathname === "/changelog" ||
 	pathname === "/developers" ||
 	pathname === "/tools/dither" ||
+	pathname === "/demo/guided-review" ||
 	LEGAL_PAGE_PATHS.has(pathname) ||
 	pathname === "/docs" ||
 	pathname.startsWith("/docs/");

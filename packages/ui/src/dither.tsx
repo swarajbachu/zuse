@@ -527,3 +527,146 @@ export function DitherWaveBackground({
 		</div>
 	);
 }
+
+const DOT_GAP = 10;
+const TWO_PI = Math.PI * 2;
+
+export type DitherDotFieldProps = HTMLAttributes<HTMLDivElement> & {
+	/** Let the swelling cluster follow a fine pointer over the field. */
+	interactive?: boolean;
+};
+
+/**
+ * A grid of dots with a swelling cluster that drifts across it, used as a
+ * "work in progress" surface. Dots use the element's `color`. Reduced motion
+ * draws one still frame.
+ */
+export function DitherDotField({
+	interactive = true,
+	className,
+	style,
+	...props
+}: DitherDotFieldProps) {
+	const canvasRef = useRef<HTMLCanvasElement>(null);
+
+	useEffect(() => {
+		const canvas = canvasRef.current;
+		const context = canvas?.getContext("2d");
+		if (!canvas || !context) return;
+
+		const motionPreference = window.matchMedia(
+			"(prefers-reduced-motion: reduce)",
+		);
+		let reduce = motionPreference.matches;
+		const followPointer =
+			interactive &&
+			window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+		let frame = 0;
+		let width = 0;
+		let height = 0;
+		let dotColor = "currentColor";
+		const pointer = { x: 0, y: 0, targetX: 0, targetY: 0, inside: false };
+
+		const resize = () => {
+			const box = canvas.getBoundingClientRect();
+			width = box.width || canvas.clientWidth || 208;
+			height = box.height || canvas.clientHeight || 208;
+			const dpr = Math.min(window.devicePixelRatio || 1, 2);
+			canvas.width = Math.round(width * dpr);
+			canvas.height = Math.round(height * dpr);
+			context.setTransform(dpr, 0, 0, dpr, 0, 0);
+			dotColor = window.getComputedStyle(canvas).color;
+			pointer.x = pointer.targetX = width / 2;
+			pointer.y = pointer.targetY = height / 2;
+			if (reduce) draw(0);
+		};
+
+		const draw = (time: number) => {
+			context.clearRect(0, 0, width, height);
+			if (!pointer.inside) {
+				pointer.targetX =
+					width / 2 + (reduce ? 0 : Math.sin(time / 1700) * width * 0.12);
+				pointer.targetY =
+					height / 2 + (reduce ? 0 : Math.cos(time / 2100) * height * 0.1);
+			}
+			const follow = reduce ? 1 : pointer.inside ? 0.16 : 0.045;
+			pointer.x += (pointer.targetX - pointer.x) * follow;
+			pointer.y += (pointer.targetY - pointer.y) * follow;
+
+			const radius = Math.min(width, height) * 0.38;
+			const columns = Math.ceil(width / DOT_GAP) + 1;
+			const rows = Math.ceil(height / DOT_GAP) + 1;
+			const offsetX = (width - (columns - 1) * DOT_GAP) / 2;
+			const offsetY = (height - (rows - 1) * DOT_GAP) / 2;
+			context.fillStyle = dotColor;
+
+			for (let row = 0; row < rows; row += 1) {
+				for (let column = 0; column < columns; column += 1) {
+					const anchorX = offsetX + column * DOT_GAP;
+					const anchorY = offsetY + row * DOT_GAP;
+					const deltaX = anchorX - pointer.x;
+					const deltaY = anchorY - pointer.y;
+					const distance = Math.hypot(deltaX, deltaY);
+					const proximity = Math.max(0, 1 - distance / radius);
+					// Smoothstep keeps the cluster's edge soft.
+					const influence = proximity * proximity * (3 - 2 * proximity);
+					const push = influence * influence * 9;
+					const x = anchorX + (distance > 0 ? deltaX / distance : 0) * push;
+					const y = anchorY + (distance > 0 ? deltaY / distance : 0) * push;
+					context.globalAlpha = 0.17 + influence * 0.72;
+					context.beginPath();
+					context.arc(x, y, 0.65 + influence * 0.85, 0, TWO_PI);
+					context.fill();
+				}
+			}
+			context.globalAlpha = 1;
+			if (!reduce) frame = window.requestAnimationFrame(draw);
+		};
+
+		const onPointerMove = (event: PointerEvent) => {
+			if (reduce) return;
+			const box = canvas.getBoundingClientRect();
+			pointer.inside = true;
+			pointer.targetX = event.clientX - box.left;
+			pointer.targetY = event.clientY - box.top;
+		};
+		const onPointerLeave = () => {
+			pointer.inside = false;
+		};
+
+		const onMotionChange = () => {
+			window.cancelAnimationFrame(frame);
+			reduce = motionPreference.matches;
+			pointer.inside = false;
+			draw(0);
+		};
+
+		motionPreference.addEventListener("change", onMotionChange);
+		const observer =
+			typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
+		resize();
+		observer?.observe(canvas);
+		if (followPointer) {
+			canvas.addEventListener("pointermove", onPointerMove, { passive: true });
+			canvas.addEventListener("pointerleave", onPointerLeave);
+		}
+		if (!reduce) frame = window.requestAnimationFrame(draw);
+
+		return () => {
+			window.cancelAnimationFrame(frame);
+			motionPreference.removeEventListener("change", onMotionChange);
+			observer?.disconnect();
+			canvas.removeEventListener("pointermove", onPointerMove);
+			canvas.removeEventListener("pointerleave", onPointerLeave);
+		};
+	}, [interactive]);
+
+	return (
+		<div aria-hidden="true" className={className} style={style} {...props}>
+			<canvas
+				ref={canvasRef}
+				style={{ display: "block", height: "100%", width: "100%" }}
+			/>
+		</div>
+	);
+}

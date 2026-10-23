@@ -7,9 +7,14 @@ import {
 import { useMessages } from "@zuse/i18n/react";
 import { lazy, type ReactNode, Suspense } from "react";
 import { useSessionTimelineResource } from "../../lib/session-timeline-client-bus.ts";
+import { ZOT_EXAMPLE_BRIEFS } from "../../lib/zot-guide.ts";
+import { composerDraftKeyForSession } from "../../store/composer-drafts.ts";
+import { useZotOnboardingStore } from "../../store/zot-onboarding.ts";
 import { FloatingComposerLayout } from "../floating-composer-layout.tsx";
+import { Button } from "../ui/button.tsx";
 import { avatarFor, Mascot, type MascotState } from "./mascot.tsx";
 import { RepositoryIcon } from "./repositories.tsx";
+import { useZotExample } from "./zot-guide.tsx";
 
 const ChatView = lazy(() =>
 	import("../chat-view.tsx").then((module) => ({ default: module.ChatView })),
@@ -60,23 +65,32 @@ export function MasterConversation({
 					{notice}
 				</p>
 			) : null}
-			<ChatComposer
-				key={session.id}
-				session={session}
-				environmentId={environment}
-				workspaceRootOverride={snapshot.workspacePath}
-				constrain={false}
-				variant="minimal"
-				placeholder={message("projects:masters_composer_placeholder", {
-					name: snapshot.master.settings.name,
-				})}
-			/>
+			<div data-zot-guide="brief">
+				<ChatComposer
+					key={session.id}
+					session={session}
+					environmentId={environment}
+					workspaceRootOverride={snapshot.workspacePath}
+					constrain={false}
+					variant="minimal"
+					placeholder={message("projects:masters_composer_placeholder", {
+						name: snapshot.master.settings.name,
+					})}
+				/>
+			</div>
 		</Suspense>
 	);
 
 	if (empty)
 		return (
-			<MasterHero master={snapshot.master} mascotState={mascotState}>
+			<MasterHero
+				master={snapshot.master}
+				mascotState={mascotState}
+				draftKey={composerDraftKeyForSession({
+					environmentId: environment,
+					sessionId: session.id,
+				})}
+			>
 				{composer}
 			</MasterHero>
 		);
@@ -100,17 +114,24 @@ export function MasterConversation({
 	);
 }
 
-/** First-run state: the Master itself, one question, and the composer. */
+/**
+ * First-run state: the Master itself, one question, the composer, and
+ * example briefs that fill in (never send) a first message.
+ */
 function MasterHero({
 	master,
 	mascotState,
+	draftKey,
 	children,
 }: {
 	readonly master: MasterSnapshot["master"];
 	readonly mascotState: MascotState;
+	readonly draftKey: string;
 	readonly children: ReactNode;
 }) {
 	const { message } = useMessages("projects");
+	const guideOpen = useZotOnboardingStore((state) => state.open);
+	const tryExample = useZotExample(draftKey);
 	const name = master.settings.name;
 	return (
 		<div className="chat-session-layout relative flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 pb-4 max-[800px]:px-4">
@@ -132,8 +153,35 @@ function MasterHero({
 							? message("projects:masters_empty_prompt", { name })
 							: message("projects:masters_hero_no_repositories", { name })}
 					</p>
+					{guideOpen ? null : (
+						<Button
+							variant="ghost"
+							size="sm"
+							className="text-muted-foreground"
+							onClick={useZotOnboardingStore.getState().start}
+						>
+							{message("projects:masters_guide_how")}
+						</Button>
+					)}
 				</div>
-				<div className="w-full">{children}</div>
+				<div className="flex w-full flex-col gap-3">
+					{children}
+					{tryExample ? (
+						<div className="flex flex-wrap items-center justify-center gap-1.5">
+							{ZOT_EXAMPLE_BRIEFS.map((example) => (
+								<Button
+									key={example}
+									variant="ghost"
+									size="sm"
+									className="rounded-full bg-muted/45 text-muted-foreground hover:text-foreground"
+									onClick={() => tryExample(example)}
+								>
+									{message(`projects:masters_guide_example_${example}`)}
+								</Button>
+							))}
+						</div>
+					) : null}
+				</div>
 				{master.repositories.length > 0 ? (
 					<ul className="flex flex-wrap justify-center gap-1.5">
 						{master.repositories.map((repository) => (

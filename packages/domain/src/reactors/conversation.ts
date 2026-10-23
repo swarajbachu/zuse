@@ -10,6 +10,13 @@ export type AutoNameCommand = {
 	readonly turnId: string;
 };
 
+export type ReviewGuideRefreshCommand = {
+	readonly _tag: "RefreshReviewGuide";
+	readonly turnId: string;
+	/** When the turn settled; catch-up skips refreshes long past. */
+	readonly settledAt: number | null;
+};
+
 export type ChatArchiveCommand = {
 	readonly _tag: "ArchiveChatWorktree";
 	readonly force: boolean;
@@ -32,6 +39,30 @@ export const autoNameReactorDefinition: ReactorDefinition<
 							command: {
 								_tag: "AutoNameChat",
 								turnId: record.event.turnId,
+							},
+						},
+					]
+				: [],
+		),
+};
+
+/** A finished turn changed the workspace: its guided review may be stale. */
+export const reviewGuideReactorDefinition: ReactorDefinition<
+	StoredEvent<SessionEvent>,
+	ReviewGuideRefreshCommand
+> = {
+	name: "review-guide-refresh",
+	react: (record) =>
+		Effect.succeed(
+			record.event._tag === "TurnSettled" &&
+				record.event.outcome === "completed"
+				? [
+						{
+							streamId: record.streamId,
+							command: {
+								_tag: "RefreshReviewGuide",
+								turnId: record.event.turnId,
+								settledAt: record.event.settledAt ?? null,
 							},
 						},
 					]

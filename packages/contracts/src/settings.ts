@@ -87,6 +87,13 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
 	onboardingCompleted: Schema.Boolean,
 	appearanceMode: AppearanceMode,
 	providerUpdateNotificationsEnabled: Schema.optional(Schema.Boolean),
+	/**
+	 * Guided reviews: an agent-written tour of a workspace's changes beside
+	 * the diff. On unless turned off; `reviewGuidesAutoGenerate` refreshes the
+	 * guide after each finished turn, commit, or push.
+	 */
+	reviewGuidesEnabled: Schema.optional(Schema.Boolean),
+	reviewGuidesAutoGenerate: Schema.optional(Schema.Boolean),
 	completionSoundEnabled: Schema.Boolean,
 	completionSoundPreset: CompletionSoundPreset,
 	/**
@@ -220,6 +227,8 @@ export const SettingsPatch = Schema.Struct({
 	onboardingCompleted: Schema.optional(Schema.Boolean),
 	appearanceMode: Schema.optional(AppearanceMode),
 	providerUpdateNotificationsEnabled: Schema.optional(Schema.Boolean),
+	reviewGuidesEnabled: Schema.optional(Schema.Boolean),
+	reviewGuidesAutoGenerate: Schema.optional(Schema.Boolean),
 	completionSoundEnabled: Schema.optional(Schema.Boolean),
 	completionSoundPreset: Schema.optional(CompletionSoundPreset),
 	providerEnabled: Schema.optional(Schema.Record(ProviderId, Schema.Boolean)),

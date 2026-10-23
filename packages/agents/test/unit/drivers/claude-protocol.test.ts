@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	CLAUDE_READ_ONLY_DISALLOWED_TOOLS,
+	claudeReadOnlyToolAllowed,
 	claudeToolPermissionPolicy,
 	makeClaudeUserMessage,
 	runtimeModeToSdkPermissionMode,
@@ -358,4 +360,37 @@ it.each([
 		claudeToolPermissionPolicy(`mcp__zuse__${tool}`, {}, "approval-required")
 			.kind,
 	).toBe("prompt");
+});
+
+describe("Claude read-only sessions", () => {
+	const sessionTools = new Set(["mcp__zuse__guide_file_diff"]);
+
+	it.each(["Read", "Glob", "Grep", "LS"])("allows %s", (tool) => {
+		expect(
+			claudeReadOnlyToolAllowed(tool, { file_path: "src/a.ts" }, sessionTools),
+		).toBe(true);
+	});
+
+	it("allows the session's own tools and no other app tools", () => {
+		expect(
+			claudeReadOnlyToolAllowed("mcp__zuse__guide_file_diff", {}, sessionTools),
+		).toBe(true);
+		expect(
+			claudeReadOnlyToolAllowed(
+				"mcp__zuse__browser_navigate",
+				{},
+				sessionTools,
+			),
+		).toBe(false);
+	});
+
+	it.each(CLAUDE_READ_ONLY_DISALLOWED_TOOLS)("denies %s", (tool) => {
+		expect(claudeReadOnlyToolAllowed(tool, {}, sessionTools)).toBe(false);
+	});
+
+	it("denies reads of sensitive paths instead of prompting", () => {
+		expect(
+			claudeReadOnlyToolAllowed("Read", { file_path: ".env" }, sessionTools),
+		).toBe(false);
+	});
 });

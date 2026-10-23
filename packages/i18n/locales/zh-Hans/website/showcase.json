@@ -191,5 +191,11 @@
 	"input": "输入",
 	"click": "点击",
 	"assert": "断言",
-	"browser_steps_passed": "4/4 步通过 · 操作轨迹已保存 · 1.8 秒"
+	"browser_steps_passed": "4/4 步通过 · 操作轨迹已保存 · 1.8 秒",
+	"guided_review_title": "按阅读顺序的引导式审查",
+	"guided_review_body": "Zuse 会为每次改动撰写一份指南：先是概览，再把简短的章节放在所解释的代码旁边。每次轮次、提交和推送后都会自动更新。",
+	"view_demo": "查看演示",
+	"guided_review_tools_chapter": "会话自带工具",
+	"guided_review_checks_chapter": "章节通过受检工具写入",
+	"guided_review_refresh_chapter": "指南自动保持最新"
 }

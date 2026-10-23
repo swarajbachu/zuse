@@ -121,6 +121,7 @@ export type ResourceKind =
 	| "session-skills"
 	| "file-tree"
 	| "git-workspace"
+	| "review-guide"
 	| "machine-resources"
 	| "model-catalog"
 	| "terminal";

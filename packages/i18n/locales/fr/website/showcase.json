@@ -191,5 +191,11 @@
 	"input": "saisie",
 	"click": "clic",
 	"assert": "assertion",
-	"browser_steps_passed": "4/4 étapes réussies · trace enregistrée · 1,8 s"
+	"browser_steps_passed": "4/4 étapes réussies · trace enregistrée · 1,8 s",
+	"guided_review_title": "Revue guidée, dans l’ordre de lecture",
+	"guided_review_body": "Zuse rédige un guide pour chaque modification : une vue d’ensemble, puis de courts chapitres à côté du code qu’ils expliquent. Il se met à jour après chaque tour, commit et push.",
+	"view_demo": "Voir la démo",
+	"guided_review_tools_chapter": "Chaque session apporte ses outils",
+	"guided_review_checks_chapter": "Les chapitres passent par des outils vérifiés",
+	"guided_review_refresh_chapter": "Les guides restent à jour d’eux-mêmes"
 }

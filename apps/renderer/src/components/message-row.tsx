@@ -2,10 +2,12 @@ import {
 	isHtmlRenderTool,
 	readHtmlRenderResult,
 } from "@zuse/client-runtime/html-render";
+import { isGenerateImageTool } from "@zuse/client-runtime/tool-image-result";
 import { providerDisplayName } from "~/lib/provider-labels";
 import { useStreamingText } from "../hooks/use-streaming-text.ts";
 import { useMastersStore } from "../store/masters.ts";
 import { ContextPill, contextPillClass } from "./context-pill.tsx";
+import { GeneratedImageCard } from "./generated-image-card.tsx";
 import { HtmlVisual } from "./html-visual.tsx";
 import "@zuse/i18n/english/common";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
@@ -498,6 +500,11 @@ function ToolUseMessageRow({
 	) {
 		const visual = readHtmlRenderResult(normalized.result.output);
 		if (visual) return <HtmlVisual visual={visual} sessionRef={sessionRef} />;
+	}
+	if (isGenerateImageTool(normalized.tool)) {
+		return (
+			<GeneratedImageCard result={normalized.result} startedAt={createdAt} />
+		);
 	}
 	const spawn = spawnDelegationMember(
 		content.itemId,

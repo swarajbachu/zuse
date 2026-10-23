@@ -1,11 +1,14 @@
 import { spawn } from "node:child_process";
-import { appendFile, mkdir, rename, stat } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
 	readDesktopEngineConfig,
 	superviseEngine,
 } from "@zusehq/server/desktop-engine/supervisor";
-import { makeBatchedLogWriter } from "./batched-log-writer.ts";
+import {
+	appendRotatingLogFile,
+	makeBatchedLogWriter,
+} from "./batched-log-writer.ts";
 import { verifyEngineBuild } from "./engine-build-id.ts";
 import { runOwnedHelper } from "./owned-helper.ts";
 
@@ -27,12 +30,7 @@ const main = async () => {
 	const writer = makeBatchedLogWriter({
 		writeBatch: async (file, lines) => {
 			await mkdir(dirname(file), { recursive: true, mode: 0o700 });
-			const size = await stat(file)
-				.then((value) => value.size)
-				.catch(() => 0);
-			if (size > 10 * 1024 * 1024)
-				await rename(file, `${file}.1`).catch(() => undefined);
-			await appendFile(file, lines.join(""), { mode: 0o600 });
+			await appendRotatingLogFile(file, lines.join(""), { mode: 0o600 });
 		},
 	});
 	const controller = new AbortController();

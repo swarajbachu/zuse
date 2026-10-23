@@ -40,7 +40,10 @@ import type {
 } from "../kernel/driver.ts";
 import { getBashPolicy, getFsPolicy } from "../kernel/policy.ts";
 import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
-import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import {
+	issueProviderMcpSession,
+	type SessionTools,
+} from "../kernel/provider-mcp-session.ts";
 import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
@@ -61,7 +64,6 @@ import {
 	startCompactEvent,
 	startCompactSnapshot,
 } from "./compact.ts";
-import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
 import { applyPlanModePrefix } from "./planMode.ts";
 import { pluginCliEnv } from "./plugin-tools.ts";
 import { isolatedProviderAccountEnv } from "./provider-account-env.ts";
@@ -926,6 +928,41 @@ export const translateCodexItem = (
 					input: { query: webSearchQueryFromAction(item), action: item.action },
 				},
 			];
+		case "imageGeneration": {
+			// Codex sends the prompt only on completion, so it travels with
+			// the result.
+			if (phase === "started") {
+				return [
+					{
+						_tag: "ToolUse",
+						itemId: item.id as AgentItemId,
+						tool: "GenerateImage",
+						input: {},
+					},
+				];
+			}
+			const failed = item.status === "failed" || item.result.length === 0;
+			return [
+				{
+					_tag: "ToolResult",
+					itemId: item.id as AgentItemId,
+					output: failed
+						? "Image generation failed."
+						: {
+								...(item.revisedPrompt === null
+									? {}
+									: { prompt: item.revisedPrompt }),
+								...(item.savedPath === undefined
+									? {}
+									: { path: item.savedPath }),
+								content: [
+									{ type: "image", data: item.result, mimeType: "image/png" },
+								],
+							},
+					isError: failed,
+				},
+			];
+		}
 		case "enteredReviewMode":
 		case "exitedReviewMode":
 			if (phase !== "completed") return [];
@@ -1366,7 +1403,7 @@ export const startCodexSession = (
 	getRuntimeMode: () => RuntimeMode,
 	browserSend: BrowserSend,
 	mcpProxyCommand: string,
-	orchestrationTools: OrchestrationSessionTools | null = null,
+	sessionTools: SessionTools | null = null,
 	resumeCursor: string | null = null,
 	onUnexpectedTermination?: (error: Error) => void,
 ): Effect.Effect<
@@ -1381,6 +1418,11 @@ export const startCodexSession = (
 		const statusLog = createCodexStatusLogger(cwd, sessionId);
 		const rawProtocolLog = createCodexRawProtocolLogger(cwd, sessionId);
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
+		// A read-only session gets plan mode's access (no approvals, read-only
+		// sandbox) without plan mode's collaboration style: it is asked to do a
+		// task, not to propose one, and nobody is there to approve anything.
+		const accessMode = (): PermissionMode =>
+			input.toolPolicy === "read-only" ? "plan" : currentMode;
 		let activeModel =
 			input.model ?? defaultModelFor(BUNDLED_MODEL_CATALOG, "codex");
 		let activeThreadId = resumeCursor;
@@ -1481,7 +1523,8 @@ export const startCodexSession = (
 				requestPermission(sessionId, kind, options),
 			getRuntimeMode,
 			getPermissionMode: () => currentMode,
-			orchestrationTools,
+			sessionTools,
+			toolPolicy: input.toolPolicy,
 			interaction: {
 				askUserQuestion: (questions) => {
 					const itemId = nextItemId();
@@ -1720,9 +1763,9 @@ export const startCodexSession = (
 		const commonThreadParams = {
 			model: input.model ?? null,
 			cwd,
-			approvalPolicy: codexApprovalPolicy(getRuntimeMode(), currentMode),
-			approvalsReviewer: codexApprovalsReviewer(getRuntimeMode(), currentMode),
-			sandbox: toSandboxMode(getRuntimeMode(), currentMode),
+			approvalPolicy: codexApprovalPolicy(getRuntimeMode(), accessMode()),
+			approvalsReviewer: codexApprovalsReviewer(getRuntimeMode(), accessMode()),
+			sandbox: toSandboxMode(getRuntimeMode(), accessMode()),
 			serviceName: "zuse",
 			developerInstructions: input.workspaceInstructions ?? null,
 			experimentalRawEvents: true,
@@ -1975,12 +2018,12 @@ export const startCodexSession = (
 					)),
 				],
 				cwd,
-				approvalPolicy: codexApprovalPolicy(getRuntimeMode(), currentMode),
+				approvalPolicy: codexApprovalPolicy(getRuntimeMode(), accessMode()),
 				approvalsReviewer: codexApprovalsReviewer(
 					getRuntimeMode(),
-					currentMode,
+					accessMode(),
 				),
-				sandboxPolicy: codexSandboxPolicy(getRuntimeMode(), currentMode, cwd),
+				sandboxPolicy: codexSandboxPolicy(getRuntimeMode(), accessMode(), cwd),
 				model: input.model ?? null,
 				...(effort !== null ? { effort } : {}),
 				...(fastMode ? { serviceTier: "fast" } : {}),
@@ -2137,7 +2180,7 @@ export const startCodexSession = (
 				case "permissions":
 				case "approval":
 					say(
-						`Codex access: ${getRuntimeMode()}. Approval policy: ${codexApprovalPolicy(getRuntimeMode(), currentMode)}. Reviewer: ${codexApprovalsReviewer(getRuntimeMode(), currentMode)}.`,
+						`Codex access: ${getRuntimeMode()}. Approval policy: ${codexApprovalPolicy(getRuntimeMode(), accessMode())}. Reviewer: ${codexApprovalsReviewer(getRuntimeMode(), accessMode())}.`,
 					);
 					return true;
 				case "sandbox":
@@ -2561,7 +2604,7 @@ export const startCodexSession = (
 				}
 				case "item/permissions/requestApproval": {
 					const p = request.params;
-					if (currentMode === "plan") {
+					if (accessMode() === "plan") {
 						return { permissions: {}, scope: "turn" };
 					}
 					if (getRuntimeMode() === "full-access") {

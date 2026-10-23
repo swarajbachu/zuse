@@ -18,6 +18,7 @@ describe("public sitemap", () => {
 			expect.arrayContaining([
 				"/blog",
 				"/pricing",
+				"/demo/guided-review",
 				"/blog/first-article",
 				"/blog/new-article",
 			]),

@@ -34,7 +34,10 @@ import type {
 	QuestionCallbackReleased,
 } from "../kernel/driver.ts";
 import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
-import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import {
+	issueProviderMcpSession,
+	type SessionTools,
+} from "../kernel/provider-mcp-session.ts";
 import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
 import type { BrowserSend } from "./browser-tools.ts";
@@ -50,10 +53,7 @@ import {
 	startCompactEvent,
 	startCompactSnapshot,
 } from "./compact.ts";
-import {
-	type OrchestrationSessionTools,
-	READ_ONLY_ORCHESTRATION_TOOLS,
-} from "./orchestration-tools.ts";
+import { READ_ONLY_ORCHESTRATION_TOOLS } from "./orchestration-tools.ts";
 import { pluginCliEnv } from "./plugin-tools.ts";
 import { isolatedProviderAccountEnv } from "./provider-account-env.ts";
 
@@ -1338,6 +1338,49 @@ export const claudeToolPermissionPolicy = (
 		: { kind: "prompt", forcePrompt: sensitive };
 };
 
+/**
+ * Tools a `read-only` session never sees. Hiding them, rather than denying
+ * each call, keeps the model from spending turns retrying a write.
+ */
+export const CLAUDE_READ_ONLY_DISALLOWED_TOOLS: ReadonlyArray<string> = [
+	"Bash",
+	"BashOutput",
+	"KillShell",
+	"Edit",
+	"MultiEdit",
+	"Write",
+	"NotebookEdit",
+	"WebFetch",
+	"WebSearch",
+	"Agent",
+	"Task",
+	"TodoWrite",
+	"ExitPlanMode",
+];
+
+/**
+ * A `read-only` session decides on its own and never prompts: nobody is
+ * watching it. Plain reads outside sensitive paths and the session's own
+ * Zuse tools are allowed; everything else is denied.
+ */
+export const claudeReadOnlyToolAllowed = (
+	toolName: string,
+	toolInput: Record<string, unknown>,
+	sessionToolNames: ReadonlySet<string>,
+): boolean => {
+	if (sessionToolNames.has(toolName)) return true;
+	if (!READ_ONLY_TOOLS.has(toolName) || toolName.startsWith("mcp__"))
+		return false;
+	if (CLAUDE_READ_ONLY_DISALLOWED_TOOLS.includes(toolName)) return false;
+	const path =
+		typeof toolInput.file_path === "string"
+			? toolInput.file_path
+			: typeof toolInput.path === "string"
+				? toolInput.path
+				: "";
+	return path.length === 0 || !isSensitivePath(path);
+};
+
 const kindForTool = (
 	toolName: string,
 	toolInput: Record<string, unknown>,
@@ -1503,7 +1546,7 @@ export const startClaudeSession = (
 	getRuntimeMode: GetRuntimeMode,
 	resumeCursor: string | null = null,
 	browserSend: BrowserSend,
-	orchestrationTools: OrchestrationSessionTools | null = null,
+	sessionTools: SessionTools | null = null,
 
 	skillAllowlist: ReadonlyArray<string> | undefined = undefined,
 	resumeHead: string | null = null,
@@ -1652,7 +1695,8 @@ export const startClaudeSession = (
 				requestPermission(sessionId, kind, options),
 			getRuntimeMode,
 			getPermissionMode: () => currentPermissionMode,
-			orchestrationTools,
+			sessionTools,
+			toolPolicy: input.toolPolicy,
 			interaction: {
 				askUserQuestion: async (questions) => {
 					const itemId = nextItemId();
@@ -1733,9 +1777,17 @@ export const startClaudeSession = (
 		// the composer slot. Without this, the model would default to the
 		// built-in (it has a nicer name) and trigger the permission toast
 		// for every question.
+		const readOnly = input.toolPolicy === "read-only";
 		const disallowedTools: ReadonlyArray<string> = [
 			SDK_BUILTIN_ASK_USER_QUESTION,
 		];
+		const sessionToolNames: ReadonlySet<string> = new Set(
+			(sessionTools?.toolsets ?? []).flatMap((toolset) =>
+				toolset.definitions.map(
+					(definition) => `mcp__${ZUSE_MCP_NAME}__${definition.name}`,
+				),
+			),
+		);
 		const initialSdkPermissionMode = runtimeModeToSdkPermissionMode(
 			getRuntimeMode(),
 			currentPermissionMode,
@@ -1761,6 +1813,7 @@ export const startClaudeSession = (
 					: disallowedTools.filter(
 							(t) => !subagentOptions.allowedTools?.includes(t),
 						)),
+				...(readOnly ? CLAUDE_READ_ONLY_DISALLOWED_TOOLS : []),
 			],
 
 			strictMcpConfig: true,
@@ -1805,6 +1858,18 @@ export const startClaudeSession = (
 						behavior: "deny",
 						message: "Tools are disabled for this auxiliary turn.",
 					};
+				if (readOnly) {
+					return claudeReadOnlyToolAllowed(
+						toolName,
+						toolInput,
+						sessionToolNames,
+					)
+						? { behavior: "allow", updatedInput: toolInput }
+						: {
+								behavior: "deny",
+								message: "This session can only read the workspace.",
+							};
+				}
 				const policy = claudeToolPermissionPolicy(
 					toolName,
 					toolInput,

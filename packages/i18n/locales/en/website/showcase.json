@@ -191,5 +191,11 @@
 	"input": "input",
 	"click": "click",
 	"assert": "assert",
-	"browser_steps_passed": "4/4 steps passed · trace saved · 1.8s"
+	"browser_steps_passed": "4/4 steps passed · trace saved · 1.8s",
+	"guided_review_title": "Guided review, in reading order",
+	"guided_review_body": "Zuse writes a guide for every change: an overview, then short chapters beside the code they explain. It refreshes after each turn, commit, and push.",
+	"view_demo": "View demo",
+	"guided_review_tools_chapter": "Sessions carry their own tools",
+	"guided_review_checks_chapter": "Chapters arrive through checked tools",
+	"guided_review_refresh_chapter": "Guides stay current on their own"
 }

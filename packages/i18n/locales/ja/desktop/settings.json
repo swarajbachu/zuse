@@ -1302,5 +1302,9 @@
 	"remote_paired_source": "このデバイスでペアリング済みです。ホストコンピューターでアクセスを取り消せます。",
 	"remote_in_use": "使用中: {{address}}",
 	"remote_route_count": " · 経路数: {{count}}",
-	"remote_connect": "接続"
+	"remote_connect": "接続",
+	"settings_page_review_guides_auto": "ガイドを自動で更新",
+	"settings_page_review_guides": "ガイド付きレビュー",
+	"settings_page_review_guides_description": "変更タブの差分の横に、エージェントが書いた変更のツアーを表示します。",
+	"settings_page_review_guides_auto_description": "各ターンの完了、コミット、プッシュのたびにガイドを更新します。チャット自身のモデルを使います。"
 }

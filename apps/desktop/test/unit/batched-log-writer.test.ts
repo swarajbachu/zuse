@@ -1,6 +1,12 @@
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { makeBatchedLogWriter } from "../../src/batched-log-writer.ts";
+import {
+	appendRotatingLogFile,
+	makeBatchedLogWriter,
+} from "../../src/batched-log-writer.ts";
 
 const deferred = () => {
 	let resolve!: () => void;
@@ -104,5 +110,32 @@ describe("batched log writer", () => {
 			})
 			.find((line) => line.event === "log.lines.dropped");
 		expect(notice).toMatchObject({ lines: 2, bytes: 17 });
+	});
+});
+
+describe("rotating log append", () => {
+	it("moves an oversized log aside and keeps one older copy", async () => {
+		const file = join(mkdtempSync(join(tmpdir(), "zuse-log-")), "app.log");
+		await appendRotatingLogFile(file, "a\n", { maxBytes: 3 });
+		await appendRotatingLogFile(file, "b\n", { maxBytes: 3 });
+		expect(readFileSync(file, "utf8")).toBe("a\nb\n");
+		await appendRotatingLogFile(file, "c\n", { maxBytes: 3 });
+		expect(readFileSync(`${file}.1`, "utf8")).toBe("a\nb\n");
+		expect(readFileSync(file, "utf8")).toBe("c\n");
+
+		writeFileSync(file, "older and larger\n");
+		await appendRotatingLogFile(file, "d\n", { maxBytes: 3 });
+		expect(readFileSync(`${file}.1`, "utf8")).toBe("older and larger\n");
+		expect(readFileSync(file, "utf8")).toBe("d\n");
+	});
+
+	it("starts the log over when the older copy can't be replaced", async () => {
+		const file = join(mkdtempSync(join(tmpdir(), "zuse-log-")), "app.log");
+		// A non-empty directory in the `.1` slot makes the rename fail.
+		mkdirSync(`${file}.1`);
+		writeFileSync(join(`${file}.1`, "keep"), "");
+		writeFileSync(file, "older and larger\n");
+		await appendRotatingLogFile(file, "e\n", { maxBytes: 3 });
+		expect(readFileSync(file, "utf8")).toBe("e\n");
 	});
 });

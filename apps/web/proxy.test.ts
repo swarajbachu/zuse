@@ -82,6 +82,12 @@ describe("proxy", () => {
 		expect(response.headers.get("x-middleware-next")).toBe("1");
 	});
 
+	it("allows the guided review demo through content negotiation", () => {
+		const response = proxy(makeRequest("/demo/guided-review", "text/markdown"));
+		expect(response.status).toBe(200);
+		expect(response.headers.get("x-middleware-next")).toBe("1");
+	});
+
 	it("allows public legal and trust pages through content negotiation", () => {
 		for (const { path } of LEGAL_PAGES) {
 			const response = proxy(makeRequest(path, "text/markdown"));

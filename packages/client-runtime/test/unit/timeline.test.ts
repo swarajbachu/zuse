@@ -70,6 +70,37 @@ describe("timeline projection", () => {
 		expect(lines[2]?.newLine).toBe(2);
 	});
 
+	it("keeps hunk lines that look like file headers", () => {
+		const lines = parseUnifiedPatch(
+			[
+				"diff --git a/src/a.ts b/src/a.ts",
+				"--- a/src/a.ts",
+				"+++ b/src/a.ts",
+				"@@ -1,2 +1,2 @@",
+				"--- old banner",
+				"+++ new banner",
+				" i++;",
+				"diff --git a/src/b.ts b/src/b.ts",
+				"--- a/src/b.ts",
+				"+++ b/src/b.ts",
+				"@@ -4 +4 @@",
+				"-a",
+				"+b",
+			].join("\n"),
+		);
+		const body = lines.filter(
+			(line) => line.kind === "added" || line.kind === "removed",
+		);
+		expect(body.map((line) => [line.kind, line.text])).toEqual([
+			["removed", "-- old banner"],
+			["added", "++ new banner"],
+			["removed", "a"],
+			["added", "b"],
+		]);
+		expect(body[1]?.newLine).toBe(1);
+		expect(body[3]?.newLine).toBe(4);
+	});
+
 	it("skips git file headers and the trailing newline of a patch", () => {
 		const lines = parseUnifiedPatch(
 			[

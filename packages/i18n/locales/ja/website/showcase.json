@@ -191,5 +191,11 @@
 	"input": "入力",
 	"click": "クリック",
 	"assert": "検証",
-	"browser_steps_passed": "4/4 ステップ成功 · トレース保存済み · 1.8 秒"
+	"browser_steps_passed": "4/4 ステップ成功 · トレース保存済み · 1.8 秒",
+	"guided_review_title": "読む順に進むガイド付きレビュー",
+	"guided_review_body": "Zuse は変更ごとにガイドを書きます。まず概要、次に説明対象のコードの横に短い章を並べます。ターン、コミット、プッシュのたびに更新されます。",
+	"view_demo": "デモを見る",
+	"guided_review_tools_chapter": "セッションが独自のツールを持つ",
+	"guided_review_checks_chapter": "章は検証済みツールで届く",
+	"guided_review_refresh_chapter": "ガイドは自動で最新に保たれる"
 }

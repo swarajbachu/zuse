@@ -19,6 +19,7 @@
 		"./kernel/tool-classify": "./src/kernel/tool-classify.ts",
 		"./kernel/tool-input": "./src/kernel/tool-input.ts",
 		"./kernel/workspace-instructions": "./src/kernel/workspace-instructions.ts",
+		"./kernel/provider-mcp-session": "./src/kernel/provider-mcp-session.ts",
 		"./harness/*": "./src/harness/*.ts",
 		"./kernel/provider-checkpoint-batcher": "./src/kernel/provider-checkpoint-batcher.ts",
 		"./kernel/native-tool-name": "./src/kernel/native-tool-name.ts",

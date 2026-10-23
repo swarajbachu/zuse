@@ -12,7 +12,10 @@ import type {
 	ProviderDriverEvent,
 	ProviderSessionHandle,
 } from "../kernel/driver.ts";
-import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import {
+	issueProviderMcpSession,
+	type SessionTools,
+} from "../kernel/provider-mcp-session.ts";
 import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
@@ -33,7 +36,6 @@ import { makeAcpUserQuestionRegistry } from "./acp/user-question.ts";
 import { buildAcpPromptContent } from "./acp-image-content.ts";
 import type { BrowserSend } from "./browser-tools.ts";
 import type { GetRuntimeMode, RequestPermission } from "./claude.ts";
-import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
 import { pluginCliEnv } from "./plugin-tools.ts";
 
 export const startGenericAcpSession = Effect.fn("ACP.start")(function* (
@@ -45,7 +47,7 @@ export const startGenericAcpSession = Effect.fn("ACP.start")(function* (
 	getRuntimeMode: GetRuntimeMode,
 	browserSend: BrowserSend,
 	mcpCommand: string,
-	orchestrationTools: OrchestrationSessionTools | null,
+	sessionTools: SessionTools | null,
 	resumeCursor: string | null,
 ): Effect.fn.Return<
 	ProviderSessionHandle,
@@ -81,7 +83,8 @@ export const startGenericAcpSession = Effect.fn("ACP.start")(function* (
 			cwd,
 			browserSend,
 			...permission,
-			orchestrationTools,
+			sessionTools,
+			toolPolicy: input.toolPolicy,
 		});
 		const executionEnv = {
 			...input.executionEnv,

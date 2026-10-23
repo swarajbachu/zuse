@@ -11,11 +11,16 @@ export default function sitemap(): MetadataRoute.Sitemap {
 			url: new URL(websitePath(locale), siteConfig.url).toString(),
 			alternates: { languages: websiteAlternates() },
 		})),
-		...["/tools/dither", "/developers", "/changelog", "/blog", "/pricing"].map(
-			(path) => ({
-				url: new URL(path, siteConfig.url).toString(),
-			}),
-		),
+		...[
+			"/tools/dither",
+			"/demo/guided-review",
+			"/developers",
+			"/changelog",
+			"/blog",
+			"/pricing",
+		].map((path) => ({
+			url: new URL(path, siteConfig.url).toString(),
+		})),
 		...blog.getPages().map((page) => ({
 			url: new URL(page.url, siteConfig.url).toString(),
 			lastModified: page.data.updated,

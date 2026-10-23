@@ -8,7 +8,7 @@ import {
 	SessionId,
 } from "@zuse/contracts";
 import { useMessages } from "@zuse/i18n/react";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { formatError } from "../../lib/format-error.ts";
 import { masterWorkerActivity } from "../../lib/master-activity.ts";
 import { useMasterSnapshot } from "../../lib/masters-client-bus.ts";
@@ -32,6 +32,7 @@ import { MasterHeader } from "./header.tsx";
 import { MasterHistory } from "./history.tsx";
 import { avatarFor, Mascot, type MascotState } from "./mascot.tsx";
 import { MasterPreferences } from "./preferences.tsx";
+import { ZotGuide } from "./zot-guide.tsx";
 
 export function MastersSurface({ selection }: { selection: MasterSelection }) {
 	const { message } = useMessages("projects");
@@ -49,6 +50,7 @@ export function MastersSurface({ selection }: { selection: MasterSelection }) {
 	const [busy, setBusy] = useState(false);
 	const [artifactId, setArtifactId] = useState<string | null>(null);
 	const [artifact, setArtifact] = useState<LoadedArtifact | null>(null);
+	const root = useRef<HTMLDivElement>(null);
 	const railPreference = useMastersStore((state) => state.railOpen);
 	// Details stay open by default; the header toggle remembers the choice.
 	const railOpen = railPreference ?? true;
@@ -171,7 +173,13 @@ export function MastersSurface({ selection }: { selection: MasterSelection }) {
 		master.homeEnvironmentId === selection.environmentId &&
 		master.status !== "moving";
 	return (
-		<div className="flex min-h-0 flex-1 flex-col">
+		<div ref={root} className="flex min-h-0 flex-1 flex-col">
+			<ZotGuide
+				rootRef={root}
+				snapshot={snapshot}
+				environmentId={selection.environmentId}
+				composerMounted={!preferencesOpen && !historyOpen && Boolean(session)}
+			/>
 			<MasterHeader
 				master={master}
 				railOpen={railOpen}
@@ -206,7 +214,10 @@ export function MastersSurface({ selection }: { selection: MasterSelection }) {
 				</div>
 			) : null}
 			<div className="flex min-h-0 flex-1">
-				<div className="flex min-h-0 min-w-0 flex-1 flex-col">
+				<div
+					data-zot-guide-area
+					className="flex min-h-0 min-w-0 flex-1 flex-col"
+				>
 					{preferencesOpen ? (
 						<MasterPreferences
 							snapshot={snapshot}

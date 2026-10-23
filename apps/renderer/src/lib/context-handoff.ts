@@ -155,3 +155,27 @@ export const attachFileWhenReady = (
 		delayMs,
 	);
 };
+
+/**
+ * Put text into a composer that may not be mounted yet (e.g. right after
+ * switching chats) and focus it, so the user can finish the message.
+ * Polls the bridge briefly, like `attachFileWhenReady`.
+ */
+export const insertTextWhenReady = (
+	text: string,
+	target?: SessionRef,
+	tries = 20,
+	delayMs = 50,
+): void => {
+	const bridge = useComposerBridge.getState();
+	if (composerMatches(target) && bridge.insertText !== null) {
+		bridge.insertText(text);
+		bridge.focus?.();
+		return;
+	}
+	if (tries <= 0) return;
+	setTimeout(
+		() => insertTextWhenReady(text, target, tries - 1, delayMs),
+		delayMs,
+	);
+};

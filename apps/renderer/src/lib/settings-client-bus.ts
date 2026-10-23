@@ -80,6 +80,8 @@ export interface SettingsSlice {
 	readonly defaultAutoCreateWorktree: boolean;
 	readonly defaultAutonomyLevel: AutonomyLevel;
 	readonly providerUpdateNotificationsEnabled: boolean;
+	readonly reviewGuidesEnabled: boolean;
+	readonly reviewGuidesAutoGenerate: boolean;
 	readonly completionSoundEnabled: boolean;
 	readonly completionSoundPreset: CompletionSoundPreset;
 	readonly appearanceMode: AppearanceMode;
@@ -123,6 +125,8 @@ type SettingsState = SettingsSlice & {
 	readonly setDefaultAutoCreateWorktree: (value: boolean) => void;
 	readonly setDefaultAutonomyLevel: (level: AutonomyLevel) => void;
 	readonly setProviderUpdateNotificationsEnabled: (value: boolean) => void;
+	readonly setReviewGuidesEnabled: (value: boolean) => void;
+	readonly setReviewGuidesAutoGenerate: (value: boolean) => void;
 	readonly setCompletionSoundEnabled: (value: boolean) => void;
 	readonly setCompletionSoundPreset: (preset: CompletionSoundPreset) => void;
 	readonly setAppearanceMode: (mode: AppearanceMode) => void;
@@ -224,6 +228,8 @@ const FALLBACK: SettingsSlice = {
 	defaultAutoCreateWorktree: true,
 	defaultAutonomyLevel: "approval-gated",
 	providerUpdateNotificationsEnabled: false,
+	reviewGuidesEnabled: true,
+	reviewGuidesAutoGenerate: true,
 	completionSoundEnabled: false,
 	completionSoundPreset: "chime",
 	appearanceMode: "dark",
@@ -252,6 +258,12 @@ const SettingsSliceSchema = Schema.Struct({
 	defaultAutonomyLevel: AutonomyLevel,
 	providerUpdateNotificationsEnabled: Schema.Boolean.pipe(
 		Schema.withDecodingDefaultType(Effect.succeed(false)),
+	),
+	reviewGuidesEnabled: Schema.Boolean.pipe(
+		Schema.withDecodingDefaultType(Effect.succeed(true)),
+	),
+	reviewGuidesAutoGenerate: Schema.Boolean.pipe(
+		Schema.withDecodingDefaultType(Effect.succeed(true)),
 	),
 	completionSoundEnabled: Schema.Boolean,
 	completionSoundPreset: CompletionSoundPreset,
@@ -348,6 +360,8 @@ const fromFile = (file: SettingsFile): SettingsSlice => {
 		defaultAutonomyLevel: file.defaultAutonomyLevel,
 		providerUpdateNotificationsEnabled:
 			file.providerUpdateNotificationsEnabled === true,
+		reviewGuidesEnabled: file.reviewGuidesEnabled !== false,
+		reviewGuidesAutoGenerate: file.reviewGuidesAutoGenerate !== false,
 		completionSoundEnabled: file.completionSoundEnabled,
 		completionSoundPreset: file.completionSoundPreset,
 		appearanceMode: file.appearanceMode,
@@ -837,6 +851,10 @@ const ACTIONS = {
 	setProviderUpdateNotificationsEnabled: (
 		providerUpdateNotificationsEnabled: boolean,
 	) => update(() => ({ providerUpdateNotificationsEnabled })),
+	setReviewGuidesEnabled: (reviewGuidesEnabled: boolean) =>
+		update(() => ({ reviewGuidesEnabled })),
+	setReviewGuidesAutoGenerate: (reviewGuidesAutoGenerate: boolean) =>
+		update(() => ({ reviewGuidesAutoGenerate })),
 	setCompletionSoundEnabled: (completionSoundEnabled: boolean) =>
 		update(() => ({ completionSoundEnabled })),
 	setCompletionSoundPreset: (completionSoundPreset: CompletionSoundPreset) =>

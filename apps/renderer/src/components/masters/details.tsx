@@ -216,7 +216,10 @@ export function MasterDetails({
 							</Button>
 						</div>
 					)}
-					<section className="border-b border-border/50 px-2 pb-3 text-[12px]">
+					<section
+						data-zot-guide="repositories"
+						className="border-b border-border/50 px-2 pb-3 text-[12px]"
+					>
 						<h3 className="px-2 pb-1 text-[11px] text-muted-foreground">
 							{message("projects:masters_repositories")}
 						</h3>
@@ -256,6 +259,7 @@ export function MasterDetails({
 							<button
 								key={row.key}
 								type="button"
+								data-zot-guide={row.key === "slaves" ? "slaves" : undefined}
 								onClick={() =>
 									row.key === "preferences"
 										? openPreferences()

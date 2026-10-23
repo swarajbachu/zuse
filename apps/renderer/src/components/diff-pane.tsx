@@ -7,6 +7,7 @@ import { MarkdownBody } from "./markdown-body.tsx";
 import "@zuse/i18n/english/projects";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
+import { reviewFingerprint } from "@zuse/client-runtime/review-outline";
 import type {
 	CodeAnnotation,
 	FolderId,
@@ -51,10 +52,7 @@ import {
 import { useAnnotationsStore } from "../store/annotations.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { type ChangesListMode, useUiStore } from "../store/ui.ts";
-import {
-	REVIEW_VIEWED_STORAGE_KEY,
-	reviewFingerprint,
-} from "./changes-review.tsx";
+import { REVIEW_VIEWED_STORAGE_KEY } from "./changes-review.tsx";
 import { DiffStat } from "./dock-panel/diff-stat.tsx";
 import { DockDisclosureSection } from "./dock-panel/section.tsx";
 import {

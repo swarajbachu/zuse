@@ -1,4 +1,4 @@
-import type { OrchestrationSessionTools } from "@zuse/agents/drivers/orchestration-tools";
+import type { SessionTools } from "@zuse/agents/kernel/provider-mcp-session";
 import type {
 	AgentAvailability,
 	AgentItemId,
@@ -50,12 +50,12 @@ export interface ProviderServiceShape {
 		resumeCursor?: string | null,
 		getRuntimeMode?: GetRuntimeMode,
 		/**
-		 * Session-bound orchestration tools. `ConversationServices` owns the actual
-		 * operations and passes this bundle when autonomy is enabled. Drivers
-		 * expose it through their native MCP path (Claude SDK, Codex app-server,
-		 * Grok ACP) without duplicating worktree/chat persistence logic.
+		 * Session-bound tools. `ConversationServices` passes orchestration when
+		 * autonomy is enabled; server features pass their own toolsets (a review
+		 * guide run). Drivers expose them through their native MCP path (Claude
+		 * SDK, Codex app-server, Grok ACP) without duplicating the operations.
 		 */
-		orchestrationTools?: OrchestrationSessionTools | null,
+		sessionTools?: SessionTools | null,
 		providerEventCursor?: string | null,
 		/** Checked inside lifecycle serialization before replacing any handle. */
 		admit?: Effect.Effect<boolean>,

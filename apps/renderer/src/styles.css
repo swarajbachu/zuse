@@ -1715,3 +1715,26 @@ html[data-sidebar-dragging] * {
 		animation: none;
 	}
 }
+
+/* Zot guide: the control a step points at. Drawn inside the element so
+   scrolling and overflow-hidden panels never clip it. */
+[data-zot-guide-active] {
+	outline: 2px solid color-mix(in oklab, var(--primary) 75%, transparent);
+	outline-offset: -2px;
+	border-radius: var(--radius-md);
+	animation: zot-guide-pulse 1.4s ease-in-out 2;
+}
+@keyframes zot-guide-pulse {
+	50% {
+		outline-color: color-mix(in oklab, var(--primary) 30%, transparent);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	[data-zot-guide-active] {
+		animation: none;
+	}
+	[data-slot="popover-positioner"]:has([data-zot-guide-card]),
+	[data-zot-guide-card] {
+		transition: none;
+	}
+}

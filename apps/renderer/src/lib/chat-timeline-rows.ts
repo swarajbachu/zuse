@@ -3,6 +3,7 @@ import {
 	isUserMessage,
 	normalizeTimelineMessages,
 } from "@zuse/client-runtime/timeline";
+import { isGenerateImageTool } from "@zuse/client-runtime/tool-image-result";
 import type { Message } from "@zuse/contracts";
 import {
 	type DelegationMember,
@@ -142,11 +143,14 @@ export const isForkableAssistantMessage = (message: Message): boolean =>
 	(!("parentItemId" in message.content) ||
 		message.content.parentItemId === undefined);
 
+const isVisualTool = (tool: string): boolean =>
+	isHtmlRenderTool(tool) || isGenerateImageTool(tool);
+
 /** Rich output remains visible when completed tool activity collapses. */
 export const isVisualMessage = (message: Message): boolean =>
 	message.content._tag === "ui_spec" ||
 	(message.content._tag === "tool_use" &&
-		isHtmlRenderTool(
+		isVisualTool(
 			normalizeToolCallEnvelope(
 				message.content.tool,
 				message.content.input,

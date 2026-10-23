@@ -777,8 +777,17 @@ export const StartSessionInput = Schema.Struct({
 	modelOptions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
 
 	modelDescriptor: Schema.optional(ModelOption),
+	/**
+	 * Internal: narrows what a hidden server-run session may do. `read-only`
+	 * lets the agent read the workspace and call the Zuse tools it was given,
+	 * and nothing else: no edits, no shell writes, no other app tools, and it
+	 * never prompts the user or asks a question. Nobody is watching a hidden
+	 * session, so anything that would prompt is denied instead.
+	 */
+	toolPolicy: Schema.optional(Schema.Literals(["read-only"])),
 });
 export type StartSessionInput = typeof StartSessionInput.Type;
+export type SessionToolPolicy = NonNullable<StartSessionInput["toolPolicy"]>;
 
 export const SendInput = Schema.Struct({
 	sessionId: AgentSessionId,

@@ -52,6 +52,7 @@ import {
 	type ProviderId,
 	providerCapabilities,
 	SessionId,
+	type SessionToolPolicy,
 	type UserQuestion,
 } from "@zuse/contracts";
 import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
@@ -136,6 +137,7 @@ type SessionEntry = {
 	readonly ownership?: import("@zuse/contracts").ProviderAttemptOwnership;
 	readonly handle: SessionHandle;
 	readonly gitExecutionKey?: string;
+	readonly toolPolicy?: SessionToolPolicy;
 	turnStartedAt: number | null;
 	turnAnalytics: TurnAnalyticsAccumulator;
 };
@@ -184,6 +186,29 @@ export const ProviderServiceLive = Layer.effect(
 		const questionAttachmentChanges = yield* makeQuestionAttachmentSnapshotFeed;
 		const publishQuestionSnapshot = (): Effect.Effect<void> =>
 			questionAttachmentChanges.publish(questionAttachments.snapshot());
+		/**
+		 * Cancel a question nobody will answer. If a broken driver cannot cancel
+		 * the exact callback, close it so its bounded waiter registry is still
+		 * drained.
+		 */
+		const dropQuestion = (
+			handle: SessionHandle,
+			itemId: AgentItemId,
+		): Effect.Effect<void> =>
+			(handle.cancelQuestion === undefined
+				? handle.close()
+				: handle
+						.cancelQuestion(itemId)
+						.pipe(
+							Effect.andThen(
+								handle.acknowledgeQuestionAnswer?.(itemId) ?? Effect.void,
+							),
+						)
+			).pipe(
+				Effect.catch(() =>
+					handle.close().pipe(Effect.catch(() => Effect.void)),
+				),
+			);
 		const attachQuestion = (
 			sessionId: AgentSessionId,
 			itemId: AgentItemId,
@@ -202,21 +227,7 @@ export const ProviderServiceLive = Layer.effect(
 				}
 				if (admission === "duplicate") return admission;
 				if (admission === "full") {
-					yield* (
-						handle.cancelQuestion === undefined
-							? handle.close()
-							: handle
-									.cancelQuestion(itemId)
-									.pipe(
-										Effect.andThen(
-											handle.acknowledgeQuestionAnswer?.(itemId) ?? Effect.void,
-										),
-									)
-					).pipe(
-						Effect.catch(() =>
-							handle.close().pipe(Effect.catch(() => Effect.void)),
-						),
-					);
+					yield* dropQuestion(handle, itemId);
 					return admission;
 				}
 				yield* publishQuestionSnapshot();
@@ -261,6 +272,9 @@ export const ProviderServiceLive = Layer.effect(
 						forcePrompt: options.forcePrompt,
 					}),
 				);
+
+		const denyPermission = (): Promise<PermissionDecision> =>
+			Promise.resolve({ _tag: "Deny" });
 
 		const availabilityCache = yield* Cache.make({
 			capacity: 1,
@@ -519,11 +533,12 @@ export const ProviderServiceLive = Layer.effect(
 				input,
 				resumeCursor = null,
 				getRuntimeMode,
-				orchestrationTools = null,
+				sessionTools = null,
 				providerEventCursor = null,
 				admit,
 				providerSessionId,
 			) => {
+				const orchestrationTools = sessionTools?.orchestration ?? null;
 				let managedPlugins: McpGatewaySession | undefined;
 				let managedPermissionMode = input.permissionMode ?? "default";
 				const startupStartedAt = Date.now();
@@ -612,6 +627,12 @@ export const ProviderServiceLive = Layer.effect(
 													},
 									},
 					};
+					// Nobody watches a read-only session, so nothing it does may wait
+					// on a person: anything that would prompt is denied outright.
+					const requestPermission =
+						input.toolPolicy === "read-only"
+							? denyPermission
+							: buildRequestPermission(input.folderId, permissionAuthority);
 					const binaryPaths =
 						(yield* configStore.getSettings()).providerBinaryPaths ?? {};
 					const runtimeModeGetter =
@@ -739,6 +760,7 @@ export const ProviderServiceLive = Layer.effect(
 											simulators: true,
 										},
 										ctx: {
+											toolsets: sessionTools?.toolsets ?? [],
 											html: { client: htmlTools.client, cwd },
 											simulators: {
 												client: simulatorTools,
@@ -757,10 +779,7 @@ export const ProviderServiceLive = Layer.effect(
 														orchestration: {
 															deps: orchestrationTools.deps,
 															requestPermission: (kind, options) =>
-																buildRequestPermission(
-																	input.folderId,
-																	permissionAuthority,
-																)(sessionId, kind, options),
+																requestPermission(sessionId, kind, options),
 															getRuntimeMode: () =>
 																getRuntimeMode?.() ?? "approval-required",
 															getPermissionMode: () => managedPermissionMode,
@@ -770,10 +789,7 @@ export const ProviderServiceLive = Layer.effect(
 												? {
 														client,
 														requestPermission: (kind, options) =>
-															buildRequestPermission(
-																input.folderId,
-																permissionAuthority,
-															)(sessionId, kind, options),
+															requestPermission(sessionId, kind, options),
 														getRuntimeMode: () =>
 															getRuntimeMode?.() ?? "approval-required",
 														getPermissionMode: () => managedPermissionMode,
@@ -831,14 +847,14 @@ export const ProviderServiceLive = Layer.effect(
 									cwd,
 									launch,
 									sessionId,
-									buildRequestPermission(input.folderId, permissionAuthority),
+									requestPermission,
 									runtimeModeGetter,
 									(command) =>
 										Effect.runPromiseWith(runtime)(
 											browserBridge.send(sessionId, command),
 										),
 									mcpCommand ?? process.execPath,
-									orchestrationTools,
+									sessionTools,
 									resumeCursor,
 								).pipe(
 									Effect.provideService(AttachmentService, attachmentService),
@@ -901,14 +917,14 @@ export const ProviderServiceLive = Layer.effect(
 									apiKey,
 									geminiPath,
 									sessionId,
-									buildRequestPermission(input.folderId, permissionAuthority),
+									requestPermission,
 									runtimeModeGetter,
 									(command) =>
 										Effect.runPromiseWith(runtime)(
 											browserBridge.send(sessionId, command),
 										),
 									geminiMcpCommand,
-									orchestrationTools,
+									sessionTools,
 									resumeCursor,
 								).pipe(
 									Effect.provideService(AttachmentService, attachmentService),
@@ -979,14 +995,14 @@ export const ProviderServiceLive = Layer.effect(
 									cwd,
 									kiroPath,
 									sessionId,
-									buildRequestPermission(input.folderId, permissionAuthority),
+									requestPermission,
 									runtimeModeGetter,
 									(command) =>
 										Effect.runPromiseWith(runtime)(
 											browserBridge.send(sessionId, command),
 										),
 									kiroMcpCommand,
-									orchestrationTools,
+									sessionTools,
 									resumeCursor,
 								).pipe(
 									Effect.provideService(AttachmentService, attachmentService),
@@ -1025,14 +1041,14 @@ export const ProviderServiceLive = Layer.effect(
 									apiKey,
 									grokPath,
 									sessionId,
-									buildRequestPermission(input.folderId, permissionAuthority),
+									requestPermission,
 									runtimeModeGetter,
 									(command) =>
 										Effect.runPromiseWith(runtime)(
 											browserBridge.send(sessionId, command),
 										),
 									mcpProxyCommand ?? process.execPath,
-									orchestrationTools,
+									sessionTools,
 									resumeCursor,
 									providerEventCursor,
 								).pipe(
@@ -1097,7 +1113,7 @@ export const ProviderServiceLive = Layer.effect(
 									opencode2Path,
 									sessionId,
 									resumeCursor,
-									buildRequestPermission(input.folderId, permissionAuthority),
+									requestPermission,
 									managedMcp,
 								).pipe(
 									Effect.provideService(AttachmentService, attachmentService),
@@ -1148,14 +1164,14 @@ export const ProviderServiceLive = Layer.effect(
 									managedCredential,
 									claudePath,
 									sessionId,
-									buildRequestPermission(input.folderId, permissionAuthority),
+									requestPermission,
 									runtimeModeGetter,
 									resumeCursor,
 									(command) =>
 										Effect.runPromiseWith(runtime)(
 											browserBridge.send(sessionId, command),
 										),
-									orchestrationTools,
+									sessionTools,
 									skillAllowlist,
 									providerEventCursor,
 								).pipe(
@@ -1196,14 +1212,14 @@ export const ProviderServiceLive = Layer.effect(
 									apiKey,
 									codexPath,
 									sessionId,
-									buildRequestPermission(input.folderId, permissionAuthority),
+									requestPermission,
 									runtimeModeGetter,
 									(command) =>
 										Effect.runPromiseWith(runtime)(
 											browserBridge.send(sessionId, command),
 										),
 									mcpProxyCommand ?? process.execPath,
-									orchestrationTools,
+									sessionTools,
 									resumeCursor,
 									() => {
 										registry.invalidateIfCurrent(sessionId, generation);
@@ -1264,6 +1280,7 @@ export const ProviderServiceLive = Layer.effect(
 						providerId: input.providerId,
 						model: requestedModel,
 						handle,
+						toolPolicy: input.toolPolicy,
 						turnStartedAt: null,
 						turnAnalytics: new TurnAnalyticsAccumulator(),
 					};
@@ -1484,6 +1501,16 @@ export const ProviderServiceLive = Layer.effect(
 								}
 								if (event._tag === "QuestionCallbackReleased") {
 									return detachQuestion(sessionId, event.itemId).pipe(
+										Effect.as(false),
+									);
+								}
+								if (
+									event._tag === "UserQuestion" &&
+									entry.toolPolicy === "read-only"
+								) {
+									// Nobody watches a read-only session; its questions never
+									// reach the question tray.
+									return dropQuestion(entry.handle, event.itemId).pipe(
 										Effect.as(false),
 									);
 								}

@@ -307,6 +307,54 @@ describe("translateCodexItem", () => {
 		expect(ev.input).toEqual({ file_path: "/repo/apps/server/src/index.ts" });
 	});
 
+	it("translates image generation into a GenerateImage tool with an inline image result", () => {
+		const started: ThreadItem = {
+			type: "imageGeneration",
+			id: "ig1",
+			status: "in_progress",
+			revisedPrompt: null,
+			result: "",
+		};
+		const use = only(translateCodexItem(started, "started"), "ToolUse");
+		expect(use).toMatchObject({
+			itemId: "ig1",
+			tool: "GenerateImage",
+			input: {},
+		});
+		expect(translateCodexItem(started, "completed")).toHaveLength(1);
+
+		const completed: ThreadItem = {
+			...started,
+			status: "completed",
+			revisedPrompt: "A terracotta app icon",
+			result: "iVBORw0KGgo=",
+			savedPath: "/home/user/.codex/generated_images/t/ig1.png",
+		};
+		expect(translateCodexItem(completed, "started")).toHaveLength(1);
+		const result = only(
+			translateCodexItem(completed, "completed"),
+			"ToolResult",
+		);
+		expect(result.isError).toBe(false);
+		expect(result.output).toEqual({
+			prompt: "A terracotta app icon",
+			path: "/home/user/.codex/generated_images/t/ig1.png",
+			content: [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }],
+		});
+	});
+
+	it("marks failed image generation as an error result", () => {
+		const item: ThreadItem = {
+			type: "imageGeneration",
+			id: "ig2",
+			status: "failed",
+			revisedPrompt: "A logo",
+			result: "",
+		};
+		const result = only(translateCodexItem(item, "completed"), "ToolResult");
+		expect(result.isError).toBe(true);
+	});
+
 	it("returns raw command output for a completed canonical Read", () => {
 		const item: ThreadItem = {
 			type: "commandExecution",

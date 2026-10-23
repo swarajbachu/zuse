@@ -191,5 +191,11 @@
 	"input": "입력",
 	"click": "클릭",
 	"assert": "검증",
-	"browser_steps_passed": "4/4 단계 통과 · 추적 저장 완료 · 1.8초"
+	"browser_steps_passed": "4/4 단계 통과 · 추적 저장 완료 · 1.8초",
+	"guided_review_title": "읽는 순서대로 따라가는 가이드 리뷰",
+	"guided_review_body": "Zuse는 모든 변경 사항에 대해 가이드를 작성합니다. 먼저 개요를, 이어서 설명하는 코드 옆에 짧은 챕터를 보여 줍니다. 턴, 커밋, 푸시마다 새로 고쳐집니다.",
+	"view_demo": "데모 보기",
+	"guided_review_tools_chapter": "세션이 자체 도구를 가집니다",
+	"guided_review_checks_chapter": "챕터는 검증된 도구로 도착합니다",
+	"guided_review_refresh_chapter": "가이드는 스스로 최신 상태를 유지합니다"
 }

@@ -6,6 +6,7 @@ import {
 	Add01Icon,
 	Clock01Icon,
 	File01Icon,
+	HelpCircleIcon,
 	MoreHorizontalIcon,
 	PanelRightCloseIcon,
 	PanelRightOpenIcon,
@@ -15,6 +16,7 @@ import {
 } from "@zuse/icons/solid-rounded";
 import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
+import { useZotOnboardingStore } from "../../store/zot-onboarding.ts";
 import {
 	ShowProjectsPanelButton,
 	TOP_BAR_ICON_BUTTON_CLASS,
@@ -116,14 +118,19 @@ export function MasterHeader({
 	return (
 		<MasterTopBar label={master.settings.name}>
 			<div className="flex min-w-0 flex-1 items-center gap-2 px-1">
-				<Mascot
-					avatar={avatarFor(master)}
-					seed={master.id}
-					state={running ? "idle" : "paused"}
-				/>
-				<h1 className="min-w-0 truncate text-[12px] font-medium text-foreground">
-					{master.settings.name}
-				</h1>
+				<span
+					data-zot-guide="identity"
+					className="flex h-7 min-w-0 items-center gap-2 px-1.5"
+				>
+					<Mascot
+						avatar={avatarFor(master)}
+						seed={master.id}
+						state={running ? "idle" : "paused"}
+					/>
+					<h1 className="min-w-0 truncate text-[12px] font-medium text-foreground">
+						{master.settings.name}
+					</h1>
+				</span>
 				{running ? null : (
 					<span className="shrink-0 text-muted-foreground">
 						{message(`projects:masters_status_${master.status}`)}
@@ -153,6 +160,7 @@ export function MasterHeader({
 				/>
 				<Menu>
 					<MenuTrigger
+						data-zot-guide="continuity"
 						aria-label={message("projects:masters_more_actions")}
 						className={cn(
 							TOP_BAR_ICON_BUTTON_CLASS,
@@ -176,6 +184,10 @@ export function MasterHeader({
 						>
 							<HugeiconsIcon icon={File01Icon} />
 							{message("projects:masters_artifacts")}
+						</MenuItem>
+						<MenuItem onClick={useZotOnboardingStore.getState().start}>
+							<HugeiconsIcon icon={HelpCircleIcon} />
+							{message("projects:masters_guide_open")}
 						</MenuItem>
 						<MenuSeparator />
 						<MenuItem
