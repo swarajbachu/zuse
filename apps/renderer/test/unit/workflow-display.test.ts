@@ -156,3 +156,67 @@ describe("workflow sections", () => {
 		]);
 	});
 });
+
+describe("phase identity", () => {
+	it("keeps repeated declared titles and indexed runtime phases separate", () => {
+		const sections = workflowSections(
+			[
+				{ title: "Review", detail: "First review" },
+				{ title: "Review", detail: "Second review" },
+			],
+			{
+				phases: [
+					{ index: 10, title: "Review" },
+					{ index: 20, title: "Review" },
+				],
+				agents: [
+					{ index: 1, label: "first", state: "done", phaseIndex: 10 },
+					{ index: 2, label: "second", state: "running", phaseIndex: 20 },
+				],
+			},
+			"working",
+		);
+		expect(
+			sections.map((section) => [
+				section.detail,
+				section.agents.map((agent) => agent.label),
+				section.done,
+			]),
+		).toEqual([
+			["First review", ["first"], 1],
+			["Second review", ["second"], 0],
+		]);
+		expect(new Set(sections.map((section) => section.key)).size).toBe(2);
+	});
+	it("keeps runtime-only repeated names separate and retains declared occurrences before progress", () => {
+		expect(
+			workflowSections(
+				[
+					{ title: "Review", detail: "One" },
+					{ title: "Review", detail: "Two" },
+				],
+				null,
+				"working",
+			),
+		).toHaveLength(2);
+		const sections = workflowSections(
+			[],
+			{
+				phases: [
+					{ index: 2, title: "Review" },
+					{ index: 4, title: "Review" },
+				],
+				agents: [
+					{ index: 1, label: "a", state: "done", phaseIndex: 2 },
+					{ index: 2, label: "b", state: "done", phaseIndex: 4 },
+				],
+			},
+			"done",
+		);
+		expect(sections.map((section) => section.key)).toEqual([
+			"runtime:2",
+			"runtime:4",
+		]);
+		expect(sections.map((section) => section.agents.length)).toEqual([1, 1]);
+	});
+});

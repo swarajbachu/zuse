@@ -180,58 +180,80 @@ export function workflowSections(
 	progress: WorkflowProgress | null,
 	run: DelegationStatus,
 ): ReadonlyArray<WorkflowSection> {
-	const titles = new Map<number, string>();
-	for (const phase of progress?.phases ?? [])
-		titles.set(phase.index, phase.title);
-	const order: Array<string | null> = [];
-	const details = new Map<string, string | null>();
-	const agents = new Map<string | null, WorkflowAgentView[]>();
-	const add = (title: string | null) => {
-		if (!agents.has(title)) {
-			agents.set(title, []);
-			order.push(title);
-		}
+	type Section = {
+		key: string;
+		title: string | null;
+		detail: string | null;
+		agents: WorkflowAgentView[];
 	};
-	for (const phase of declared) {
-		add(phase.title);
-		details.set(phase.title, phase.detail);
-	}
-	for (const phase of progress?.phases ?? []) add(phase.title);
-	const unphased: WorkflowAgentView[] = [];
-	for (const agent of progress?.agents ?? []) {
-		const title =
-			agent.phaseTitle ??
-			(agent.phaseIndex === undefined
-				? undefined
-				: titles.get(agent.phaseIndex));
-		const view = agentView(agent, run, title);
-		if (title === undefined) {
-			unphased.push(view);
-			continue;
+	const sections: Section[] = declared.map((phase, index) => ({
+		key: `declared:${index}`,
+		title: phase.title,
+		detail: phase.detail,
+		agents: [],
+	}));
+	const byIndex = new Map<number, Section>();
+	const matched = new Set<Section>();
+	const phase = (index: number, title: string): Section => {
+		const existing = byIndex.get(index);
+		if (existing !== undefined) return existing;
+		let section = sections.find(
+			(candidate) => candidate.title === title && !matched.has(candidate),
+		);
+		if (section === undefined) {
+			section = { key: `runtime:${index}`, title, detail: null, agents: [] };
+			sections.push(section);
 		}
-		add(title);
-		agents.get(title)?.push(view);
-	}
-	const sections = order.map((title) => {
-		const members = agents.get(title) ?? [];
-		return {
-			key: `phase:${title}`,
-			title,
-			detail: title === null ? null : (details.get(title) ?? null),
-			agents: members,
-			done: members.filter((agent) => agent.status === "done").length,
-		};
-	});
-	return unphased.length === 0
-		? sections
-		: [
-				{
-					key: "unphased",
-					title: null,
+		matched.add(section);
+		byIndex.set(index, section);
+		return section;
+	};
+	for (const entry of progress?.phases ?? []) phase(entry.index, entry.title);
+	const unphased: Section = {
+		key: "unphased",
+		title: null,
+		detail: null,
+		agents: [],
+	};
+	for (const agent of progress?.agents ?? []) {
+		let section =
+			agent.phaseIndex === undefined
+				? undefined
+				: byIndex.get(agent.phaseIndex);
+		if (
+			section === undefined &&
+			agent.phaseIndex !== undefined &&
+			agent.phaseTitle !== undefined
+		) {
+			section = phase(agent.phaseIndex, agent.phaseTitle);
+		}
+		if (
+			section === undefined &&
+			agent.phaseIndex === undefined &&
+			agent.phaseTitle !== undefined
+		) {
+			// A title-only snapshot cannot identify which repeated occurrence it means.
+			const candidates = sections.filter(
+				(candidate) => candidate.title === agent.phaseTitle,
+			);
+			if (candidates.length === 1) section = candidates[0];
+			else if (candidates.length === 0) {
+				section = {
+					key: `title:${agent.phaseTitle}`,
+					title: agent.phaseTitle,
 					detail: null,
-					agents: unphased,
-					done: unphased.filter((agent) => agent.status === "done").length,
-				},
-				...sections,
-			];
+					agents: [],
+				};
+				sections.push(section);
+			}
+		}
+		const target = section ?? unphased;
+		target.agents.push(agentView(agent, run, target.title ?? undefined));
+	}
+	return (unphased.agents.length > 0 ? [unphased, ...sections] : sections).map(
+		(section) => ({
+			...section,
+			done: section.agents.filter((agent) => agent.status === "done").length,
+		}),
+	);
 }

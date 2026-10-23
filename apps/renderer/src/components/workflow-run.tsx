@@ -30,6 +30,8 @@ import {
 import { CodeBlock } from "./code-block.tsx";
 import {
 	DelegationElapsed,
+	type DelegationInlineBody,
+	DelegationRow,
 	useDelegationStatusLabel,
 } from "./delegation-row.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
@@ -73,9 +75,13 @@ const RUN_TONE: Record<DelegationStatus, string> = {
 export function WorkflowRun({
 	input,
 	view,
+	onOpen = null,
+	inline = null,
 }: {
 	readonly input: unknown;
 	readonly view: DelegationView;
+	readonly onOpen?: (() => void) | null;
+	readonly inline?: DelegationInlineBody | null;
 }) {
 	const { message } = useMessages(["chat"]);
 	const statusLabel = useDelegationStatusLabel();
@@ -193,6 +199,15 @@ export function WorkflowRun({
 			) : null}
 			{selected !== null ? (
 				<AgentDetail agent={selected} providerId={view.providerId} />
+			) : null}
+			{onOpen !== null || inline !== null ? (
+				<div className="-mx-2 mt-1.5">
+					<DelegationRow
+						view={{ ...view, title: message("chat:workflow_run_result") }}
+						onOpen={onOpen}
+						inline={inline}
+					/>
+				</div>
 			) : null}
 			{script !== null || scriptPath !== null ? (
 				<div className="mt-1.5 min-w-0">

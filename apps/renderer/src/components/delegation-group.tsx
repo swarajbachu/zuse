@@ -176,7 +176,12 @@ export const DelegationGroup = memo(function DelegationGroup({
 						<DelegationRow view={view} onOpen={open(view)} inline={inline} />
 					}
 				>
-					<WorkflowRun input={member.group.workflowInput} view={view} />
+					<WorkflowRun
+						input={member.group.workflowInput}
+						view={view}
+						onOpen={open(view)}
+						inline={inline}
+					/>
 				</Suspense>
 			);
 		}
