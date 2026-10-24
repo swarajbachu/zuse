@@ -22,9 +22,9 @@ it("shows remaining invoice credit, all purchase amounts, and rollover policy", 
 		}),
 	);
 	expect(markup).toContain("$75.00 available");
-	for (const value of ["$10.00", "$25.00", "$50.00", "$100.00"])
+	for (const value of ["$10.00", "$25.00", "$50.00", "$100.00", "$200.00"])
 		expect(markup).toContain(value);
-	expect(markup.match(/type="radio"/g)).toHaveLength(4);
+	expect(markup.match(/type="radio"/g)).toHaveLength(5);
 	expect(markup.match(/<input[^>]*checked=""[^>]*>/)?.[0]).toContain(
 		'value="2500"',
 	);

@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import Stripe from "stripe";
 import { describe, expect, test, vi } from "vitest";
+import { BillingProviderError } from "../../src/index.ts";
 import {
 	makeStripeCreditClient,
 	makeStripeCredits,
@@ -36,9 +37,13 @@ const fixture = () => {
 		{ payload: string; sent: boolean; busy: boolean }
 	>();
 	const remote = new Map<string, number>();
+	const activateSubscription = vi.fn(
+		async (_purchase: StripeCreditPurchase, _key: string) => {},
+	);
 	const client: StripeCreditClient = {
 		validatePrice: vi.fn(async () => {}),
 		balance: vi.fn(async () => balance),
+		activateSubscription,
 		checkout: vi.fn(async () => "https://checkout.stripe.com/test"),
 		purchase: vi.fn(async () => purchase),
 		adjustment: vi.fn(async (_customer, amount, key) => {
@@ -49,6 +54,10 @@ const fixture = () => {
 		}),
 	};
 	const store = {
+		withSubscriptionLock: async <A>(
+			_account: string,
+			operation: () => Promise<A>,
+		) => operation(),
 		getCustomer: async () => linked,
 		claimDelivery: async (
 			key: string,
@@ -87,6 +96,7 @@ const fixture = () => {
 	});
 	return {
 		client,
+		activateSubscription,
 		store,
 		customer,
 		credits,
@@ -134,6 +144,155 @@ describe("prepaid invoice balance", () => {
 		expect(params).not.toHaveProperty("subscription_data");
 		expect(params).not.toHaveProperty("allow_promotion_codes");
 		expect(f.getBalance()).toBe(-10000);
+	});
+	test("$200 activation checkout collects one payment and discloses subscription terms", async () => {
+		const f = fixture();
+		await Effect.runPromise(
+			f.credits.checkout("account", 20000, "https://api.test/complete", true),
+		);
+		expect(f.client.checkout).toHaveBeenCalledWith(
+			expect.objectContaining({
+				mode: "payment",
+				metadata: {
+					purpose: "zuse_prepaid_v1",
+					account_id: "account",
+					activate_pro: "true",
+				},
+				line_items: [{ price: "price_credit", quantity: 200 }],
+				billing_address_collection: "required",
+			}),
+		);
+		expect(f.activateSubscription).not.toHaveBeenCalled();
+	});
+	test("ordinary $200 top-ups do not opt into a subscription", async () => {
+		const f = fixture();
+		await Effect.runPromise(
+			f.credits.checkout("account", 20000, "https://api.test/complete"),
+		);
+		expect(
+			vi.mocked(f.client.checkout).mock.calls[0]?.[0].metadata,
+		).not.toHaveProperty("activate_pro");
+	});
+	test("activation is disabled for unsupported amounts and unconfigured clients before collecting payment", async () => {
+		const f = fixture();
+		await expect(
+			Effect.runPromise(
+				f.credits.checkout("account", 2500, "https://api.test", true),
+			),
+		).rejects.toMatchObject({ code: "checkout-disabled" });
+		const credits = makeStripeCredits({
+			priceId: "price_credit",
+			client: { ...f.client, activateSubscription: undefined },
+			store: f.store,
+			customer: f.customer,
+		});
+		await expect(
+			Effect.runPromise(
+				credits.checkout("account", 20000, "https://api.test", true),
+			),
+		).rejects.toMatchObject({ code: "checkout-disabled" });
+		expect(f.client.checkout).not.toHaveBeenCalled();
+	});
+	test("paid activation funds the balance first and activates once across duplicate and concurrent events", async () => {
+		const f = fixture();
+		f.setPurchase({ amountCents: 20000, quantity: 200, activatePro: true });
+		f.activateSubscription.mockImplementation(async () => {
+			expect(f.getBalance()).toBe(-20000);
+		});
+		await Promise.allSettled([
+			Effect.runPromise(f.credits.process(event("checkout.session.completed"))),
+			Effect.runPromise(
+				f.credits.process(event("checkout.session.async_payment_succeeded")),
+			),
+		]);
+		await Effect.runPromise(
+			f.credits.process(event("checkout.session.completed")),
+		);
+		expect(f.activateSubscription).toHaveBeenCalledTimes(1);
+		expect(f.getBalance()).toBe(-20000);
+	});
+	test("activation failure retries without granting credit twice", async () => {
+		const f = fixture();
+		f.setPurchase({ amountCents: 20000, quantity: 200, activatePro: true });
+		f.activateSubscription.mockRejectedValueOnce(
+			new Error("Stripe unavailable"),
+		);
+		await expect(
+			Effect.runPromise(f.credits.process(event("checkout.session.completed"))),
+		).rejects.toMatchObject({ code: "provider-unavailable" });
+		await Effect.runPromise(
+			f.credits.process(event("checkout.session.completed")),
+		);
+		expect(f.activateSubscription).toHaveBeenCalledTimes(2);
+		expect(f.getBalance()).toBe(-20000);
+		expect(f.remote.size).toBe(1);
+	});
+	test("inactive subscription reconciliation never permanently completes the activation receipt", async () => {
+		const f = fixture();
+		f.setPurchase({ amountCents: 20000, quantity: 200, activatePro: true });
+		f.activateSubscription.mockRejectedValueOnce(
+			new BillingProviderError({ code: "reconciliation-required" }),
+		);
+		await expect(
+			Effect.runPromise(f.credits.process(event("checkout.session.completed"))),
+		).rejects.toMatchObject({ code: "reconciliation-required" });
+		await Effect.runPromise(
+			f.credits.process(event("checkout.session.completed")),
+		);
+		expect(f.activateSubscription).toHaveBeenCalledTimes(2);
+		expect(f.getBalance()).toBe(-20000);
+		expect(f.remote.size).toBe(1);
+	});
+	test("lost activation acknowledgement retries with the same remote idempotency key across restart", async () => {
+		const f = fixture();
+		f.setPurchase({ amountCents: 20000, quantity: 200, activatePro: true });
+		const subscriptions = new Set<string>();
+		f.activateSubscription.mockImplementation(async (_purchase, key) => {
+			if (!subscriptions.has(key)) {
+				subscriptions.add(key);
+				f.failAck();
+			}
+		});
+		await expect(
+			Effect.runPromise(f.credits.process(event("checkout.session.completed"))),
+		).rejects.toMatchObject({ code: "provider-unavailable" });
+		const restarted = makeStripeCredits({
+			priceId: "price_credit",
+			client: f.client,
+			store: f.store,
+			customer: f.customer,
+		});
+		await Effect.runPromise(
+			restarted.process(event("checkout.session.completed")),
+		);
+		expect(f.activateSubscription).toHaveBeenCalledTimes(2);
+		expect(subscriptions.size).toBe(1);
+		expect(f.getBalance()).toBe(-20000);
+	});
+	test.each([
+		{ paid: false },
+		{ disputed: true },
+		{ refunds: [{ id: "re_1", amount: 20000 }] },
+	])("unpaid, disputed or refunded purchases never activate Pro: %j", async (overrides) => {
+		const f = fixture();
+		f.setPurchase({
+			amountCents: 20000,
+			quantity: 200,
+			activatePro: true,
+			...overrides,
+		});
+		await Effect.runPromise(
+			f.credits.process(event("checkout.session.completed")),
+		);
+		expect(f.activateSubscription).not.toHaveBeenCalled();
+	});
+	test("refund events cannot activate a subscription even when metadata opts in", async () => {
+		const f = fixture();
+		f.setPurchase({ amountCents: 20000, quantity: 200, activatePro: true });
+		await Effect.runPromise(
+			f.credits.process(event("charge.refunded", { id: "ch_1" })),
+		);
+		expect(f.activateSubscription).not.toHaveBeenCalled();
 	});
 	test.each([
 		0, -1000, 1001, 100000, 25.5,
@@ -351,6 +510,7 @@ describe("Stripe SDK credit transport", () => {
 			transform_quantity: null,
 		};
 		let refundStatus = "succeeded";
+		let subscriptions: unknown[] = [];
 		const requests: Array<{ path: string; body: string; key?: string }> = [];
 		const http = Stripe.createFetchHttpClient(async (url, init) => {
 			const path = new URL(String(url)).pathname;
@@ -361,7 +521,12 @@ describe("Stripe SDK credit transport", () => {
 				key: headers.get("Idempotency-Key") ?? undefined,
 			});
 			let value: unknown;
-			if (path === "/v1/prices/price_credit") value = price;
+			if (path === "/v1/subscriptions")
+				value =
+					init?.method === "POST"
+						? { id: "sub_prepaid" }
+						: { data: subscriptions, has_more: false };
+			else if (path === "/v1/prices/price_credit") value = price;
 			else if (path === "/v1/checkout/sessions/cs_1") value = session;
 			else if (path === "/v1/charges/ch_1")
 				value = { id: "ch_1", payment_intent: "pi_1" };
@@ -385,10 +550,18 @@ describe("Stripe SDK credit transport", () => {
 		});
 		const client = makeStripeCreditClient(
 			new Stripe("sk_test_local", { httpClient: http, maxNetworkRetries: 0 }),
+			{
+				basePriceId: "price_base",
+				overagePriceId: "price_overage",
+				automaticTaxEnabled: false,
+			},
 		);
 		return {
 			client,
 			requests,
+			setSubscriptions: (value: unknown[]) => {
+				subscriptions = value;
+			},
 			changeRefundStatus: (value: string) => {
 				refundStatus = value;
 			},
@@ -400,6 +573,73 @@ describe("Stripe SDK credit transport", () => {
 			},
 		};
 	};
+	test("SDK creates base plus metered subscription using the funded customer and durable key", async () => {
+		const f = sdkFixture();
+		const purchase = await f.client.purchase({ sessionId: "cs_1" });
+		if (!purchase || !f.client.activateSubscription)
+			throw new Error("Missing purchase or activation");
+		await f.client.activateSubscription(purchase, "prepaid:activate:cus_1");
+		const request = f.requests.find(
+			(request) => request.path === "/v1/subscriptions" && request.body,
+		);
+		expect(request?.key).toBe("prepaid:activate:cus_1");
+		const params = new URLSearchParams(request?.body);
+		expect(params.get("customer")).toBe("cus_1");
+		expect(params.get("items[0][price]")).toBe("price_base");
+		expect(params.get("items[1][price]")).toBe("price_overage");
+		expect(params.get("metadata[account_id]")).toBe("account");
+		expect(params.get("payment_behavior")).toBe("error_if_incomplete");
+		expect(params.get("automatic_tax[enabled]")).toBe("false");
+	});
+	test.each([
+		"incomplete",
+		"unpaid",
+		"paused",
+		"past_due",
+	])("SDK refuses to acknowledge activation for an existing %s subscription", async (status) => {
+		const f = sdkFixture();
+		f.setSubscriptions([
+			{
+				status,
+				metadata: { account_id: "account" },
+				items: { data: [{ price: { id: "price_base" } }] },
+			},
+		]);
+		const purchase = await f.client.purchase({ sessionId: "cs_1" });
+		if (!purchase || !f.client.activateSubscription)
+			throw new Error("Missing activation fixture");
+		await expect(
+			f.client.activateSubscription(purchase, "prepaid:activate:cus_1"),
+		).rejects.toMatchObject({ code: "reconciliation-required" });
+		expect(
+			f.requests.some((r) => r.path === "/v1/subscriptions" && r.body),
+		).toBe(false);
+	});
+	test("SDK preserves an existing subscription and rejects conflicting ownership", async () => {
+		const f = sdkFixture();
+		const purchase = await f.client.purchase({ sessionId: "cs_1" });
+		if (!purchase || !f.client.activateSubscription)
+			throw new Error("Missing purchase or activation");
+		const subscription = {
+			id: "sub_existing",
+			status: "active",
+			metadata: { account_id: "account" },
+			items: { data: [{ price: { id: "price_base" } }] },
+		};
+		f.setSubscriptions([subscription]);
+		await f.client.activateSubscription(purchase, "prepaid:activate:cus_1");
+		expect(
+			f.requests.some(
+				(request) => request.path === "/v1/subscriptions" && request.body,
+			),
+		).toBe(false);
+		f.setSubscriptions([
+			{ ...subscription, metadata: { account_id: "other" } },
+		]);
+		await expect(
+			f.client.activateSubscription(purchase, "prepaid:activate:cus_1"),
+		).rejects.toThrow("conflicting_prepaid_subscription");
+	});
 	test("fetches canonical paid session, charge and only successful refunds rather than trusting webhook amounts", async () => {
 		const f = sdkFixture();
 		const purchase = await f.client.purchase({ chargeId: "ch_1" });

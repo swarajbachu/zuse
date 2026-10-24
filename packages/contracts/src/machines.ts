@@ -219,12 +219,20 @@ export class BillingPrepaidBalance extends Schema.Class<BillingPrepaidBalance>(
 	debitCents: Schema.Number,
 	currency: Schema.Literal("usd"),
 }) {}
-export const PREPAID_CREDIT_AMOUNTS = [1000, 2500, 5000, 10000] as const;
+export const PREPAID_PRO_CREDIT_AMOUNT = 20000;
+export const PREPAID_CREDIT_AMOUNTS = [
+	1000,
+	2500,
+	5000,
+	10000,
+	PREPAID_PRO_CREDIT_AMOUNT,
+] as const;
 
 export class BillingPrepaidCheckoutRequest extends Schema.Class<BillingPrepaidCheckoutRequest>(
 	"BillingPrepaidCheckoutRequest",
 )({
 	amountCents: Schema.Literals(PREPAID_CREDIT_AMOUNTS),
+	activatePro: Schema.optional(Schema.Boolean),
 }) {}
 
 export class BillingPortal extends Schema.Class<BillingPortal>("BillingPortal")(

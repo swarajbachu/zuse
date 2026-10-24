@@ -8,6 +8,10 @@ import {
 	type StripeCreditClient,
 } from "./stripe-credits.ts";
 import { deliverStripeOperation } from "./stripe-delivery.ts";
+import {
+	stripeSubscriptionItems,
+	stripeSubscriptionsAfterCheckoutExpiry,
+} from "./stripe-subscription.ts";
 
 export interface StripeBillingConfig {
 	readonly secretKey: Redacted.Redacted<string>;
@@ -33,6 +37,11 @@ export interface StripeCustomerReservation {
 
 /** Persisted by the application, including unfinished remote operations. */
 export interface StripeBillingStore {
+	/** Serializes normal checkout and prepaid activation across workers for one account. */
+	readonly withSubscriptionLock: <A>(
+		accountId: string,
+		operation: () => Promise<A>,
+	) => Promise<A>;
 	/** Leases at most limit expired recovery jobs for five minutes. */
 	readonly claimCustomerRecoveries: (
 		nowMs: number,
@@ -102,6 +111,11 @@ export interface StripeBillingClient {
 	readonly customerAccountId: (
 		customerId: string,
 	) => Promise<string | undefined>;
+	readonly prepareSubscriptionCheckout: (
+		customerId: string,
+		accountId: string,
+		offerId: string,
+	) => Promise<void>;
 	readonly createCheckout: (
 		params: Stripe.Checkout.SessionCreateParams,
 	) => Promise<string>;
@@ -181,6 +195,26 @@ const makeClient = (
 	customerAccountId: async (id) => {
 		const customer = await sdk.customers.retrieve(id);
 		return customer.deleted ? undefined : customer.metadata.account_id;
+	},
+	prepareSubscriptionCheckout: async (customerId, accountId, offerId) => {
+		const basePriceId = config.offerPrices[offerId];
+		if (!basePriceId)
+			throw new BillingProviderError({ code: "checkout-disabled" });
+		const subscriptions = await stripeSubscriptionsAfterCheckoutExpiry(sdk, {
+			customerId,
+			accountId,
+			offerId,
+			basePriceId,
+		});
+		if (
+			subscriptions.some(
+				(sub) =>
+					sub.status !== "canceled" &&
+					sub.status !== "incomplete_expired" &&
+					sub.items.data.some((item) => item.price.id === basePriceId),
+			)
+		)
+			throw new BillingProviderError({ code: "checkout-disabled" });
 	},
 	createCheckout: async (params) => {
 		const session = await sdk.checkout.sessions.create(params);
@@ -350,7 +384,11 @@ export const makeStripeBillingProvider = (
 			));
 	const now = deps.now ?? Date.now;
 	const call = <A>(run: () => Promise<A>) =>
-		Effect.tryPromise({ try: run, catch: failure });
+		Effect.tryPromise({
+			try: run,
+			catch: (error) =>
+				error instanceof BillingProviderError ? error : failure(),
+		});
 
 	const verifiedCustomer = (accountId: string, customerId: string) =>
 		Effect.gen(function* () {
@@ -402,14 +440,28 @@ export const makeStripeBillingProvider = (
 		});
 	const credits = makeStripeCredits({
 		priceId: config.prepaidCreditPriceId,
-		client: deps.creditClient ?? makeStripeCreditClient(sdk),
+		client:
+			deps.creditClient ??
+			makeStripeCreditClient(sdk, {
+				basePriceId: config.offerPrices["cloud-workspace-standard-v1"],
+				overagePriceId:
+					config.cloudBillingMode === "subscription-only"
+						? undefined
+						: config.cloudOveragePriceId,
+				automaticTaxEnabled: config.automaticTaxEnabled ?? true,
+			}),
 		store: deps.store,
 		customer,
 	});
 	return {
 		prepaidBalance: credits.balance,
 		prepaidCheckout: (input) =>
-			credits.checkout(input.accountId, input.amountCents, input.successUrl),
+			credits.checkout(
+				input.accountId,
+				input.amountCents,
+				input.successUrl,
+				input.activatePro,
+			),
 		providerId: "stripe",
 		recoverCustomers: () =>
 			Effect.gen(function* () {
@@ -445,29 +497,35 @@ export const makeStripeBillingProvider = (
 					offer_id: input.offerId,
 				};
 				return yield* call(() =>
-					client.createCheckout({
-						mode: "subscription",
-						allow_promotion_codes: true,
-						customer: customerId,
-						client_reference_id: input.accountId,
-						success_url: input.successUrl.replaceAll(
-							"{CHECKOUT_ID}",
-							"{CHECKOUT_SESSION_ID}",
-						),
-						line_items: [
-							{ price, quantity: 1 },
-							...(input.offerId === "cloud-workspace-standard-v1" &&
-							config.cloudBillingMode !== "subscription-only" &&
-							config.cloudOveragePriceId
-								? [{ price: config.cloudOveragePriceId }]
-								: []),
-						],
-						metadata,
-						subscription_data: { metadata },
-						automatic_tax: { enabled: config.automaticTaxEnabled ?? true },
-						billing_address_collection: "required",
-						tax_id_collection: { enabled: true },
-						customer_update: { address: "auto", name: "auto" },
+					deps.store.withSubscriptionLock(input.accountId, async () => {
+						await client.prepareSubscriptionCheckout(
+							customerId,
+							input.accountId,
+							input.offerId,
+						);
+						return client.createCheckout({
+							mode: "subscription",
+							allow_promotion_codes: true,
+							customer: customerId,
+							client_reference_id: input.accountId,
+							success_url: input.successUrl.replaceAll(
+								"{CHECKOUT_ID}",
+								"{CHECKOUT_SESSION_ID}",
+							),
+							line_items: stripeSubscriptionItems(
+								price,
+								input.offerId === "cloud-workspace-standard-v1" &&
+									config.cloudBillingMode !== "subscription-only"
+									? config.cloudOveragePriceId
+									: undefined,
+							),
+							metadata,
+							subscription_data: { metadata },
+							automatic_tax: { enabled: config.automaticTaxEnabled ?? true },
+							billing_address_collection: "required",
+							tax_id_collection: { enabled: true },
+							customer_update: { address: "auto", name: "auto" },
+						});
 					}),
 				);
 			}),

@@ -53,6 +53,7 @@
 		"deploy:staging": "wrangler deploy --env=",
 		"deploy:production": "node scripts/deploy-production.mjs",
 		"cloud-snapshots:ops": "node scripts/cloud-snapshot-ops.mjs",
+		"billing:stripe:prepaid-checkout": "bun scripts/stripe-prepaid-checkout.mjs",
 		"billing:stripe:migrate": "bun scripts/stripe-billing-migrate.mjs",
 		"billing:stripe:production": "bun scripts/stripe-production-setup.mjs",
 		"secret:stripe": "wrangler secret put STRIPE_SECRET_KEY --env=",

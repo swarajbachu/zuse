@@ -56,6 +56,7 @@ export interface BillingProviderAdapter {
 	readonly prepaidCheckout?: (input: {
 		readonly accountId: string;
 		readonly amountCents: number;
+		readonly activatePro?: boolean;
 		readonly successUrl: string;
 	}) => Effect.Effect<string, BillingProviderError>;
 	/** Advances a bounded batch of durable customer recovery jobs. */

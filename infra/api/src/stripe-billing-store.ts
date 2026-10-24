@@ -32,6 +32,19 @@ export const makeStripeBillingStorePg = (
 			};
 		});
 	return {
+		withSubscriptionLock: (accountId, operation) =>
+			run(
+				Effect.gen(function* () {
+					const rows =
+						yield* sql`SELECT account_id FROM api_stripe_customers WHERE account_id=${accountId} FOR UPDATE`;
+					if (rows.length !== 1)
+						throw new Error("stripe_customer_reservation_missing");
+					return yield* Effect.tryPromise({
+						try: operation,
+						catch: (error) => error,
+					});
+				}).pipe(sql.withTransaction),
+			),
 		claimCustomerRecoveries: (nowMs, limit) =>
 			run(
 				Effect.gen(function* () {

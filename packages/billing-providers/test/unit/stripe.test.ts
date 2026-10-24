@@ -53,6 +53,7 @@ const setup = (
 	let recoveryComplete = false;
 	let claim: "send" | "sent" | "busy" | "expired" = "send";
 	const store: StripeBillingStore = {
+		withSubscriptionLock: async (_account, operation) => operation(),
 		claimCustomerRecoveries: async () =>
 			linked === null &&
 			now - reservedAt >= 23 * 60 * 60_000 &&
@@ -122,6 +123,7 @@ const setup = (
 		}),
 	};
 	const client: StripeBillingClient = {
+		prepareSubscriptionCheckout: vi.fn(async () => {}),
 		customerPage: vi.fn(async () => ({ matches: [] })),
 		createCustomer: vi.fn(async () => "cus_1"),
 		customerAccountId: async () => "account",
@@ -681,6 +683,12 @@ test.each([
 				object: "customer",
 				metadata: { account_id: "account" },
 			});
+		if (
+			url.pathname === "/v1/subscriptions" ||
+			(url.pathname === "/v1/checkout/sessions" &&
+				url.searchParams.get("status") === "open")
+		)
+			return Response.json({ data: [], has_more: false });
 		if (url.pathname === "/v1/checkout/sessions")
 			return Response.json({
 				id: "cs_test",

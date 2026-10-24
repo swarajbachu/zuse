@@ -119,6 +119,60 @@ it.skipIf(!connectionString)(
 				1,
 			);
 
+			await stripe.reserveCustomer("lock-other");
+			const events: string[] = [];
+			let release = () => {};
+			let entered = () => {};
+			const hold = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			const started = new Promise<void>((resolve) => {
+				entered = resolve;
+			});
+			const firstLock = stripe.withSubscriptionLock("account", async () => {
+				events.push("first-start");
+				entered();
+				await hold;
+				events.push("first-end");
+			});
+			await started;
+			const secondLock = makeStripeBillingStorePg(sql).withSubscriptionLock(
+				"account",
+				async () => {
+					events.push("second");
+				},
+			);
+			try {
+				await stripe.withSubscriptionLock("lock-other", async () => {
+					events.push("other-account");
+				});
+				expect(
+					await Promise.race([
+						secondLock.then(() => true),
+						new Promise<boolean>((resolve) =>
+							setTimeout(() => resolve(false), 50),
+						),
+					]),
+				).toBe(false);
+			} finally {
+				release();
+			}
+			await Promise.all([firstLock, secondLock]);
+			expect(events).toEqual([
+				"first-start",
+				"other-account",
+				"first-end",
+				"second",
+			]);
+			await expect(
+				stripe.withSubscriptionLock("account", async () => {
+					throw new Error("activation-failed");
+				}),
+			).rejects.toThrow("activation-failed");
+			expect(
+				await stripe.withSubscriptionLock("account", async () => "released"),
+			).toBe("released");
+
 			await stripe.reserveCustomer("scan-account");
 			await db.query(
 				"UPDATE api_stripe_customers SET created_at=created_at-86400000 WHERE account_id='scan-account'",
