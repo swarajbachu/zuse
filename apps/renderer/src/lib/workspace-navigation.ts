@@ -25,6 +25,7 @@ const capture = () => {
 			usageScope: ui.usageScope,
 			openFile: ui.openFile,
 			changesTabOpen: ui.changesTabOpen,
+			reviewTabScope: ui.reviewTabScope,
 			reviewNavigation: ui.reviewNavigation,
 		},
 		chats: {
@@ -51,6 +52,7 @@ const restore = (navigation?: Navigation) =>
 				usageScope: "global",
 				openFile: null,
 				changesTabOpen: false,
+				reviewTabScope: null,
 				reviewNavigation: null,
 			}),
 			fileDirty: false,

@@ -1,4 +1,5 @@
 import { providerDisplayName } from "~/lib/provider-labels";
+import { useReviewTabScope } from "../lib/review-tab-scope.ts";
 import "@zuse/i18n/english/errors";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -84,12 +85,19 @@ const EMPTY_SESSIONS: ReadonlyArray<Session> = [];
 export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 	const { message: uiMessage } = useUiMessages(["errors"]);
 
-	const activeMainTab = useUiStore((s) => s.activeMainTab);
+	const reviewScope = useReviewTabScope(environmentId);
+	const changesTabOpen = useUiStore(
+		(s) => s.changesTabOpen && s.reviewTabScope === reviewScope,
+	);
+	const activeMainTab = useUiStore((s) =>
+		s.activeMainTab === "changes" && s.reviewTabScope !== reviewScope
+			? "chat"
+			: s.activeMainTab,
+	);
 	const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
 	const openFile = useUiStore((s) => s.openFile);
 	const closeFileTab = useUiStore((s) => s.closeFileTab);
 	const fileDirty = useUiStore((s) => s.fileDirty);
-	const changesTabOpen = useUiStore((s) => s.changesTabOpen);
 	const closeChangesTab = useUiStore((s) => s.closeChangesTab);
 
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);

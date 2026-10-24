@@ -22,7 +22,8 @@ const terminalClient = vi.hoisted(() => ({
 
 vi.mock("../../src/lib/terminal-registry.ts", () => terminalRegistry);
 vi.mock("../../src/lib/terminal-client-bus.ts", () => terminalClient);
-vi.mock("../../src/lib/rpc-client.ts", () => ({
+vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../src/lib/rpc-client.ts")>()),
 	getLocalEnvironmentId: () => "local-desktop",
 }));
 

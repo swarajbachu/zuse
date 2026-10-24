@@ -1,5 +1,6 @@
 import { FloatingComposerLayout } from "../components/floating-composer-layout.tsx";
 import { isCloudProjectFolder } from "../lib/cloud-project-folders.ts";
+import { useReviewTabScope } from "../lib/review-tab-scope.ts";
 import { useMastersStore } from "../store/masters.ts";
 
 const MastersSurface = lazy(() =>
@@ -492,11 +493,18 @@ export function MainShell() {
 		? (folders.find((f) => f.id === selectedFolderId) ?? null)
 		: null;
 
-	const activeMainTab = useUiStore((s) => s.activeMainTab);
+	const reviewScope = useReviewTabScope(selectedEnvironmentId);
+	const changesTabOpen = useUiStore(
+		(s) => s.changesTabOpen && s.reviewTabScope === reviewScope,
+	);
+	const activeMainTab = useUiStore((s) =>
+		s.activeMainTab === "changes" && s.reviewTabScope !== reviewScope
+			? "chat"
+			: s.activeMainTab,
+	);
 	const usageScope = useUiStore((s) => s.usageScope);
 	const openFile = useUiStore((s) => s.openFile);
 	const closeFileTab = useUiStore((s) => s.closeFileTab);
-	const changesTabOpen = useUiStore((s) => s.changesTabOpen);
 	const closeChangesTab = useUiStore((s) => s.closeChangesTab);
 	const leftSidebarOpen = useUiStore((s) => s.leftSidebarOpen);
 	const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
@@ -558,8 +566,7 @@ export function MainShell() {
 		const menu = window.zuse?.menu;
 		if (menu === undefined) return;
 		return menu.onCloseTab(() => {
-			const { activeMainTab, closeFileTab, closeChangesTab, openFile } =
-				useUiStore.getState();
+			const { closeFileTab, closeChangesTab, openFile } = useUiStore.getState();
 			if (activeMainTab === "file" && openFile !== null) {
 				closeFileTab();
 				return;
@@ -570,7 +577,7 @@ export function MainShell() {
 			}
 			void closeActiveChatTab(selectedEnvironmentId);
 		});
-	}, [selectedEnvironmentId]);
+	}, [selectedEnvironmentId, activeMainTab]);
 
 	const emptyTabLabel =
 		selectedSession?.title ||
