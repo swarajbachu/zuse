@@ -111,3 +111,81 @@ describe("pairing credential exchange", () => {
 		);
 	});
 });
+
+describe("approved nearby pairing handoff", () => {
+	beforeEach(() => {
+		vi.mocked(getConnectionClient).mockReset();
+		vi.mocked(getConnectionClient).mockReturnValue(
+			Effect.die(new Error("socket unavailable")),
+		);
+		secureStore.setItemAsync.mockClear();
+		appAtomRegistry.set(connectionsAtom, []);
+	});
+
+	it("retains an approved credential without requiring another socket handshake", async () => {
+		const record = await addConnection({
+			host: "127.0.0.1",
+			port: 45000,
+			token: "zt_approved",
+			source: "paired",
+			serverPublicKey: "mac-key",
+			serverKeyPin: "pin",
+			transportCertificatePin: "tls-pin",
+			nearbyServiceName: "MacBook",
+			pathType: "lan",
+			approvedNearbyEnvironment: { environmentId: "mac-1", label: "MacBook" },
+		});
+		expect(record).toMatchObject({
+			key: "paired:mac-1",
+			environmentId: "mac-1",
+			token: "zt_approved",
+			label: "MacBook",
+			serverPublicKey: "mac-key",
+		});
+		expect(getConnectionClient).not.toHaveBeenCalled();
+		expect(secureStore.setItemAsync).toHaveBeenCalled();
+		expect(appAtomRegistry.get(connectionsAtom)).toEqual([record]);
+	});
+
+	it("does not bypass validation for an unpinned nearby identity", async () => {
+		await expect(
+			addConnection({
+				host: "127.0.0.1",
+				port: 45000,
+				token: "zt_approved",
+				source: "paired",
+				approvedNearbyEnvironment: { environmentId: "mac-1", label: "MacBook" },
+			}),
+		).rejects.toThrow("approved nearby identity");
+		expect(appAtomRegistry.get(connectionsAtom)).toEqual([]);
+	});
+
+	it("rejects an approved identity whose public key does not match its pin", async () => {
+		await expect(
+			addConnection({
+				host: "127.0.0.1",
+				port: 45000,
+				token: "zt_approved",
+				source: "paired",
+				serverPublicKey: "mac-key",
+				serverKeyPin: "wrong-pin",
+				transportCertificatePin: "tls-pin",
+				nearbyServiceName: "MacBook",
+				approvedNearbyEnvironment: { environmentId: "mac-1", label: "MacBook" },
+			}),
+		).rejects.toThrow("approved nearby identity");
+		expect(appAtomRegistry.get(connectionsAtom)).toEqual([]);
+		expect(secureStore.setItemAsync).not.toHaveBeenCalled();
+	});
+
+	it("preserves a failed manual connection's actual reason", async () => {
+		await expect(
+			addConnection({
+				host: "127.0.0.1",
+				port: 45000,
+				token: "zt_approved",
+				source: "manual",
+			}),
+		).rejects.toThrow("socket unavailable");
+	});
+});
