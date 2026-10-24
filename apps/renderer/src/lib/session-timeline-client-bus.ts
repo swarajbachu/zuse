@@ -403,6 +403,19 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["externalThreads.continue"](payload as never),
 				);
 				break;
+			case "usage.profile.snapshot":
+				result = await Effect.runPromise(
+					client["usage.profile.snapshot"](payload as never),
+				);
+				break;
+			case "usage.backup.get":
+				result = await Effect.runPromise(client["usage.backup.get"]());
+				break;
+			case "usage.backup.set":
+				result = await Effect.runPromise(
+					client["usage.backup.set"](payload as never),
+				);
+				break;
 			case "usage.sessions":
 				result = await Effect.runPromise(
 					client["usage.sessions"](payload as never),

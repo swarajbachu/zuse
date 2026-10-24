@@ -93,6 +93,7 @@ import { Migration0088ScratchFoldersRepair } from "./migrations/0088_scratch_fol
 import { Migration0089DeviceBridgeEnrollment } from "./migrations/0089_device_bridge_enrollment.ts";
 import { Migration0091MasterEventIndex } from "./migrations/0091_master_event_index.ts";
 import { Migration0092ReviewGuides } from "./migrations/0092_review_guides.ts";
+import { Migration0093UsageHistory } from "./migrations/0093_usage_history.ts";
 
 const MigrationDefinitionsThrough0045 = {
 	"0001_initial": Migration0001Initial,
@@ -247,6 +248,7 @@ const MigrationDefinitions = {
 	"0090_masters": Migration0065Masters,
 	"0091_master_event_index": Migration0091MasterEventIndex,
 	"0092_review_guides": Migration0092ReviewGuides,
+	"0093_usage_history": Migration0093UsageHistory,
 } as const;
 
 /** Schema before projectless threads, retained for populated upgrade fixtures. */

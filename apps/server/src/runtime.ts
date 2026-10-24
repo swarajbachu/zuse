@@ -887,6 +887,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 
 	const UsagePoller = UsageLimitsPollerLive.pipe(
+		Layer.provide(MachineControlLayer),
+		Layer.provide(RuntimeCloudControlLayer),
+		Layer.provide(AuthLayer),
 		Layer.provide(ProviderAccountsLayer),
 		Layer.provide(ConfigStoreLayer),
 		Layer.provide(CredentialsLayer),

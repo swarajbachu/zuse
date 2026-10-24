@@ -50,7 +50,7 @@ import { MachineStore, MachineStoreMemory } from "../../src/machine-store.ts";
 import { ManagedTunnelProviderLive } from "../../src/managed-tunnel.ts";
 import { PushDelivery } from "../../src/push.ts";
 import { SandboxOfferConfiguration } from "../../src/sandbox-provider-module.ts";
-import { ApiStoreMemory } from "../../src/store.ts";
+import { ApiStore, ApiStoreMemory } from "../../src/store.ts";
 import { WorkosVerifierTest } from "../../src/workos.ts";
 
 const ISSUER = "https://api.test";
@@ -2206,6 +2206,287 @@ describe("explicit cloud runtime release updates", () => {
 			expect(
 				await runtime.runPromise(store.getWorkspace(original.workspaceId)),
 			).toEqual(queued);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+});
+
+describe("cloud runtime usage history", () => {
+	test("uploads to the personal owner's backup only while it is enabled", async () => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			const now = Date.now();
+			const seed = (
+				workspaceId: string,
+				accountId: string,
+				state: "ready" | "pausing" = "ready",
+			) =>
+				runtime.runPromise(
+					Effect.gen(function* () {
+						yield* store.createWorkspace(
+							{
+								workspaceId,
+								accountId,
+								projectId: "project",
+								buildId: "build",
+								provider: "fake",
+								providerSandboxId: "sandbox",
+								runtimeState: "online",
+								chatId: `chat-${workspaceId}`,
+								initialSessionId: `session-${workspaceId}`,
+								branch: workspaceId,
+								baseRef: "main",
+								state,
+								desiredState: state === "ready" ? "ready" : "paused",
+								statusCode: state,
+								idempotencyKey: workspaceId,
+								runtimeCredentialHash: yield* sha256Hex(
+									`runtime-${workspaceId}`,
+								),
+								nextActionAtMs: now,
+								revision: 1,
+								createdAtMs: now,
+								updatedAtMs: now,
+								lastActivityAtMs: now,
+								requestConfig: {
+									runtimeCredentialExpiresAtMs: now + 60_000,
+								},
+							},
+							{
+								workspaceId,
+								accountId,
+								chatId: `chat-${workspaceId}`,
+								sessionId: `session-${workspaceId}`,
+								turnId: "turn",
+								commandId: `launch-${workspaceId}`,
+								ciphertext: "unused",
+								expiresAtMs: now + 60_000,
+								createdAtMs: now,
+							},
+						);
+					}),
+				);
+			await seed("source", "alice");
+			await seed("stopping", "alice", "pausing");
+			await seed("organization", "organization:org");
+			const hour = Date.UTC(2026, 0, 1);
+			const row = {
+				hour: new Date(hour).toISOString(),
+				sourceId: "codex",
+				model: "model-a",
+				session: "a".repeat(32),
+				project: "",
+				inputTokens: 10,
+				outputTokens: 5,
+				cacheReadTokens: 0,
+				cacheCreationTokens: 0,
+				reasoningTokens: 0,
+				costUsd: null,
+				recordCount: 1,
+				firstAt: hour + 1_000,
+				lastAt: hour + 2_000,
+			};
+			const send = (
+				path: string,
+				method: string,
+				token: string | null,
+				body?: unknown,
+			) =>
+				runtime.runPromise(
+					handleRequest(
+						new Request(`${ISSUER}${path}`, {
+							method,
+							headers: {
+								...(token ? { authorization: `Bearer ${token}` } : {}),
+								"content-type": "application/json",
+							},
+							...(body === undefined ? {} : { body: JSON.stringify(body) }),
+						}),
+					),
+				);
+			const runtimeKey = (workspaceId = "source", token?: string | null) =>
+				send(
+					ApiPaths.cloudWorkspaceRuntimeUsageHistoryKey(workspaceId),
+					"GET",
+					token === undefined ? `runtime-${workspaceId}` : token,
+				);
+			const runtimeUpload = (
+				rows: ReadonlyArray<unknown>,
+				workspaceId = "source",
+				token?: string | null,
+			) =>
+				send(
+					ApiPaths.cloudWorkspaceRuntimeUsageHistory(workspaceId),
+					"PUT",
+					token === undefined ? `runtime-${workspaceId}` : token,
+					{ rows },
+				);
+			const account = (path: string, method = "GET", body?: unknown) =>
+				send(path, method, "test-token:alice", body);
+			const errorOf = async (response: Response) => ({
+				status: response.status,
+				body: await response.json(),
+			});
+
+			expect(await errorOf(await runtimeKey())).toEqual({
+				status: 200,
+				body: { key: null },
+			});
+			expect(
+				await (await account(ApiPaths.usageHistorySettings)).json(),
+			).toEqual({ enabled: false });
+			expect(await errorOf(await runtimeUpload([row]))).toEqual({
+				status: 409,
+				body: { error: "usage_history_backup_disabled" },
+			});
+			expect(await (await account(ApiPaths.usageHistory)).json()).toEqual({
+				rows: [],
+				nextCursor: null,
+			});
+
+			expect(
+				await (
+					await account(ApiPaths.usageHistorySettings, "PUT", {
+						enabled: true,
+					})
+				).json(),
+			).toEqual({ enabled: true });
+			const accountKey = await (await account(ApiPaths.usageHistoryKey)).json();
+			const enabledKey = await runtimeKey();
+			expect(enabledKey.headers.get("cache-control")).toBe("no-store");
+			expect(await enabledKey.json()).toEqual(accountKey);
+			expect(accountKey.key).toMatch(/^[0-9a-f]{64}$/u);
+
+			const accepted = await runtimeUpload([row]);
+			expect(await errorOf(accepted)).toEqual({
+				status: 200,
+				body: { accepted: 1 },
+			});
+			expect(
+				await errorOf(
+					await runtimeUpload([{ ...row, inputTokens: 20 }], "stopping"),
+				),
+			).toEqual({ status: 200, body: { accepted: 1 } });
+			expect(await (await account(ApiPaths.usageHistory)).json()).toEqual({
+				rows: [{ ...row, inputTokens: 20 }],
+				nextCursor: null,
+			});
+
+			expect(
+				await errorOf(await runtimeUpload([{ ...row, firstAt: hour - 1 }])),
+			).toEqual({ status: 400, body: { error: "invalid_usage_history" } });
+			expect(
+				await errorOf(await runtimeUpload([row, { ...row, inputTokens: 1 }])),
+			).toEqual({ status: 400, body: { error: "invalid_usage_history" } });
+			expect(
+				await errorOf(await runtimeUpload([{ ...row, session: "raw" }])),
+			).toEqual({ status: 400, body: { error: "invalid_request" } });
+
+			for (const response of [
+				await runtimeKey("organization"),
+				await runtimeUpload([row], "organization"),
+			])
+				expect(await errorOf(response)).toEqual({
+					status: 403,
+					body: {
+						error: "runtime_usage_history_requires_personal_workspace",
+					},
+				});
+			for (const response of [
+				await runtimeKey("source", null),
+				await runtimeKey("source", "wrong"),
+				await runtimeKey("source", "runtime-stopping"),
+				await runtimeUpload([row], "source", null),
+				await runtimeUpload([row], "source", "wrong"),
+				await runtimeUpload([row], "missing"),
+			])
+				expect(response.status).toBe(401);
+			// Other methods are not runtime routes; they fall through to account auth.
+			expect(
+				(
+					await send(
+						ApiPaths.cloudWorkspaceRuntimeUsageHistory("source"),
+						"POST",
+						"runtime-source",
+						{ rows: [row] },
+					)
+				).status,
+			).toBe(401);
+
+			await account(ApiPaths.usageHistorySettings, "PUT", { enabled: false });
+			expect(await (await runtimeKey()).json()).toEqual({ key: null });
+			expect((await runtimeUpload([row])).status).toBe(409);
+			expect(
+				(await (await account(ApiPaths.usageHistory)).json()).rows,
+			).toHaveLength(1);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
+	test("reading the runtime key never creates an account key", async () => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			const now = Date.now();
+			await runtime.runPromise(
+				Effect.gen(function* () {
+					yield* store.createWorkspace(
+						{
+							workspaceId: "source",
+							accountId: "alice",
+							projectId: "project",
+							buildId: "build",
+							provider: "fake",
+							providerSandboxId: "sandbox",
+							runtimeState: "online",
+							chatId: "chat",
+							initialSessionId: "session",
+							branch: "source",
+							baseRef: "main",
+							state: "ready",
+							desiredState: "ready",
+							statusCode: "ready",
+							idempotencyKey: "source",
+							runtimeCredentialHash: yield* sha256Hex("runtime-secret"),
+							nextActionAtMs: now,
+							revision: 1,
+							createdAtMs: now,
+							updatedAtMs: now,
+							lastActivityAtMs: now,
+							requestConfig: { runtimeCredentialExpiresAtMs: now + 60_000 },
+						},
+						{
+							workspaceId: "source",
+							accountId: "alice",
+							chatId: "chat",
+							sessionId: "session",
+							turnId: "turn",
+							commandId: "launch",
+							ciphertext: "unused",
+							expiresAtMs: now + 60_000,
+							createdAtMs: now,
+						},
+					);
+				}),
+			);
+			const response = await runtime.runPromise(
+				handleRequest(
+					new Request(
+						`${ISSUER}${ApiPaths.cloudWorkspaceRuntimeUsageHistoryKey("source")}`,
+						{ headers: { authorization: "Bearer runtime-secret" } },
+					),
+				),
+			);
+			expect(await response.json()).toEqual({ key: null });
+			const apiStore = await runtime.runPromise(ApiStore);
+			expect(
+				await runtime.runPromise(
+					apiStore.getOrCreateUsageHistoryKey("alice", "c".repeat(64)),
+				),
+			).toBe("c".repeat(64));
 		} finally {
 			await runtime.dispose();
 		}

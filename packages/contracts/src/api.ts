@@ -105,6 +105,12 @@ export const ApiPaths = {
 	cloudSnapshotImport: "/v1/cloud/image/snapshot",
 	cloudProjectPrepare: (projectId: string) =>
 		`/v1/cloud/projects/${encodeURIComponent(projectId)}/prepare`,
+	usageProfile: "/v1/usage-profile",
+	usageHistory: "/v1/usage-history",
+	usageHistoryKey: "/v1/usage-history/key",
+	usageHistorySettings: "/v1/usage-history/settings",
+	publicUsageProfile: (handle: string) =>
+		`/v1/public/usage-profiles/${encodeURIComponent(handle)}`,
 	cloudApiKeys: "/v1/cloud/api-keys",
 	cloudApiKey: (keyId: string) =>
 		`/v1/cloud/api-keys/${encodeURIComponent(keyId)}`,
@@ -155,6 +161,10 @@ export const ApiPaths = {
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/bootstrap/ack`,
 	cloudWorkspaceRuntimeCredentialsRenew: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/credentials/renew`,
+	cloudWorkspaceRuntimeUsageHistory: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/usage-history`,
+	cloudWorkspaceRuntimeUsageHistoryKey: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/usage-history/key`,
 	cloudWorkspaceRuntimeGithubCredential: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/github-credential`,
 	cloudWorkspaceRuntimeCodexGrant: (workspaceId: string) =>

@@ -13,6 +13,7 @@
 		"test:unit": "vp test run test/unit",
 		"test:wallpaper-browser": "node test/integration/wallpaper.browser.mjs",
 		"test:startup-browser": "node test/integration/react-startup.browser.mjs",
+		"test:usage-profile-browser": "node test/integration/usage-profile.browser.mjs",
 		"test:integration": "vp test run test/integration --passWithNoTests",
 		"test:cloud-repository-state-browser": "node test/integration/cloud-repository-state.browser.mjs",
 		"test:transcript-scroll-browser": "node test/integration/transcript-scroll.browser.mjs",

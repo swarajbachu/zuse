@@ -288,6 +288,17 @@ const UpdateCloudSharingDefaults = MemoizeRpcs.toLayerHandler(
 	(input) =>
 		withCloudControl((service) => service.updateCloudSharingDefaults(input)),
 );
+const UsageProfileGet = MemoizeRpcs.toLayerHandler("usage.profile.get", () =>
+	withCloudControl((service) => service.getUsageProfile()),
+);
+const UsageProfilePublish = MemoizeRpcs.toLayerHandler(
+	"usage.profile.publish",
+	(input) => withCloudControl((service) => service.publishUsageProfile(input)),
+);
+const UsageProfileUnpublish = MemoizeRpcs.toLayerHandler(
+	"usage.profile.unpublish",
+	() => withCloudControl((service) => service.unpublishUsageProfile()),
+);
 const CloudApiKeysList = MemoizeRpcs.toLayerHandler("cloud.apiKeys.list", () =>
 	withCloudControl((service) => service.listCloudApiKeys()),
 );
@@ -575,6 +586,9 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	UpdateCloudSharingDefaults,
 	CloudSettings,
 	UpdateCloudSettings,
+	UsageProfileGet,
+	UsageProfilePublish,
+	UsageProfileUnpublish,
 	CloudApiKeysList,
 	CloudApiKeysCreate,
 	CloudApiKeysRevoke,

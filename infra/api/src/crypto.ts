@@ -21,6 +21,14 @@ export const sha256Hex = (input: string): Effect.Effect<string> =>
 			.join("");
 	});
 
+/** Lowercase hex encoding of `bytes` cryptographically random bytes. */
+export const randomHex = (bytes: number): Effect.Effect<string> =>
+	Effect.sync(() =>
+		[...crypto.getRandomValues(new Uint8Array(bytes))]
+			.map((byte) => byte.toString(16).padStart(2, "0"))
+			.join(""),
+	);
+
 /** A random opaque token with a typed prefix, e.g. `zenv_a1b2…`. */
 export const randomToken = (
 	prefix: string,

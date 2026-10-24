@@ -4,6 +4,8 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./usage-history": "./src/usage-history.ts",
+		"./usage-profile": "./src/usage-profile.ts",
 		"./usage-values": "./src/usage-values.ts",
 		"./release-version": "./src/release-version.mjs",
 		"./cloud-auth-crypto": "./src/cloud-auth-crypto.ts",

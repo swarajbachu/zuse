@@ -114,6 +114,7 @@ it("upgrades main while preserving harness executions and encrypted model record
 						{ migration_id: 90, name: "masters" },
 						{ migration_id: 91, name: "master_event_index" },
 						{ migration_id: 92, name: "review_guides" },
+						{ migration_id: 93, name: "usage_history" },
 					]);
 					expect(yield* sql`SELECT * FROM device_bridge_enrollment`).toEqual(
 						[],

@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { cloudControlError } from "@zuse/client-runtime/control-api-error";
 import {
 	type FolderId,
 	MemoizeRpcs,
@@ -7,9 +8,11 @@ import {
 	ProviderUsageLimits as ProviderUsageLimitsSchema,
 	UsageLimitHistoryPoint as UsageLimitHistoryPointSchema,
 	UsageOverview as UsageOverviewSchema,
+	UsageProfileSnapshot as UsageProfileSnapshotSchema,
 	UsageReport as UsageReportSchema,
 	UsageSessionsPage as UsageSessionsPageSchema,
 } from "@zuse/contracts";
+import { usageProfileSnapshot } from "@zuse/utils/usage-profile";
 import { Effect, Layer, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import {
@@ -19,16 +22,23 @@ import {
 } from "tokenmaxer";
 
 import { AppPaths } from "../app-paths.ts";
+import { MachineControlError } from "../machine/machine-control-service.ts";
 import {
 	ensureSqliteRenameCompatibility,
 	sqliteDbPath,
 } from "../persistence/db-path.ts";
 import {
-	loadAndMergePersistedDaily,
-	persistDailyAggregates,
+	remoteHistoryForProfile,
+	setUsageBackup,
+	usageBackupState,
+} from "./backup.ts";
+import {
+	loadAndMergePersistedUsage,
+	mergeRemoteHistory,
 	persistPricedUsageOnce,
+	persistUsageHistory,
 	resetPersistedPricedUsageForTest,
-} from "./cost-history.ts";
+} from "./history.ts";
 import { usageCliFetchers } from "./limits/cli-fetchers.ts";
 import { mergeUsageLimits } from "./limits/merge.ts";
 import { recordLimitSnapshots } from "./limits/recorder.ts";
@@ -234,14 +244,14 @@ const loadUsageReportData = (
 				{ forceRefresh: options.forceRefresh, load: options.loadPriced },
 			),
 		).pipe(Effect.orDie);
-		yield* persistPricedUsageOnce(priced, persistDailyAggregates).pipe(
+		yield* persistPricedUsageOnce(priced, persistUsageHistory).pipe(
 			Effect.catchCause((cause) =>
 				Effect.logWarning(
 					`[usage] daily aggregate persistence failed; it will retry: ${String(cause)}`,
 				),
 			),
 		);
-		const merged = yield* loadAndMergePersistedDaily(priced).pipe(
+		const merged = yield* loadAndMergePersistedUsage(priced).pipe(
 			Effect.catch(() => Effect.succeed(priced)),
 		);
 		return { merged, projectPaths };
@@ -492,9 +502,83 @@ const UsageLimitsHistory = MemoizeRpcs.toLayerHandler(
 		}).pipe(Effect.orDie),
 );
 
+const validTimeZone = (timeZone: string) => {
+	try {
+		new Intl.DateTimeFormat("en-US", { timeZone });
+		return timeZone;
+	} catch {
+		return "UTC";
+	}
+};
+
+/**
+ * UTC year to date across all projects; raw records never leave the server.
+ * With account backup on, other devices' history is merged in.
+ */
+export const buildUsageProfileSnapshot = (timeZone: string) =>
+	Effect.gen(function* () {
+		const now = new Date();
+		const year = now.getUTCFullYear();
+		const data = yield* loadUsageReportData({ forceRefresh: true });
+		const remote = yield* remoteHistoryForProfile.pipe(
+			Effect.catch(() => Effect.succeed(null)),
+		);
+		const report = buildReportFromData(
+			remote === null
+				? data
+				: {
+						...data,
+						merged: {
+							...data.merged,
+							records: mergeRemoteHistory(
+								data.merged.records,
+								remote.rows,
+								remote.secret,
+							),
+						},
+					},
+			{
+				bucket: "daily",
+				since: new Date(Date.UTC(year, 0, 1)),
+				until: now,
+				timezone: "UTC",
+			},
+		);
+		return Schema.decodeUnknownSync(UsageProfileSnapshotSchema)(
+			usageProfileSnapshot(report, year, validTimeZone(timeZone)),
+		);
+	});
+
+const UsageProfileSnapshot = MemoizeRpcs.toLayerHandler(
+	"usage.profile.snapshot",
+	({ timeZone }) => buildUsageProfileSnapshot(timeZone),
+);
+
+const UsageBackupGet = MemoizeRpcs.toLayerHandler(
+	"usage.backup.get",
+	() => usageBackupState,
+);
+
+const UsageBackupSet = MemoizeRpcs.toLayerHandler("usage.backup.set", (input) =>
+	setUsageBackup(input, buildUsageProfileSnapshot).pipe(
+		Effect.catch((error) =>
+			Effect.fail(
+				cloudControlError(
+					error instanceof MachineControlError
+						? error.code
+						: "provider-unavailable",
+				),
+			),
+		),
+	),
+);
+
 export const UsageHandlersLayer = Layer.mergeAll(
 	UsageReport,
 	UsageOverview,
+	UsageProfileSnapshot,
+	UsageBackupGet,
+	UsageBackupSet,
 	UsageSessions,
 	UsageLimits,
 	UsageLimitsHistory,

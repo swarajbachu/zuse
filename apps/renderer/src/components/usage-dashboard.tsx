@@ -3,6 +3,8 @@ import {
 	formatNumber as formatUiNumber,
 } from "@zuse/i18n";
 import { usageLimitsUnavailableLabel } from "~/lib/usage-limits-display";
+import { PublishUsageProfile } from "./usage/publish-usage-profile";
+import { UsageBackup } from "./usage/usage-backup";
 import "@zuse/i18n/english/usage";
 import type {
 	EnvironmentId,
@@ -147,10 +149,14 @@ export function UsageDashboard({
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col bg-background">
-			<header className="flex h-12 shrink-0 items-center border-b border-border px-5">
+			<header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-5">
 				<h1 className="text-sm font-medium">
 					{uiMessage("usage:usage_dashboard_usage")}
 				</h1>
+				<div className="flex items-center gap-1">
+					<UsageBackup environmentId={environmentId} />
+					<PublishUsageProfile environmentId={environmentId} />
+				</div>
 			</header>
 			<div className="flex w-full flex-wrap items-center justify-between gap-3 px-6 pt-5">
 				<p className="text-xs text-muted-foreground">{scopeLabel}</p>

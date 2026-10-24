@@ -61,6 +61,8 @@ import {
 	PluginResponse,
 	type SessionId,
 	type SessionStreamCursor,
+	type UsageProfileInput,
+	UsageProfileState,
 	WORKSPACE_GATEWAY_PENDING_PROTOCOL,
 	WorkspaceSettings,
 	type WorkspaceSettingsUpdate,
@@ -76,6 +78,11 @@ export type CloudControlRequest = <A>(
 ) => Effect.Effect<A, CloudWorkspaceOpError>;
 
 export const makeCloudControlClient = (request: CloudControlRequest) => ({
+	"usage.profile.get": () => request(ApiPaths.usageProfile, UsageProfileState),
+	"usage.profile.publish": (input: UsageProfileInput) =>
+		request(ApiPaths.usageProfile, UsageProfileState, "PUT", input),
+	"usage.profile.unpublish": () =>
+		request(ApiPaths.usageProfile, UsageProfileState, "DELETE"),
 	"cloud.snapshot.import": (input: CloudSnapshotImportRequest) =>
 		request(ApiPaths.cloudSnapshotImport, CloudAccountImage, "POST", input),
 	"plugins.request": (input: PluginRequest) =>

@@ -210,7 +210,13 @@ describe("cloud runtime control transport", () => {
 			Layer.provide(
 				Layer.mergeAll(
 					Layer.succeed(MachineRuntimeRole, "cloud-environment"),
-					Layer.succeed(RuntimeCloudControl, { current: { request } }),
+					Layer.succeed(RuntimeCloudControl, {
+						current: {
+							workspaceId: "workspace-1",
+							request,
+							runtimeRequest: request,
+						},
+					}),
 					Layer.succeed(AuthService, {
 						getAccessToken,
 						getSession: () => Effect.succeed({ _tag: "SignedOut" }),

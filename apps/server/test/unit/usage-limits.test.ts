@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergePersistedDaily } from "../../src/usage/cost-history.ts";
+import { mergePersistedUsage } from "../../src/usage/history.ts";
 import { parseClaudeUsagePayload } from "../../src/usage/limits/claude-usage.ts";
 import { mapCodexRateLimits } from "../../src/usage/limits/codex-usage.ts";
 import {
@@ -310,7 +310,7 @@ describe("usage limit normalization", () => {
 				record_count: 1,
 			},
 		];
-		const empty = mergePersistedDaily({ records: [], sources: [] }, rows);
+		const empty = mergePersistedUsage({ records: [], sources: [] }, [], rows);
 		expect(empty.records[0]?.provenance).toBe("persisted-daily");
 		const persisted = empty.records[0];
 		expect(persisted).toBeDefined();
@@ -319,6 +319,6 @@ describe("usage limit normalization", () => {
 			...empty,
 			records: [{ ...persisted, provenance: "live" }],
 		};
-		expect(mergePersistedDaily(live, rows).records).toHaveLength(1);
+		expect(mergePersistedUsage(live, [], rows).records).toHaveLength(1);
 	});
 });

@@ -66,6 +66,10 @@ const publicApiMigrationUrl = new URL(
 	"../../drizzle/migrations/0019_public_api.sql",
 	import.meta.url,
 );
+const usageHistoryMigrationUrl = new URL(
+	"../../drizzle/migrations/0049_usage_history.sql",
+	import.meta.url,
+);
 const publicApiReliabilityMigrationUrl = new URL(
 	"../../drizzle/migrations/0020_public_api_reliability.sql",
 	import.meta.url,
@@ -130,7 +134,32 @@ describe("relay migration reconciliation", () => {
 			{ idx: 46, tag: "0045_github_member_repository_scope" },
 			{ idx: 47, tag: "0046_daytona_provider_connections" },
 			{ idx: 48, tag: "0047_master_ownership" },
+			{ idx: 49, tag: "0048_public_usage_profiles" },
+			{ idx: 50, tag: "0049_usage_history" },
 		]);
+	});
+
+	test("adds usage history backup as new tables without touching existing data", async () => {
+		const migration = await readFile(usageHistoryMigrationUrl, "utf8");
+		expect(
+			[...migration.matchAll(/CREATE TABLE "([^"]+)"/gu)].map(
+				([, table]) => table,
+			),
+		).toEqual(["api_usage_history_keys", "api_usage_history"]);
+		expect(migration).toContain('"id" bigserial NOT NULL');
+		expect(migration).toContain(
+			'"backup_enabled" boolean DEFAULT false NOT NULL',
+		);
+		expect(migration).toContain(
+			'PRIMARY KEY("account_id","hour","source_id","model","session","project")',
+		);
+		expect(migration).toContain(
+			'ON "api_usage_history" USING btree ("account_id","id")',
+		);
+		expect(migration).not.toMatch(
+			/\b(?:ALTER|DROP|DELETE|TRUNCATE|UPDATE)\b/iu,
+		);
+		expect(migration).not.toMatch(/prompt|content|path|transcript/iu);
 	});
 
 	test("stores only authority location and fencing metadata", async () => {

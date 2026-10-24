@@ -4,6 +4,7 @@ import {
 	bigserial,
 	boolean,
 	check,
+	doublePrecision,
 	foreignKey,
 	index,
 	integer,
@@ -1595,4 +1596,55 @@ export const apiMasterOwnership = pgTable(
 		repositoriesJson: text("repositories_json").notNull(),
 	},
 	(table) => [primaryKey({ columns: [table.accountId, table.masterId] })],
+);
+
+export const apiUsageProfiles = pgTable("api_usage_profiles", {
+	accountId: text("account_id").primaryKey(),
+	handle: text("handle").notNull().unique(),
+	published: boolean("published").notNull().default(false),
+	payload: jsonb("payload").notNull(),
+});
+
+export const apiUsageHistoryKeys = pgTable("api_usage_history_keys", {
+	accountId: text("account_id").primaryKey(),
+	key: text("key").notNull(),
+	backupEnabled: boolean("backup_enabled").notNull().default(false),
+});
+
+export const apiUsageHistory = pgTable(
+	"api_usage_history",
+	{
+		id: bigserial("id", { mode: "number" }).notNull().unique(),
+		accountId: text("account_id").notNull(),
+		hour: text("hour").notNull(),
+		sourceId: text("source_id").notNull(),
+		model: text("model").notNull(),
+		session: text("session").notNull(),
+		project: text("project").notNull(),
+		inputTokens: bigint("input_tokens", { mode: "number" }).notNull(),
+		outputTokens: bigint("output_tokens", { mode: "number" }).notNull(),
+		cacheReadTokens: bigint("cache_read_tokens", { mode: "number" }).notNull(),
+		cacheCreationTokens: bigint("cache_creation_tokens", {
+			mode: "number",
+		}).notNull(),
+		reasoningTokens: bigint("reasoning_tokens", { mode: "number" }).notNull(),
+		costUsd: doublePrecision("cost_usd"),
+		recordCount: bigint("record_count", { mode: "number" }).notNull(),
+		firstAt: bigint("first_at", { mode: "number" }).notNull(),
+		lastAt: bigint("last_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		primaryKey({
+			name: "api_usage_history_pk",
+			columns: [
+				table.accountId,
+				table.hour,
+				table.sourceId,
+				table.model,
+				table.session,
+				table.project,
+			],
+		}),
+		index("api_usage_history_account_id_idx").on(table.accountId, table.id),
+	],
 );

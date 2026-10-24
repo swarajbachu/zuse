@@ -2815,6 +2815,28 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const control = yield* Effect.serviceOption(RuntimeCloudControl);
 					if (control._tag === "Some") {
 						const transport = {
+							workspaceId: config.workspaceId,
+							runtimeRequest: async (
+								path: string,
+								method: string,
+								body?: unknown,
+							) => {
+								await runNetworkPromise(ensureCredential);
+								return (network ? network.request.bind(network) : fetch)(
+									`${config.apiUrl}${path}`,
+									{
+										method,
+										headers: {
+											authorization: `Bearer ${runtimeCredential.credential}`,
+											...(body === undefined
+												? {}
+												: { "content-type": "application/json" }),
+										},
+										body: body === undefined ? undefined : JSON.stringify(body),
+										signal: AbortSignal.timeout(30_000),
+									},
+								);
+							},
 							request: async (path: string, method: string, body?: unknown) => {
 								await runNetworkPromise(ensureCredential);
 								return (network ? network.request.bind(network) : fetch)(

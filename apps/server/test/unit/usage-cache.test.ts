@@ -13,10 +13,7 @@ import {
 } from "tokenmaxer";
 import { beforeEach, describe, expect, it } from "vitest";
 import { AppPaths } from "../../src/app-paths.ts";
-import {
-	persistPricedUsageOnce,
-	resetPersistedPricedUsageForTest,
-} from "../../src/usage/cost-history.ts";
+import { Migration0093UsageHistory } from "../../src/persistence/migrations/0093_usage_history.ts";
 import {
 	loadUsageOverviewCached,
 	overviewProjectionMetrics,
@@ -26,6 +23,10 @@ import {
 	resetUsageReportCacheForTest,
 	trimUsageReportForPayload,
 } from "../../src/usage/handlers.ts";
+import {
+	persistPricedUsageOnce,
+	resetPersistedPricedUsageForTest,
+} from "../../src/usage/history.ts";
 import { loadPricedUsageCached } from "../../src/usage/report-cache.ts";
 
 const emptyUsage = (id: string): PricedUsage => ({
@@ -166,6 +167,7 @@ describe("usage report cache", () => {
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
 					yield* sql`CREATE TABLE usage_cost_daily (day TEXT NOT NULL, source_id TEXT NOT NULL, model TEXT NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, cache_read_tokens INTEGER NOT NULL, cache_creation_tokens INTEGER NOT NULL, reasoning_tokens INTEGER NOT NULL, cost_usd REAL, cost_status TEXT NOT NULL, record_count INTEGER NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(day, source_id, model))`;
+					yield* Migration0093UsageHistory;
 				}),
 			);
 			const options = {

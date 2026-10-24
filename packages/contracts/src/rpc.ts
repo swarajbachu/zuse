@@ -446,7 +446,14 @@ import {
 	SkillStreamRpc,
 } from "./skill.ts";
 import { UsageOverviewRpc, UsageReportRpc, UsageSessionsRpc } from "./usage.ts";
+import { UsageBackupGetRpc, UsageBackupSetRpc } from "./usage-history.ts";
 import { UsageLimitsHistoryRpc, UsageLimitsRpc } from "./usage-limits.ts";
+import {
+	UsageProfileGetRpc,
+	UsageProfilePublishRpc,
+	UsageProfileSnapshotRpc,
+	UsageProfileUnpublishRpc,
+} from "./usage-profile.ts";
 import {
 	VoiceCapabilitiesRpc,
 	VoicePrewarmRpc,
@@ -877,6 +884,12 @@ export const MemoizeRpcs = RpcGroup.make(
 	SettingsStreamRpc,
 	SettingsMigrateLocalStorageRpc,
 	UsageReportRpc,
+	UsageProfileGetRpc,
+	UsageProfilePublishRpc,
+	UsageProfileUnpublishRpc,
+	UsageProfileSnapshotRpc,
+	UsageBackupGetRpc,
+	UsageBackupSetRpc,
 	UsageOverviewRpc,
 	UsageSessionsRpc,
 	UsageLimitsRpc,

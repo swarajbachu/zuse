@@ -87,6 +87,8 @@ import {
 	type EnvironmentRecord,
 	type ProviderKind,
 } from "./store.ts";
+import { routeUsageHistoryRequest } from "./usage-history-routes.ts";
+import { routeUsageProfileRequest } from "./usage-profile-routes.ts";
 import { WorkosVerifier } from "./workos.ts";
 import {
 	requestWorkspaceScope,
@@ -382,6 +384,10 @@ const route = (
 		const cloudBillingResponse = yield* routeCloudBillingRequest(request);
 		if (cloudBillingResponse !== null) return cloudBillingResponse;
 
+		const usageProfileResponse = yield* routeUsageProfileRequest(request);
+		if (usageProfileResponse !== null) return usageProfileResponse;
+		const usageHistoryResponse = yield* routeUsageHistoryRequest(request);
+		if (usageHistoryResponse !== null) return usageHistoryResponse;
 		const apiKeyResponse = yield* routeApiKeyRequest(request);
 		if (apiKeyResponse !== null) return apiKeyResponse;
 		const cloudWorkspaceResponse = yield* routeCloudWorkspaceRequest(request);

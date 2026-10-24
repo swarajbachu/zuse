@@ -217,6 +217,10 @@ import {
 } from "./organizations.ts";
 import { SandboxOfferConfiguration } from "./sandbox-provider-module.ts";
 import { ApiStore } from "./store.ts";
+import {
+	getUsageHistoryRuntimeKey,
+	putUsageHistory,
+} from "./usage-history-routes.ts";
 import type { WorkosVerifier } from "./workos.ts";
 import { requireWorkspaceAccess } from "./workspace-authorization.ts";
 import {
@@ -2064,6 +2068,32 @@ const routeCloudWorkspaceRequestWithAccess = (
 				ownerId: source.accountId,
 				membership: null,
 			});
+		}
+
+		const usageHistoryMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/usage-history(\/key)?$/u.exec(
+				path,
+			);
+		if (
+			usageHistoryMatch !== null &&
+			(usageHistoryMatch[2] ? method === "GET" : method === "PUT")
+		) {
+			// Uploads may continue while the workspace stops, so only the
+			// runtime credential is required, not a ready state.
+			const source = yield* requireRuntime(
+				request,
+				decodeURIComponent(usageHistoryMatch[1] ?? ""),
+				nowMs,
+			);
+			if (source.accountId.startsWith("organization:"))
+				return yield* forbidden(
+					"runtime_usage_history_requires_personal_workspace",
+				);
+			return usageHistoryMatch[2]
+				? yield* getUsageHistoryRuntimeKey(source.accountId)
+				: yield* putUsageHistory(request, source.accountId, {
+						requireBackupEnabled: true,
+					});
 		}
 
 		const deviceBridgeMatch =

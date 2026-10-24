@@ -3,10 +3,9 @@ import { Effect, Layer, Schedule } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { AppPaths } from "../../app-paths.ts";
 import { sqliteDbPath } from "../../persistence/db-path.ts";
-import {
-	persistDailyAggregates,
-	persistPricedUsageOnce,
-} from "../cost-history.ts";
+import { syncCloudUsageHistory, syncUsageBackup } from "../backup.ts";
+import { buildUsageProfileSnapshot } from "../handlers.ts";
+import { persistPricedUsageOnce, persistUsageHistory } from "../history.ts";
 import { loadPricedUsageCached } from "../report-cache.ts";
 import { usageCliFetchers } from "./cli-fetchers.ts";
 import { mergeUsageLimits, type SessionUsageWindow } from "./merge.ts";
@@ -81,9 +80,14 @@ const poll = Effect.gen(function* () {
 				join(paths.userData, "tokenmaxer"),
 			),
 		);
-		yield* persistPricedUsageOnce(priced, persistDailyAggregates);
+		yield* persistPricedUsageOnce(priced, persistUsageHistory);
 		lastDailyCostPersistAt = now;
 	}
+	yield* syncUsageBackup({
+		force: false,
+		buildSnapshot: buildUsageProfileSnapshot,
+	});
+	yield* syncCloudUsageHistory({});
 }).pipe(
 	Effect.catchCause((cause) =>
 		Effect.logWarning(`[usage] limits poll failed: ${String(cause)}`),
