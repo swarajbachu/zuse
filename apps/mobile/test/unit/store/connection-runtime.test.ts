@@ -1,16 +1,25 @@
 import { beforeEach, expect, test, vi } from "vitest";
+import type { ConnectionSnapshot } from "../../../src/rpc/connection";
 import {
 	retryConnection,
 	watchConnection,
 } from "../../../src/store/connection-runtime";
+import { refreshConnectionLabel } from "../../../src/store/connections";
 import { registerLocalRouteRecovery } from "../../../src/store/local-route-recovery";
 
 const runtime = vi.hoisted(() => ({
 	listener: null as ((state: string) => void) | null,
+	snapshotListener: undefined as
+		| ((snapshot: ConnectionSnapshot) => void)
+		| undefined,
 	setOnline: vi.fn(),
 	setResourcesOnline: vi.fn(),
 	retryTransport: vi.fn(),
 	retryResources: vi.fn(),
+}));
+
+vi.mock("~/store/connections", () => ({
+	refreshConnectionLabel: vi.fn(async () => undefined),
 }));
 
 vi.mock("react-native", () => ({
@@ -23,8 +32,29 @@ vi.mock("react-native", () => ({
 }));
 vi.mock("~/rpc/cloud-runtime", () => ({ cloudRuntimeReady: () => true }));
 vi.mock("~/rpc/connection", () => ({
-	getConnectionSnapshot: () => ({ status: "connected" }),
-	subscribeConnection: () => () => undefined,
+	getConnectionSnapshot: () => ({
+		key: "desktop",
+		status: "connected",
+		generation: 1,
+		attempt: 0,
+		error: null,
+	}),
+	subscribeConnection: (
+		_options: unknown,
+		listener: (snapshot: ConnectionSnapshot) => void,
+	) => {
+		runtime.snapshotListener = listener;
+		listener({
+			key: "desktop",
+			status: "connected",
+			generation: 1,
+			attempt: 0,
+			error: null,
+		});
+		return () => {
+			runtime.snapshotListener = undefined;
+		};
+	},
 	setConnectionOnline: runtime.setOnline,
 	retryConnectionNow: runtime.retryTransport,
 }));
@@ -84,4 +114,21 @@ test("manual retry rebuilds a pinned native proxy instead of dialing its stale p
 	} finally {
 		remove();
 	}
+});
+
+test("refreshes saved metadata once per connected generation including an already-connected mount", () => {
+	expect(refreshConnectionLabel).toHaveBeenCalledExactlyOnceWith(
+		"desktop",
+		options,
+	);
+	const snapshot = { key: "desktop", generation: 1, attempt: 0, error: null };
+	runtime.snapshotListener?.({ ...snapshot, status: "connected" });
+	runtime.snapshotListener?.({ ...snapshot, status: "reconnecting" });
+	expect(refreshConnectionLabel).toHaveBeenCalledTimes(1);
+	runtime.snapshotListener?.({
+		...snapshot,
+		status: "connected",
+		generation: 2,
+	});
+	expect(refreshConnectionLabel).toHaveBeenCalledTimes(2);
 });

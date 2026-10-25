@@ -6,7 +6,7 @@ import {
 import { Effect } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import * as SecureStore from "expo-secure-store";
-
+import { connectionErrorMessage } from "~/lib/connection-error-message";
 import {
 	type ConnectionRecord,
 	type ConnectionSource,
@@ -98,6 +98,10 @@ export const hydrateConnections = async (): Promise<void> => {
 	}
 };
 
+/**
+ * Save a computer after validating RPC access, or retain an already-approved
+ * nearby identity so its credential survives a failed initial connection.
+ */
 export const addConnection = async ({
 	host,
 	port,
@@ -111,6 +115,7 @@ export const addConnection = async ({
 	refreshAccountGrant,
 	wsBaseUrl,
 	httpBaseUrl,
+	approvedNearbyEnvironment,
 }: {
 	host: string;
 	port: number;
@@ -124,6 +129,11 @@ export const addConnection = async ({
 	refreshAccountGrant?: boolean;
 	wsBaseUrl?: string;
 	httpBaseUrl?: string;
+	/** Identity received over the pinned nearby pairing transport after approval. */
+	approvedNearbyEnvironment?: {
+		readonly environmentId: string;
+		readonly label: string;
+	};
 }): Promise<ConnectionRecord> => {
 	const trimmedHost = host.trim();
 	const redeemed = await redeemPairingCodeIfNeeded({
@@ -132,20 +142,30 @@ export const addConnection = async ({
 		token,
 		httpBaseUrl,
 	});
-	const descriptor = await describeEnvironment({
-		host: trimmedHost,
-		port,
-		token: redeemed.token,
-		wsBaseUrl,
-	});
 	if (
-		descriptor === null &&
-		(source === "manual" || (source === "paired" && redeemed.token !== null))
-	) {
+		approvedNearbyEnvironment !== undefined &&
+		(source !== "paired" ||
+			!redeemed.token ||
+			!serverPublicKey ||
+			!serverKeyPin ||
+			serverKeyPinForPublicKey(serverPublicKey) !== serverKeyPin ||
+			!transportCertificatePin ||
+			!nearbyServiceName ||
+			!approvedNearbyEnvironment.environmentId)
+	)
 		throw new Error(
-			"Could not reach that desktop. Check the address, token, and network, then try again.",
+			"The approved nearby identity is incomplete. Pair with the Mac again.",
 		);
-	}
+	// Pairing already authenticated this Mac. Persist its trust before opening RPC;
+	// a failed disposable route must not discard an approved device credential.
+	const descriptor =
+		approvedNearbyEnvironment === undefined
+			? await describeEnvironment(
+					{ host: trimmedHost, port, token: redeemed.token, wsBaseUrl },
+					source === "manual" ||
+						(source === "paired" && redeemed.token !== null),
+				)
+			: { ...approvedNearbyEnvironment, capabilities: undefined };
 	const identity =
 		descriptor?.environmentId ??
 		redeemed.environmentId ??
@@ -241,9 +261,8 @@ export const updateConnectionLabel = async (
 };
 
 /**
- * Re-describe an already-paired environment and adopt its human label if the
- * server now reports a nicer one (e.g. after the Phase 1 machine-naming
- * change lands on desktop). No-op when the label is unchanged.
+ * Refresh a saved computer's label, identity, and capabilities from its live
+ * descriptor. Failed reads leave saved metadata intact; unchanged data is a no-op.
  */
 export const refreshConnectionLabel = async (
 	key: string,
@@ -366,11 +385,20 @@ const redeemPairingCodeIfNeeded = async ({
 	});
 };
 
-const describeEnvironment = async (options: WsProtocolOptions) => {
+/** Read the live descriptor, preserving connection failures when access is required. */
+const describeEnvironment = async (
+	options: WsProtocolOptions,
+	required = false,
+) => {
 	try {
 		const client = await Effect.runPromise(getConnectionClient(options));
 		return await Effect.runPromise(client["connect.describe"]());
-	} catch {
+	} catch (cause) {
+		if (required)
+			throw new Error(
+				`Could not reach that desktop. ${connectionErrorMessage(cause)}`,
+				{ cause },
+			);
 		return null;
 	}
 };

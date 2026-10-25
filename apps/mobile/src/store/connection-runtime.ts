@@ -10,7 +10,9 @@ import {
 	setConnectionOnline,
 	subscribeConnection,
 } from "~/rpc/connection";
+import { logConnectionProblem } from "~/rpc/connection-diagnostics";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
+import { refreshConnectionLabel } from "./connections";
 import { recoverLocalRoute } from "./local-route-recovery";
 import {
 	retryMobileClientBusConnections,
@@ -57,6 +59,7 @@ const patchSnapshot = (connKey: string, snapshot: ConnectionSnapshot): void => {
 	);
 };
 
+/** Publish connection state and refresh saved metadata once per successful generation. */
 export const watchConnection = (
 	connKey: string,
 	options: WsProtocolOptions,
@@ -67,10 +70,24 @@ export const watchConnection = (
 	)
 		return () => undefined;
 	installAppStateOnlineBridge();
-	patchSnapshot(connKey, getConnectionSnapshot(options));
-	return subscribeConnection(options, (snapshot) => {
+	let refreshedGeneration: number | undefined;
+	const update = (snapshot: ConnectionSnapshot) => {
 		patchSnapshot(connKey, snapshot);
-	});
+		if (
+			snapshot.status !== "connected" ||
+			snapshot.generation === refreshedGeneration
+		)
+			return;
+		refreshedGeneration = snapshot.generation;
+		void refreshConnectionLabel(connKey, options).catch((cause) => {
+			logConnectionProblem("descriptor.refresh_failed", {
+				key: connKey,
+				cause,
+			});
+		});
+	};
+	update(getConnectionSnapshot(options));
+	return subscribeConnection(options, update);
 };
 
 export const retryConnection = (
