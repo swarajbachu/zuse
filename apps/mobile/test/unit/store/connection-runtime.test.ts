@@ -120,6 +120,7 @@ test("refreshes saved metadata once per connected generation including an alread
 	expect(refreshConnectionLabel).toHaveBeenCalledExactlyOnceWith(
 		"desktop",
 		options,
+		1,
 	);
 	const snapshot = { key: "desktop", generation: 1, attempt: 0, error: null };
 	runtime.snapshotListener?.({ ...snapshot, status: "connected" });

@@ -79,12 +79,14 @@ export const watchConnection = (
 		)
 			return;
 		refreshedGeneration = snapshot.generation;
-		void refreshConnectionLabel(connKey, options).catch((cause) => {
-			logConnectionProblem("descriptor.refresh_failed", {
-				key: connKey,
-				cause,
-			});
-		});
+		void refreshConnectionLabel(connKey, options, snapshot.generation).catch(
+			(cause) => {
+				logConnectionProblem("descriptor.refresh_failed", {
+					key: connKey,
+					cause,
+				});
+			},
+		);
 	};
 	update(getConnectionSnapshot(options));
 	return subscribeConnection(options, update);

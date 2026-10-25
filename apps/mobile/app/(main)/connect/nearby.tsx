@@ -78,6 +78,7 @@ const randomNonce = (): string =>
 		byte.toString(16).padStart(2, "0"),
 	).join("");
 
+/** Discover nearby Macs and retain approved pairing credentials for reconnect. */
 export default function NearbyConnectScreen() {
 	const headerHeight = useHeaderContentInset();
 	const insets = useSafeAreaInsets();

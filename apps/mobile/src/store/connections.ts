@@ -21,7 +21,7 @@ import { deviceLabel, getOrCreateDeviceId } from "~/lib/device-identity";
 import { visibleConnectionLabel } from "~/lib/display-names";
 import { clearMediaCache } from "~/lib/media-cache";
 import { serverKeyPin as serverKeyPinForPublicKey } from "~/lib/nearby-pairing";
-import { getConnectionClient } from "~/rpc/connection";
+import { getConnectionClient, getConnectionSnapshot } from "~/rpc/connection";
 import { redeemPairingCode } from "~/rpc/pairing-client";
 import { connectionKey, type WsProtocolOptions } from "~/rpc/ws-protocol";
 import { cloudConnectionsAtom } from "./cloud-catalog";
@@ -75,9 +75,25 @@ const loadConnections = Effect.tryPromise({
 	),
 );
 
+let pendingConnectionWrite: Promise<void> = Promise.resolve();
+
+/** Order mutations of the shared storage entry without poisoning later writes on failure. */
+const serializeConnectionWrite = (
+	write: () => Promise<void>,
+): Promise<void> => {
+	const result = pendingConnectionWrite.then(write);
+	pendingConnectionWrite = result.catch(() => undefined);
+	return result;
+};
+
 const saveConnections = (connections: ConnectionRecord[]) =>
 	Effect.tryPromise({
-		try: () => SecureStore.setItemAsync(STORE_KEY, JSON.stringify(connections)),
+		try: () => {
+			const snapshot = JSON.stringify(connections);
+			return serializeConnectionWrite(() =>
+				SecureStore.setItemAsync(STORE_KEY, snapshot),
+			);
+		},
 		catch: (cause) => cause,
 	});
 
@@ -260,32 +276,58 @@ export const updateConnectionLabel = async (
 	await Effect.runPromise(saveConnections(next));
 };
 
+const descriptorRefreshes = new Map<string, symbol>();
+
 /**
- * Refresh a saved computer's label, identity, and capabilities from its live
- * descriptor. Failed reads leave saved metadata intact; unchanged data is a no-op.
+ * Refresh saved metadata only while the request and optional connected generation
+ * remain current. Failed or superseded reads leave the saved descriptor intact.
  */
 export const refreshConnectionLabel = async (
 	key: string,
 	options: WsProtocolOptions,
+	generation?: number,
 ): Promise<void> => {
 	if (options.cloudWorkspaceId !== undefined) return;
-	const descriptor = await describeEnvironment(options);
-	if (descriptor === null) return;
-	const nextLabel = visibleConnectionLabel(descriptor.label, key);
-	const connections = currentConnections();
-	const current = connections.find((c) => c.key === key);
-	if (current === undefined) return;
-	const next = refreshConnectionDescriptor(
-		connections,
-		key,
-		nextLabel,
-		descriptor.capabilities,
-		Date.now(),
-		descriptor.environmentId,
+	const original = currentConnections().find(
+		(connection) => connection.key === key,
 	);
-	if (next === connections) return;
-	appAtomRegistry.set(connectionsAtom, next);
-	await Effect.runPromise(saveConnections(next));
+	if (original === undefined) return;
+	const request = Symbol();
+	descriptorRefreshes.set(key, request);
+	try {
+		const descriptor = await describeEnvironment(options);
+		if (descriptor === null || descriptorRefreshes.get(key) !== request) return;
+		const connections = currentConnections();
+		const current = connections.find((connection) => connection.key === key);
+		if (
+			current === undefined ||
+			current.token !== original.token ||
+			current.host !== original.host ||
+			current.port !== original.port ||
+			current.wsBaseUrl !== original.wsBaseUrl ||
+			current.routeGeneration !== original.routeGeneration
+		)
+			return;
+		if (generation !== undefined) {
+			const snapshot = getConnectionSnapshot(options);
+			if (snapshot.status !== "connected" || snapshot.generation !== generation)
+				return;
+		}
+		const next = refreshConnectionDescriptor(
+			connections,
+			key,
+			visibleConnectionLabel(descriptor.label, key),
+			descriptor.capabilities,
+			Date.now(),
+			descriptor.environmentId,
+		);
+		if (next === connections) return;
+		appAtomRegistry.set(connectionsAtom, next);
+		await Effect.runPromise(saveConnections(next));
+	} finally {
+		if (descriptorRefreshes.get(key) === request)
+			descriptorRefreshes.delete(key);
+	}
 };
 
 /** Replace only the disposable network route for a stable paired Mac. */
@@ -338,6 +380,7 @@ export const restorePairedConnectionRoutes = async (
 };
 
 export const removeConnection = async (key: string): Promise<void> => {
+	descriptorRefreshes.delete(key);
 	const next = currentConnections().filter((c) => c.key !== key);
 	appAtomRegistry.set(connectionsAtom, next);
 	await Effect.runPromise(saveConnections(next));
@@ -345,11 +388,12 @@ export const removeConnection = async (key: string): Promise<void> => {
 };
 
 export const clearConnections = async (): Promise<void> => {
+	descriptorRefreshes.clear();
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(connectionsAtom, []);
 		appAtomRegistry.set(connectionsHydratedAtom, true);
 	});
-	await SecureStore.deleteItemAsync(STORE_KEY);
+	await serializeConnectionWrite(() => SecureStore.deleteItemAsync(STORE_KEY));
 	await clearMediaCache();
 };
 

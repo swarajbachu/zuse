@@ -8,6 +8,7 @@ import { watchConnection } from "../../../src/store/connection-runtime";
 
 import {
 	addConnection,
+	clearConnections,
 	connectionsAtom,
 	connectionsHydratedAtom,
 	hydrateConnections,
@@ -17,11 +18,20 @@ import { appAtomRegistry } from "../../../src/store/registry";
 
 const secureStore = vi.hoisted(() => ({
 	getItemAsync: vi.fn<() => Promise<string | null>>(),
-	setItemAsync: vi.fn(async () => undefined),
+	setItemAsync: vi.fn<(key: string, value: string) => Promise<void>>(
+		async () => undefined,
+	),
 	deleteItemAsync: vi.fn(async () => undefined),
 }));
 
 const transport = vi.hoisted(() => ({
+	snapshot: {
+		key: "paired:mac-1",
+		status: "reconnecting",
+		generation: 0,
+		attempt: 1,
+		error: "socket unavailable",
+	} as ConnectionSnapshot,
 	listener: undefined as ((snapshot: ConnectionSnapshot) => void) | undefined,
 }));
 vi.mock("react-native", () => ({
@@ -45,18 +55,15 @@ vi.mock("~/lib/nearby-pairing", () => ({
 }));
 vi.mock("~/rpc/connection", () => ({
 	getConnectionClient: vi.fn(),
-	getConnectionSnapshot: () => ({
-		key: "paired:mac-1",
-		status: "reconnecting",
-		generation: 0,
-		attempt: 1,
-		error: "socket unavailable",
-	}),
+	getConnectionSnapshot: () => transport.snapshot,
 	subscribeConnection: (
 		_options: unknown,
 		listener: (snapshot: ConnectionSnapshot) => void,
 	) => {
-		transport.listener = listener;
+		transport.listener = (snapshot) => {
+			transport.snapshot = snapshot;
+			listener(snapshot);
+		};
 		return () => {
 			transport.listener = undefined;
 		};
@@ -287,4 +294,145 @@ it("restores saved capabilities after approval and a failed first connection on 
 	} finally {
 		stop();
 	}
+});
+
+describe("descriptor refresh races", () => {
+	const record = {
+		key: "paired:mac-1",
+		environmentId: "mac-1",
+		host: "127.0.0.1",
+		port: 45000,
+		token: "zt_approved",
+		source: "paired" as const,
+		label: "MacBook",
+		updatedAt: 0,
+	};
+	const descriptor = (label: string) => ({
+		environmentId: "mac-1",
+		label,
+		capabilities: { version: 1, features: ["desktop-handoff-v1"] },
+	});
+	const useDescriptor = (
+		read: () => Promise<ReturnType<typeof descriptor>>,
+	) => {
+		vi.mocked(getConnectionClient).mockReturnValue(
+			Effect.succeed({
+				"connect.describe": () =>
+					Effect.tryPromise({ try: read, catch: (cause) => cause }),
+			}) as unknown as ReturnType<typeof getConnectionClient>,
+		);
+	};
+	beforeEach(() => {
+		appAtomRegistry.set(connectionsAtom, [record]);
+		secureStore.setItemAsync.mockReset();
+		secureStore.setItemAsync.mockResolvedValue(undefined);
+		transport.snapshot = {
+			key: record.key,
+			status: "connected",
+			generation: 1,
+			attempt: 0,
+			error: null,
+		};
+	});
+	it("ignores an older descriptor that completes after the newer generation", async () => {
+		const old = Promise.withResolvers<ReturnType<typeof descriptor>>();
+		useDescriptor(() => old.promise);
+		const first = refreshConnectionLabel(record.key, record, 1);
+		await vi.waitFor(() => expect(getConnectionClient).toHaveBeenCalled());
+		transport.snapshot = { ...transport.snapshot, generation: 2 };
+		useDescriptor(async () => descriptor("New Mac"));
+		await refreshConnectionLabel(record.key, record, 2);
+		old.resolve(descriptor("Old Mac"));
+		await first;
+		expect(appAtomRegistry.get(connectionsAtom)[0]?.label).toBe("New Mac");
+		expect(secureStore.setItemAsync).toHaveBeenCalledTimes(1);
+	});
+	it("ignores a descriptor after its connection generation stops being current", async () => {
+		const old = Promise.withResolvers<ReturnType<typeof descriptor>>();
+		useDescriptor(() => old.promise);
+		const refresh = refreshConnectionLabel(record.key, record, 1);
+		transport.snapshot = { ...transport.snapshot, status: "reconnecting" };
+		old.resolve(descriptor("Old Mac"));
+		await refresh;
+		expect(appAtomRegistry.get(connectionsAtom)[0]?.label).toBe("MacBook");
+		expect(secureStore.setItemAsync).not.toHaveBeenCalled();
+	});
+
+	it("ignores a descriptor after its saved route changes", async () => {
+		const old = Promise.withResolvers<ReturnType<typeof descriptor>>();
+		useDescriptor(() => old.promise);
+		const refresh = refreshConnectionLabel(record.key, record, 1);
+		appAtomRegistry.set(connectionsAtom, [
+			{ ...record, port: 46000, routeGeneration: 2 },
+		]);
+		old.resolve(descriptor("Old Mac"));
+		await refresh;
+		expect(appAtomRegistry.get(connectionsAtom)[0]).toMatchObject({
+			label: "MacBook",
+			port: 46000,
+		});
+		expect(secureStore.setItemAsync).not.toHaveBeenCalled();
+	});
+	it("finishes an older storage write before starting the newer write", async () => {
+		const firstWrite = Promise.withResolvers<void>();
+		let persisted = "";
+		secureStore.setItemAsync.mockImplementationOnce(async (_key, value) => {
+			await firstWrite.promise;
+			persisted = value;
+		});
+		secureStore.setItemAsync.mockImplementation(async (_key, value) => {
+			persisted = value;
+		});
+		useDescriptor(async () => descriptor("First Mac"));
+		const first = refreshConnectionLabel(record.key, record, 1);
+		await vi.waitFor(() =>
+			expect(secureStore.setItemAsync).toHaveBeenCalledTimes(1),
+		);
+		transport.snapshot = { ...transport.snapshot, generation: 2 };
+		useDescriptor(async () => descriptor("New Mac"));
+		const second = refreshConnectionLabel(record.key, record, 2);
+		try {
+			await vi.waitFor(() =>
+				expect(appAtomRegistry.get(connectionsAtom)[0]?.label).toBe("New Mac"),
+			);
+			expect(secureStore.setItemAsync).toHaveBeenCalledTimes(1);
+		} finally {
+			firstWrite.resolve();
+			await Promise.all([first, second]);
+		}
+		expect(JSON.parse(persisted)[0].label).toBe("New Mac");
+	});
+	it("does not resurrect saved credentials when clearing during an in-flight write", async () => {
+		const write = Promise.withResolvers<void>();
+		secureStore.setItemAsync.mockImplementationOnce(() => write.promise);
+		secureStore.deleteItemAsync.mockClear();
+		useDescriptor(async () => descriptor("New Mac"));
+		const refresh = refreshConnectionLabel(record.key, record, 1);
+		await vi.waitFor(() =>
+			expect(secureStore.setItemAsync).toHaveBeenCalledTimes(1),
+		);
+		const clear = clearConnections();
+		try {
+			expect(secureStore.deleteItemAsync).not.toHaveBeenCalled();
+		} finally {
+			write.resolve();
+			await Promise.all([refresh, clear]);
+		}
+		expect(secureStore.deleteItemAsync).toHaveBeenCalledTimes(1);
+		expect(appAtomRegistry.get(connectionsAtom)).toEqual([]);
+	});
+	it("allows later saves after a storage failure", async () => {
+		secureStore.setItemAsync.mockRejectedValueOnce(
+			new Error("storage unavailable"),
+		);
+		useDescriptor(async () => descriptor("First Mac"));
+		await expect(refreshConnectionLabel(record.key, record, 1)).rejects.toThrow(
+			"storage unavailable",
+		);
+		transport.snapshot = { ...transport.snapshot, generation: 2 };
+		useDescriptor(async () => descriptor("New Mac"));
+		await refreshConnectionLabel(record.key, record, 2);
+		expect(secureStore.setItemAsync).toHaveBeenCalledTimes(2);
+		expect(appAtomRegistry.get(connectionsAtom)[0]?.label).toBe("New Mac");
+	});
 });
