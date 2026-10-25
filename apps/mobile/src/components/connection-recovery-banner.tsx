@@ -20,9 +20,12 @@ function useSettledNotice(
 	const [visible, setVisible] = useState(notice?.tone === "problem");
 	const shownAt = useRef(0);
 	const latest = useRef(notice);
-	if (notice !== null) latest.current = notice;
 	const active = notice !== null;
 	const immediate = notice?.tone === "problem";
+
+	useEffect(() => {
+		if (notice !== null) latest.current = notice;
+	}, [notice]);
 
 	useEffect(() => {
 		if (active === visible) return;
