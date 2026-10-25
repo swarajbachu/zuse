@@ -1,6 +1,7 @@
 import { FloatingComposerLayout } from "../components/floating-composer-layout.tsx";
 import { isCloudProjectFolder } from "../lib/cloud-project-folders.ts";
-import { useReviewTabScope } from "../lib/review-tab-scope.ts";
+import { useReviewTabState } from "../lib/review-tab-scope.ts";
+import { useSelectedEnvironmentId } from "../lib/selected-environment.ts";
 import { useMastersStore } from "../store/masters.ts";
 
 const MastersSurface = lazy(() =>
@@ -334,9 +335,7 @@ export function MainShell() {
 		chatId: selectedChatId,
 		sessionId: storedSessionId,
 	});
-	const selectedEnvironmentId = EnvironmentId.make(
-		selectedCloudSummary?.workspaceId ?? activeEnvironmentId,
-	);
+	const selectedEnvironmentId = useSelectedEnvironmentId();
 
 	const cloudShell = useEnvironmentShellResource(
 		selectedCloudSummary === null ? null : selectedEnvironmentId,
@@ -493,14 +492,8 @@ export function MainShell() {
 		? (folders.find((f) => f.id === selectedFolderId) ?? null)
 		: null;
 
-	const reviewScope = useReviewTabScope(selectedEnvironmentId);
-	const changesTabOpen = useUiStore(
-		(s) => s.changesTabOpen && s.reviewTabScope === reviewScope,
-	);
-	const activeMainTab = useUiStore((s) =>
-		s.activeMainTab === "changes" && s.reviewTabScope !== reviewScope
-			? "chat"
-			: s.activeMainTab,
+	const { changesTabOpen, activeMainTab } = useReviewTabState(
+		selectedEnvironmentId,
 	);
 	const usageScope = useUiStore((s) => s.usageScope);
 	const openFile = useUiStore((s) => s.openFile);

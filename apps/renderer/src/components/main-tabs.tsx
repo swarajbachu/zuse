@@ -1,5 +1,8 @@
 import { providerDisplayName } from "~/lib/provider-labels";
-import { useReviewTabScope } from "../lib/review-tab-scope.ts";
+import {
+	selectReviewChatTab,
+	useReviewTabState,
+} from "../lib/review-tab-scope.ts";
 import "@zuse/i18n/english/errors";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -85,15 +88,7 @@ const EMPTY_SESSIONS: ReadonlyArray<Session> = [];
 export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 	const { message: uiMessage } = useUiMessages(["errors"]);
 
-	const reviewScope = useReviewTabScope(environmentId);
-	const changesTabOpen = useUiStore(
-		(s) => s.changesTabOpen && s.reviewTabScope === reviewScope,
-	);
-	const activeMainTab = useUiStore((s) =>
-		s.activeMainTab === "changes" && s.reviewTabScope !== reviewScope
-			? "chat"
-			: s.activeMainTab,
-	);
+	const { changesTabOpen, activeMainTab } = useReviewTabState(environmentId);
 	const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
 	const openFile = useUiStore((s) => s.openFile);
 	const closeFileTab = useUiStore((s) => s.closeFileTab);
@@ -108,7 +103,6 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 		projectId !== null
 			? (sessionsByProject[projectId] ?? EMPTY_SESSIONS)
 			: EMPTY_SESSIONS;
-	const selectSession = useSessionsStore((s) => s.select);
 	const renameSession = useSessionsStore((s) => s.rename);
 	const [renamingSession, setRenamingSession] = useState<Session | null>(null);
 
@@ -217,7 +211,7 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 					{tabs.length === 0 && (
 						<TabButton
 							active={activeMainTab === "chat"}
-							onClick={() => setActiveMainTab("chat")}
+							onClick={() => selectReviewChatTab(selectedSessionId)}
 							label={emptyLabel}
 						/>
 					)}
@@ -265,12 +259,7 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 									awaitingPlanApproval.has(session.id) ||
 									deriveChatAttentionState(messages, false, []) === "planReady"
 								}
-								onClick={() => {
-									if (selectedSessionId !== session.id) {
-										selectSession(session.id);
-									}
-									setActiveMainTab("chat");
-								}}
+								onClick={() => selectReviewChatTab(session.id)}
 								onClose={() => {
 									void closeChatTab(session.id, environmentId);
 								}}
