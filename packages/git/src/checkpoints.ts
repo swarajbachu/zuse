@@ -2,8 +2,11 @@ import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
 	copyFile,
+	type FileHandle,
 	link,
+	lstat,
 	mkdir,
+	open,
 	readFile,
 	realpath,
 	rename,
@@ -69,16 +72,168 @@ const git = async (
 	cwd: string,
 	args: readonly string[],
 	index?: string,
-): Promise<string> =>
-	(
-		await execute("git", ["-C", cwd, ...args], {
-			env: environment(index),
-			maxBuffer: 64 * 1024 * 1024,
-			timeout: 60_000,
-		})
-	).stdout;
+	signal?: AbortSignal,
+): Promise<string> => {
+	const run = (fsyncMethod: string) =>
+		execute(
+			"git",
+			[
+				"-C",
+				cwd,
+				"-c",
+				"core.fsync=objects,reference",
+				"-c",
+				`core.fsyncMethod=${fsyncMethod}`,
+				"-c",
+				"core.splitIndex=false",
+				"-c",
+				"splitIndex.sharedIndexExpire=never",
+				...args,
+			],
+			{
+				env: environment(index),
+				maxBuffer: 64 * 1024 * 1024,
+				timeout: 60_000,
+				signal,
+			},
+		);
+	try {
+		return (
+			await run(
+				process.platform === "darwin" || process.platform === "win32"
+					? "batch"
+					: "fsync",
+			)
+		).stdout;
+	} catch (error) {
+		// macOS full flushes are unsupported on some filesystems; writeout-only still uses fsync(2).
+		if (
+			process.platform === "darwin" &&
+			/(?:fsync error on [^\r\n]+|could not fsync [^\r\n]+): operation not supported\r?$/im.test(
+				(error as { stderr?: string }).stderr ?? "",
+			)
+		) {
+			return (await run("writeout-only")).stdout;
+		}
+		throw error;
+	}
+};
 const digest = (id: string) => createHash("sha256").update(id).digest("hex");
 const reference = (id: string) => `refs/zuse/checkpoints/${digest(id)}`;
+const recoveryDirectory = async (
+	cwd: string,
+	ref: string,
+	signal?: AbortSignal,
+) =>
+	path.join(
+		(
+			await git(
+				cwd,
+				["rev-parse", "--path-format=absolute", "--git-common-dir"],
+				undefined,
+				signal,
+			)
+		).trim(),
+		"zuse",
+		"checkpoint-recovery",
+		path.basename(ref),
+	);
+
+/** Only a reported, provably missing app-owned ref may be removed; evidence stays outside refs. */
+export const recoverGitCheckpointRef = async (
+	cwd: string,
+	stderr: string,
+	signal?: AbortSignal,
+): Promise<boolean> => {
+	const ref =
+		/^fatal: bad object (refs\/zuse\/checkpoints\/[0-9a-f]{64})\r?$/m.exec(
+			stderr,
+		)?.[1];
+	if (ref === undefined) return false;
+	const directory = await recoveryDirectory(cwd, ref, signal);
+	const preserve = async (raw: string) => {
+		await mkdir(directory, { recursive: true, mode: 0o700 });
+		await writeFile(
+			path.join(directory, `${randomUUID()}.json`),
+			JSON.stringify({
+				version: 1,
+				ref,
+				raw,
+				reason: "invalid-checkpoint-reference",
+				recoveredAt: new Date().toISOString(),
+			}),
+			{ flag: "wx", mode: 0o600, flush: true },
+		);
+		if (process.platform !== "win32") {
+			for (const folder of [
+				directory,
+				path.dirname(directory),
+				path.dirname(path.dirname(directory)),
+				path.dirname(path.dirname(path.dirname(directory))),
+			]) {
+				const handle = await open(folder, "r");
+				try {
+					await handle.sync();
+				} finally {
+					await handle.close();
+				}
+			}
+		}
+	};
+	const refPath = (
+		await git(
+			cwd,
+			["rev-parse", "--path-format=absolute", "--git-path", ref],
+			undefined,
+			signal,
+		)
+	).trim();
+	let raw: string;
+	try {
+		if (!(await lstat(refPath)).isFile()) return false;
+		raw = await readFile(refPath, "utf8");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		raw = await git(cwd, ["rev-parse", "--verify", ref], undefined, signal);
+	}
+	const oid = raw.trim();
+	if (/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(oid)) {
+		try {
+			await git(cwd, ["cat-file", "-e", oid], undefined, signal);
+			return false;
+		} catch (error) {
+			const failure = error as { code?: unknown; stderr?: string };
+			if (failure.code !== 1 || failure.stderr?.trim() !== "") return false;
+		}
+		await preserve(raw);
+		// Compare-and-delete protects a checkpoint repaired by another process.
+		await git(
+			cwd,
+			["update-ref", "--no-deref", "-d", ref, oid],
+			undefined,
+			signal,
+		);
+		return true;
+	}
+	// Git cannot delete an empty/malformed loose ref. Use its lock protocol and recheck under lock.
+	if (raw.length > 128 || raw.startsWith("ref:")) return false;
+	let lock: FileHandle;
+	try {
+		lock = await open(`${refPath}.lock`, "wx", 0o600);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+		throw error;
+	}
+	try {
+		if ((await readFile(refPath, "utf8")) !== raw) return false;
+		await preserve(raw);
+		await rm(refPath);
+		return true;
+	} finally {
+		await lock.close();
+		await rm(`${refPath}.lock`, { force: true });
+	}
+};
 const owner = async (cwd: string) => ({
 	root: await realpath(
 		(await git(cwd, ["rev-parse", "--show-toplevel"])).trim(),
@@ -107,7 +262,15 @@ export const readGitCheckpoint = async (
 	try {
 		commit = (await git(cwd, ["rev-parse", "--verify", "--quiet", ref])).trim();
 	} catch {
-		return null;
+		try {
+			await stat(await recoveryDirectory(cwd, ref));
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+			throw error;
+		}
+		throw new GitCheckpointPreconditionError(
+			"Checkpoint is unavailable after repository corruption. Its reference was preserved for recovery.",
+		);
 	}
 	const metadata = Schema.decodeUnknownSync(
 		Schema.fromJsonString(SnapshotMetadata),

@@ -3,6 +3,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
@@ -291,6 +292,8 @@ describe("WorktreeServiceLive", () => {
 		expect(git(first.path, "rev-parse", "HEAD")).toBe(remoteTip);
 
 		pushToOrigin("second.txt");
+		git(repositoryRoot, "config", "--unset", "remote.origin.uploadpack");
+		git(repositoryRoot, "fetch", "origin");
 		const second = await run((service) => service.create(projectId));
 		expect(git(second.path, "rev-parse", "HEAD")).toBe(remoteTip);
 	});
@@ -311,6 +314,96 @@ describe("WorktreeServiceLive", () => {
 		expect(created.baseBranch).toBe("main");
 		expect(git(created.path, "rev-parse", "HEAD")).toBe(cachedTip);
 		expect(existsSync(join(created.path, "local-only.txt"))).toBe(false);
+	});
+
+	test.each([
+		"missing-object",
+		"empty-ref",
+	])("recovers a %s checkpoint before fetching a missing remote base", async (kind) => {
+		const originRoot = join(temporaryRoot, "origin.git");
+		git(temporaryRoot, "clone", "--bare", repositoryRoot, originRoot);
+		git(repositoryRoot, "remote", "add", "origin", originRoot);
+		git(
+			repositoryRoot,
+			"symbolic-ref",
+			"refs/remotes/origin/HEAD",
+			"refs/remotes/origin/main",
+		);
+		const checkpoint = "a".repeat(64);
+		const refs = join(repositoryRoot, ".git/refs/zuse/checkpoints");
+		mkdirSync(refs, { recursive: true });
+		const raw = kind === "empty-ref" ? "" : `${"1".repeat(40)}\n`;
+		writeFileSync(join(refs, checkpoint), raw);
+		writeFileSync(join(repositoryRoot, "README.md"), "staged\n");
+		git(repositoryRoot, "add", "README.md");
+		writeFileSync(join(repositoryRoot, "README.md"), "working\n");
+		const status = git(repositoryRoot, "status", "--porcelain");
+
+		const created = await run((service) => service.create(projectId));
+
+		expect(git(created.path, "rev-parse", "HEAD")).toBe(
+			git(originRoot, "rev-parse", "HEAD"),
+		);
+		expect(git(repositoryRoot, "status", "--porcelain")).toBe(status);
+		expect(git(repositoryRoot, "show", ":README.md")).toBe("staged");
+		expect(readFileSync(join(repositoryRoot, "README.md"), "utf8")).toBe(
+			"working\n",
+		);
+		expect(existsSync(join(refs, checkpoint))).toBe(false);
+		const evidenceDir = join(
+			repositoryRoot,
+			".git/zuse/checkpoint-recovery",
+			checkpoint,
+		);
+		const [evidenceFile] = readdirSync(evidenceDir);
+		expect(evidenceFile).toBeDefined();
+		const evidence = JSON.parse(
+			readFileSync(join(evidenceDir, evidenceFile ?? "missing"), "utf8"),
+		);
+		expect(evidence.raw).toBe(raw);
+	});
+
+	test("materializes the remote base despite a restricted fetch mapping", async () => {
+		const originRoot = join(temporaryRoot, "origin.git");
+		git(temporaryRoot, "clone", "--bare", repositoryRoot, originRoot);
+		git(repositoryRoot, "remote", "add", "origin", originRoot);
+		git(
+			repositoryRoot,
+			"config",
+			"remote.origin.fetch",
+			"+refs/heads/other:refs/remotes/origin/other",
+		);
+		git(
+			repositoryRoot,
+			"symbolic-ref",
+			"refs/remotes/origin/HEAD",
+			"refs/remotes/origin/main",
+		);
+		const created = await run((service) => service.create(projectId));
+		expect(git(created.path, "rev-parse", "HEAD")).toBe(
+			git(originRoot, "rev-parse", "HEAD"),
+		);
+	});
+
+	test("preserves the fetch cause and leaves foreign broken refs untouched", async () => {
+		const originRoot = join(temporaryRoot, "origin.git");
+		git(temporaryRoot, "clone", "--bare", repositoryRoot, originRoot);
+		git(repositoryRoot, "remote", "add", "origin", originRoot);
+		git(
+			repositoryRoot,
+			"symbolic-ref",
+			"refs/remotes/origin/HEAD",
+			"refs/remotes/origin/main",
+		);
+		const ref = join(repositoryRoot, ".git/refs/heads/broken");
+		writeFileSync(ref, `${"1".repeat(40)}\n`);
+		await expect(
+			run((service) => service.create(projectId)),
+		).rejects.toMatchObject({
+			_tag: "WorktreeCreateError",
+			reason: expect.stringContaining("bad object refs/heads/broken"),
+		});
+		expect(readFileSync(ref, "utf8")).toBe(`${"1".repeat(40)}\n`);
 	});
 
 	test("fails instead of substituting local HEAD for a missing remote base", async () => {

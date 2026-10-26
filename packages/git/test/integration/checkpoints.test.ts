@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	captureGitCheckpoint,
 	readGitCheckpoint,
+	recoverGitCheckpointRef,
 	restoreGitCheckpoint,
 } from "../../src/checkpoints.ts";
 
@@ -40,6 +41,87 @@ afterEach(async () => {
 	);
 });
 describe("Git turn checkpoints", () => {
+	it("keeps a quarantined checkpoint unavailable instead of recapturing current files", async () => {
+		const cwd = await repo();
+		const checkpoint = await captureGitCheckpoint(cwd, "damaged");
+		const missing = "1".repeat(40);
+		await writeFile(path.join(cwd, ".git", checkpoint.ref), `${missing}\n`);
+		expect(
+			await recoverGitCheckpointRef(cwd, `fatal: bad object ${checkpoint.ref}`),
+		).toBe(true);
+		await writeFile(path.join(cwd, "file.txt"), "newer work\n");
+		await expect(readGitCheckpoint(cwd, "damaged")).rejects.toThrow(
+			"unavailable after repository corruption",
+		);
+		await expect(captureGitCheckpoint(cwd, "damaged")).rejects.toThrow(
+			"unavailable after repository corruption",
+		);
+		expect(await readFile(path.join(cwd, "file.txt"), "utf8")).toBe(
+			"newer work\n",
+		);
+	});
+
+	it("does not quarantine a healthy checkpoint or bypass another writer's lock", async () => {
+		const cwd = await repo();
+		const checkpoint = await captureGitCheckpoint(cwd, "healthy");
+		expect(
+			await recoverGitCheckpointRef(cwd, `fatal: bad object ${checkpoint.ref}`),
+		).toBe(false);
+		expect((await readGitCheckpoint(cwd, "healthy"))?.commit).toBe(
+			checkpoint.commit,
+		);
+		await writeFile(path.join(cwd, ".git", checkpoint.ref), "");
+		const lock = path.join(cwd, ".git", `${checkpoint.ref}.lock`);
+		await writeFile(lock, "another writer");
+		expect(
+			await recoverGitCheckpointRef(cwd, `fatal: bad object ${checkpoint.ref}`),
+		).toBe(false);
+		expect(await readFile(lock, "utf8")).toBe("another writer");
+	});
+
+	it("recovers a missing object referenced only by packed refs from a linked worktree", async () => {
+		const cwd = await repo();
+		const checkpoint = await captureGitCheckpoint(cwd, "packed");
+		await git(cwd, "pack-refs", "--all");
+		await rm(
+			path.join(
+				cwd,
+				".git/objects",
+				checkpoint.commit.slice(0, 2),
+				checkpoint.commit.slice(2),
+			),
+		);
+		const second = path.join(cwd, "linked");
+		await git(cwd, "worktree", "add", "--detach", second);
+		expect(
+			await recoverGitCheckpointRef(
+				second,
+				`fatal: bad object ${checkpoint.ref}`,
+			),
+		).toBe(true);
+		await expect(readGitCheckpoint(cwd, "packed")).rejects.toThrow(
+			"unavailable after repository corruption",
+		);
+	});
+
+	it("captures with split indexes without changing staging or expiring shared indexes", async () => {
+		const cwd = await repo();
+		await git(cwd, "config", "core.splitIndex", "true");
+		await git(cwd, "config", "splitIndex.sharedIndexExpire", "now");
+		await writeFile(path.join(cwd, "file.txt"), "staged\n");
+		await git(cwd, "add", "file.txt");
+		await writeFile(path.join(cwd, "file.txt"), "working\n");
+		const before = await captureGitCheckpoint(cwd, "split-before");
+		expect(await git(cwd, "show", ":file.txt")).toBe("staged");
+		await writeFile(path.join(cwd, "file.txt"), "after\n");
+		await captureGitCheckpoint(cwd, "split-after");
+		await restoreGitCheckpoint(cwd, before.id, "split-after");
+		expect(await git(cwd, "show", ":file.txt")).toBe("staged");
+		expect(await readFile(path.join(cwd, "file.txt"), "utf8")).toBe(
+			"working\n",
+		);
+	});
+
 	it("preserves dirty staged state and restores tracked, deleted, untracked and binary files without moving HEAD", async () => {
 		const cwd = await repo();
 		await writeFile(path.join(cwd, "file.txt"), "staged\n");
