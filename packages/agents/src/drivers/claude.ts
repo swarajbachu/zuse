@@ -617,7 +617,7 @@ const translateMessage = (
 							? ((block as { id: string }).id as AgentItemId)
 							: nextItemId();
 
-					if (block.name === ASK_USER_QUESTION_FQN) {
+					if (isAskUserQuestion(block.name)) {
 						state.askUserQuestionIds.add(id as string);
 						continue;
 					}
@@ -1298,6 +1298,123 @@ const isAskUserQuestion = (toolName: string): boolean =>
 	toolName === SDK_BUILTIN_ASK_USER_QUESTION ||
 	toolName.endsWith(`__${ASK_USER_QUESTION_TOOL}`);
 
+/**
+ * Reduce native `AskUserQuestion` input to the composer question card.
+ * Returns null when the input has no usable question, so the tool is denied
+ * and the model can retry with valid input.
+ */
+export const claudeNativeUserQuestions = (
+	toolInput: Record<string, unknown>,
+): ReadonlyArray<UserQuestion> | null => {
+	const raw = toolInput.questions;
+	if (!Array.isArray(raw) || raw.length === 0) return null;
+	const questions: UserQuestion[] = [];
+	for (const value of raw) {
+		if (value === null || typeof value !== "object") return null;
+		const record = value as Record<string, unknown>;
+		if (
+			typeof record.question !== "string" ||
+			record.question.trim().length === 0 ||
+			!Array.isArray(record.options)
+		)
+			return null;
+		const options = record.options.flatMap((option: unknown) => {
+			const label =
+				option !== null && typeof option === "object"
+					? (option as { label?: unknown }).label
+					: option;
+			return typeof label === "string" && label.length > 0 ? [label] : [];
+		});
+		questions.push({
+			question: record.question,
+			options,
+			...(record.multiSelect === true ? { multiSelect: true } : {}),
+		});
+	}
+	return questions;
+};
+
+/**
+ * Map composer answers onto the native tool's `answers`, keyed by the exact
+ * question text. Picked labels are comma-separated; free text either is the
+ * answer or, alongside picks, travels as the question's notes.
+ */
+export const claudeNativeQuestionAnswers = (
+	questions: ReadonlyArray<UserQuestion>,
+	answers: ReadonlyArray<UserQuestionAnswer>,
+): {
+	readonly answers: Record<string, string>;
+	readonly annotations?: Record<string, { readonly notes: string }>;
+} => {
+	const byQuestion: Record<string, string> = {};
+	const notes: Record<string, { readonly notes: string }> = {};
+	for (const answer of answers) {
+		const question = questions[answer.questionIndex];
+		if (question === undefined) continue;
+		const labels = answer.selected.flatMap((index) => {
+			const label = question.options[index];
+			return label === undefined ? [] : [label];
+		});
+		const other = answer.other?.trim() ?? "";
+		if (labels.length === 0) {
+			byQuestion[question.question] = other;
+			continue;
+		}
+		byQuestion[question.question] = labels.join(", ");
+		if (other.length > 0) notes[question.question] = { notes: other };
+	}
+	return Object.keys(notes).length > 0
+		? { answers: byQuestion, annotations: notes }
+		: { answers: byQuestion };
+};
+
+type ClaudeQuestionResolver = (
+	answers: ReadonlyArray<UserQuestionAnswer> | null,
+) => void;
+
+/**
+ * Surface a native `AskUserQuestion` as the composer question and wait for
+ * the user. The SDK aborts `signal` when the turn is interrupted, which
+ * releases the card instead of leaving it to outlive its callback.
+ */
+export const awaitClaudeUserQuestion = (input: {
+	readonly pending: ReturnType<
+		typeof makeBoundedQuestionCallbackRegistry<ClaudeQuestionResolver>
+	>;
+	readonly emit: (event: ProviderDriverEvent) => void;
+	readonly itemId: AgentItemId;
+	readonly questions: ReadonlyArray<UserQuestion>;
+	readonly parentItemId: AgentItemId | undefined;
+	readonly signal: AbortSignal;
+}): Promise<ReadonlyArray<UserQuestionAnswer> | null> =>
+	new Promise((resolve) => {
+		const { pending, emit, itemId, signal } = input;
+		if (signal.aborted) {
+			resolve(null);
+			return;
+		}
+		const onAbort = () => {
+			if (!pending.delete(itemId)) return;
+			resolve(null);
+			emit({ _tag: "QuestionCallbackReleased", itemId, reason: "cancelled" });
+		};
+		const settle: ClaudeQuestionResolver = (answers) => {
+			signal.removeEventListener("abort", onAbort);
+			resolve(answers);
+		};
+		if (pending.register(itemId, settle) !== "accepted") {
+			resolve(null);
+			return;
+		}
+		signal.addEventListener("abort", onAbort, { once: true });
+		emit({
+			_tag: "UserQuestion",
+			itemId,
+			questions: input.questions,
+			parentItemId: input.parentItemId,
+		});
+	});
+
 export const claudeToolPermissionPolicy = (
 	toolName: string,
 	toolInput: Record<string, unknown>,
@@ -1361,6 +1478,7 @@ export const CLAUDE_READ_ONLY_DISALLOWED_TOOLS: ReadonlyArray<string> = [
 	"Task",
 	"TodoWrite",
 	"ExitPlanMode",
+	"AskUserQuestion",
 ];
 
 /**
@@ -1671,11 +1789,8 @@ export const startClaudeSession = (
 		};
 		const checkpointBatcher = new ProviderCheckpointBatcher({ emit });
 
-		type QuestionResolver = (
-			answers: ReadonlyArray<UserQuestionAnswer> | null,
-		) => void;
 		const pendingQuestions =
-			makeBoundedQuestionCallbackRegistry<QuestionResolver>();
+			makeBoundedQuestionCallbackRegistry<ClaudeQuestionResolver>();
 		const releasePendingQuestions = (
 			reason: QuestionCallbackReleased["reason"],
 		): void => {
@@ -1702,39 +1817,6 @@ export const startClaudeSession = (
 			getPermissionMode: () => currentPermissionMode,
 			sessionTools,
 			toolPolicy: input.toolPolicy,
-			interaction: {
-				askUserQuestion: async (questions) => {
-					const itemId = nextItemId();
-					const userQuestions: ReadonlyArray<UserQuestion> = questions.map(
-						(q) => ({
-							question: q.question,
-							options: q.options,
-							...(q.multiSelect !== undefined
-								? { multiSelect: q.multiSelect }
-								: {}),
-						}),
-					);
-					const answers =
-						await new Promise<ReadonlyArray<UserQuestionAnswer> | null>(
-							(resolve) => {
-								if (pendingQuestions.register(itemId, resolve) !== "accepted") {
-									resolve(null);
-									return;
-								}
-								Queue.offerUnsafe(events, {
-									_tag: "UserQuestion",
-									itemId,
-									questions: userQuestions,
-									parentItemId: translateState.latestParentItemId,
-								});
-							},
-						);
-					if (answers === null) {
-						return null;
-					}
-					return answers;
-				},
-			},
 		});
 
 		const managedCredential =
@@ -1776,16 +1858,12 @@ export const startClaudeSession = (
 					allowedTools: ["Agent", `mcp__${ZUSE_MCP_NAME}`],
 				} as Pick<Options, "agents" | "allowedTools">)
 			: {};
-		// The SDK ships a built-in `AskUserQuestion` tool that opens its
-		// own dialog flow. We disable it so the model is steered to our
-		// MCP version, which the renderer paints as the question card in
-		// the composer slot. Without this, the model would default to the
-		// built-in (it has a nicer name) and trigger the permission toast
-		// for every question.
+		// Claude's native `AskUserQuestion` always reaches `canUseTool` (it
+		// requires user interaction in every permission mode), where it is
+		// answered from the composer question card. Keeping it native avoids
+		// MCP tool-call timeouts while the user is deciding.
 		const readOnly = input.toolPolicy === "read-only";
-		const disallowedTools: ReadonlyArray<string> = [
-			SDK_BUILTIN_ASK_USER_QUESTION,
-		];
+		const disallowedTools: ReadonlyArray<string> = [];
 		const sessionToolNames: ReadonlySet<string> = new Set(
 			(sessionTools?.toolsets ?? []).flatMap((toolset) =>
 				toolset.definitions.map(
@@ -1857,7 +1935,7 @@ export const startClaudeSession = (
 			includePartialMessages: true,
 			env: env as Options["env"],
 
-			canUseTool: async (toolName, toolInput) => {
+			canUseTool: async (toolName, toolInput, { signal }) => {
 				if (input.outputOnly)
 					return {
 						behavior: "deny",
@@ -1874,6 +1952,37 @@ export const startClaudeSession = (
 								behavior: "deny",
 								message: "This session can only read the workspace.",
 							};
+				}
+				if (toolName === SDK_BUILTIN_ASK_USER_QUESTION) {
+					const questions = claudeNativeUserQuestions(toolInput);
+					if (questions === null) {
+						return {
+							behavior: "deny",
+							message:
+								"AskUserQuestion needs at least one question with question text and options.",
+						};
+					}
+					const answers = await awaitClaudeUserQuestion({
+						pending: pendingQuestions,
+						emit: (event) => Queue.offerUnsafe(events, event),
+						itemId: nextItemId(),
+						questions,
+						parentItemId: translateState.latestParentItemId,
+						signal,
+					});
+					if (answers === null) {
+						return {
+							behavior: "deny",
+							message: "The user dismissed the question without answering.",
+						};
+					}
+					return {
+						behavior: "allow",
+						updatedInput: {
+							...toolInput,
+							...claudeNativeQuestionAnswers(questions, answers),
+						},
+					};
 				}
 				const policy = claudeToolPermissionPolicy(
 					toolName,
