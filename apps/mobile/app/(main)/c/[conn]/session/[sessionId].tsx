@@ -1440,15 +1440,12 @@ function ThreadScreen() {
 					pointerEvents="box-none"
 					style={{ marginHorizontal: readableInset }}
 				>
-					{executionHealth === "stalled" ||
-					executionHealth === "unavailable" ? (
+					{executionHealth === "unavailable" ? (
 						<Text
 							accessibilityRole="alert"
 							className="px-3 py-2 text-xs text-muted-foreground"
 						>
-							{executionHealth === "stalled"
-								? "No recent provider activity. You can wait or stop this turn."
-								: "Execution ownership could not be confirmed. Waiting for recovery."}
+							Execution ownership could not be confirmed. Waiting for recovery.
 						</Text>
 					) : null}
 					{options === null ? null : bottomState.blocking?.kind ===

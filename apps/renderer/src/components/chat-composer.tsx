@@ -1665,14 +1665,9 @@ export function ChatComposer({
 					<CloudDeviceSelector workspaceId={cloudSummary.workspaceId} />
 				</div>
 			)}
-			{timeline.presentation.health === "stalled" ||
-			timeline.presentation.health === "unavailable" ? (
+			{timeline.presentation.health === "unavailable" ? (
 				<div role="status" className="px-3 py-2 text-xs text-muted-foreground">
-					{uiMessage(
-						timeline.presentation.health === "stalled"
-							? "chat:provider_quiet"
-							: "chat:execution_unavailable",
-					)}
+					{uiMessage("chat:execution_unavailable")}
 				</div>
 			) : null}
 			{showCard ? (
