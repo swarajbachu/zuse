@@ -41,7 +41,10 @@ import {
 import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
 import type { BrowserSend } from "./browser-tools.ts";
-import { scrubInheritedClaudeMarkers } from "./claude-env.ts";
+import {
+	scrubInheritedClaudeMarkers,
+	withClaudeTaskTracking,
+} from "./claude-env.ts";
 import { claudeForkPoint, claudeResumeOptions } from "./claude-fork-point.ts";
 import { makeClaudeProcessOwner } from "./claude-process.ts";
 import { claudeWorkflowProgress } from "./claude-workflow-progress.ts";
@@ -282,6 +285,7 @@ interface TranslateState {
 	latestParentItemId: AgentItemId | undefined;
 
 	askUserQuestionIds: Set<string>;
+	pendingTaskCreates: Set<string>;
 	/**
 	 * Tool-use ids for in-flight `ExitPlanMode` calls. When the matching
 	 * `tool_result` lands with `is_error === false`, the SDK has already
@@ -321,6 +325,7 @@ const newTranslateState = (
 	localBackgroundTasks: new Map(),
 	latestParentItemId: undefined,
 	askUserQuestionIds: new Set(),
+	pendingTaskCreates: new Set(),
 	exitPlanModeIds: new Set(),
 	lastContextUsedTokens: null,
 	pendingCompact: null,
@@ -631,6 +636,7 @@ const translateMessage = (
 					if (block.name === "Workflow") {
 						state.workflowInputs.set(id as string, block.input);
 					}
+					if (block.name === "TaskCreate") state.pendingTaskCreates.add(id);
 					if (block.name === "Bash") {
 						state.backgroundShellInputs.set(id as string, {
 							input: block.input,
@@ -929,7 +935,13 @@ const translateMessage = (
 					out.push({
 						_tag: "ToolResult",
 						itemId: id,
-						output: block.content ?? null,
+						output:
+							state.pendingTaskCreates.delete(id) &&
+							content.filter((b) => b.type === "tool_result").length === 1 &&
+							msg.tool_use_result != null &&
+							block.is_error !== true
+								? msg.tool_use_result
+								: (block.content ?? null),
 						isError: block.is_error === true,
 						parentItemId,
 					});
@@ -997,6 +1009,7 @@ const translateMessage = (
 		if (parentItemId === undefined) {
 			state.topLevelTurnOpen = false;
 			state.streamedMessageIds.clear();
+			state.pendingTaskCreates.clear();
 
 			if (state.lastContextUsedTokens !== null) {
 				out.push({
@@ -1249,6 +1262,10 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 	"NotebookRead",
 	"BashOutput",
 	"TodoWrite",
+	"TaskCreate",
+	"TaskUpdate",
+	"TaskGet",
+	"TaskList",
 	ASK_USER_QUESTION_FQN,
 
 	`mcp__${ZUSE_MCP_NAME}__browser_navigate`,
@@ -1360,6 +1377,8 @@ export const CLAUDE_READ_ONLY_DISALLOWED_TOOLS: ReadonlyArray<string> = [
 	"Agent",
 	"Task",
 	"TodoWrite",
+	"TaskCreate",
+	"TaskUpdate",
 	"ExitPlanMode",
 ];
 
@@ -1855,7 +1874,9 @@ export const startClaudeSession = (
 			forwardSubagentText: true,
 
 			includePartialMessages: true,
-			env: env as Options["env"],
+			env: (readOnly || input.outputOnly
+				? env
+				: withClaudeTaskTracking(env)) as Options["env"],
 
 			canUseTool: async (toolName, toolInput) => {
 				if (input.outputOnly)

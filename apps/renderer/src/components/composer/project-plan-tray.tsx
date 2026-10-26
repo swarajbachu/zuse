@@ -76,6 +76,7 @@ const parseTodosFromOutput = (output: unknown): Todo[] => {
 
 const outputToString = (output: unknown): string => {
 	if (typeof output === "string") return output;
+	if (Array.isArray(output)) return output.map(outputToString).join("\n");
 	if (output !== null && typeof output === "object") {
 		const o = output as Record<string, unknown>;
 		if (typeof o.content === "string") return o.content;
@@ -91,13 +92,26 @@ const outputToString = (output: unknown): string => {
 
 /**
  * The newer Claude Agent SDK plans with incremental `TaskCreate`/`TaskUpdate`
- * tools instead of `TodoWrite`'s single snapshot. A create's *result* carries
- * both the id and title (`Task #4 created successfully: <subject>`); an update's
+ * tools instead of `TodoWrite`'s single snapshot. A create's structured result
+ * carries `task: { id, subject }`; older CLIs return a text confirmation. An update's
  * *input* carries `{ taskId, status }`. Reconstruct the live list from those.
  */
 const parseTaskCreated = (
 	output: unknown,
 ): { id: string; subject: string } | null => {
+	if (output !== null && typeof output === "object" && "task" in output) {
+		const task = output.task;
+		if (
+			task !== null &&
+			typeof task === "object" &&
+			"id" in task &&
+			"subject" in task &&
+			typeof task.id === "string" &&
+			typeof task.subject === "string"
+		) {
+			return { id: task.id, subject: task.subject };
+		}
+	}
 	const m = outputToString(output).match(/Task #(\d+) created[^:]*:\s*(.+)/i);
 	if (m === null) return null;
 	const id = m[1];
@@ -115,7 +129,7 @@ const parseTaskUpdate = (
 } | null => {
 	if (input === null || typeof input !== "object") return null;
 	const r = input as Record<string, unknown>;
-	const id = r.taskId;
+	const id = r.taskId ?? r.id ?? r.task_id;
 	if (typeof id !== "string" && typeof id !== "number") return null;
 	const raw = r.status;
 	const status =
@@ -143,6 +157,7 @@ const tasksFromMessages = (messages: ReadonlyArray<Message>): Todo[] => {
 	for (const m of messages) {
 		const c = m.content;
 		if (c._tag === "tool_result") {
+			if (c.isError) continue;
 			const created = parseTaskCreated(c.output);
 			if (created !== null) {
 				const existing = tasks.get(created.id);

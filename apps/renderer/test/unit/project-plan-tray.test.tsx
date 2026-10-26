@@ -37,6 +37,63 @@ const snapshot = (todos: unknown[], parentItemId?: AgentItemId) =>
 	});
 
 describe("composer task plan", () => {
+	it.each([
+		"taskId",
+		"id",
+		"task_id",
+	])("tracks current Claude tasks through completion and deletion (%s)", (idField) => {
+		const create = message({
+			_tag: "tool_use",
+			itemId: AgentItemId.make("create"),
+			tool: "TaskCreate",
+			input: { subject: "Inspect" },
+		});
+		const result = message({
+			_tag: "tool_result",
+			itemId: AgentItemId.make("create"),
+			output: { task: { id: "7", subject: "Inspect" } },
+			isError: false,
+		});
+		const update = (status: string) =>
+			message({
+				_tag: "tool_use",
+				itemId: AgentItemId.make(`update-${status}`),
+				tool: "TaskUpdate",
+				input: { [idField]: "7", status },
+			});
+		expect(projectPlanFromMessages([create, result])).toEqual([
+			{ text: "Inspect", status: "pending" },
+		]);
+		expect(
+			projectPlanFromMessages([create, result, update("in_progress")]),
+		).toEqual([{ text: "Inspect", status: "in_progress" }]);
+		expect(
+			projectPlanFromMessages([create, result, update("completed")]),
+		).toEqual([{ text: "Inspect", status: "completed" }]);
+		expect(
+			projectPlanFromMessages([create, result, update("deleted")]),
+		).toEqual([]);
+	});
+	it("reads legacy task confirmations from text blocks without JSON artifacts", () => {
+		expect(
+			projectPlanFromMessages([
+				message({
+					_tag: "tool_use",
+					itemId: AgentItemId.make("create"),
+					tool: "TaskCreate",
+					input: { subject: "Inspect" },
+				}),
+				message({
+					_tag: "tool_result",
+					itemId: AgentItemId.make("create"),
+					output: [
+						{ type: "text", text: "Task #7 created successfully: Inspect" },
+					],
+					isError: false,
+				}),
+			]),
+		).toEqual([{ text: "Inspect", status: "pending" }]);
+	});
 	it("uses the latest snapshot for progress and accepts an empty list", () => {
 		const initial = snapshot([{ content: "Inspect", status: "in_progress" }]);
 		const completed = snapshot([{ content: "Inspect", status: "completed" }]);
