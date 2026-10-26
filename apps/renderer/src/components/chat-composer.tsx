@@ -198,7 +198,12 @@ import {
 import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
 import { ProviderErrorTray } from "./composer/provider-error-tray.tsx";
 import { ProviderSignInTray } from "./composer/provider-sign-in-tray.tsx";
-import { QuestionTray, useQuestionAnswer } from "./composer/question-tray.tsx";
+import {
+	dismissExpiredQuestion,
+	QuestionTray,
+	selectAnswerableQuestion,
+	useQuestionAnswer,
+} from "./composer/question-tray.tsx";
 import { QueueTray } from "./composer/queue-tray.tsx";
 import { SlashCommandPopover } from "./composer/slash-command-popover.tsx";
 import {
@@ -471,9 +476,7 @@ export function ChatComposer({
 					submissionError: pendingQuestion.error,
 				},
 	);
-	/** An expired question can only be dismissed, so it releases the composer. */
-	const answerableQuestion =
-		questionAnswer === null || questionAnswer.expired ? null : questionAnswer;
+	const answerableQuestion = selectAnswerableQuestion(questionAnswer);
 	const answeringQuestion = answerableQuestion !== null;
 
 	const requestsById =
@@ -1335,8 +1338,7 @@ export function ChatComposer({
 			useAnnotationsStore.getState().clear(sessionId);
 			editingQueuedItemRef.current = null;
 			setEditingQueuedItem(null);
-			// Sending a new message moves past an expired question.
-			if (questionAnswer?.expired === true) questionAnswer.dismiss();
+			dismissExpiredQuestion(questionAnswer);
 		};
 
 		if (onDraftSubmit !== undefined) {

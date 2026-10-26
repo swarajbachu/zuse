@@ -237,6 +237,22 @@ export function useQuestionAnswer(
 	};
 }
 
+/**
+ * The question the composer's send action answers. An expired question can
+ * only be dismissed, so it leaves the composer free for ordinary messages.
+ */
+export const selectAnswerableQuestion = (
+	answer: QuestionAnswerController | null,
+): QuestionAnswerController | null =>
+	answer === null || answer.expired ? null : answer;
+
+/** Sending a new message moves past an expired question. */
+export const dismissExpiredQuestion = (
+	answer: QuestionAnswerController | null,
+): void => {
+	if (answer?.expired === true) answer.dismiss();
+};
+
 /** The pending question, attached to the top of the composer. */
 export function QuestionTray({
 	answer,
