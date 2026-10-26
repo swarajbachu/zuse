@@ -8,7 +8,10 @@ interface CodexControlClientKey {
 	readonly accountHome?: string;
 }
 
-const IDLE_TIMEOUT_MS = 5_000;
+// Every app-server startup performs an online catalog refresh. Keep metadata
+// callers on one process across their normal polling intervals.
+// Bound the idle grace so unused control workers still shut down.
+const IDLE_TIMEOUT_MS = 2 * 60_000;
 const STARTUP_TIMEOUT_MS = 10_000;
 const keys = new Map<string, CodexControlClientKey>();
 const pool = createSharedResourcePool<string, CodexAppServerClient>({
@@ -32,6 +35,9 @@ const pool = createSharedResourcePool<string, CodexAppServerClient>({
 					}
 				: {}),
 			startupTimeoutMs: STARTUP_TIMEOUT_MS,
+			onUnexpectedTermination: () => {
+				void pool.remove(key);
+			},
 			onNotification: () => undefined,
 			onServerRequest: (_request, respond) => respond({}),
 		});

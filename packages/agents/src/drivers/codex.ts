@@ -1904,10 +1904,12 @@ export const startCodexSession = (
 				console.warn("[codex] goal hydration failed", cause);
 			}
 
-			try {
-				modelFastTier = await probeModelFastTier(app, activeModel);
-			} catch (cause) {
-				console.warn("[codex] fast-tier probe failed", cause);
+			if (input.modelOptions?.fastMode === "true") {
+				try {
+					modelFastTier = await probeModelFastTier(app, activeModel);
+				} catch (cause) {
+					console.warn("[codex] fast-tier probe failed", cause);
+				}
 			}
 		};
 

@@ -213,6 +213,7 @@ const withSession = async <A>(
 		readonly runtimeMode?: import("@zuse/contracts").RuntimeMode;
 		readonly resumeCursor?: string | null;
 		readonly apiKey?: string;
+		readonly modelOptions?: StartSessionInput["modelOptions"];
 		readonly workspaceInstructions?: string;
 		readonly forkFromResume?: boolean;
 		readonly missingResume?: boolean;
@@ -238,6 +239,7 @@ const withSession = async <A>(
 			startCodexSession(
 				input({
 					forkFromResume: options.forkFromResume,
+					modelOptions: options.modelOptions,
 					workspaceInstructions: options.workspaceInstructions,
 				}),
 				cwd,
@@ -498,6 +500,22 @@ describe("Codex session cursor persistence", () => {
 			),
 		});
 		expect(CodexAppServerClient.start).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([
+		false,
+		true,
+	])("only probes fast-tier models when fast mode is requested (%s)", async (fastMode) => {
+		await withSession(
+			{ modelOptions: { fastMode: String(fastMode) } },
+			async (_handle, appServer) => {
+				expect(
+					appServer.requests.filter(
+						(request) => request.method === "model/list",
+					),
+				).toHaveLength(fastMode ? 1 : 0);
+			},
+		);
 	});
 
 	it("continues delivering output after a retryable stream error", async () => {
