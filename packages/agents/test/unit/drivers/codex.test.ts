@@ -17,6 +17,7 @@ import {
 	supportsCodexNativePlanMode,
 	translateCodexCollabItem,
 	translateCodexItem,
+	translateCodexPlanNotification,
 	translateCodexStatusNotification,
 } from "@zuse/agents/drivers/codex";
 import {
@@ -30,6 +31,65 @@ import { describe, expect, it } from "vitest";
 
 const tags = (events: ReadonlyArray<AgentEvent>): string[] =>
 	events.map((event) => event._tag);
+
+describe("Codex native task plans", () => {
+	it("delivers live snapshots, completion and clearing through shared todos", () => {
+		for (const plan of [
+			[{ step: "Inspect", status: "inProgress" as const }],
+			[{ step: "Inspect", status: "completed" as const }],
+			[],
+		]) {
+			const events = translateCodexPlanNotification(
+				{
+					method: "turn/plan/updated",
+					params: {
+						threadId: "thread",
+						turnId: "turn",
+						explanation: null,
+						plan,
+					},
+				},
+				"thread",
+			);
+			expect(events).toEqual([
+				{
+					_tag: "ToolUse",
+					itemId: "turn-plan:turn",
+					tool: "TodoWrite",
+					input: {
+						explanation: null,
+						todos: plan.map((s) => ({
+							content: s.step,
+							status: s.status === "inProgress" ? "in_progress" : s.status,
+						})),
+					},
+				},
+				{
+					_tag: "ToolResult",
+					itemId: "turn-plan:turn",
+					output: "Plan updated",
+					isError: false,
+				},
+			]);
+		}
+	});
+	it("does not replace the parent plan with another thread's tasks", () => {
+		expect(
+			translateCodexPlanNotification(
+				{
+					method: "turn/plan/updated",
+					params: {
+						threadId: "child",
+						turnId: "turn",
+						explanation: null,
+						plan: [],
+					},
+				},
+				"parent",
+			),
+		).toEqual([]);
+	});
+});
 
 const only = <T extends AgentEvent["_tag"]>(
 	events: ReadonlyArray<AgentEvent>,

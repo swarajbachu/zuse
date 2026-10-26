@@ -1295,6 +1295,31 @@ export const codexFinishDetachedAgent = (
 	};
 };
 
+/** Adapt native plan snapshots to the shared, durable todo presentation. */
+export const translateCodexPlanNotification = (
+	notification: Extract<ServerNotification, { method: "turn/plan/updated" }>,
+	activeThreadId: string | null,
+): ReadonlyArray<AgentEvent> => {
+	if (notification.params.threadId !== activeThreadId) return [];
+	const { turnId, plan, explanation } = notification.params;
+	const itemId = `turn-plan:${turnId}` as AgentItemId;
+	return [
+		{
+			_tag: "ToolUse",
+			itemId,
+			tool: "TodoWrite",
+			input: {
+				explanation,
+				todos: plan.map(({ step, status }) => ({
+					content: step,
+					status: status === "inProgress" ? "in_progress" : status,
+				})),
+			},
+		},
+		{ _tag: "ToolResult", itemId, output: "Plan updated", isError: false },
+	];
+};
+
 export const translateCodexStatusNotification = (
 	notification: ServerNotification,
 	activeThreadId: string | null,
@@ -2261,6 +2286,8 @@ export const startCodexSession = (
 			}
 
 			switch (notification.method) {
+				case "turn/plan/updated":
+					return translateCodexPlanNotification(notification, activeThreadId);
 				case "item/agentMessage/delta":
 				case "item/reasoning/summaryTextDelta":
 				case "item/reasoning/textDelta": {
