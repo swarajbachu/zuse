@@ -77,6 +77,27 @@ describe("interaction submission cards", () => {
 		expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>/);
 	});
 
+	it("keeps expired answers disabled but allows dismissing the question", () => {
+		const markup = renderToStaticMarkup(
+			<QuestionCard
+				environmentId={environmentId}
+				sessionId={sessionId}
+				itemId={AgentItemId.make("question-expired")}
+				questions={[{ question: "Continue?", options: ["Yes", "No"] }]}
+				disabled
+				expired
+			/>,
+		);
+
+		expect(markup).toContain("This question has expired.");
+		const dismissButton = markup.match(
+			/<button[^>]*aria-label="Dismiss"[^>]*>/,
+		)?.[0];
+		expect(dismissButton).toBeDefined();
+		expect(dismissButton).not.toContain("disabled");
+		expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>/);
+	});
+
 	it("renders the attached question enabled when an earlier durable question is quarantined", () => {
 		const detachedId = AgentItemId.make("question-detached-first");
 		const attachedId = AgentItemId.make("question-attached-second");

@@ -471,7 +471,10 @@ export function ChatComposer({
 					submissionError: pendingQuestion.error,
 				},
 	);
-	const answeringQuestion = questionAnswer !== null;
+	/** An expired question can only be dismissed, so it releases the composer. */
+	const answerableQuestion =
+		questionAnswer === null || questionAnswer.expired ? null : questionAnswer;
+	const answeringQuestion = answerableQuestion !== null;
 
 	const requestsById =
 		useEnvironmentPermissions(qualifiedEnvironmentId).data?.requestsById ??
@@ -1227,7 +1230,7 @@ export function ChatComposer({
 
 	/** While a question is pending, the composer text is its free-text answer. */
 	const submitQuestionAnswer = (
-		answer: NonNullable<typeof questionAnswer>,
+		answer: NonNullable<typeof answerableQuestion>,
 	): boolean => {
 		const view = editorViewRef.current;
 		if (view === null || trigger !== null || modelPickerOpen) return false;
@@ -1245,7 +1248,8 @@ export function ChatComposer({
 	};
 
 	const submit = (): boolean => {
-		if (questionAnswer !== null) return submitQuestionAnswer(questionAnswer);
+		if (answerableQuestion !== null)
+			return submitQuestionAnswer(answerableQuestion);
 		if (
 			composerSendBlocked(timeline.presentation.health, sendPlanFeedbackNow)
 		) {
@@ -1331,6 +1335,8 @@ export function ChatComposer({
 			useAnnotationsStore.getState().clear(sessionId);
 			editingQueuedItemRef.current = null;
 			setEditingQueuedItem(null);
+			// Sending a new message moves past an expired question.
+			if (questionAnswer?.expired === true) questionAnswer.dismiss();
 		};
 
 		if (onDraftSubmit !== undefined) {
@@ -1924,22 +1930,22 @@ export function ChatComposer({
 											session={session}
 										/>
 									) : null}
-									{questionAnswer !== null ? (
+									{answerableQuestion !== null ? (
 										<DitherButton
 											variant="gradient"
 											className="size-6 border border-primary/40 text-white"
 											onClick={() => void submit()}
 											disabled={
-												questionAnswer.busy ||
-												!questionAnswer.canAnswer(hasText)
+												answerableQuestion.busy ||
+												!answerableQuestion.canAnswer(hasText)
 											}
 											aria-label={uiMessage(
-												questionAnswer.last
+												answerableQuestion.last
 													? "chat:question_card_submit_answer"
 													: "chat:question_card_continue",
 											)}
 										>
-											{questionAnswer.busy ? (
+											{answerableQuestion.busy ? (
 												<Spinner className="size-3.5" />
 											) : (
 												<HugeiconsIcon icon={SentIcon} className="size-3.5" />
