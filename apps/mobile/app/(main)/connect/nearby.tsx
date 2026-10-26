@@ -47,6 +47,7 @@ import {
 	onNearbyServicesChanged,
 	openLocalProxy,
 	startLocalDiscovery,
+	stopLocalDiscovery,
 } from "../../../modules/local-connectivity";
 import { deviceModelName } from "../../../modules/mobile-platform";
 
@@ -62,12 +63,12 @@ type PendingApproval = {
 const DISCOVERY_UNAVAILABLE_HINT =
 	Platform.OS === "ios"
 		? "Nearby access is unavailable. Check Local Network access for Zuse in iPhone Settings."
-		: "Nearby access is unavailable. Make sure Wi-Fi is on and this phone is on the same network as your Mac.";
+		: "Nearby access is unavailable. Connect this phone and your computer to the same Wi-Fi network.";
 
 const NEARBY_DISCOVERY_SUMMARY =
 	Platform.OS === "ios"
-		? "Nearby Macs appear automatically over Wi-Fi or peer-to-peer."
-		: "Nearby Macs on the same Wi-Fi network appear automatically.";
+		? "Nearby computers appear automatically over Wi-Fi or peer-to-peer."
+		: "Computers running Zuse on the same Wi-Fi network appear automatically.";
 
 const safetyPhraseLabel = (phrase: string): string =>
 	phrase.split("-").join("  ·  ");
@@ -128,7 +129,9 @@ export default function NearbyConnectScreen() {
 				const clientNonce = randomNonce();
 				const challenge = await nearbyPairingChallenge(proxy);
 				if (challenge.transportCertificatePin !== service.tlsCertificatePin) {
-					throw new Error("The nearby Mac's encrypted identity did not match.");
+					throw new Error(
+						"The nearby computer's encrypted identity did not match.",
+					);
 				}
 				let accountAssertion: string | undefined;
 				if (appAtomRegistry.get(authAccountAtom) !== null) {
@@ -168,7 +171,7 @@ export default function NearbyConnectScreen() {
 				setError(
 					cause instanceof Error
 						? cause.message
-						: "Could not request access from this Mac.",
+						: "Could not request access from this computer.",
 				);
 			} finally {
 				setStarting(null);
@@ -218,7 +221,7 @@ export default function NearbyConnectScreen() {
 					setPending(null);
 					setError(
 						status.state === "denied"
-							? "The Mac did not allow this phone."
+							? "The computer did not allow this phone."
 							: "The connection request expired. Try again.",
 					);
 					return;
@@ -292,10 +295,11 @@ export default function NearbyConnectScreen() {
 							icon={Radio}
 							title="Nearby connection unavailable"
 							detail="This app build does not include nearby discovery. Scan the QR code or reinstall the native app."
-						/>
-						<Button onPress={() => router.replace("/connect/scan")}>
-							Scan QR
-						</Button>
+						>
+							<Button onPress={() => router.replace("/connect/scan")}>
+								Scan QR
+							</Button>
+						</EmptyState>
 					</View>
 				) : pending !== null ? (
 					<View className="flex-1 items-center justify-center gap-4 px-4 py-8">
@@ -304,7 +308,7 @@ export default function NearbyConnectScreen() {
 						</View>
 						<View className="items-center gap-1.5">
 							<Text className="font-sans-medium text-xl text-foreground">
-								Approve on your Mac
+								Approve on your computer
 							</Text>
 							<Text className="max-w-72 text-center font-sans text-sm leading-5 text-muted-foreground">
 								Confirm these words match, then choose Allow.
@@ -345,18 +349,32 @@ export default function NearbyConnectScreen() {
 						</Text>
 						{services.length === 0 ? (
 							<View className="flex-1 items-center justify-center gap-3 py-8">
-								<ActivityIndicator />
+								{discoveryState.state === "failed" ? null : (
+									<ActivityIndicator />
+								)}
 								<Text className="font-sans text-sm text-muted-foreground">
-									Looking for nearby Macs…
+									{discoveryState.state === "failed"
+										? "Could not search the local network"
+										: "Looking for nearby computers…"}
 								</Text>
-								{showQrFallback ? (
+								{showQrFallback || discoveryState.state === "failed" ? (
 									<>
 										<Text className="max-w-72 text-center font-sans text-sm leading-5 text-muted-foreground">
 											{discoveryState.state === "waiting" ||
 											discoveryState.state === "failed"
-												? DISCOVERY_UNAVAILABLE_HINT
-												: "Keep Zuse open on the Mac and make sure both devices have Wi-Fi enabled."}
+												? (discoveryState.reason ?? DISCOVERY_UNAVAILABLE_HINT)
+												: "Keep Zuse open on your computer and connect both devices to the same Wi-Fi network."}
 										</Text>
+										<Button
+											variant="secondary"
+											onPress={() => {
+												void stopLocalDiscovery().then(() =>
+													startLocalDiscovery(),
+												);
+											}}
+										>
+											Search again
+										</Button>
 										<Button
 											variant="secondary"
 											onPress={() => router.push("/connect/scan")}
@@ -372,7 +390,7 @@ export default function NearbyConnectScreen() {
 									<Pressable
 										key={service.id}
 										accessibilityRole="button"
-										accessibilityLabel={`${nearbyMacDisplayName(service.name)}, Mac approval required`}
+										accessibilityLabel={`${nearbyMacDisplayName(service.name)}, Computer approval required`}
 										disabled={starting !== null}
 										onPress={() => void requestAccess(service)}
 										className="min-h-44 w-40 items-center justify-start gap-3 rounded-3xl px-3 py-4 active:bg-muted/60"
@@ -389,7 +407,7 @@ export default function NearbyConnectScreen() {
 											</Text>
 											<View className="min-h-5 flex-row items-center gap-1.5">
 												<Text className="font-sans text-xs text-muted-foreground">
-													Mac approval required
+													Computer approval required
 												</Text>
 											</View>
 										</View>
@@ -417,7 +435,7 @@ export default function NearbyConnectScreen() {
 					</View>
 				)}
 			</ScrollView>
-			<Stack.Screen options={{ title: "Nearby Macs" }} />
+			<Stack.Screen options={{ title: "Nearby computers" }} />
 		</>
 	);
 }

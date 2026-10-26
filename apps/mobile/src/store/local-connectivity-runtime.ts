@@ -312,7 +312,7 @@ export function useLocalConnectivityRuntime(): void {
 				usesWifi: event.usesWifi,
 				generation: event.generation,
 			});
-			const path = `${event.status}:${event.usesWifi}:${event.usesCellular}`;
+			const path = `${event.status}:${event.usesWifi}:${event.usesCellular}:${event.networkId ?? ""}`;
 			const previous = lastPath;
 			lastPath = path;
 			if (

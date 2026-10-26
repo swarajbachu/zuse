@@ -58,6 +58,39 @@ Both native byte proxies (phone and Mac helper) disable Nagle coalescing and
 enable TCP keepalive, so small frames are not delayed and vanished peers are
 noticed.
 
+## Android local connections
+
+`modules/local-connectivity/android` implements the same discovery and loopback
+proxy contract as iOS. Android NSD browses `_zuse._tcp.`, resolves services
+sequentially, and accepts only advertisements with a TLS certificate pin. Each
+proxy opens TLS to the resolved computer and verifies the leaf certificate's
+SHA-256 pin before forwarding any HTTP or WebSocket bytes. A Wi-Fi multicast
+lock is held only while discovery is active. Network identity changes invalidate
+old routes even when both networks use Wi-Fi.
+
+This requires a native rebuild; Metro reloads cannot add the module to an older
+APK. From `apps/mobile`, run `bun run android:local`. The nearby screen reports
+discovery failures and offers search retry and QR pairing. QR/manual connections
+must use the computer's reachable LAN address and current listening port;
+`127.0.0.1` refers to the phone, and `10.0.2.2` is emulator-only.
+
+Native verification from the generated `apps/mobile/android` project:
+
+```sh
+./gradlew :local-connectivity:testDebugUnitTest :local-connectivity:connectedDebugAndroidTest
+```
+
+The JVM tests cover concurrent proxy connections, shutdown, and failed remote
+connections. The device test exercises real TLS through the loopback proxy and
+rejects a certificate pin mismatch.
+
+Linux desktops publish the same `_zuse._tcp` service and certificate pin through
+the bundled `@homebridge/ciao` responder. The engine owns its lifecycle, retries
+failed advertisements with backoff, and sends goodbye packets on shutdown.
+AppImages do not require `avahi-publish-service` or `avahi-utils`. The responder
+handles interface changes and service-name conflicts. macOS keeps its native
+helper for peer-to-peer discovery.
+
 ## Effect patch
 
 `patches/effect@4.0.0-beta.102.patch` ports the upstream pinger rule (any

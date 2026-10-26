@@ -112,6 +112,26 @@ test("manual route recovery restarts discovery when the service cache is empty",
 	expect(state.stop).toHaveBeenCalledTimes(1);
 });
 
+test("switching Android Wi-Fi networks replaces the old route", async () => {
+	state.connections = [
+		{
+			key: "paired:mac",
+			source: "paired",
+			nearbyServiceName: "mac",
+		} as ConnectionRecord,
+	];
+	useLocalConnectivityRuntime();
+	state.servicesListener?.([{ name: "mac", routeId: "mac" } as NearbyService]);
+	await vi.waitFor(() => expect(state.open).toHaveBeenCalledTimes(1));
+	state.pathListener?.({ ...path(true), networkId: "100" });
+	state.pathListener?.({ ...path(true), networkId: "100", generation: 2 });
+	await Promise.resolve();
+	expect(state.close).not.toHaveBeenCalled();
+	state.pathListener?.({ ...path(true), networkId: "101", generation: 3 });
+	await vi.waitFor(() => expect(state.close).toHaveBeenCalledWith("mac"));
+	await vi.waitFor(() => expect(state.start).toHaveBeenCalledTimes(2));
+});
+
 test("manual retry rediscovers the Mac even when stale services remain cached", async () => {
 	useLocalConnectivityRuntime();
 	state.servicesListener?.([
