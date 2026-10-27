@@ -10,7 +10,10 @@ import {
 	loadCloudImage,
 	peekCloudImage,
 } from "../../lib/cloud-workspace-session-cache.ts";
-import { runCloudControl } from "../../lib/control-plane-client.ts";
+import {
+	runCloudControl,
+	subscribeControlPlaneSessionCache,
+} from "../../lib/control-plane-client.ts";
 import { Button } from "../ui/button.tsx";
 import {
 	Collapsible,
@@ -73,22 +76,33 @@ export function CloudSnapshotSettings({
 	const authenticationBusy = saving || (applied && inspecting);
 	useEffect(() => {
 		let disposed = false;
+		let initialRequestFinished = false;
 		let timer: ReturnType<typeof setTimeout> | undefined;
+		const accept = (next: CloudAccountImage) => {
+			setImage(next);
+			if (!initialized.current && next.snapshot) {
+				initialized.current = true;
+				setSnapshotId(next.snapshot.snapshotId);
+				setRuntimeUser(next.snapshot.runtimeUser);
+				setPaths(
+					next.snapshot.repositories.map((repository) => repository.path),
+				);
+				setAgentAuthentication(next.snapshot.agentAuthentication ?? "native");
+				setGitAuthentication(next.snapshot.gitAuthentication ?? "native");
+			}
+		};
+		const unsubscribe = subscribeControlPlaneSessionCache((key) => {
+			// Keep authentication-only controls disabled until their fresh request finishes.
+			if (key !== "cloud-workspace:image:boxd" || !initialRequestFinished)
+				return;
+			const next = peekCloudImage("boxd");
+			if (next !== undefined) accept(next);
+		});
 		const load = async () => {
 			try {
 				const next = await loadCloudImage("boxd", true);
 				if (disposed) return;
-				setImage(next);
-				if (!initialized.current && next.snapshot) {
-					initialized.current = true;
-					setSnapshotId(next.snapshot.snapshotId);
-					setRuntimeUser(next.snapshot.runtimeUser);
-					setPaths(
-						next.snapshot.repositories.map((repository) => repository.path),
-					);
-					setAgentAuthentication(next.snapshot.agentAuthentication ?? "native");
-					setGitAuthentication(next.snapshot.gitAuthentication ?? "native");
-				}
+				accept(next);
 				if (next.state === "building")
 					timer = setTimeout(() => void load(), 3000);
 				else if (inspecting) {
@@ -97,11 +111,14 @@ export function CloudSnapshotSettings({
 				}
 			} catch {
 				if (!disposed) setError(uiMessage("settings:snapshot_refresh_error"));
+			} finally {
+				initialRequestFinished = true;
 			}
 		};
 		void load();
 		return () => {
 			disposed = true;
+			unsubscribe();
 			if (timer) clearTimeout(timer);
 		};
 	}, [connectionId, inspecting, uiMessage]);
