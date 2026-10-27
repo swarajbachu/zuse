@@ -108,6 +108,7 @@ export const atomicWritePrivateFile = async (
 export const pruneExpiredCloudSshTickets = async (
 	directory = ticketsDir(),
 	now = Date.now(),
+	workspaceDirectory = join(dirname(directory), "workspaces"),
 ): Promise<void> => {
 	let names: string[];
 	try {
@@ -115,6 +116,7 @@ export const pruneExpiredCloudSshTickets = async (
 	} catch {
 		return;
 	}
+	const freshWorkspaces = new Set<string>();
 	await Promise.all(
 		names
 			.filter((name) => name.endsWith(".json"))
@@ -124,11 +126,28 @@ export const pruneExpiredCloudSshTickets = async (
 					const ticket = JSON.parse(await readFile(path, "utf8")) as {
 						expiresAt?: unknown;
 					};
-					if (typeof ticket.expiresAt === "number" && ticket.expiresAt > now)
+					if (typeof ticket.expiresAt === "number" && ticket.expiresAt > now) {
+						freshWorkspaces.add(name.slice(0, -5));
 						return;
+					}
 				} catch {}
 				await rm(path, { force: true });
 			}),
+	);
+	let configs: string[];
+	try {
+		configs = await readdir(workspaceDirectory);
+	} catch {
+		return;
+	}
+	await Promise.all(
+		configs
+			.filter(
+				(name) =>
+					/^[A-Za-z0-9_-]+\.conf$/u.test(name) &&
+					!freshWorkspaces.has(name.slice(0, -5)),
+			)
+			.map((name) => rm(join(workspaceDirectory, name), { force: true })),
 	);
 };
 
@@ -298,7 +317,7 @@ export const sshTargetLaunch = (
 		case "zed":
 			return {
 				kind: "uri",
-				uri: `zed://ssh/zuse@${hostAlias}${remotePath}`,
+				uri: `zed://ssh/${hostAlias}${remotePath}`,
 			};
 		case "terminal":
 			return { kind: "terminal", command: `ssh ${hostAlias}` };

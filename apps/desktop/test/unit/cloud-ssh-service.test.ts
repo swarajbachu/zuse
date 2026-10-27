@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -31,7 +38,17 @@ describe("cloud ssh service", () => {
 			execFileSync("ssh", ["-G", "-T", "-F", path, host], {
 				encoding: "utf8",
 			}).match(/^user (.+)$/m)?.[1];
-		expect(user("zuse-snapshot")).toBe("boxd");
+		const launch = sshTargetLaunch(
+			"zed",
+			"zuse-snapshot",
+			"/home/boxd/workspace",
+		);
+		if (launch?.kind !== "uri") throw new Error("Expected an editor URI");
+		const uri = new URL(launch.uri);
+		const target = uri.pathname.split("/")[1];
+		if (target === undefined) throw new Error("Expected an SSH host");
+		expect(target).not.toContain("@");
+		expect(user(target)).toBe("boxd");
 		expect(user("zuse-managed")).toBe("zuse");
 	});
 
@@ -117,13 +134,26 @@ describe("cloud ssh service", () => {
 		expect((await stat(path)).mode & 0o777).toBe(0o700);
 	});
 
-	test("expired and invalid managed tickets are pruned", async () => {
+	test("pruning removes expired, invalid and orphaned workspace configs but keeps fresh access", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "zuse-ssh-tickets-"));
 		await mkdir(directory, { recursive: true });
 		await writeFile(join(directory, "fresh.json"), '{"expiresAt":2000}');
 		await writeFile(join(directory, "expired.json"), '{"expiresAt":999}');
 		await writeFile(join(directory, "invalid.json"), "not-json");
-		await pruneExpiredCloudSshTickets(directory, 1_000);
+		const configs = join(directory, "workspaces");
+		await mkdir(configs);
+		for (const name of ["fresh", "expired", "invalid", "orphan"]) {
+			await writeFile(
+				join(configs, `${name}.conf`),
+				cloudSshWorkspaceConfig(name, "boxd"),
+			);
+		}
+		await writeFile(join(configs, "unrelated.txt"), "keep");
+		await pruneExpiredCloudSshTickets(directory, 1_000, configs);
+		expect((await readdir(configs)).sort()).toEqual([
+			"fresh.conf",
+			"unrelated.txt",
+		]);
 		expect(await readFile(join(directory, "fresh.json"), "utf8")).toContain(
 			"2000",
 		);
@@ -159,7 +189,7 @@ describe("cloud ssh service", () => {
 		});
 		expect(sshTargetLaunch("zed", alias, "/home/zuse/workspace")).toEqual({
 			kind: "uri",
-			uri: "zed://ssh/zuse@zuse-workspace_abc/home/zuse/workspace",
+			uri: "zed://ssh/zuse-workspace_abc/home/zuse/workspace",
 		});
 		expect(sshTargetLaunch("terminal", alias, "/home/zuse/workspace")).toEqual({
 			kind: "terminal",
