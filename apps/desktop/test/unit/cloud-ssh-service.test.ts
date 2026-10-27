@@ -8,6 +8,7 @@ import {
 	atomicWritePrivateFile,
 	cloudSshBridgeLauncher,
 	cloudSshHostAlias,
+	cloudSshWorkspaceConfig,
 	managedSshConfig,
 	pruneExpiredCloudSshTickets,
 	sshTargetLaunch,
@@ -16,6 +17,32 @@ import {
 import { sanitizedSshBridgeFailure } from "../../src/ssh/ssh-bridge-errors.ts";
 
 describe("cloud ssh service", () => {
+	test("uses the snapshot's Linux user without changing managed workspace users", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "zuse-ssh-users-"));
+		const hosts = join(directory, "workspace users");
+		await mkdir(hosts);
+		await writeFile(
+			join(hosts, "snapshot.conf"),
+			cloudSshWorkspaceConfig("snapshot", "boxd"),
+		);
+		const path = join(directory, "config");
+		await writeFile(path, managedSshConfig("/unused-bridge", hosts));
+		const user = (host: string) =>
+			execFileSync("ssh", ["-G", "-T", "-F", path, host], {
+				encoding: "utf8",
+			}).match(/^user (.+)$/m)?.[1];
+		expect(user("zuse-snapshot")).toBe("boxd");
+		expect(user("zuse-managed")).toBe("zuse");
+	});
+
+	test("rejects unsafe workspace SSH config values", () => {
+		expect(() => cloudSshWorkspaceConfig("snapshot\nHost *", "boxd")).toThrow();
+		expect(() =>
+			cloudSshWorkspaceConfig("snapshot", "boxd\nProxyCommand bad"),
+		).toThrow();
+		expect(() => cloudSshWorkspaceConfig("snapshot", "root")).toThrow();
+	});
+
 	test("OpenSSH reuses connections per workspace with bounded idle and dead-peer lifetimes", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "zuse-ssh-config-"));
 		const path = join(directory, "config");
