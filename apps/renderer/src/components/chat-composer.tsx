@@ -4,7 +4,6 @@ import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
 import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
 import { isHostedProduct } from "../lib/hosted-session.ts";
 import { GOAL_STATUS_MESSAGE } from "../lib/session-goal-presentation.ts";
-import { CloudDeviceSelector } from "./cloud-device-selector.tsx";
 import { ComposerAttachmentTray } from "./composer/composer-attachment-tray.tsx";
 import { ComposerVoiceButton } from "./composer/composer-voice-button.tsx";
 import { SessionSecretRequests } from "./session-secret-requests.tsx";
@@ -1668,11 +1667,6 @@ export function ChatComposer({
 
 	return (
 		<TooltipProvider delay={0}>
-			{cloudSummary && (
-				<div className="px-3 py-1">
-					<CloudDeviceSelector workspaceId={cloudSummary.workspaceId} />
-				</div>
-			)}
 			{timeline.presentation.health === "unavailable" ? (
 				<div role="status" className="px-3 py-2 text-xs text-muted-foreground">
 					{uiMessage("chat:execution_unavailable")}
