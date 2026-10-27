@@ -289,6 +289,9 @@ describe("WorktreeServiceLive", () => {
 		git(repositoryRoot, "config", "remote.origin.uploadpack", uploadPack);
 		const first = await run((service) => service.create(projectId));
 		expect(first.baseBranch).toBe("main");
+		expect(git(first.path, "rev-parse", "--abbrev-ref", "@{upstream}")).toBe(
+			"origin/main",
+		);
 		expect(git(first.path, "rev-parse", "HEAD")).toBe(remoteTip);
 
 		pushToOrigin("second.txt");
@@ -314,6 +317,41 @@ describe("WorktreeServiceLive", () => {
 		expect(created.baseBranch).toBe("main");
 		expect(git(created.path, "rev-parse", "HEAD")).toBe(cachedTip);
 		expect(existsSync(join(created.path, "local-only.txt"))).toBe(false);
+	});
+
+	test("recovers more than three damaged checkpoints before fetching a missing base", async () => {
+		const originRoot = join(temporaryRoot, "origin.git");
+		git(temporaryRoot, "clone", "--bare", repositoryRoot, originRoot);
+		git(repositoryRoot, "remote", "add", "origin", originRoot);
+		git(
+			repositoryRoot,
+			"symbolic-ref",
+			"refs/remotes/origin/HEAD",
+			"refs/remotes/origin/main",
+		);
+		const refs = join(repositoryRoot, ".git/refs/zuse/checkpoints");
+		mkdirSync(refs, { recursive: true });
+		for (let index = 0; index < 6; index += 1) {
+			writeFileSync(
+				join(refs, index.toString(16).padStart(64, "0")),
+				`${"1".repeat(40)}\n`,
+			);
+		}
+		const created = await run((service) => service.create(projectId));
+		expect(git(created.path, "rev-parse", "HEAD")).toBe(
+			git(originRoot, "rev-parse", "HEAD"),
+		);
+		expect(
+			git(
+				repositoryRoot,
+				"for-each-ref",
+				"--format=%(refname)",
+				"refs/zuse/checkpoints",
+			),
+		).toBe("");
+		expect(
+			readdirSync(join(repositoryRoot, ".git/zuse/checkpoint-recovery")),
+		).toHaveLength(6);
 	});
 
 	test.each([
