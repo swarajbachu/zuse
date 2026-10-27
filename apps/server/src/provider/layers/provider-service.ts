@@ -1,5 +1,6 @@
 import { startClaudeSession } from "@zuse/agents/drivers/claude";
 import { startCodexSession } from "@zuse/agents/drivers/codex";
+import { closeCodexControlClients } from "@zuse/agents/drivers/codex-control-client";
 import { startCursorSession } from "@zuse/agents/drivers/cursor";
 import { startGeminiSession } from "@zuse/agents/drivers/gemini";
 import { startGenericAcpSession } from "@zuse/agents/drivers/generic-acp";
@@ -150,6 +151,7 @@ const nextSessionId = (): AgentSessionId =>
 export const ProviderServiceLive = Layer.effect(
 	ProviderService,
 	Effect.gen(function* () {
+		yield* Effect.addFinalizer(() => Effect.promise(closeCodexControlClients));
 		const acpAgents = yield* AcpAgentService;
 		const executor = yield* CommandExecutor.ChildProcessSpawner;
 		const fs = yield* FileSystem.FileSystem;

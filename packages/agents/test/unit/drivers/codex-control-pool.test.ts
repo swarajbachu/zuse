@@ -27,23 +27,46 @@ describe("Codex control process lifetime", () => {
 	});
 	it("replaces a terminated control process without retrying its failed operation", async () => {
 		vi.useFakeTimers();
-		const close = vi.fn(async () => {});
+		const first = {
+			close: vi.fn(async () => {}),
+		} as unknown as CodexAppServerClient;
+		const second = {
+			close: vi.fn(async () => {}),
+		} as unknown as CodexAppServerClient;
 		const start = vi
 			.spyOn(CodexAppServerClient, "start")
-			.mockResolvedValue({ close } as unknown as CodexAppServerClient);
+			.mockResolvedValueOnce(first)
+			.mockResolvedValueOnce(second);
 		const { withCodexControlClient } = await import(
 			"../../../src/drivers/codex-control-client.ts"
 		);
-		const operation = vi.fn(async () => {
-			throw new Error("closed");
+		let rejectOperation!: (error: Error) => void;
+		let markStarted!: () => void;
+		const started = new Promise<void>((resolve) => {
+			markStarted = resolve;
 		});
-		await withCodexControlClient("/test/terminated", async () => undefined);
+		const operation = vi.fn((client: CodexAppServerClient) => {
+			expect(client).toBe(first);
+			return new Promise<void>((_resolve, reject) => {
+				rejectOperation = reject;
+				markStarted();
+			});
+		});
+		const interrupted = withCodexControlClient("/test/terminated", operation);
+		const rejected = expect(interrupted).rejects.toThrow("process exited");
+		await started;
 		start.mock.calls[0]?.[0].onUnexpectedTermination?.(
 			new Error("process exited"),
 		);
-		await expect(
-			withCodexControlClient("/test/terminated", operation),
-		).rejects.toThrow("closed");
+		rejectOperation(new Error("process exited"));
+		await rejected;
+		expect(operation).toHaveBeenCalledTimes(1);
+		expect(start).toHaveBeenCalledTimes(1);
+		const next = await withCodexControlClient(
+			"/test/terminated",
+			async (client) => client,
+		);
+		expect(next).toBe(second);
 		expect(start).toHaveBeenCalledTimes(2);
 		expect(operation).toHaveBeenCalledTimes(1);
 		await vi.advanceTimersByTimeAsync(2 * 60_000);
@@ -73,5 +96,22 @@ describe("Codex control process lifetime", () => {
 		expect(first).not.toBe(second);
 		expect(start).toHaveBeenCalledTimes(2);
 		await vi.advanceTimersByTimeAsync(2 * 60_000);
+	});
+	it("closes idle control processes immediately on shutdown and permits a new lifecycle", async () => {
+		vi.useFakeTimers();
+		const close = vi.fn(async () => {});
+		const start = vi
+			.spyOn(CodexAppServerClient, "start")
+			.mockResolvedValue({ close } as unknown as CodexAppServerClient);
+		const { withCodexControlClient, closeCodexControlClients } = await import(
+			"../../../src/drivers/codex-control-client.ts"
+		);
+		await withCodexControlClient("/test/shutdown", async () => undefined);
+		await closeCodexControlClients();
+		expect(close).toHaveBeenCalledTimes(1);
+		await withCodexControlClient("/test/shutdown", async () => undefined);
+		expect(start).toHaveBeenCalledTimes(2);
+		await closeCodexControlClients();
+		expect(close).toHaveBeenCalledTimes(2);
 	});
 });
