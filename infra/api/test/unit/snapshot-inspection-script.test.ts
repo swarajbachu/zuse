@@ -183,3 +183,34 @@ test("an explicitly requested missing path has an actionable error", () => {
 		"snapshot-repository-invalid",
 	);
 });
+
+test.each([
+	".nvm",
+	".pyenv",
+	".tooling/checkouts/library",
+	"projects/.hidden-project",
+	"node_modules/library",
+])("automatic discovery skips %s while explicit paths remain supported", (relativePath) => {
+	const { root, repo, inspect } = fixture();
+	const installed = join(root, relativePath);
+	mkdirSync(join(installed, ".."), { recursive: true });
+	execFileSync("git", ["clone", "--no-hardlinks", repo, installed], {
+		stdio: "pipe",
+	});
+	execFileSync("git", [
+		"-C",
+		installed,
+		"remote",
+		"set-url",
+		"origin",
+		"https://github.com/acme/installed.git",
+	]);
+	const automatic = inspect([]);
+	expect(automatic.error).toBeUndefined();
+	expect(
+		automatic.repositories.map((entry: { path: string }) => entry.path),
+	).toEqual([repo]);
+	expect(inspect([installed]).repositories).toMatchObject([
+		{ path: installed, identity: "github.com/acme/installed" },
+	]);
+});
