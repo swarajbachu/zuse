@@ -126,6 +126,7 @@
 	"model_picker_context_window": "{{value1}} 컨텍스트 창",
 	"model_picker_credit_multiplier": "{{value1}} 신용 승수",
 	"provider_card_remove_custom_model": "사용자 정의 모델 {{modelId}} 제거",
+	"muse_sign_in_hint": "터미널에서 실행한 뒤 브라우저 로그인을 선택하거나 Meta API 키를 붙여 넣으세요. Zuse는 META_API_KEY를 전달하지 않으므로 <part0>muse auth set</part0>으로 키를 저장하세요.",
 	"pi_setup_hint": "Pi가 인증과 도구 권한을 관리합니다. 터미널에서 <part0>pi</part0>를 실행하고 <part1>/login</part1>으로 로그인하세요.",
 	"pi_binary_path": "Pi 실행 파일 경로",
 	"pi_binary_placeholder": "PATH에서 pi 찾기",

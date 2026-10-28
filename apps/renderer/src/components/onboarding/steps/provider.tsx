@@ -40,6 +40,7 @@ const openExternal = (url: string): void => {
 };
 
 const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
+	muse: "muse",
 	claude: "claude /login",
 	codex: "codex login",
 	grok: "grok",

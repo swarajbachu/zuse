@@ -1,6 +1,6 @@
 # Muse Code provider
 
-Install Muse Code 1.4.6 or newer on the computer hosting the Zuse server, then run `muse login` there. Enable Muse Code in provider settings. If `muse` is outside PATH, set its absolute binary path in the same settings panel.
+Install Muse Code 1.4.6 or newer on the computer hosting the Zuse server with `curl -fsSL https://dev.meta.ai/install.sh | sh` (Windows: `irm https://dev.meta.ai/install.ps1 | iex`). Then run `muse` there once and choose browser sign-in or paste a Meta API key; `/login` reopens these options. Because the driver drops an inherited `META_API_KEY`, store API keys with `muse auth set`. There is no `muse login` command. Enable Muse Code in provider settings. If `muse` is outside PATH, set its absolute binary path in the same settings panel.
 
 The driver uses the pinned `@muse-code/sdk` and Muse Session Protocol. Models come from the host's `model/list`; there are no speculative bundled model IDs. Reasoning tiers use the host's variants when supplied, with `low`, `medium`, `high`, `xhigh`, and `max` as the fallback when variants are missing or unknown. Discovery does not establish authentication: a cached catalog can be available while logged out. Authentication failures surface when sending a turn.
 

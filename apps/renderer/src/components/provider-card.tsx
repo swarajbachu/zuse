@@ -16,7 +16,7 @@ import {
 	Loading02Icon,
 	Tick01Icon,
 } from "@zuse/icons/solid-rounded";
-import { useEffect, useId, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import { ApiKeyRow } from "~/components/api-key-row";
 import { BlurredEmail } from "~/components/blurred-email";
 import { OpencodeProviderManager } from "~/components/opencode-provider-manager";
@@ -44,7 +44,7 @@ import { useProviderModels } from "~/store/model-catalog";
 import { useProviderUpdate } from "~/store/providers";
 
 const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
-	muse: "muse login",
+	muse: "muse",
 	claude: "claude /login",
 	codex: "codex login",
 	grok: "grok login",
@@ -266,6 +266,18 @@ export function ProviderSettingsRow({
 								command={INSTALL_HINT[providerId] ?? ""}
 							/>
 						)}
+					{providerId === "muse" && (
+						<CodeRow
+							label={uiMessage("common:signIn")}
+							command={LOGIN_HINT.muse ?? ""}
+							hint={
+								<RichMessage
+									id="providers:muse_sign_in_hint"
+									components={{ part0: <code /> }}
+								/>
+							}
+						/>
+					)}
 					{availability?.cliInstalled &&
 						availability.authStatus === "unauthenticated" &&
 						supportsProviderLogin(providerId) && (
@@ -817,7 +829,15 @@ function UpdateAvailableButton({
 	);
 }
 
-function CodeRow({ label, command }: { label: string; command: string }) {
+function CodeRow({
+	label,
+	command,
+	hint,
+}: {
+	label: string;
+	command: string;
+	hint?: ReactNode;
+}) {
 	const { message: uiMessage } = useUiMessages(["common", "providers"]);
 
 	return (
@@ -829,6 +849,7 @@ function CodeRow({ label, command }: { label: string; command: string }) {
 				<code className="flex-1 truncate text-foreground">$ {command}</code>
 				<CopyButton text={command} label={uiMessage("common:copy")} showLabel />
 			</div>
+			{hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
 		</div>
 	);
 }

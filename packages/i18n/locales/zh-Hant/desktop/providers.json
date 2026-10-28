@@ -126,6 +126,7 @@
 	"model_picker_context_window": "{{value1}} 上下文視窗",
 	"model_picker_credit_multiplier": "{{value1}} 信用乘數",
 	"provider_card_remove_custom_model": "刪除自訂型號{{modelId}}",
+	"muse_sign_in_hint": "在終端機中執行，然後選擇瀏覽器登入或貼上 Meta API 金鑰。Zuse 不會傳遞 META_API_KEY，因此請使用 <part0>muse auth set</part0> 儲存金鑰。",
 	"pi_setup_hint": "Pi 管理身分驗證和工具權限。在終端機中執行 <part0>pi</part0>，然後使用 <part1>/login</part1> 登入。",
 	"pi_binary_path": "Pi 執行檔路徑",
 	"pi_binary_placeholder": "在 PATH 中尋找 pi",

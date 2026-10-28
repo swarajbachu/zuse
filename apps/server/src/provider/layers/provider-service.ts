@@ -943,7 +943,7 @@ export const ProviderServiceLive = Layer.effect(
 									return yield* new AgentSessionStartError({
 										providerId: "muse",
 										reason:
-											"Muse Code CLI not found. Install Muse Code and run muse login on this computer.",
+											"Muse Code CLI not found. Install it with curl -fsSL https://dev.meta.ai/install.sh | sh, then run muse once to sign in.",
 									});
 								providerHandle = yield* startMuseSession(
 									driverInput,

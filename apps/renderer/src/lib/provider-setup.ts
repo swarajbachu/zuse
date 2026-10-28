@@ -1,7 +1,7 @@
 import type { ProviderId } from "@zuse/contracts";
 
 export const INSTALL_HINT: Partial<Record<ProviderId, string>> = {
-	muse: "Install Muse Code, then run muse login",
+	muse: "curl -fsSL https://dev.meta.ai/install.sh | sh",
 	claude: "npm i -g @anthropic-ai/claude-code",
 	codex: "npm i -g @openai/codex",
 	grok: "curl -fsSL https://x.ai/cli/install.sh | bash",
