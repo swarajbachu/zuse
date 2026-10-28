@@ -3681,7 +3681,10 @@ export const reconcileCloudWorkspace = (
 					yield* saveWorkspace({
 						...currentWorkspace,
 						state: "failed",
-						statusCode: "provider-unavailable",
+						statusCode:
+							error.code === "quota-exceeded"
+								? "provider-quota-exceeded"
+								: "provider-unavailable",
 						runtimeState: "offline",
 						nextActionAtMs: Number.MAX_SAFE_INTEGER,
 						revision: currentWorkspace.revision + 1,
