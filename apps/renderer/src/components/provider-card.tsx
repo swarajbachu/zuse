@@ -44,7 +44,7 @@ import { useProviderModels } from "~/store/model-catalog";
 import { useProviderUpdate } from "~/store/providers";
 
 const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
-	muse: "muse",
+	muse: "muse login",
 	claude: "claude /login",
 	codex: "codex login",
 	grok: "grok login",
@@ -273,7 +273,7 @@ export function ProviderSettingsRow({
 							hint={
 								<RichMessage
 									id="providers:muse_sign_in_hint"
-									components={{ part0: <code /> }}
+									components={{ part0: <code />, part1: <code /> }}
 								/>
 							}
 						/>

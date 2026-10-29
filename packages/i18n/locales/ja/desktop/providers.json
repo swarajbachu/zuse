@@ -126,7 +126,7 @@
 	"model_picker_context_window": "{{value1}} コンテキスト ウィンドウ",
 	"model_picker_credit_multiplier": "{{value1}} クレジット乗数",
 	"provider_card_remove_custom_model": "カスタム モデル {{modelId}} を削除",
-	"muse_sign_in_hint": "ターミナルで実行し、ブラウザでのログインを選ぶか Meta API キーを貼り付けてください。Zuse は META_API_KEY を引き継がないため、キーは <part0>muse auth set</part0> で保存してください。",
+	"muse_sign_in_hint": "Muse Code がログインを管理します。ターミナルで <part0>muse login</part0> を実行するか、<part1>muse auth set</part1> で Meta API キーを保存してください。Zuse は META_API_KEY を引き継ぎません。",
 	"pi_setup_hint": "Pi が認証とツールの権限を管理します。ターミナルで <part0>pi</part0> を実行し、<part1>/login</part1> でログインしてください。",
 	"pi_binary_path": "Pi 実行ファイルのパス",
 	"pi_binary_placeholder": "PATH から pi を検索",

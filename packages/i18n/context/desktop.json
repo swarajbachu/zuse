@@ -13169,7 +13169,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 136
+				"line": 141
 			}
 		],
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13179,7 +13179,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 193
+				"line": 198
 			}
 		],
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13189,7 +13189,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 405
+				"line": 415
 			}
 		],
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13199,7 +13199,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 449
+				"line": 459
 			}
 		],
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13209,7 +13209,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 475
+				"line": 485
 			}
 		],
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13509,7 +13509,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 489
+				"line": 499
 			}
 		],
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13519,7 +13519,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 495
+				"line": 505
 			}
 		],
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13529,7 +13529,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 501
+				"line": 511
 			}
 		],
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13539,7 +13539,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 507
+				"line": 517
 			}
 		],
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13549,7 +13549,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 513
+				"line": 523
 			}
 		],
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13559,7 +13559,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 519
+				"line": 529
 			}
 		],
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13569,7 +13569,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 525
+				"line": 535
 			}
 		],
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13624,7 +13624,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 319
+				"line": 328
 			}
 		],
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13634,7 +13634,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 431
+				"line": 441
 			}
 		],
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13644,7 +13644,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 437
+				"line": 447
 			}
 		],
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -21716,8 +21716,12 @@
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"providers:muse_sign_in_hint": {
-		"source": "Run it in a terminal and choose browser sign-in or paste a Meta API key. Zuse doesn't pass META_API_KEY through, so save a key with <part0>muse auth set</part0>.",
+		"source": "Muse Code manages sign-in. Run <part0>muse login</part0> in a terminal, or save a Meta API key with <part1>muse auth set</part1>. Zuse doesn't pass META_API_KEY through.",
 		"locations": [
+			{
+				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
+				"line": 303
+			},
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
 				"line": 275
@@ -21730,7 +21734,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 296
+				"line": 304
 			},
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
@@ -35859,7 +35863,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
-				"line": 242
+				"line": 247
 			},
 			{
 				"path": "apps/renderer/src/lib/provider-status.ts",

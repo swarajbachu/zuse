@@ -40,7 +40,7 @@ const openExternal = (url: string): void => {
 };
 
 const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
-	muse: "muse",
+	muse: "muse login",
 	claude: "claude /login",
 	codex: "codex login",
 	grok: "grok",
@@ -95,7 +95,9 @@ function deriveState(
 		};
 	}
 
-	if (providerId === "pi") return { kind: "ready", via: "native" };
+	// Pi and Muse keep their own credentials and do not report sign-in state.
+	if (providerId === "pi" || providerId === "muse")
+		return { kind: "ready", via: "native" };
 
 	if (a.cliLoggedIn) {
 		const subInfo = SUBSCRIPTION_INFO[providerId];
@@ -108,8 +110,7 @@ function deriveState(
 		return { kind: "ready", via: "cli" };
 	}
 
-	if (a.hasApiKey && providerId !== "muse")
-		return { kind: "ready", via: "key" };
+	if (a.hasApiKey) return { kind: "ready", via: "key" };
 	return { kind: "signed-out" };
 }
 
@@ -297,7 +298,11 @@ function ProviderStatus({
 		return (
 			<p className="rounded-md bg-muted/60 px-3 py-2 text-[12px] text-muted-foreground">
 				<RichMessage
-					id="providers:pi_setup_hint"
+					id={
+						providerId === "muse"
+							? "providers:muse_sign_in_hint"
+							: "providers:pi_setup_hint"
+					}
 					components={{ part0: <code />, part1: <code /> }}
 				/>
 			</p>

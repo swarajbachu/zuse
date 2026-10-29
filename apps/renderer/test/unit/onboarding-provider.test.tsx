@@ -107,7 +107,7 @@ it("shows the host's Muse installer and no API key form", () => {
 	expect(html).toContain("irm https://dev.meta.ai/install.ps1 | iex");
 	expect(html).not.toContain("API key form");
 });
-it("does not treat a Zuse-stored key as Muse sign-in", () => {
+it("shows installed Muse as available with native sign-in guidance", () => {
 	state.defaultProviderId = "muse";
 	state.availability = [
 		{
@@ -120,6 +120,10 @@ it("does not treat a Zuse-stored key as Muse sign-in", () => {
 		},
 	];
 	const html = renderToStaticMarkup(<ProviderStep />);
-	expect(html).toContain("Sign in to the CLI");
+	expect(html).toContain("AVAILABLE");
+	expect(html).toContain("<code>muse login</code>");
+	expect(html).toContain("<code>muse auth set</code>");
+	expect(html).not.toContain("Sign in required");
+	expect(html).not.toContain("API key saved");
 	expect(html).not.toContain("API key form");
 });

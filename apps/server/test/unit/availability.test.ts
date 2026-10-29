@@ -97,6 +97,17 @@ describe("installCommandFor", () => {
 		);
 	});
 
+	it("upgrades into the directory of the resolved binary", () => {
+		expect(installCommandFor("muse", "linux", "/opt/it's/bin/muse")).toBe(
+			"curl -fsSL https://dev.meta.ai/install.sh | MUSE_INSTALL_DIR='/opt/it'\\''s/bin' bash",
+		);
+		expect(
+			installCommandFor("muse", "win32", "D:\\Tools\\O'Neil\\muse.cmd"),
+		).toBe(
+			"$env:MUSE_INSTALL_DIR='D:\\Tools\\O''Neil'; irm https://dev.meta.ai/install.ps1 | iex",
+		);
+	});
+
 	it("leaves providers without a per-OS installer to the client hint", () => {
 		expect(installCommandFor("claude", "linux")).toBeNull();
 	});
@@ -536,6 +547,18 @@ describe("extraWellKnownCliPaths", () => {
 		expect(extraWellKnownCliPaths("opencode2")).toEqual([
 			join(homedir(), ".opencode", "bin", "opencode2"),
 		]);
+	});
+
+	it("adds Muse's default installer locations per OS", () => {
+		expect(extraWellKnownCliPaths("muse", "darwin")).toEqual([
+			join(homedir(), ".local", "bin", "muse"),
+		]);
+		expect(
+			extraWellKnownCliPaths("muse", "win32", {
+				LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local",
+			}),
+		).toEqual(["C:\\Users\\me\\AppData\\Local\\Programs\\muse\\muse.cmd"]);
+		expect(extraWellKnownCliPaths("muse", "win32", {})).toEqual([]);
 	});
 
 	it("does not invent extra paths for other CLIs", () => {
