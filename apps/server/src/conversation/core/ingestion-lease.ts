@@ -40,28 +40,38 @@ export const acquireIngestionLease = (
 		OR session_ingestion_leases.attempt_id <> excluded.attempt_id
 		RETURNING owner_id`.pipe(Effect.orDie);
 		if (inserted.length === 0) return null;
+		let retired = false;
 		return {
 			renew: (providerActivityAt) =>
-				Effect.gen(function* () {
-					const timestamp = now();
-					const updated = yield* sql`UPDATE session_ingestion_leases
+				sql
+					.withTransaction(
+						Effect.gen(function* () {
+							if (retired) return false;
+							// Sample after acquiring SQL: database contention must not commit
+							// a renewal whose deadline has already elapsed while waiting.
+							const timestamp = now();
+							// A delayed heartbeat may resume after its deadline. The exact
+							// owner and graph checks fence it against takeover or recovery;
+							// elapsed wall time alone does not prove the consumer died.
+							const updated = yield* sql`UPDATE session_ingestion_leases
 				SET heartbeat_at = ${timestamp}, expires_at = ${timestamp + leaseMs},
 				provider_activity_at = COALESCE(${providerActivityAt ?? null}, provider_activity_at)
-				WHERE session_id = ${sessionId} AND owner_id = ${ownerId} AND expires_at > ${timestamp}
+				WHERE session_id = ${sessionId} AND owner_id = ${ownerId}
 				AND EXISTS (SELECT 1 FROM sessions s JOIN session_turns t ON t.session_id = s.id
 					WHERE s.id = ${sessionId} AND s.archived_at IS NULL AND s.provider_reservation_id = ${identity.providerSessionId}
 					AND t.id = ${identity.turnId} AND t.active_attempt_id = ${identity.attemptId} AND t.status IN ('starting', 'running'))
 				RETURNING owner_id`.pipe(Effect.orDie);
-					return updated.length === 1;
-				}),
-			expire: Effect.suspend(
-				() =>
-					sql`UPDATE session_ingestion_leases SET expires_at = MIN(expires_at, ${now()}) WHERE session_id = ${sessionId} AND owner_id = ${ownerId}`,
-			).pipe(Effect.asVoid, Effect.orDie),
-			release:
-				sql`DELETE FROM session_ingestion_leases WHERE session_id = ${sessionId} AND owner_id = ${ownerId}`.pipe(
-					Effect.asVoid,
-					Effect.orDie,
-				),
+							return updated.length === 1;
+						}),
+					)
+					.pipe(Effect.orDie),
+			expire: Effect.suspend(() => {
+				retired = true;
+				return sql`UPDATE session_ingestion_leases SET expires_at = MIN(expires_at, ${now()}) WHERE session_id = ${sessionId} AND owner_id = ${ownerId}`;
+			}).pipe(Effect.asVoid, Effect.orDie),
+			release: Effect.suspend(() => {
+				retired = true;
+				return sql`DELETE FROM session_ingestion_leases WHERE session_id = ${sessionId} AND owner_id = ${ownerId}`;
+			}).pipe(Effect.asVoid, Effect.orDie),
 		};
 	});
