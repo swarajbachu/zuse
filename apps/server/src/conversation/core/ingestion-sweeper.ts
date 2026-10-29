@@ -14,16 +14,37 @@ interface ExpiredLease {
 	owner_id: string;
 }
 
+/**
+ * Only sweep deadlines already reached on the previous pass. After a process
+ * pause, heartbeats and this sweeper become runnable together; wall-clock expiry
+ * alone must not let the sweeper kill every otherwise healthy consumer first.
+ * An unresponsive consumer is still collected on the following pass.
+ */
+export const makeIngestionLeaseSweep = (
+	sql: SqlClient.SqlClient,
+	domain: SessionDomainApi,
+	now: () => number = Date.now,
+) => {
+	let previousPassAt = now();
+	return Effect.suspend(() => {
+		const current = now();
+		const cutoff = Math.min(previousPassAt, current);
+		previousPassAt = current;
+		return sweepIngestionLeases(sql, domain, current, cutoff);
+	});
+};
+
 /** A bounded pass; revalidate expiry inside the command transaction before publishing anything. */
 export const sweepIngestionLeases = (
 	sql: SqlClient.SqlClient,
 	domain: SessionDomainApi,
 	now = Date.now(),
+	expiredBefore = now,
 ) =>
 	Effect.gen(function* () {
 		const rows =
 			yield* sql<ExpiredLease>`SELECT session_id, turn_id, attempt_id, provider_session_id, owner_id
-		FROM session_ingestion_leases WHERE expires_at <= ${now} ORDER BY expires_at, session_id LIMIT 100`.pipe(
+		FROM session_ingestion_leases WHERE expires_at <= ${expiredBefore} ORDER BY expires_at, session_id LIMIT 100`.pipe(
 				Effect.orDie,
 			);
 		yield* Effect.forEach(
@@ -31,7 +52,7 @@ export const sweepIngestionLeases = (
 			(row) =>
 				Effect.gen(function* () {
 					const discard =
-						sql`DELETE FROM session_ingestion_leases WHERE session_id = ${row.session_id} AND owner_id = ${row.owner_id} AND expires_at <= ${now}`.pipe(
+						sql`DELETE FROM session_ingestion_leases WHERE session_id = ${row.session_id} AND owner_id = ${row.owner_id} AND expires_at <= ${expiredBefore}`.pipe(
 							Effect.asVoid,
 							Effect.orDie,
 						);
@@ -55,7 +76,7 @@ export const sweepIngestionLeases = (
 							() =>
 								Effect.gen(function* () {
 									const removed =
-										yield* sql`DELETE FROM session_ingestion_leases WHERE session_id = ${row.session_id} AND owner_id = ${row.owner_id} AND expires_at <= ${now} RETURNING owner_id`;
+										yield* sql`DELETE FROM session_ingestion_leases WHERE session_id = ${row.session_id} AND owner_id = ${row.owner_id} AND expires_at <= ${expiredBefore} RETURNING owner_id`;
 									if (removed.length !== 1)
 										return yield* new IngestionLeaseRenewed({});
 								}),
