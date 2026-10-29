@@ -1208,15 +1208,19 @@ export const renewRuntimeCredential = Effect.fn("renewRuntimeCredential")(
 			const receivedAtMs = yield* Clock.currentTimeMillis;
 			if (result.requestId !== requestId || result.expiresAt <= receivedAtMs)
 				return yield* Effect.fail(fail("api_invalid_response"));
-			if (persistence)
-				yield* Effect.tryPromise({
-					try: () => persistence.commit(result),
-					catch: () => fail("workspace_runtime_identity_write_failed"),
-				});
+			// Once the receipt is durable, cancellation must not leave the live bearer
+			// behind it: the cleared pending flag would hide that split from ensure.
+			yield* Effect.gen(function* () {
+				if (persistence)
+					yield* Effect.tryPromise({
+						try: () => persistence.commit(result),
+						catch: () => fail("workspace_runtime_identity_write_failed"),
+					});
+				input.state.credential = result.runtimeCredential;
+				input.state.gatewayCredential = undefined;
+				input.state.expiresAt = result.expiresAt;
+			}).pipe(Effect.uninterruptible);
 			yield* writeGithubBrokerState(input.config, result.runtimeCredential);
-			input.state.credential = result.runtimeCredential;
-			input.state.gatewayCredential = undefined;
-			input.state.expiresAt = result.expiresAt;
 		}).pipe(
 			Effect.retry({
 				schedule: cloudRuntimeRetrySchedule,
