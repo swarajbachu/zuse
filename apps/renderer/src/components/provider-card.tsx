@@ -26,7 +26,7 @@ import { Input } from "~/components/ui/input";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { Switch } from "~/components/ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
-import { INSTALL_HINT } from "~/lib/provider-setup";
+import { INSTALL_HINT, installCommand } from "~/lib/provider-setup";
 import {
 	canRunProviderUpdate,
 	formatVersionLabel,
@@ -263,7 +263,7 @@ export function ProviderSettingsRow({
 						!availability.cliInstalled && (
 							<CodeRow
 								label={uiMessage("providers:provider_card_install")}
-								command={INSTALL_HINT[providerId] ?? ""}
+								command={installCommand(providerId, availability) ?? ""}
 							/>
 						)}
 					{providerId === "muse" && (

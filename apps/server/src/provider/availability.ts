@@ -36,6 +36,12 @@ interface ProviderProbe {
 
 	readonly upgradeCommand: string | null;
 
+	/** Official installer when it differs per host OS; also used to upgrade. */
+	readonly installCommand?: {
+		readonly posix: string;
+		readonly win32: string;
+	};
+
 	readonly npmPackage: string | null;
 
 	readonly homebrewFormula: string | null;
@@ -59,6 +65,11 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
 		...PROVIDER_CLI_REGISTRY.muse,
 		minVersion: { major: 1, minor: 4, patch: 6, raw: "1.4.6" },
 		upgradeCommand: null,
+		// Meta's script uses `set -o pipefail`, which Debian's dash `sh` rejects.
+		installCommand: {
+			posix: "curl -fsSL https://dev.meta.ai/install.sh | bash",
+			win32: "irm https://dev.meta.ai/install.ps1 | iex",
+		},
 		npmPackage: null,
 		homebrewFormula: null,
 		nativeUpdate: null,
@@ -607,6 +618,17 @@ export const buildUpdateCommand = (
 	return platform === "win32" ? null : probe.upgradeCommand;
 };
 
+export const installCommandFor = (
+	providerId: ProviderId,
+	platform: NodeJS.Platform,
+): string | null => {
+	const install = PROBES.find(
+		(p) => p.providerId === providerId,
+	)?.installCommand;
+	if (install === undefined) return null;
+	return platform === "win32" ? install.win32 : install.posix;
+};
+
 /**
  * Resolve the update command for a provider by locating its binary and its
  * realpath, then delegating to {@link buildUpdateCommand}. Run server-side via
@@ -1101,6 +1123,8 @@ const probeOne = (
 				cliInstalled: false,
 				cliLoggedIn: false,
 				hasApiKey: false,
+				cliInstallCommand:
+					installCommandFor(probe.providerId, process.platform) ?? undefined,
 				status: "error",
 				statusMessage: overrides[probe.providerId]
 					? `Invalid ${probe.displayName} binary path: ${overrides[probe.providerId]}. Choose an absolute executable path.`
@@ -1129,7 +1153,10 @@ const probeOne = (
 		let cliUpgradeCommand: string | undefined;
 		if (probe.minVersion !== null) {
 			cliVersionMinRequired = probe.minVersion.raw;
-			cliUpgradeCommand = probe.upgradeCommand ?? undefined;
+			cliUpgradeCommand =
+				probe.upgradeCommand ??
+				installCommandFor(probe.providerId, process.platform) ??
+				undefined;
 			if (parsedVersion === null) {
 				cliVersionStatus = "unknown";
 			} else if (compareCliVersion(parsedVersion, probe.minVersion) < 0) {

@@ -11,7 +11,7 @@ import { ApiKeyRow } from "~/components/api-key-row";
 import { ProviderIcon } from "~/components/provider-icons";
 import { Button } from "~/components/ui/button";
 import { providerDisplayName } from "~/lib/provider-labels";
-import { INSTALL_HINT } from "~/lib/provider-setup";
+import { INSTALL_HINT, installCommand } from "~/lib/provider-setup";
 import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 import { cn } from "~/lib/utils";
 import { useSettingsStore } from "../../../lib/settings-client-bus.ts";
@@ -52,7 +52,7 @@ const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
 
 type ProviderState =
 	| { readonly kind: "loading" }
-	| { readonly kind: "missing" }
+	| { readonly kind: "missing"; readonly command: string | null }
 	| {
 			readonly kind: "outdated";
 			readonly current: string;
@@ -71,7 +71,9 @@ function deriveState(
 ): ProviderState {
 	const a = availability.find((x) => x.providerId === providerId);
 	if (a === undefined) {
-		return loading ? { kind: "loading" } : { kind: "missing" };
+		return loading
+			? { kind: "loading" }
+			: { kind: "missing", command: installCommand(providerId, undefined) };
 	}
 	if (providerId === "cursor") {
 		if (!a.hasApiKey) return { kind: "signed-out" };
@@ -81,7 +83,8 @@ function deriveState(
 			invalid: a.apiKeyStatus === "invalid",
 		};
 	}
-	if (!a.cliInstalled) return { kind: "missing" };
+	if (!a.cliInstalled)
+		return { kind: "missing", command: installCommand(providerId, a) };
 
 	if (a.cliVersionStatus === "outdated") {
 		return {
@@ -105,7 +108,8 @@ function deriveState(
 		return { kind: "ready", via: "cli" };
 	}
 
-	if (a.hasApiKey) return { kind: "ready", via: "key" };
+	if (a.hasApiKey && providerId !== "muse")
+		return { kind: "ready", via: "key" };
 	return { kind: "signed-out" };
 }
 
@@ -366,7 +370,7 @@ function ProviderStatus({
 				: state.kind === "outdated"
 					? (state.command ?? INSTALL_HINT[providerId] ?? null)
 					: state.kind === "missing"
-						? (INSTALL_HINT[providerId] ?? null)
+						? state.command
 						: null;
 
 	return (
@@ -399,7 +403,8 @@ function ProviderStatus({
 			(state.kind === "signed-out" || state.kind === "key-attention") ? (
 				<ApiKeyRow providerId={providerId} required />
 			) : (
-				providerId !== "pi" && (
+				providerId !== "pi" &&
+				providerId !== "muse" && (
 					<details className="group/keys">
 						<summary className="cursor-pointer select-none list-none text-[11px] text-muted-foreground hover:text-foreground">
 							{uiMessage("onboarding:provider_or_paste_an_api_key_instead")}

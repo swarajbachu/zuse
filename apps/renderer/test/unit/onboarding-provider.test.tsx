@@ -91,3 +91,35 @@ it("retains generic sign-in guidance for other providers", () => {
 	expect(html).toContain("claude /login");
 	expect(html).toContain("API key form");
 });
+it("shows the host's Muse installer and no API key form", () => {
+	state.defaultProviderId = "muse";
+	state.availability = [
+		{
+			providerId: "muse",
+			displayName: "Muse Code",
+			cliInstalled: false,
+			cliLoggedIn: false,
+			hasApiKey: false,
+			cliInstallCommand: "irm https://dev.meta.ai/install.ps1 | iex",
+		},
+	];
+	const html = renderToStaticMarkup(<ProviderStep />);
+	expect(html).toContain("irm https://dev.meta.ai/install.ps1 | iex");
+	expect(html).not.toContain("API key form");
+});
+it("does not treat a Zuse-stored key as Muse sign-in", () => {
+	state.defaultProviderId = "muse";
+	state.availability = [
+		{
+			providerId: "muse",
+			displayName: "Muse Code",
+			cliInstalled: true,
+			cliLoggedIn: false,
+			hasApiKey: true,
+			authStatus: "unknown",
+		},
+	];
+	const html = renderToStaticMarkup(<ProviderStep />);
+	expect(html).toContain("Sign in to the CLI");
+	expect(html).not.toContain("API key form");
+});

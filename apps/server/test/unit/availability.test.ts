@@ -17,6 +17,7 @@ import {
 	deriveLatestAdvisory,
 	extraWellKnownCliPaths,
 	grokAuthTestHelpers,
+	installCommandFor,
 	MIN_CODEX_CLI_VERSION,
 	MIN_GROK_CLI_VERSION,
 	opencodeAuthTestHelpers,
@@ -80,6 +81,24 @@ describe("supported provider CLIs", () => {
 			["pi", "pi"],
 			["kiro", "kiro-cli"],
 		]);
+	});
+});
+
+describe("installCommandFor", () => {
+	it("runs Meta's Muse installer with bash on POSIX and PowerShell on Windows", () => {
+		expect(installCommandFor("muse", "linux")).toBe(
+			"curl -fsSL https://dev.meta.ai/install.sh | bash",
+		);
+		expect(installCommandFor("muse", "darwin")).toBe(
+			"curl -fsSL https://dev.meta.ai/install.sh | bash",
+		);
+		expect(installCommandFor("muse", "win32")).toBe(
+			"irm https://dev.meta.ai/install.ps1 | iex",
+		);
+	});
+
+	it("leaves providers without a per-OS installer to the client hint", () => {
+		expect(installCommandFor("claude", "linux")).toBeNull();
 	});
 });
 

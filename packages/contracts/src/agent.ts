@@ -289,6 +289,8 @@ export const AgentAvailability = Schema.Struct({
 
 	cliUpgradeCommand: Schema.optional(Schema.String),
 
+	cliInstallCommand: Schema.optional(Schema.String),
+
 	latestVersion: Schema.optional(Schema.String),
 
 	latestVersionStatus: Schema.optional(LatestVersionStatus),
