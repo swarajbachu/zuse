@@ -792,11 +792,28 @@ export class PluginVault {
 				.split(/\s+/)
 				.filter(Boolean);
 			const tools = [];
+			let failure: unknown;
+			let reachable = false;
 			for (const { row, subject } of connected) {
-				const list = await e.list(
-					this.owner({ ...identity, subject }),
-					await this.ref(subject, row.id, row.pluginId),
-				);
+				let list: Awaited<ReturnType<PluginEngine["list"]>>;
+				try {
+					list = await e.list(
+						this.owner({ ...identity, subject }),
+						await this.ref(subject, row.id, row.pluginId),
+					);
+				} catch (error) {
+					// One stale connection must not hide every other plugin's tools.
+					console.warn(
+						JSON.stringify({
+							event: "plugin_tools_unavailable",
+							plugin: row.pluginId,
+							...failureKind(error),
+						}),
+					);
+					failure ??= error;
+					continue;
+				}
+				reachable = true;
 
 				const catalog = this.plugin(row.pluginId);
 				const plugin = `${row.pluginId} ${catalog?.name ?? ""} ${row.label}`;
@@ -819,6 +836,7 @@ export class PluginVault {
 					if (tools.length >= 100) return tools;
 				}
 			}
+			if (!reachable && failure !== undefined) throw failure;
 			return tools;
 		}
 		const connection = connected.find(({ row }) =>
@@ -829,9 +847,21 @@ export class PluginVault {
 		const owner = this.owner({ ...identity, subject });
 		const ref = await this.ref(subject, row.id, row.pluginId);
 		const tool = input.address.slice(prefix(row).length);
-		return input.action === "schema"
-			? e.schema(owner, ref, tool)
-			: e.call(owner, ref, tool, input.arguments);
+		try {
+			return input.action === "schema"
+				? await e.schema(owner, ref, tool)
+				: await e.call(owner, ref, tool, input.arguments);
+		} catch (error) {
+			console.warn(
+				JSON.stringify({
+					event: "plugin_tool_failed",
+					plugin: row.pluginId,
+					action: input.action,
+					...failureKind(error),
+				}),
+			);
+			throw error;
+		}
 	}
 
 	alarm(): Promise<void> {
