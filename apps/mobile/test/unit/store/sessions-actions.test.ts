@@ -1,5 +1,5 @@
 import { Chat } from "@zuse/contracts";
-import { Effect, Schema } from "effect";
+import { Effect, Fiber, Schema } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { appAtomRegistry } from "../../../src/store/registry";
 import {
@@ -11,6 +11,7 @@ import {
 	runtimeBundlesByConnectionAtom,
 	setPermissionMode,
 	statusBySessionAtom,
+	superviseSnapshotStream,
 } from "../../../src/store/sessions";
 
 const rpc = vi.hoisted(() => ({
@@ -194,5 +195,57 @@ describe("sessions atom actions", () => {
 		expect(chat.lastReadAt.toISOString()).toBe(
 			new Date("2026-07-02").toISOString(),
 		);
+	});
+});
+
+describe("snapshot subscription recovery", () => {
+	it("resubscribes after repeated errors while the socket stays healthy", async () => {
+		let attempts = 0;
+		const failReady = vi.fn();
+		const program = Effect.suspend(() => {
+			attempts += 1;
+			return attempts < 3
+				? Effect.fail(new Error("database unavailable"))
+				: Effect.never;
+		});
+		const fiber = Effect.runFork(
+			superviseSnapshotStream(program, {
+				connectionKey: "conn",
+				connectionOptions: options,
+				isReady: () => true,
+				failReady,
+				completedMessage: "stream completed",
+				missingSnapshotMessage: "missing snapshot",
+			}),
+		);
+		try {
+			await vi.waitFor(() => expect(attempts).toBe(3), { timeout: 5_000 });
+			expect(failReady).not.toHaveBeenCalled();
+		} finally {
+			await Effect.runPromise(Fiber.interrupt(fiber));
+		}
+	}, 10_000);
+
+	it("fails readiness without retrying when the first snapshot fails", async () => {
+		let attempts = 0;
+		const failReady = vi.fn();
+		await Effect.runPromise(
+			superviseSnapshotStream(
+				Effect.suspend(() => {
+					attempts += 1;
+					return Effect.fail(new Error("initial snapshot failed"));
+				}),
+				{
+					connectionKey: "conn",
+					connectionOptions: options,
+					isReady: () => false,
+					failReady,
+					completedMessage: "stream completed",
+					missingSnapshotMessage: "missing snapshot",
+				},
+			),
+		);
+		expect(attempts).toBe(1);
+		expect(failReady).toHaveBeenCalled();
 	});
 });

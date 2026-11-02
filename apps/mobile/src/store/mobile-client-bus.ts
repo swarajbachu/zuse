@@ -74,7 +74,6 @@ import {
 } from "~/offline/cache";
 import {
 	getConnectionClient,
-	isConnectionOnline,
 	type MemoizeClient,
 	reportConnectionFailure,
 } from "~/rpc/connection";
@@ -697,7 +696,7 @@ const makeBus = () =>
 		},
 		commandFaultFor: (cause) =>
 			isRetryableClientError(cause) ? environmentFault("failed", cause) : null,
-		runtime: { isOnline: isConnectionOnline },
+		runtime: { isOnline: () => true },
 		driverFor,
 	});
 
@@ -760,8 +759,8 @@ export const mobileHistoryRef = (
 	return entry ? { environmentId: entry[0], sessionId } : null;
 };
 
-/** Resume retained resources immediately when the native connectivity owner
- * reports an online/app-active edge. */
+/** Rebind retained resources at once after the supervisor replaces a socket
+ * (new local route, failed resume probe, or a manual retry). */
 export const retryMobileClientBusConnections = (connKey?: string): void => {
 	const clientBus = mobileClientBus();
 	for (const [environmentId, binding] of bindings) {
@@ -770,16 +769,12 @@ export const retryMobileClientBusConnections = (connKey?: string): void => {
 
 		clientBus.reportConnectionFault(
 			environmentId,
-			environmentFault("offline", "Connection resumed"),
+			environmentFault("offline", "Connection replaced"),
 			snapshot.generation,
 		);
 		clientBus.retryConnection(environmentId);
 	}
 };
-
-/** Forward native app/connectivity edges to the shared ClientBus owner. */
-export const setMobileClientBusOnline = (online: boolean): void =>
-	mobileClientBus().setOnline(online);
 
 export const registerMobileEnvironment = (
 	connKey: string,

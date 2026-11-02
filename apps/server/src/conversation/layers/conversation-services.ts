@@ -59,7 +59,7 @@ import {
 } from "../core/current-goal-publisher.ts";
 import { makeDelegationRuntime } from "../core/delegation-runtime.ts";
 import { INGESTION_HEARTBEAT_MS } from "../core/ingestion-lease.ts";
-import { sweepIngestionLeases } from "../core/ingestion-sweeper.ts";
+import { makeIngestionLeaseSweep } from "../core/ingestion-sweeper.ts";
 import {
 	type MessageOperations,
 	makeMessageOperations,
@@ -794,12 +794,11 @@ const ConversationRuntimeLive = Layer.effect(
 			),
 			serviceScope,
 		);
+		const sweepIngestion = makeIngestionLeaseSweep(sql, sessionDomain);
 		yield* Effect.forkIn(
 			Effect.forever(
 				Effect.sleep(INGESTION_HEARTBEAT_MS).pipe(
-					Effect.andThen(
-						Effect.suspend(() => sweepIngestionLeases(sql, sessionDomain)),
-					),
+					Effect.andThen(sweepIngestion),
 					Effect.catchCause(() =>
 						Effect.logError(
 							"[ConversationServices] ingestion lease sweep failed",

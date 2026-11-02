@@ -158,8 +158,7 @@ export const isVisualMessage = (message: Message): boolean =>
 			).tool,
 		));
 
-export const isToolTreeBranch = (message: Message): boolean =>
-	message.content._tag === "tool_use" || message.content._tag === "thinking";
+export { isToolTreeBranch } from "@zuse/client-runtime/timeline";
 
 /** The reply that closes a turn — the only one that carries copy and fork. */
 export const findFinalAssistantMessage = (

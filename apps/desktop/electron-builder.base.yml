@@ -170,7 +170,6 @@ deb:
   afterRemove: build/linux/after-remove.tpl
   depends:
     - libsecret-1-0
-    - avahi-utils
 
 dmg:
   writeUpdateInfo: true

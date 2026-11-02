@@ -74,6 +74,41 @@ it("offers every refreshed image to the background runtime catch-up", async () =
 	expect(catchUpCloudImageRuntimes).toHaveBeenLastCalledWith(images);
 });
 
+it("publishes the restored Zuse image after disconnecting a newer custom snapshot", async () => {
+	const snapshot: CloudAccountImage = {
+		...image("boxd", "failed"),
+		source: "custom-snapshot",
+		runtimeVersion: "runtime:connection:own-key",
+		updatedAt: 200,
+	};
+	const managed: CloudAccountImage = {
+		...image("boxd", "ready"),
+		source: "managed",
+		runtimeVersion: "runtime",
+		updatedAt: 100,
+	};
+	vi.mocked(loadCloudImage).mockImplementation(async (providerId) =>
+		providerId === "e2b" ? image("e2b", "ready") : snapshot,
+	);
+	await refreshCloudImages();
+	let published: readonly CloudAccountImage[] = [];
+	const unsubscribe = subscribeCloudImages((images) => {
+		published = images;
+	});
+	try {
+		vi.mocked(loadCloudImage).mockImplementation(async (providerId) =>
+			providerId === "e2b" ? image("e2b", "ready") : managed,
+		);
+		await refreshCloudImages();
+		expect(published.find((item) => item.providerId === "boxd")).toEqual(
+			managed,
+		);
+		expect(catchUpCloudImageRuntimes).toHaveBeenLastCalledWith(published);
+	} finally {
+		unsubscribe();
+	}
+});
+
 it("retains the last known progress when a provider cannot be reached", async () => {
 	vi.mocked(loadCloudImage).mockImplementation(async (providerId) =>
 		image(providerId ?? "boxd", "building"),

@@ -7,8 +7,8 @@ import { registerLocalRouteRecovery } from "../../../src/store/local-route-recov
 
 const runtime = vi.hoisted(() => ({
 	listener: null as ((state: string) => void) | null,
-	setOnline: vi.fn(),
-	setResourcesOnline: vi.fn(),
+	health: [] as { options: Record<string, unknown>; health: string }[],
+	checkHealth: vi.fn(),
 	retryTransport: vi.fn(),
 	retryResources: vi.fn(),
 }));
@@ -25,43 +25,79 @@ vi.mock("~/rpc/cloud-runtime", () => ({ cloudRuntimeReady: () => true }));
 vi.mock("~/rpc/connection", () => ({
 	getConnectionSnapshot: () => ({ status: "connected" }),
 	subscribeConnection: () => () => undefined,
-	setConnectionOnline: runtime.setOnline,
+	checkConnectionsHealth: async (timeoutMs: number) => {
+		runtime.checkHealth(timeoutMs);
+		return runtime.health;
+	},
 	retryConnectionNow: runtime.retryTransport,
 }));
 vi.mock("~/store/mobile-client-bus", () => ({
 	retryMobileClientBusConnections: runtime.retryResources,
-	setMobileClientBusOnline: runtime.setResourcesOnline,
 }));
 
 const options = { host: "localhost", port: 4000, token: null };
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	runtime.health = [];
 	watchConnection("desktop", options);
 });
 
-test("background resume reconnects resources once and only after active", () => {
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test("background keeps sockets open and resume probes them once", async () => {
 	runtime.listener?.("background");
-	expect(runtime.setOnline).toHaveBeenLastCalledWith(false);
-	expect(runtime.setResourcesOnline).toHaveBeenLastCalledWith(false);
 	runtime.listener?.("inactive");
-	expect(runtime.setOnline).toHaveBeenCalledTimes(1);
-	expect(runtime.setResourcesOnline).toHaveBeenCalledTimes(1);
+	expect(runtime.checkHealth).not.toHaveBeenCalled();
+	runtime.listener?.("active");
+	expect(runtime.checkHealth).toHaveBeenCalledTimes(1);
+	runtime.listener?.("active");
+	expect(runtime.checkHealth).toHaveBeenCalledTimes(1);
+	await flush();
+	expect(runtime.retryTransport).not.toHaveBeenCalled();
 	expect(runtime.retryResources).not.toHaveBeenCalled();
-	runtime.listener?.("active");
-	expect(runtime.setOnline).toHaveBeenLastCalledWith(true);
-	expect(runtime.setResourcesOnline).toHaveBeenLastCalledWith(true);
-	expect(runtime.retryResources).toHaveBeenCalledTimes(1);
-	runtime.listener?.("active");
-	expect(runtime.retryResources).toHaveBeenCalledTimes(1);
 });
 
-test("temporary inactive state does not replace a healthy connection", () => {
+test("temporary inactive state does not probe a healthy connection", () => {
 	runtime.listener?.("inactive");
 	runtime.listener?.("active");
-	expect(runtime.setOnline).not.toHaveBeenCalled();
-	expect(runtime.setResourcesOnline).not.toHaveBeenCalled();
-	expect(runtime.retryResources).not.toHaveBeenCalled();
+	expect(runtime.checkHealth).not.toHaveBeenCalled();
+});
+
+test("resume rebinds resources only for replaced sockets", async () => {
+	runtime.health = [
+		{ options: { ...options, key: "kept" }, health: "healthy" },
+		{ options: { ...options, key: "dead" }, health: "replaced" },
+	];
+	runtime.listener?.("background");
+	runtime.listener?.("active");
+	await flush();
+	expect(runtime.retryResources).toHaveBeenCalledTimes(1);
+	expect(runtime.retryResources).toHaveBeenCalledWith("dead");
+});
+
+test("resume reopens a local proxy route that stopped answering", async () => {
+	const recover = vi.fn();
+	const remove = registerLocalRouteRecovery(recover);
+	try {
+		runtime.health = [
+			{
+				options: {
+					...options,
+					key: "paired:mac",
+					host: "127.0.0.1",
+					serverKeyPin: "pin",
+				},
+				health: "replaced",
+			},
+		];
+		runtime.listener?.("background");
+		runtime.listener?.("active");
+		await flush();
+		expect(recover).toHaveBeenCalledWith("paired:mac");
+	} finally {
+		remove();
+	}
 });
 
 test("manual retry refreshes both the socket and retained resources", () => {

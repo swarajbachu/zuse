@@ -144,7 +144,7 @@ export default function MainLayout() {
 			<Stack.Screen
 				name="connect/nearby"
 				options={{
-					title: "Nearby Macs",
+					title: "Nearby computers",
 					headerLargeTitle: false,
 					presentation: "card",
 				}}

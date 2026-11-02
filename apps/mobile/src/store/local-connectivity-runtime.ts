@@ -1,7 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { router } from "expo-router";
 import { useEffect, useRef } from "react";
-import { AppState } from "react-native";
 
 import {
 	closeLocalProxy,
@@ -42,12 +41,14 @@ type ActiveRoute = {
 
 /**
  * Keeps stable paired environments attached to disposable Bonjour routes.
- * A path change (Wi-Fi switch) invalidates everything at once: proxies are
- * closed, the service cache is dropped (services discovered on the old
+ * A real path change (Wi-Fi switch) invalidates everything at once: proxies
+ * are closed, the service cache is dropped (services discovered on the old
  * network are unreachable by definition), and the native side restarts the
- * Bonjour browser. When a fresh route lands, routeGeneration is bumped and
- * the connection supervisor is woken directly — recovery does not depend on
- * a screen being mounted or on the retry budget not being exhausted.
+ * Bonjour browser. Repeated path reports for the same network, browser
+ * restarts, and app resumes never touch a working route: a single dead route
+ * is reopened from the cached services, which costs one reconnect. When a
+ * fresh route lands, routeGeneration is bumped and the connection supervisor
+ * is woken directly.
  */
 export function useLocalConnectivityRuntime(): void {
 	const hydrated = useAtomValue(connectionsHydratedAtom);
@@ -237,49 +238,52 @@ export function useLocalConnectivityRuntime(): void {
 			}
 		};
 
-		const invalidateRoutes = async (key?: string) => {
+		const invalidateRoutes = async () => {
 			pathEpoch.current += 1;
 
 			services.current = [];
-			const current = [...activeRoutes.current.entries()].filter(
-				([routeKey]) => key === undefined || routeKey === key,
-			);
-			for (const [routeKey] of current) activeRoutes.current.delete(routeKey);
+			const current = [...activeRoutes.current.values()];
+			activeRoutes.current.clear();
 			await Promise.allSettled(
-				current.map(([, route]) => closeLocalProxy(route.proxy.id)),
+				current.map((route) => closeLocalProxy(route.proxy.id)),
 			);
 
 			await fallBackToPairedRoutes(
-				key === undefined
-					? currentConnections().map((connection) => connection.key)
-					: [key],
+				currentConnections().map((connection) => connection.key),
 			);
 		};
 
-		let restartingDiscovery = false;
-
-		let suppressNextPathRestart = true;
-		let lastPathRestartAt = 0;
-		const restartDiscovery = async (key?: string) => {
-			if (disposed) return;
-			await invalidateRoutes(key);
-			if (restartingDiscovery) return;
+		let restartingBrowser = false;
+		/** Restart Bonjour browsing; open proxies and cached services stay. */
+		const restartBrowser = async () => {
+			if (disposed || restartingBrowser) return;
 			console.info("[zuse:nearby] discovery.restart");
-			restartingDiscovery = true;
+			restartingBrowser = true;
 			try {
 				await stopLocalDiscovery().catch(() => {});
-				suppressNextPathRestart = true;
 				await startLocalDiscovery().catch(() => {});
 			} finally {
-				restartingDiscovery = false;
+				restartingBrowser = false;
 			}
 			void reconcile();
+		};
+
+		/** Reopen one dead route from cached services: a single reconnect. */
+		const reopenRoute = async (key: string) => {
+			if (disposed) return;
+			const route = activeRoutes.current.get(key);
+			if (route !== undefined) {
+				activeRoutes.current.delete(key);
+				await closeLocalProxy(route.proxy.id).catch(() => {});
+			}
+			void reconcile();
+			void restartBrowser();
 		};
 		const removeRecovery = registerLocalRouteRecovery((key) => {
 			console.info("[zuse:nearby] route.recovery.requested", {
 				connectionKey: key,
 			});
-			void restartDiscovery(key);
+			void reopenRoute(key);
 		});
 
 		void startLocalDiscovery();
@@ -299,24 +303,30 @@ export function useLocalConnectivityRuntime(): void {
 			}
 			void reconcile();
 		});
+		// The monitor reports its current path whenever it (re)starts; only a
+		// different network invalidates routes.
+		let lastPath: string | undefined;
 		const removePath = onLocalPathChanged((event) => {
 			console.info("[zuse:nearby] path.changed", {
 				status: event.status,
 				usesWifi: event.usesWifi,
 				generation: event.generation,
 			});
-			if (suppressNextPathRestart) {
-				suppressNextPathRestart = false;
+			const path = `${event.status}:${event.usesWifi}:${event.usesCellular}:${event.networkId ?? ""}`;
+			const previous = lastPath;
+			lastPath = path;
+			if (
+				previous === undefined ||
+				previous === path ||
+				event.status !== "satisfied"
+			) {
 				void reconcile();
 				return;
 			}
-			const now = Date.now();
-			if (now - lastPathRestartAt < 10_000) {
-				void reconcile();
-				return;
-			}
-			lastPathRestartAt = now;
-			void restartDiscovery();
+			void (async () => {
+				await invalidateRoutes();
+				await restartBrowser();
+			})();
 		});
 
 		let unhealthyRestartTimer: ReturnType<typeof setTimeout> | null = null;
@@ -328,7 +338,7 @@ export function useLocalConnectivityRuntime(): void {
 				unhealthyRestartTimer ??= setTimeout(() => {
 					unhealthyRestartTimer = null;
 					unhealthyRestartCount += 1;
-					void restartDiscovery();
+					void restartBrowser();
 				}, delay);
 				return;
 			}
@@ -341,23 +351,6 @@ export function useLocalConnectivityRuntime(): void {
 			}
 		});
 
-		let backgrounded = false;
-		const appStateSubscription = AppState.addEventListener(
-			"change",
-			(state) => {
-				if (state === "background") {
-					backgrounded = true;
-					pathEpoch.current += 1;
-					services.current = [];
-					activeRoutes.current.clear();
-					return;
-				}
-				if (state === "active" && backgrounded) {
-					backgrounded = false;
-					void restartDiscovery();
-				}
-			},
-		);
 		const removeConnections = appAtomRegistry.subscribe(
 			connectionsAtom,
 			() => {
@@ -374,7 +367,6 @@ export function useLocalConnectivityRuntime(): void {
 			removePath();
 			removeDiscoveryState();
 			if (unhealthyRestartTimer !== null) clearTimeout(unhealthyRestartTimer);
-			appStateSubscription.remove();
 			removeConnections();
 			for (const route of activeRoutes.current.values()) {
 				void closeLocalProxy(route.proxy.id);

@@ -1022,12 +1022,16 @@ describe("@zuse/api", () => {
 				available: true,
 				creditCents: 7500,
 			});
-			const buy = (amountCents: number) =>
+			const buy = (amountCents: number, activatePro?: boolean) =>
 				billingApi.fetch(
 					new Request(`${API_ISSUER}${ApiPaths.billingPrepaidCheckout}`, {
 						method: "POST",
 						headers,
-						body: JSON.stringify({ amountCents, accountId: "user_b" }),
+						body: JSON.stringify({
+							amountCents,
+							activatePro,
+							accountId: "user_b",
+						}),
 					}),
 				);
 			expect((await buy(2501)).status).toBe(400);
@@ -1036,6 +1040,13 @@ describe("@zuse/api", () => {
 			expect(purchases).toHaveBeenCalledWith({
 				accountId: "user_a",
 				amountCents: 2500,
+				successUrl: `${API_ISSUER}${ApiPaths.billingPrepaidComplete}`,
+			});
+			expect((await buy(20000, true)).status).toBe(200);
+			expect(purchases).toHaveBeenLastCalledWith({
+				accountId: "user_a",
+				amountCents: 20000,
+				activatePro: true,
 				successUrl: `${API_ISSUER}${ApiPaths.billingPrepaidComplete}`,
 			});
 			const webhook = await billingApi.fetch(
@@ -1292,7 +1303,10 @@ describe("@zuse/api", () => {
 		}
 	});
 
-	test("new subscriptions use Stripe while existing Polar subscriptions retain their portal and block duplicate checkout", async () => {
+	test.each([
+		"active",
+		"ended",
+	] as const)("new subscriptions use Stripe while %s paid-through subscriptions retain their billing provider", async (subscriptionStatus) => {
 		const stripeBalance = vi.fn(() =>
 			Effect.succeed({
 				available: true,
@@ -1322,7 +1336,7 @@ describe("@zuse/api", () => {
 				Effect.succeed({
 					accountId: "user_b",
 					providerSubscriptionId: "polar-sub",
-					status: "active",
+					status: subscriptionStatus,
 					offerId: CLOUD_WORKSPACE_OFFER_ID,
 					periodStart: Date.now() - 60_000,
 					paidThrough: Date.now() + 86_400_000,
@@ -1397,7 +1411,7 @@ describe("@zuse/api", () => {
 						authorization: "Bearer test-token:user_b",
 						"content-type": "application/json",
 					},
-					body: JSON.stringify({ amountCents: 2500 }),
+					body: JSON.stringify({ amountCents: 20000, activatePro: true }),
 				}),
 			);
 			expect(credits.status).toBe(503);

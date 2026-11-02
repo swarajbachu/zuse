@@ -71,6 +71,10 @@ export type TurnActivitySummary = {
 	readonly removed: number;
 };
 
+/** Tool calls and reasoning hang off the activity tree's trunk. */
+export const isToolTreeBranch = (message: Message): boolean =>
+	message.content._tag === "tool_use" || message.content._tag === "thinking";
+
 export const isUserMessage = (
 	message: Message,
 ): message is Message & {

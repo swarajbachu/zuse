@@ -1,3 +1,4 @@
+import { isRpcCredentialExpired } from "@zuse/client-runtime/connection";
 import { ConnectionFailed } from "./errors";
 
 /** True only for cancellation produced when an owned Effect scope is replaced. */
@@ -13,6 +14,8 @@ export const isIntentionalConnectionInterruption = (
 /** True only when retrying the shared transport can make the operation succeed. */
 export const isRetryableClientError = (cause: unknown): boolean =>
 	(cause instanceof ConnectionFailed && cause.message !== "offline") ||
+	// An expired grant needs a new socket: reconnecting mints a fresh one.
+	isRpcCredentialExpired(cause) ||
 	(typeof cause === "object" &&
 		cause !== null &&
 		"_tag" in cause &&

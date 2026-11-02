@@ -21,6 +21,7 @@
 		"test:cloud-setup-browser": "node test/integration/cloud-setup.browser.mjs",
 		"test:chat-images-browser": "node test/integration/chat-images.browser.mjs",
 		"test:cloud-image-selection-browser": "node test/integration/cloud-image-selection.browser.mjs",
+		"test:project-plan-tray-browser": "node test/integration/project-plan-tray.browser.mjs",
 		"test:secret-requests-browser": "node test/integration/session-secret-requests.browser.mjs",
 		"test:message-origin-browser": "node test/integration/message-origin.browser.mjs",
 		"test:workflow-results-browser": "node test/integration/workflow-results.browser.mjs",

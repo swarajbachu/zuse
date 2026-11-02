@@ -157,7 +157,7 @@ export function getProviderSummary(
 			statusKey: "warning",
 			headline: "Muse Code installed",
 			detail:
-				"Run muse login on this computer. Authentication is verified when you send a message.",
+				"Run muse login in a terminal to sign in. Authentication is verified when you send a message.",
 			authEmail: null,
 			actionable: false,
 		};

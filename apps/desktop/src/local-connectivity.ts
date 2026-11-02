@@ -1,13 +1,15 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { stopOwnedProcess } from "@zuse/utils/owned-process";
+import { createLinuxLocalConnectivity } from "./linux-local-connectivity.ts";
 
 export const createLocalConnectivity = (options: {
 	readonly helperPath?: string;
-	readonly supervisorPath: string;
 	readonly serviceName: string;
 	readonly log: (event: string, fields?: Record<string, unknown>) => void;
 }) => {
+	if (process.platform === "linux")
+		return createLinuxLocalConnectivity(options);
 	let child: ChildProcessWithoutNullStreams | null = null;
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let stopped = false;
@@ -15,7 +17,7 @@ export const createLocalConnectivity = (options: {
 	let target: { port: number; pin?: string } | null = null;
 	const launch = () => {
 		if (stopped || child !== null || target === null) return;
-		if (process.platform !== "linux" && process.platform !== "darwin") return;
+		if (process.platform !== "darwin") return;
 		if (
 			process.platform === "darwin" &&
 			(!options.helperPath || !existsSync(options.helperPath))
@@ -24,25 +26,13 @@ export const createLocalConnectivity = (options: {
 			return;
 		}
 		const { port, pin } = target;
-		const command =
-			process.platform === "linux" ? process.execPath : options.helperPath;
+		const command = options.helperPath;
 		if (command === undefined) return;
-		const args =
-			process.platform === "linux"
-				? [
-						options.supervisorPath,
-						"--owned-helper",
-						"avahi-publish-service",
-						options.serviceName,
-						"_zuse._tcp",
-						String(port),
-						...(pin === undefined ? [] : [`tls=${pin}`]),
-					]
-				: [
-						String(port),
-						options.serviceName,
-						...(pin === undefined ? [] : [pin]),
-					];
+		const args = [
+			String(port),
+			options.serviceName,
+			...(pin === undefined ? [] : [pin]),
+		];
 		const startedAt = performance.now();
 		const owned = spawn(command, args, {
 			stdio: ["pipe", "pipe", "pipe"],

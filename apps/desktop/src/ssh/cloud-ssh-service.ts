@@ -32,6 +32,7 @@ const sshRoot = (): string => join(homedir(), ".zuse", "ssh");
 const keyPath = (): string => join(sshRoot(), "id_ed25519");
 const ticketsDir = (): string => join(sshRoot(), "tickets");
 const bridgeDir = (): string => join(sshRoot(), "bridge");
+const workspaceConfigsDir = (): string => join(sshRoot(), "workspaces");
 const installedBridgePath = (): string =>
 	join(bridgeDir(), "ssh-bridge-child.cjs");
 const bridgeLauncherPath = (): string => join(bridgeDir(), "launch");
@@ -107,6 +108,7 @@ export const atomicWritePrivateFile = async (
 export const pruneExpiredCloudSshTickets = async (
 	directory = ticketsDir(),
 	now = Date.now(),
+	workspaceDirectory = join(dirname(directory), "workspaces"),
 ): Promise<void> => {
 	let names: string[];
 	try {
@@ -114,6 +116,7 @@ export const pruneExpiredCloudSshTickets = async (
 	} catch {
 		return;
 	}
+	const freshWorkspaces = new Set<string>();
 	await Promise.all(
 		names
 			.filter((name) => name.endsWith(".json"))
@@ -123,11 +126,28 @@ export const pruneExpiredCloudSshTickets = async (
 					const ticket = JSON.parse(await readFile(path, "utf8")) as {
 						expiresAt?: unknown;
 					};
-					if (typeof ticket.expiresAt === "number" && ticket.expiresAt > now)
+					if (typeof ticket.expiresAt === "number" && ticket.expiresAt > now) {
+						freshWorkspaces.add(name.slice(0, -5));
 						return;
+					}
 				} catch {}
 				await rm(path, { force: true });
 			}),
+	);
+	let configs: string[];
+	try {
+		configs = await readdir(workspaceDirectory);
+	} catch {
+		return;
+	}
+	await Promise.all(
+		configs
+			.filter(
+				(name) =>
+					/^[A-Za-z0-9_-]+\.conf$/u.test(name) &&
+					!freshWorkspaces.has(name.slice(0, -5)),
+			)
+			.map((name) => rm(join(workspaceDirectory, name), { force: true })),
 	);
 };
 
@@ -150,9 +170,13 @@ export const ensureCloudSshKeypair = async (): Promise<string> => {
 	return (await readFile(`${key}.pub`, "utf8")).trim();
 };
 
-export const managedSshConfig = (bridgeCommand: string): string =>
+export const managedSshConfig = (
+	bridgeCommand: string,
+	workspaceDirectory = workspaceConfigsDir(),
+): string =>
 	[
 		"# Managed by Zuse. Do not edit — this file is regenerated on demand.",
+		`Include "${join(workspaceDirectory, "*.conf").replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`,
 		"Host zuse-*",
 		"\tUser zuse",
 		`\tIdentityFile ${keyPath()}`,
@@ -170,6 +194,17 @@ export const managedSshConfig = (bridgeCommand: string): string =>
 		`\tProxyCommand ${bridgeCommand} %n`,
 		"",
 	].join("\n");
+
+export const cloudSshWorkspaceConfig = (
+	workspaceId: string,
+	user: string,
+): string => {
+	if (!/^[A-Za-z0-9_-]+$/u.test(workspaceId))
+		throw new Error("Invalid cloud workspace identifier");
+	if (!/^[a-z_][a-z0-9_-]{0,31}$/u.test(user) || user === "root")
+		throw new Error("Invalid cloud workspace SSH user");
+	return `Host ${cloudSshHostAlias(workspaceId)}\n\tUser ${user}\n`;
+};
 
 /** Idempotently include the managed config from the user's ~/.ssh/config. */
 export const withUserConfigInclude = (
@@ -205,8 +240,10 @@ export const prepareCloudSshAccess = async (
 		readonly bridgeSourcePath?: string;
 	} = {},
 ): Promise<CloudSshPrepared> => {
-	if (!/^[A-Za-z0-9_-]+$/u.test(access.workspaceId))
-		throw new Error("Invalid cloud workspace identifier");
+	const workspaceConfig = cloudSshWorkspaceConfig(
+		access.workspaceId,
+		access.user,
+	);
 	if (infrastructureSetup === null) {
 		const setup = (async () => {
 			const publicKey = await ensureCloudSshKeypair();
@@ -238,6 +275,11 @@ export const prepareCloudSshAccess = async (
 		infrastructureSetup = setup;
 	}
 	const publicKey = await infrastructureSetup;
+	await atomicWritePrivateFile(
+		join(workspaceConfigsDir(), `${access.workspaceId}.conf`),
+		workspaceConfig,
+		0o600,
+	);
 	await atomicWritePrivateFile(
 		join(ticketsDir(), `${access.workspaceId}.json`),
 		JSON.stringify({
@@ -275,7 +317,7 @@ export const sshTargetLaunch = (
 		case "zed":
 			return {
 				kind: "uri",
-				uri: `zed://ssh/zuse@${hostAlias}${remotePath}`,
+				uri: `zed://ssh/${hostAlias}${remotePath}`,
 			};
 		case "terminal":
 			return { kind: "terminal", command: `ssh ${hostAlias}` };

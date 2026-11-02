@@ -1,5 +1,8 @@
 import { beforeEach, expect, test, vi } from "vitest";
-import type { NearbyService } from "../../../modules/local-connectivity";
+import type {
+	LocalPathEvent,
+	NearbyService,
+} from "../../../modules/local-connectivity";
 import type { ConnectionRecord } from "../../../src/lib/connection-records";
 import { useLocalConnectivityRuntime } from "../../../src/store/local-connectivity-runtime";
 import { recoverLocalRoute } from "../../../src/store/local-route-recovery";
@@ -12,7 +15,7 @@ const state = vi.hoisted(() => ({
 		host: "localhost",
 		port: 1234,
 	})),
-	listener: null as ((state: string) => void) | null,
+	pathListener: null as ((event: LocalPathEvent) => void) | null,
 	servicesListener: null as
 		| ((services: readonly NearbyService[]) => void)
 		| null,
@@ -29,14 +32,6 @@ vi.mock("react", () => ({
 }));
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => true }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
-vi.mock("react-native", () => ({
-	AppState: {
-		addEventListener: (_: string, listener: (state: string) => void) => {
-			state.listener = listener;
-			return { remove: () => {} };
-		},
-	},
-}));
 vi.mock("../../../modules/local-connectivity", () => ({
 	startLocalDiscovery: state.start,
 	stopLocalDiscovery: state.stop,
@@ -48,7 +43,10 @@ vi.mock("../../../modules/local-connectivity", () => ({
 		state.servicesListener = listener;
 		return () => {};
 	},
-	onLocalPathChanged: () => () => {},
+	onLocalPathChanged: (listener: (event: LocalPathEvent) => void) => {
+		state.pathListener = listener;
+		return () => {};
+	},
 	onLocalDiscoveryStateChanged: () => () => {},
 }));
 vi.mock("~/lib/nearby-pairing", () => ({ verifyPinnedLocalServer: vi.fn() }));
@@ -77,13 +75,34 @@ beforeEach(() => {
 	state.connections = [];
 });
 
-test("resume actively rediscovers routes after native proxies were cancelled", async () => {
+const path = (usesWifi: boolean): LocalPathEvent =>
+	({
+		status: "satisfied",
+		usesWifi,
+		usesCellular: !usesWifi,
+		generation: 1,
+	}) as LocalPathEvent;
+
+test("repeated reports of the same network keep live routes", async () => {
+	state.connections = [
+		{
+			key: "paired:mac",
+			source: "paired",
+			nearbyServiceName: "mac",
+		} as ConnectionRecord,
+	];
 	useLocalConnectivityRuntime();
-	expect(state.start).toHaveBeenCalledTimes(1);
-	state.listener?.("background");
-	state.listener?.("active");
+	state.servicesListener?.([{ name: "mac", routeId: "mac" } as NearbyService]);
+	await vi.waitFor(() => expect(state.open).toHaveBeenCalledTimes(1));
+	state.pathListener?.(path(true));
+	state.pathListener?.(path(true));
+	await Promise.resolve();
+	expect(state.close).not.toHaveBeenCalled();
+	expect(state.stop).not.toHaveBeenCalled();
+
+	state.pathListener?.(path(false));
+	await vi.waitFor(() => expect(state.close).toHaveBeenCalledWith("mac"));
 	await vi.waitFor(() => expect(state.start).toHaveBeenCalledTimes(2));
-	expect(state.stop).toHaveBeenCalledTimes(1);
 });
 
 test("manual route recovery restarts discovery when the service cache is empty", async () => {
@@ -91,6 +110,26 @@ test("manual route recovery restarts discovery when the service cache is empty",
 	expect(recoverLocalRoute("paired:mac")).toBe(true);
 	await vi.waitFor(() => expect(state.start).toHaveBeenCalledTimes(2));
 	expect(state.stop).toHaveBeenCalledTimes(1);
+});
+
+test("switching Android Wi-Fi networks replaces the old route", async () => {
+	state.connections = [
+		{
+			key: "paired:mac",
+			source: "paired",
+			nearbyServiceName: "mac",
+		} as ConnectionRecord,
+	];
+	useLocalConnectivityRuntime();
+	state.servicesListener?.([{ name: "mac", routeId: "mac" } as NearbyService]);
+	await vi.waitFor(() => expect(state.open).toHaveBeenCalledTimes(1));
+	state.pathListener?.({ ...path(true), networkId: "100" });
+	state.pathListener?.({ ...path(true), networkId: "100", generation: 2 });
+	await Promise.resolve();
+	expect(state.close).not.toHaveBeenCalled();
+	state.pathListener?.({ ...path(true), networkId: "101", generation: 3 });
+	await vi.waitFor(() => expect(state.close).toHaveBeenCalledWith("mac"));
+	await vi.waitFor(() => expect(state.start).toHaveBeenCalledTimes(2));
 });
 
 test("manual retry rediscovers the Mac even when stale services remain cached", async () => {

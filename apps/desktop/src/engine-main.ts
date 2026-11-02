@@ -34,7 +34,6 @@ const boot = Effect.gen(function* () {
 		Effect.sync(() =>
 			createLocalConnectivity({
 				helperPath: config.nearbyHelperPath,
-				supervisorPath,
 				serviceName: hostname(),
 				log: (event, fields) =>
 					console.info(JSON.stringify({ event, ...fields })),

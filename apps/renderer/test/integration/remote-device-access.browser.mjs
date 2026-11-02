@@ -46,12 +46,26 @@ const server = await createServer({
 						return "\0remote-empty";
 				}
 				if (id.startsWith("\0remote-")) return id;
+				if (id.endsWith("cloud-workspace-catalog.ts"))
+					return "\0remote-catalog";
+				if (id.endsWith("cloud-ssh-client-bus.ts")) return "\0remote-ssh";
+				if (id.endsWith("cloud-sync-client-bus.ts")) return "\0remote-sync";
+				if (id.endsWith("machine-resources-client-bus.ts"))
+					return "\0remote-resources";
 				if (id.endsWith("device-bridge-binding.ts")) return "\0remote-bridge";
 				if (id.endsWith("local-device-client-bus.ts")) return "\0remote-local";
 				if (id.endsWith("control-plane-client.ts")) return "\0remote-control";
 				if (id.endsWith("renderer-account.ts")) return "\0remote-account";
 			},
 			load(id) {
+				if (id === "\0remote-catalog")
+					return `export const cloudSyncPreferenceEnabled=()=>false; export const useCloudChatCatalogStore=selector=>selector({summaries:[{workspaceId:"chat",providerId:"boxd",state:"ready",runtimeState:"online",startupPhase:"running",repositoryDisplayName:"zuse",repositoryIdentity:"github.com/zuse",createdAt:0}],syncPrefs:{}});`;
+				if (id === "\0remote-ssh")
+					return `export const cloudSshSupported=()=>false;export const openCloudWorkspaceSsh=async()=>{};export const prepareCloudWorkspaceSsh=async()=>{};`;
+				if (id === "\0remote-sync")
+					return `export const cloudSyncSupported=()=>false; export const useCloudSyncStatus=()=>null;export const disableCloudSync=async()=>{};export const enableCloudSync=async()=>{};`;
+				if (id === "\0remote-resources")
+					return `export const useMachineResources=()=>({data:null});`;
 				if (id === "\0remote-platform")
 					return `export const rendererPlatformCapabilities=()=>({desktop:false,networkLifecycle:false}); export const openExternal=async()=>{};`;
 				if (id === "\0remote-empty")
@@ -63,12 +77,12 @@ const server = await createServer({
 				if (id === "\0remote-local")
 					return `export const dispatchLocalDeviceCommand=async(name,input)=>{if(name==="api.status") return {linked:false}; if(name==="pairing.listTokens") return [];window.localStatus.enabled=input.enabled;window.localStatus.connected=input.enabled;window.localChanges.push({name,input});};`;
 				if (id === "\0remote-control")
-					return `export const runCloudControl=fn=>fn({"deviceBridge.devices":async()=>[{deviceId:"mac",label:"MacBook Pro",connected:false,revoked:false,lastSeen:1},{deviceId:"linux",label:"Linux",connected:true,revoked:false,lastSeen:1}],"deviceBridge.cloud":async(input)=>{if(input.targetDeviceId) window.selected=input.targetDeviceId;return {...window.localStatus,deviceId:window.selected};}});`;
+					return `export const runControlPlane=()=>{}; export const runCloudControl=fn=>fn({"deviceBridge.devices":async()=>[{deviceId:"mac",label:"MacBook Pro",connected:false,revoked:false,lastSeen:1},{deviceId:"linux",label:"Linux",connected:true,revoked:false,lastSeen:1}],"deviceBridge.cloud":async(input)=>{if(input.targetDeviceId) window.selected=input.targetDeviceId;return {...window.localStatus,deviceId:window.selected};}});`;
 				if (id === "\0remote-access-probe")
 					return `
     import React from 'react'; import {createRoot} from 'react-dom/client';
     import {CloudDeviceAccessCard} from '/src/components/settings/cloud-device-access-card.tsx';
-    import {CloudDeviceSelector} from '/src/components/cloud-device-selector.tsx';
+    import {CloudWorkspaceMenu} from '/src/components/cloud-workspace-info.tsx';
     import {AccessMethodsCard} from '/src/components/settings/remote-access/access-methods-card.tsx';
     import {DevicesPane} from '/src/components/settings/devices-pane.tsx';
     import '/src/styles.css';
@@ -77,7 +91,7 @@ const server = await createServer({
     const root=createRoot(document.getElementById('root'));
     window.showDevicesPane=key=>root.render(React.createElement(DevicesPane,{key}));
     root.render(React.createElement('div',{style:{maxWidth:640,margin:'40px auto',padding:16,display:'grid',gap:16}},
-     React.createElement(CloudDeviceSelector,{workspaceId:"chat"}),
+     React.createElement(CloudWorkspaceMenu,{workspaceId:"chat"}),
      React.createElement(CloudDeviceAccessCard),
      React.createElement(AccessMethodsCard,{status:null,tailnet:null,network:null,networkEnabled:false,canManageNetwork:true,busy:false,tailnetBusy:false,unavailableMethods:['account'],onOpenAccessDialog:()=>{},onRequestNetworkMode:()=>{}})
     ));`;
@@ -101,7 +115,14 @@ try {
 		`http://127.0.0.1:${server.httpServer.address().port}/__remote_access`,
 	);
 	await page.getByText("Connected to your account", { exact: true }).waitFor();
-	const selector = page.getByLabel("Cloud device", { exact: true });
+	const selector = page.getByLabel("Computer access (optional)", {
+		exact: true,
+	});
+	assert.equal(await selector.count(), 0);
+	await page
+		.getByRole("button", { name: "Workspace details", exact: true })
+		.click();
+	await selector.waitFor({ timeout: 3000 });
 	assert.equal(await selector.inputValue(), "mac");
 	assert.equal(
 		await selector.locator('option[value="mac"]').textContent(),
@@ -109,6 +130,16 @@ try {
 	);
 	await selector.selectOption("linux");
 	await page.waitForFunction(() => window.selected === "linux");
+	await page.keyboard.press("Escape");
+	await page
+		.getByRole("button", { name: "Workspace details", exact: true })
+		.click();
+	await selector.waitFor();
+	assert.equal(await selector.inputValue(), "linux");
+	await page.screenshot({
+		path: resolve(root, "../../.context/cloud-device-menu.png"),
+	});
+	await page.keyboard.press("Escape");
 	await page.getByRole("button", { name: "Turn off", exact: true }).click();
 	await page.getByRole("button", { name: "Enable", exact: true }).waitFor();
 	assert.equal(await page.evaluate(() => window.localChanges.length), 1);

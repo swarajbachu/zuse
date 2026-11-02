@@ -108,6 +108,8 @@ export const deriveSafetyPhrase = (input: {
 export const serverKeyPin = (environmentPublicKey: string): string =>
 	`sha256/${base64Url(digest(environmentPublicKey))}`;
 
+const LOCAL_IDENTITY_TIMEOUT_MS = 6_000;
+
 export const readLocalServerIdentity = async (input: {
 	readonly host: string;
 	readonly port: number;
@@ -121,6 +123,8 @@ export const readLocalServerIdentity = async (input: {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ challenge }),
+			// A local Mac answers in milliseconds; a hung route must fail fast.
+			signal: AbortSignal.timeout(LOCAL_IDENTITY_TIMEOUT_MS),
 		},
 	);
 	if (!response.ok) throw new Error("Could not verify this Mac's identity.");

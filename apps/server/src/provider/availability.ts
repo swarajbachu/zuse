@@ -1,6 +1,6 @@
 import { accessSync, constants, existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { extname, isAbsolute, join, win32 } from "node:path";
+import { extname, isAbsolute, join, posix, win32 } from "node:path";
 import type { PlanType } from "@zuse/agents/codex-generated/PlanType";
 import type { Account } from "@zuse/agents/codex-generated/v2/Account";
 import type { GetAccountResponse } from "@zuse/agents/codex-generated/v2/GetAccountResponse";
@@ -36,6 +36,16 @@ interface ProviderProbe {
 
 	readonly upgradeCommand: string | null;
 
+	/**
+	 * Official per-OS install scripts; also used to upgrade. `dirEnv` names the
+	 * variable the scripts read to install into a specific directory.
+	 */
+	readonly installScripts?: {
+		readonly posix: string;
+		readonly win32: string;
+		readonly dirEnv: string;
+	};
+
 	readonly npmPackage: string | null;
 
 	readonly homebrewFormula: string | null;
@@ -59,6 +69,11 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
 		...PROVIDER_CLI_REGISTRY.muse,
 		minVersion: { major: 1, minor: 4, patch: 6, raw: "1.4.6" },
 		upgradeCommand: null,
+		installScripts: {
+			posix: "https://dev.meta.ai/install.sh",
+			win32: "https://dev.meta.ai/install.ps1",
+			dirEnv: "MUSE_INSTALL_DIR",
+		},
 		npmPackage: null,
 		homebrewFormula: null,
 		nativeUpdate: null,
@@ -258,7 +273,17 @@ export const selectNewestCliPathCandidate = (
  */
 export const extraWellKnownCliPaths = (
 	cliBinary: string,
+	platform: NodeJS.Platform = process.platform,
+	env: NodeJS.ProcessEnv = process.env,
 ): ReadonlyArray<string> => {
+	// Meta's installer defaults. A fresh install is not on the server's PATH
+	// until restart (Windows), and GUI launches often omit ~/.local/bin (macOS).
+	if (cliBinary === "muse") {
+		if (platform !== "win32") return [join(homedir(), ".local", "bin", "muse")];
+		return env.LOCALAPPDATA
+			? [win32.join(env.LOCALAPPDATA, "Programs", "muse", "muse.cmd")]
+			: [];
+	}
 	if (cliBinary === "opencode") {
 		return [join(homedir(), ".opencode", "bin", "opencode")];
 	}
@@ -318,7 +343,12 @@ export const resolveCliPath = (
 				? splitCommandPaths(result.value.stdout)
 				: [];
 		const candidates = [
-			...new Set([...fromWhich, ...extraWellKnownCliPaths(cliBinary)]),
+			...new Set([
+				...fromWhich,
+				...extraWellKnownCliPaths(cliBinary).flatMap(
+					(path) => executableCliPath(path) ?? [],
+				),
+			]),
 		];
 		if (candidates.length === 0) return null;
 		if (!CLI_BINARIES_SELECT_NEWEST.has(cliBinary)) {
@@ -605,6 +635,34 @@ export const buildUpdateCommand = (
 
 	// Non-npm providers reinstall via their official one-liner.
 	return platform === "win32" ? null : probe.upgradeCommand;
+};
+
+/**
+ * Install command for the server's OS. With `cliPath`, the command reinstalls
+ * into that binary's directory so an upgrade replaces the copy Zuse resolves.
+ */
+export const installCommandFor = (
+	providerId: ProviderId,
+	platform: NodeJS.Platform,
+	cliPath?: string,
+): string | null => {
+	const scripts = PROBES.find(
+		(p) => p.providerId === providerId,
+	)?.installScripts;
+	if (scripts === undefined) return null;
+	if (platform === "win32") {
+		const dir =
+			cliPath === undefined
+				? ""
+				: `$env:${scripts.dirEnv}='${win32.dirname(cliPath).replaceAll("'", "''")}'; `;
+		return `${dir}irm ${scripts.win32} | iex`;
+	}
+	const dir =
+		cliPath === undefined
+			? ""
+			: `${scripts.dirEnv}='${posix.dirname(cliPath).replaceAll("'", "'\\''")}' `;
+	// Run with bash: the scripts use `pipefail`, which Debian's dash `sh` rejects.
+	return `curl -fsSL ${scripts.posix} | ${dir}bash`;
 };
 
 /**
@@ -1101,6 +1159,8 @@ const probeOne = (
 				cliInstalled: false,
 				cliLoggedIn: false,
 				hasApiKey: false,
+				cliInstallCommand:
+					installCommandFor(probe.providerId, process.platform) ?? undefined,
 				status: "error",
 				statusMessage: overrides[probe.providerId]
 					? `Invalid ${probe.displayName} binary path: ${overrides[probe.providerId]}. Choose an absolute executable path.`
@@ -1129,7 +1189,10 @@ const probeOne = (
 		let cliUpgradeCommand: string | undefined;
 		if (probe.minVersion !== null) {
 			cliVersionMinRequired = probe.minVersion.raw;
-			cliUpgradeCommand = probe.upgradeCommand ?? undefined;
+			cliUpgradeCommand =
+				probe.upgradeCommand ??
+				installCommandFor(probe.providerId, process.platform, cliPath) ??
+				undefined;
 			if (parsedVersion === null) {
 				cliVersionStatus = "unknown";
 			} else if (compareCliVersion(parsedVersion, probe.minVersion) < 0) {

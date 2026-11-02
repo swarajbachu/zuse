@@ -48,8 +48,12 @@ describe("mobile UI contracts", () => {
 			`${process.cwd()}/src/components/connection-recovery-banner.tsx`,
 			"utf8",
 		);
+		const notice = readFileSync(
+			`${process.cwd()}/src/lib/connection-notice.ts`,
+			"utf8",
+		);
 		expect(banner).not.toContain('"Offline"');
-		expect(banner).toContain('"Connection issue"');
+		expect(notice).toContain('"Connection issue"');
 	});
 	test("only the latest assistant message exposes response actions", () => {
 		const row = readFileSync(

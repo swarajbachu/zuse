@@ -64,7 +64,7 @@ export default function RootLayout() {
 	const [fontsLoaded, fontError] = useFonts({
 		GeistMono_400Regular,
 	});
-	const incomingUrl = Linking.useURL();
+	const incomingUrl = Linking.useLinkingURL();
 
 	useEffect(() => {
 		installCrashReporting();

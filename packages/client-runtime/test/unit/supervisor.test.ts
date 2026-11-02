@@ -42,6 +42,8 @@ const makeHarness = (input?: {
 		next: Options,
 	) => boolean;
 	requiresNetwork?: (options: Options) => boolean;
+	now?: () => number;
+	confirmFailuresWithProbe?: boolean;
 }) => {
 	let online = input?.online ?? true;
 	let nextId = 0;
@@ -53,6 +55,8 @@ const makeHarness = (input?: {
 		keyOf: (options) => options.key,
 		isOnline: () => online,
 		requiresNetwork: input?.requiresNetwork,
+		now: input?.now,
+		confirmFailuresWithProbe: input?.confirmFailuresWithProbe,
 		maxAutomaticAttempts: input?.maxAutomaticAttempts,
 		prepareOptions: input?.prepareOptions,
 		validateClient: input?.validateClient,
@@ -660,4 +664,205 @@ test("late validation cannot install a superseded client or clear its replacemen
 	expect(harness.disposed).toEqual([1]);
 	await harness.supervisor.dispose();
 	expect(harness.disposed).toEqual([1, 2]);
+});
+
+describe("session health", () => {
+	test("replaces a lost stable session at once without counting a failure", async () => {
+		let now = 0;
+		const harness = makeHarness({ now: () => now });
+		const entry = harness.supervisor.get({ key: "remote" });
+		await runClient(entry.getClient());
+		now = 25_000;
+
+		expect(entry.reportFailure(new Error("socket closed"), 1)).toBe(true);
+		expect(harness.scheduled).toHaveLength(0);
+		await waitUntil(() => entry.snapshot().generation === 2);
+		expect(entry.snapshot()).toMatchObject({
+			status: "connected",
+			attempt: 0,
+			error: null,
+		});
+	});
+
+	test("keeps backing off when sessions drop right after connecting", async () => {
+		const harness = makeHarness({ now: () => 0 });
+		const entry = harness.supervisor.get({ key: "remote" });
+		await runClient(entry.getClient());
+
+		entry.reportFailure(new Error("dropped"), 1);
+		harness.scheduled[0]?.fn();
+		await waitUntil(() => entry.snapshot().generation === 2);
+		entry.reportFailure(new Error("dropped again"), 2);
+
+		expect(harness.scheduled.map(({ delayMs }) => delayMs)).toEqual([
+			1_000, 2_000,
+		]);
+		expect(entry.snapshot()).toMatchObject({
+			status: "reconnecting",
+			attempt: 2,
+		});
+	});
+
+	test("keeps a session that answers the health probe", async () => {
+		const harness = makeHarness({ validateClient: async () => undefined });
+		const entry = harness.supervisor.get({ key: "remote" });
+		await runClient(entry.getClient());
+
+		await expect(entry.checkHealth(3_000)).resolves.toBe("healthy");
+		expect(entry.snapshot()).toMatchObject({
+			status: "connected",
+			generation: 1,
+		});
+		expect(harness.disposed).toEqual([]);
+	});
+
+	test("replaces a session that stops answering", async () => {
+		const harness = makeHarness({
+			validateClient: (client) =>
+				client.id === 1 && probing
+					? new Promise<void>(() => undefined)
+					: Promise.resolve(),
+		});
+		let probing = false;
+		const entry = harness.supervisor.get({ key: "remote" });
+		await runClient(entry.getClient());
+		probing = true;
+
+		const health = entry.checkHealth(3_000);
+		await waitUntil(() => harness.scheduled.length === 1);
+		expect(harness.scheduled[0]?.delayMs).toBe(3_000);
+		harness.scheduled[0]?.fn();
+
+		await expect(health).resolves.toBe("replaced");
+		await waitUntil(() => entry.snapshot().generation === 2);
+		expect(harness.disposed).toEqual([1]);
+		expect(entry.snapshot()).toMatchObject({ status: "connected", attempt: 0 });
+	});
+
+	test("skips the remaining backoff when the app resumes", async () => {
+		let fail = true;
+		const harness = makeHarness({
+			createClient: async () => {
+				if (fail) throw new Error("network down");
+				return { client: { id: 1 }, dispose: async () => undefined };
+			},
+		});
+		const entry = harness.supervisor.get({ key: "remote" });
+		await expect(runClient(entry.getClient())).rejects.toThrow("network down");
+		fail = false;
+
+		await expect(entry.checkHealth(3_000)).resolves.toBe("pending");
+		expect(harness.scheduled[0]?.cancelled).toBe(true);
+		await waitUntil(() => entry.snapshot().status === "connected");
+	});
+});
+
+describe("probe-confirmed failures", () => {
+	test("keeps a healthy session when a reported failure is stale", async () => {
+		const harness = makeHarness({
+			confirmFailuresWithProbe: true,
+			validateClient: async () => undefined,
+		});
+		const entry = harness.supervisor.get({ key: "remote" });
+		await runClient(entry.getClient());
+
+		expect(entry.reportFailure(new Error("old socket closed"))).toBe(true);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(entry.snapshot()).toMatchObject({
+			status: "connected",
+			generation: 1,
+		});
+		expect(harness.disposed).toEqual([]);
+	});
+
+	test("replaces a session whose probe fails", async () => {
+		let dead = false;
+		const harness = makeHarness({
+			confirmFailuresWithProbe: true,
+			validateClient: async () => {
+				if (dead) throw new Error("socket closed");
+			},
+		});
+		const entry = harness.supervisor.get({ key: "remote" });
+		await runClient(entry.getClient());
+		dead = true;
+
+		entry.reportFailure(new Error("stream failed"));
+		await waitUntil(() => harness.disposed.length === 1);
+		expect(entry.snapshot()).toMatchObject({
+			status: "reconnecting",
+			attempt: 1,
+		});
+	});
+
+	test("probes once for a burst of failures", async () => {
+		let probes = 0;
+		const harness = makeHarness({
+			confirmFailuresWithProbe: true,
+			validateClient: async () => {
+				probes += 1;
+			},
+		});
+		const entry = harness.supervisor.get({ key: "remote" });
+		await runClient(entry.getClient());
+		probes = 0;
+
+		entry.reportFailure(new Error("a"));
+		entry.reportFailure(new Error("b"));
+		entry.reportFailure(new Error("c"));
+		await Promise.resolve();
+
+		expect(probes).toBe(1);
+	});
+
+	test("replaces the session on demand without counting a failure", async () => {
+		const harness = makeHarness();
+		const entry = harness.supervisor.get({ key: "remote" });
+		await runClient(entry.getClient());
+
+		entry.replaceSession();
+		await waitUntil(() => entry.snapshot().generation === 2);
+		expect(entry.snapshot()).toMatchObject({ status: "connected", attempt: 0 });
+		expect(harness.disposed).toEqual([1]);
+		expect(harness.scheduled).toHaveLength(0);
+	});
+});
+
+test("old probes cannot suppress failures or clear probes on a replacement session", async () => {
+	const oldProbe = deferred<void>();
+	const newProbe = deferred<void>();
+	let probing = false;
+	let newProbeCalls = 0;
+	const harness = makeHarness({
+		confirmFailuresWithProbe: true,
+		validateClient: (client) => {
+			if (!probing) return Promise.resolve();
+			if (client.id === 1) return oldProbe.promise;
+			if (client.id === 2) {
+				newProbeCalls += 1;
+				return newProbe.promise;
+			}
+			return Promise.resolve();
+		},
+	});
+	const entry = harness.supervisor.get({ key: "remote" });
+	await runClient(entry.getClient());
+	probing = true;
+	entry.reportFailure(new Error("old failure"));
+	probing = false;
+	entry.replaceSession();
+	await waitUntil(() => entry.snapshot().generation === 2);
+	probing = true;
+	newProbeCalls = 0;
+	entry.reportFailure(new Error("replacement failed"));
+	expect(newProbeCalls).toBe(1);
+	oldProbe.resolve(undefined);
+	await new Promise<void>((resolve) => setTimeout(resolve, 0));
+	entry.reportFailure(new Error("same replacement failed again"));
+	expect(newProbeCalls).toBe(1);
+	newProbe.reject(new Error("replacement socket closed"));
+	await waitUntil(() => harness.disposed.includes(2));
+	expect(entry.snapshot().status).toBe("reconnecting");
 });

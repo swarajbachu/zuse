@@ -1,17 +1,20 @@
 import { attemptIdFor } from "@zuse/domain/core/state";
 import { makeSessionDomain } from "@zuse/domain/engine/session-domain";
 import { layer as sqliteLayer } from "@zuse/sqlite";
-import { Effect, Fiber } from "effect";
+import { Deferred, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, test } from "vitest";
 import { createSessionCommand } from "../../../../packages/domain/src/test/session.ts";
 import { createDomainTestSchema } from "../../../../packages/domain/src/test/sql-schema.ts";
 import { acquireIngestionLease } from "../../src/conversation/core/ingestion-lease.ts";
-import { sweepIngestionLeases } from "../../src/conversation/core/ingestion-sweeper.ts";
+import {
+	makeIngestionLeaseSweep,
+	sweepIngestionLeases,
+} from "../../src/conversation/core/ingestion-sweeper.ts";
 import { Migration0070IngestionLeases } from "../../src/persistence/migrations/0070_ingestion_leases.ts";
 
-test("ingestion leases separate heartbeat from activity and fence expired or replaced owners", async () => {
+test("ingestion leases separate heartbeat from activity and fence retired or replaced owners", async () => {
 	await Effect.runPromise(
 		Effect.scoped(
 			Effect.gen(function* () {
@@ -71,7 +74,6 @@ test("ingestion leases separate heartbeat from activity and fence expired or rep
 					provider_activity_at: 115,
 				});
 				now = 150;
-				expect(yield* lease.renew()).toBe(false);
 				const replacement = yield* acquireIngestionLease(
 					sql,
 					"session-1",
@@ -79,6 +81,7 @@ test("ingestion leases separate heartbeat from activity and fence expired or rep
 					options,
 				);
 				if (replacement === null) throw new Error("Replacement lease missing");
+				expect(yield* lease.renew()).toBe(false);
 				yield* lease.expire;
 				yield* lease.release;
 				expect(yield* replacement.renew()).toBe(true);
@@ -297,5 +300,106 @@ test.each([
 			Effect.provide(sqliteLayer({ filename: ":memory:" })),
 			Effect.provide(TestClock.layer()),
 		),
+	);
+});
+
+// Both timers are overdue after an event-loop pause or system suspend. Exercise
+// both scheduling orders against real SQL and the domain, without resending work.
+test.each([
+	"heartbeat-first",
+	"sweep-first",
+	"database-blocked-heartbeat",
+	"dead-consumer",
+] as const)("a process pause handles %s without resending execution", async (order) => {
+	await Effect.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				yield* Migration0070IngestionLeases;
+				const sql = yield* SqlClient.SqlClient;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(crypto.randomUUID()),
+				);
+				const dispatch = (
+					command: Parameters<typeof domain.dispatch>[0]["command"],
+				) =>
+					domain.dispatch({
+						streamId: "session-1",
+						commandId: crypto.randomUUID(),
+						command,
+					});
+				yield* dispatch({ ...createSessionCommand, providerId: "codex" });
+				yield* dispatch({ _tag: "StartTurn", turnId: "turn-1", startedAt: 1 });
+				const identity = {
+					turnId: "turn-1",
+					attemptId: attemptIdFor("turn-1", 1),
+					providerSessionId: "provider-1",
+				};
+				yield* dispatch({
+					_tag: "ReserveProviderSession",
+					ownerAttempt: identity,
+					providerId: "codex",
+					providerSessionId: identity.providerSessionId,
+					reservedAt: 2,
+				});
+				let now = 100;
+				const lease = yield* acquireIngestionLease(sql, "session-1", identity, {
+					now: () => now,
+					leaseMs: 30,
+				});
+				if (lease === null) throw new Error("Lease missing");
+				const sweep = makeIngestionLeaseSweep(sql, domain, () => now);
+				now = 105;
+				yield* sweep;
+				if (order === "database-blocked-heartbeat") {
+					const locked = yield* Deferred.make<void>();
+					const unlock = yield* Deferred.make<void>();
+					const holder = yield* Effect.forkChild(
+						sql.withTransaction(
+							Deferred.succeed(locked, undefined).pipe(
+								Effect.andThen(Deferred.await(unlock)),
+							),
+						),
+					);
+					yield* Deferred.await(locked);
+					const heartbeat = yield* Effect.forkChild(lease.renew(102));
+					yield* Effect.yieldNow;
+					now = 200;
+					yield* Deferred.succeed(unlock, undefined);
+					yield* Fiber.join(holder);
+					expect(yield* Fiber.join(heartbeat)).toBe(true);
+					expect(
+						yield* sql`SELECT heartbeat_at, expires_at FROM session_ingestion_leases`,
+					).toEqual([{ heartbeat_at: 200, expires_at: 230 }]);
+				}
+				// The whole process stops running for longer than the lease TTL.
+				now = 200;
+				if (order === "heartbeat-first")
+					expect(yield* lease.renew(102)).toBe(true);
+				yield* sweep;
+				expect((yield* domain.activeAttempt("session-1"))?.attemptId).toBe(
+					identity.attemptId,
+				);
+				if (order === "sweep-first") expect(yield* lease.renew(102)).toBe(true);
+				now = 205;
+				yield* sweep;
+				if (order === "dead-consumer") {
+					expect(yield* domain.activeAttempt("session-1")).toBeNull();
+					expect(yield* lease.renew()).toBe(false);
+				} else {
+					expect((yield* domain.activeAttempt("session-1"))?.attemptId).toBe(
+						identity.attemptId,
+					);
+					// Renewing delivery does not invent recent provider activity.
+					expect(
+						yield* sql`SELECT provider_activity_at FROM session_ingestion_leases`,
+					).toEqual([{ provider_activity_at: 102 }]);
+					expect(yield* sql`SELECT 1 FROM messages`).toHaveLength(0);
+				}
+				expect(
+					yield* sql`SELECT 1 FROM jobs WHERE kind IN ('provider.turn.send', 'provider.turn.recover')`,
+				).toHaveLength(0);
+			}),
+		).pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
 	);
 });

@@ -126,6 +126,7 @@
 	"model_picker_context_window": "{{value1}} context window",
 	"model_picker_credit_multiplier": "{{value1}} credit multiplier",
 	"provider_card_remove_custom_model": "Remove custom model {{modelId}}",
+	"muse_sign_in_hint": "Muse Code manages sign-in. Run <part0>muse login</part0> in a terminal, or save a Meta API key with <part1>muse auth set</part1>. Zuse doesn't pass META_API_KEY through.",
 	"pi_setup_hint": "Pi manages authentication and tool permissions. Run <part0>pi</part0> in a terminal and use <part1>/login</part1> to sign in.",
 	"pi_binary_path": "Pi binary path",
 	"pi_binary_placeholder": "Find pi on PATH",

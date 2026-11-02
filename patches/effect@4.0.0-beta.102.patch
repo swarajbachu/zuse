@@ -1,0 +1,103 @@
+diff --git a/dist/unstable/rpc/RpcClient.d.ts b/dist/unstable/rpc/RpcClient.d.ts
+index a70061a638faabdd663eca25cb79585fec06e03c..46dca860d23f439691f51e765ca3c7f3c0bc4e62 100644
+--- a/dist/unstable/rpc/RpcClient.d.ts
++++ b/dist/unstable/rpc/RpcClient.d.ts
+@@ -214,6 +214,13 @@ export declare const layerProtocolHttp: (options: {
+ export declare const makeProtocolSocket: (options?: {
+     readonly retryTransientErrors?: boolean | undefined;
+     readonly retryPolicy?: Schedule.Schedule<any, Socket.SocketError> | undefined;
++    /** How often to ping the server. Defaults to 5 seconds. */
++    readonly pingInterval?: Duration.Input | undefined;
++    /**
++     * Silence allowed since the last decoded server frame before the socket
++     * fails. Any frame counts as liveness. Defaults to the ping interval.
++     */
++    readonly pingTimeout?: Duration.Input | undefined;
+ }) => Effect.Effect<Protocol["Service"], never, Scope.Scope | RpcSerialization.RpcSerialization | Socket.Socket>;
+ /**
+  * Provides a client `Protocol` backed by the current `Socket` and
+diff --git a/dist/unstable/rpc/RpcClient.js b/dist/unstable/rpc/RpcClient.js
+index b6ddbacbde74fb0ce98c79452b95a1c8fc0e65ed..8e040edc212a3ea43d44c6ee2f43b00782bf71e9 100644
+--- a/dist/unstable/rpc/RpcClient.js
++++ b/dist/unstable/rpc/RpcClient.js
+@@ -1,5 +1,7 @@
+ import * as Cause from "../../Cause.js";
++import * as Clock from "../../Clock.js";
+ import * as Context from "../../Context.js";
++import * as Duration from "../../Duration.js";
+ import * as Effect from "../../Effect.js";
+ import * as Exit from "../../Exit.js";
+ import * as Fiber from "../../Fiber.js";
+@@ -590,7 +592,8 @@ export const makeProtocolSocket = options => Protocol.make(Effect.fnUntraced(fun
+   const requestClientMap = new Map();
+   const write = yield* socket.writer;
+   let parser = serialization.makeUnsafe();
+-  const pinger = yield* makePinger(write(parser.encode(constPing)));
++  // Encode each ping with the current connection's parser.
++  const pinger = yield* makePinger(Effect.suspend(() => write(parser.encode(constPing))), options);
+   let currentError;
+   const onOpen = Effect.suspend(() => {
+     currentError = undefined;
+@@ -604,15 +607,15 @@ export const makeProtocolSocket = options => Protocol.make(Effect.fnUntraced(fun
+       try {
+         const responses = parser.decode(message);
+         if (responses.length === 0) return;
++        // Any decoded server frame proves the connection is alive, so a pong
++        // queued behind large frames cannot time out a busy healthy socket.
++        pinger.onFrame();
+         let i = 0;
+         return Effect.whileLoop({
+           while: () => i < responses.length,
+           body: () => {
+             const response = responses[i++];
+-            if (response._tag === "Pong") {
+-              pinger.onPong();
+-              return Effect.void;
+-            }
++            if (response._tag === "Pong") return Effect.void;
+             if ("requestId" in response) {
+               const clientId = requestClientMap.get(response.requestId);
+               if (clientId !== undefined) {
+@@ -686,25 +689,32 @@ export const makeProtocolSocket = options => Protocol.make(Effect.fnUntraced(fun
+   };
+ }));
+ const defaultRetryPolicy = /*#__PURE__*/Schedule.min([/*#__PURE__*/Schedule.exponential(500, 1.5), /*#__PURE__*/Schedule.spaced(5000)]);
+-const makePinger = /*#__PURE__*/Effect.fnUntraced(function* (writePing) {
+-  let recievedPong = true;
++const makePinger = /*#__PURE__*/Effect.fnUntraced(function* (writePing, options) {
++  const clock = yield* Clock.Clock;
++  const interval = options?.pingInterval ?? "5 seconds";
++  const timeoutMillis = Duration.toMillis(options?.pingTimeout ?? interval);
++  let lastSeen = clock.currentTimeMillisUnsafe();
++  let awaitingResponse = false;
+   const latch = Latch.makeUnsafe();
++  const onFrame = () => {
++    lastSeen = clock.currentTimeMillisUnsafe();
++    awaitingResponse = false;
++  };
+   const reset = () => {
+-    recievedPong = true;
++    onFrame();
+     latch.closeUnsafe();
+   };
+-  const onPong = () => {
+-    recievedPong = true;
+-  };
+   yield* Effect.suspend(() => {
+-    if (!recievedPong) return latch.open;
+-    recievedPong = false;
++    // A late tick must send a ping before it can declare the connection silent.
++    // Keep the timeout measured from the last frame, including for custom timeouts.
++    if (awaitingResponse && clock.currentTimeMillisUnsafe() - lastSeen > timeoutMillis) return latch.open;
++    awaitingResponse = true;
+     return writePing;
+-  }).pipe(Effect.delay("5 seconds"), Effect.ignore, Effect.forever, Effect.interruptible, Effect.forkScoped);
++  }).pipe(Effect.delay(interval), Effect.ignore, Effect.forever, Effect.interruptible, Effect.forkScoped);
+   return {
+     timeout: latch.await,
+     reset,
+-    onPong
++    onFrame
+   };
+ });
+ /**

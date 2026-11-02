@@ -57,6 +57,7 @@ const definitions = Object.fromEntries(
 
 const desktopDependencies: UserConfig["deps"] = {
 	alwaysBundle: [
+		"@homebridge/ciao",
 		"@zuse/contracts",
 		/^@zuse\/i18n(?:\/|$)/,
 		"i18next",

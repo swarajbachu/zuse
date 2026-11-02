@@ -24,14 +24,16 @@ try {
   result.wireProtocolVersion = metadata.wireProtocolVersion;
   const requested = JSON.parse(process.env.ZUSE_SNAPSHOT_PATHS || '[]');
   const candidates = new Set();
-  const ignored = new Set(['node_modules', '.git', '.cache', '.npm', '.cargo', '.rustup', '.local', 'proc', 'sys', 'dev']);
+  const ignored = new Set(['node_modules', 'proc', 'sys', 'dev']);
   const deadline = Date.now() + 15000;
   let visited = 0;
   async function scan(path, depth) {
     if (depth > 6 || candidates.size >= 32 || ++visited > 20000 || Date.now() > deadline) { result.truncated = true; return; }
     const entries = await readdir(path, { withFileTypes: true }).catch(() => []);
     if (entries.some(entry => entry.name === '.git')) { candidates.add(path); return; }
-    for (const entry of entries) if (entry.isDirectory() && !ignored.has(entry.name)) await scan(join(path, entry.name), depth + 1);
+    // Hidden trees commonly contain tool installations and dependency checkouts.
+    // Explicit repository paths bypass discovery, including this exclusion.
+    for (const entry of entries) if (entry.isDirectory() && !entry.name.startsWith('.') && !ignored.has(entry.name)) await scan(join(path, entry.name), depth + 1);
   }
   if (requested.length) {
     for (const path of requested) candidates.add(path);

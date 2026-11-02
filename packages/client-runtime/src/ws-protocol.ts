@@ -1,5 +1,5 @@
 import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
-import { type Duration, Layer } from "effect";
+import { type Duration, Layer, Schedule } from "effect";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import { Socket } from "effect/unstable/socket";
 import {
@@ -39,7 +39,19 @@ export type WsProtocolLayerOptions = {
 	) => globalThis.WebSocket;
 	readonly onClose?: (event: WebSocketCloseInfo) => void;
 	readonly protocols?: readonly string[];
+	/**
+	 * A connection supervisor owns reconnects: the socket fails once and
+	 * stays failed instead of silently redialing the same URL underneath it.
+	 */
+	readonly supervised?: boolean;
 };
+
+/**
+ * Pings go out every 5 seconds. A busy server or a radio waking from sleep can
+ * stay quiet for a few seconds, so only 15 seconds without any frame counts
+ * as a dead socket.
+ */
+export const WS_PING_TIMEOUT: Duration.Input = "15 seconds";
 
 export type WebSocketCloseInfo = {
 	readonly code: number;
@@ -125,7 +137,15 @@ export const wsClientProtocolLayer = (
 			: observeWebSocketConstructor(baseConstructor, options.onClose);
 	const url =
 		typeof endpoint === "string" ? endpoint : authenticatedWsUrl(endpoint);
-	return RpcClient.layerProtocolSocket().pipe(
+	return Layer.effect(
+		RpcClient.Protocol,
+		RpcClient.makeProtocolSocket({
+			pingTimeout: WS_PING_TIMEOUT,
+			...(options?.supervised === true
+				? { retryPolicy: Schedule.recurs(0) }
+				: {}),
+		}),
+	).pipe(
 		Layer.provide(
 			Socket.layerWebSocket(
 				options?.protocolVersion === undefined

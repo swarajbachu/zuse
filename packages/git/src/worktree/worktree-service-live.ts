@@ -43,6 +43,7 @@ import {
 	ChildProcessSpawner as CommandExecutor,
 } from "effect/unstable/process";
 import { SqlClient } from "effect/unstable/sql";
+import { recoverGitCheckpointRef } from "../checkpoints.ts";
 import { parseRemoteUrl, resolveGitHubRepository } from "../git-remote.ts";
 import {
 	GitHubClient,
@@ -416,7 +417,7 @@ export const WorktreeServiceLive = Layer.effect(
 				),
 			);
 
-		const runGit = (
+		const runGitOnce = (
 			cwd: string,
 			args: ReadonlyArray<string>,
 			env?: Readonly<Record<string, string>>,
@@ -453,6 +454,28 @@ export const WorktreeServiceLive = Layer.effect(
 					),
 				),
 			);
+
+		const runGit = Effect.fn("WorktreeService.runGit")(function* (
+			cwd: string,
+			args: ReadonlyArray<string>,
+			env?: Readonly<Record<string, string>>,
+		) {
+			for (let attempt = 0; ; attempt += 1) {
+				const result = yield* runGitOnce(cwd, args, env).pipe(Effect.result);
+				if (result._tag === "Success") return result.success;
+				if (args[0] !== "fetch" || attempt >= 3)
+					return yield* Effect.fail(result.failure);
+				const recovered = yield* Effect.tryPromise({
+					try: (signal) => recoverGitCheckpointRef(cwd, result.failure, signal),
+					catch: (error) =>
+						`${result.failure}\nCheckpoint recovery failed: ${error instanceof Error ? error.message : String(error)}`,
+				});
+				if (!recovered) return yield* Effect.fail(result.failure);
+				yield* Effect.logWarning(
+					"Quarantined an invalid Zuse checkpoint reference; retrying Git fetch. Evidence is retained in the repository's zuse/checkpoint-recovery directory.",
+				);
+			}
+		});
 
 		const list: WorktreeService["Service"]["list"] = (projectId) =>
 			Effect.gen(function* () {
@@ -1156,10 +1179,12 @@ export const WorktreeServiceLive = Layer.effect(
 					const refresh: Effect.Effect<RemoteBase, WorktreeCreateError> =
 						Effect.gen(function* () {
 							const fetchBranch = (branch: string) =>
-								runGit(repoPath, ["fetch", "origin", branch]).pipe(
-									Effect.timeout(FETCH_TIMEOUT),
-									Effect.result,
-								);
+								runGit(repoPath, [
+									"fetch",
+									"--no-tags",
+									"origin",
+									`+refs/heads/${branch}:refs/remotes/origin/${branch}`,
+								]).pipe(Effect.timeout(FETCH_TIMEOUT), Effect.result);
 
 							const localHead = (yield* runGit(repoPath, [
 								"symbolic-ref",
@@ -1231,7 +1256,7 @@ export const WorktreeServiceLive = Layer.effect(
 							if (!remoteRefExists) {
 								return yield* Effect.fail(
 									fail(
-										`origin/${defaultBranch} not found after fetch — cannot create worktree`,
+										`origin/${defaultBranch} not found after fetch — cannot create worktree${fetched._tag === "Failure" ? `: ${String(fetched.failure)}` : ""}`,
 									),
 								);
 							}
@@ -1246,7 +1271,11 @@ export const WorktreeServiceLive = Layer.effect(
 							}
 							const base = {
 								baseBranch: defaultBranch,
-								baseRef: `origin/${defaultBranch}`,
+								baseRef: (yield* runGit(repoPath, [
+									"rev-parse",
+									"--verify",
+									`refs/remotes/origin/${defaultBranch}^{commit}`,
+								]).pipe(Effect.mapError(fail))).trim(),
 							};
 							recentRemoteBases.set(repoPath, {
 								base,
