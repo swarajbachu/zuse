@@ -28,13 +28,18 @@ const fixture = Effect.gen(function* () {
 		sql,
 		domain,
 		activeTurnCount: queries.activeTurnCount,
-		hasSession: (_, expected) => Effect.sync(() => expected === attached),
+		hasSession: (_, expected) =>
+			Effect.sync(
+				() =>
+					attached !== undefined &&
+					(expected === undefined || expected === attached),
+			),
 	});
 	return {
 		sql,
 		domain,
 		prepare,
-		attach: (id: string) => {
+		attach: (id: string | undefined) => {
 			attached = id;
 		},
 	};
@@ -222,6 +227,28 @@ it("settles a turn archived during finalization on engine startup", async () => 
 					status: string;
 				}>`SELECT status FROM session_turns WHERE id = 'turn'`,
 			).toEqual([{ status: "interrupted" }]);
+		}),
+	);
+});
+
+it("keeps a turn archived mid-run busy only while its provider is live", async () => {
+	await run(
+		Effect.gen(function* () {
+			const f = yield* fixture;
+			yield* f.domain.dispatch({
+				commandId: "start",
+				streamId: "session-1",
+				command: { _tag: "StartTurn", turnId: "turn", startedAt: 1 },
+			});
+			yield* f.domain.dispatch({
+				commandId: "archive",
+				streamId: "session-1",
+				command: { _tag: "ArchiveSession", archivedAt: 2 },
+			});
+			f.attach("live");
+			expect(yield* f.prepare).toBe(false);
+			f.attach(undefined);
+			expect(yield* f.prepare).toBe(true);
 		}),
 	);
 });
