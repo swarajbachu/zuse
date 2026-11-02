@@ -520,15 +520,58 @@ export function ProjectsSidebar() {
 		],
 	);
 
-	const projectKeys = useMemo(
-		() =>
-			desktopCatalogEnabled
-				? logicalGroups.map((group) => group.key)
-				: folders
-						.filter((folder) => folder.kind !== "scratch")
-						.map((folder) => folder.id),
-		[desktopCatalogEnabled, folders, logicalGroups, uiMessage],
+	const hiddenArchivedChatIds = useChatsStore(
+		(state) => state.hiddenArchivedChatIds,
 	);
+	const projectKeys = useMemo(() => {
+		const hasChats = (
+			projectFolders: typeof folders,
+			origin: GitOriginInfo | null,
+			remoteChats: ReturnType<typeof remoteChatRows> = [],
+		) =>
+			buildThreadList({
+				folders: projectFolders,
+				chatsByProject,
+				remoteChats: remoteChats.map((row) => ({
+					...row,
+					repositoryName: "",
+				})),
+				cloudChats: cloudChats.filter(
+					(chat) =>
+						chat.repositoryIdentity === repositoryIdentityForOrigin(origin),
+				),
+				hiddenChatIds: hiddenArchivedChatIds,
+			}).length > 0;
+		return desktopCatalogEnabled
+			? logicalGroups
+					.filter((group) =>
+						hasChats(
+							folders.filter((folder) =>
+								group.members.some(
+									(member) => member.isActive && member.folderId === folder.id,
+								),
+							),
+							group.origin,
+							remoteChatRows(group),
+						),
+					)
+					.map((group) => group.key)
+			: folders
+					.filter(
+						(folder) =>
+							folder.kind !== "scratch" &&
+							hasChats([folder], origins[folder.id] ?? null),
+					)
+					.map((folder) => folder.id);
+	}, [
+		desktopCatalogEnabled,
+		folders,
+		logicalGroups,
+		chatsByProject,
+		cloudChats,
+		origins,
+		hiddenArchivedChatIds,
+	]);
 	const ungroupedCloudChats = useMemo(() => {
 		const representedChats = new Set([
 			...Object.values(chatsByProject)
@@ -554,11 +597,17 @@ export function ProjectsSidebar() {
 				!repositories.has(chat.repositoryIdentity),
 		);
 	}, [cloudChats, logicalGroups, origins, chatsByProject]);
-	const organize = useSidebarOrganize(projectKeys);
-	const threadListSidebar = useThreadListSidebarEnabled();
-	const hiddenArchivedChatIds = useChatsStore(
-		(state) => state.hiddenArchivedChatIds,
+	const allProjectKeys = useMemo(
+		() =>
+			desktopCatalogEnabled
+				? logicalGroups.map((group) => group.key)
+				: folders
+						.filter((folder) => folder.kind !== "scratch")
+						.map((folder) => folder.id),
+		[desktopCatalogEnabled, logicalGroups, folders],
 	);
+	const organize = useSidebarOrganize(projectKeys, allProjectKeys);
+	const threadListSidebar = useThreadListSidebarEnabled();
 
 	const threadListEntries = useMemo(
 		() =>
@@ -615,7 +664,7 @@ export function ProjectsSidebar() {
 		initialized: catalogInitialized,
 		initializing: catalogInitializing,
 		initializationError: catalogInitializationError,
-		projectCount: logicalGroups.length + ungroupedCloudChats.length,
+		projectCount: projectKeys.length + ungroupedCloudChats.length,
 		projectsLoading: loading,
 	});
 

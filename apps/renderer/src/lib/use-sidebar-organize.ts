@@ -45,7 +45,10 @@ type DropResolver = (
 
 const emptyGroupDropKey = (groupId: string): string => `empty-group:${groupId}`;
 
-export const useSidebarOrganize = (projectKeys: ReadonlyArray<string>) => {
+export const useSidebarOrganize = (
+	projectKeys: ReadonlyArray<string>,
+	persistedProjectKeys: ReadonlyArray<string> = projectKeys,
+) => {
 	const layout = useSidebarProjectLayoutStore((s) => s.layout);
 	const move = useSidebarProjectLayoutStore((s) => s.move);
 	const createGroup = useSidebarProjectLayoutStore((s) => s.createGroup);
@@ -135,7 +138,7 @@ export const useSidebarOrganize = (projectKeys: ReadonlyArray<string>) => {
 					},
 					onDrop: (point) => {
 						const next = targetAt(point);
-						if (next !== null) move(source, next.target, projectKeys);
+						if (next !== null) move(source, next.target, persistedProjectKeys);
 					},
 					onEnd: clearDrag,
 				},
@@ -242,21 +245,26 @@ export const useSidebarOrganize = (projectKeys: ReadonlyArray<string>) => {
 		createGroup: (name: string, keys: ReadonlyArray<string>) => {
 			createGroup(
 				{ id: crypto.randomUUID(), name, projectKeys: keys },
-				projectKeys,
+				persistedProjectKeys,
 			);
 		},
 		renameGroup,
 		setGroupCollapsed,
-		dissolveGroup: (groupId: string) => dissolveGroup(groupId, projectKeys),
+		dissolveGroup: (groupId: string) =>
+			dissolveGroup(groupId, persistedProjectKeys),
 		addToGroup: (projectKey: string, groupId: string) => {
 			move(
 				{ kind: "project", key: projectKey },
 				{ kind: "group-end", groupId },
-				projectKeys,
+				persistedProjectKeys,
 			);
 		},
 		removeFromGroup: (projectKey: string) => {
-			move({ kind: "project", key: projectKey }, { kind: "end" }, projectKeys);
+			move(
+				{ kind: "project", key: projectKey },
+				{ kind: "end" },
+				persistedProjectKeys,
+			);
 		},
 		sidebarGroupItemKey,
 		setGroupIconColor,
