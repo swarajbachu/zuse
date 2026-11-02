@@ -346,7 +346,8 @@ export const makeSqlSessionQueries = (
 		...messageQueries,
 		activeTurnCount: sql<{
 			count: number;
-		}>`SELECT COUNT(*) AS count FROM session_turns WHERE status IN ${sql.in([...ACTIVE_SESSION_TURN_STATUSES])}`.pipe(
+		}>`SELECT COUNT(*) AS count FROM session_turns t JOIN sessions s ON s.id = t.session_id
+			WHERE t.status IN ${sql.in([...ACTIVE_SESSION_TURN_STATUSES])} AND s.archived_at IS NULL`.pipe(
 			Effect.map((rows) => rows[0]?.count ?? 0),
 		),
 		list,

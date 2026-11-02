@@ -7,6 +7,7 @@ import { SqlClient } from "effect/unstable/sql";
 import { expect, it } from "vitest";
 import { createSessionCommand } from "../../../../packages/domain/src/test/session.ts";
 import { createDomainTestSchema } from "../../../../packages/domain/src/test/sql-schema.ts";
+import { reconcileSessionRuntime } from "../../src/conversation/core/startup-recovery.ts";
 import { prepareIdleShutdown } from "../../src/desktop-engine/idle.ts";
 
 const fixture = Effect.gen(function* () {
@@ -164,6 +165,63 @@ it.each([
 				yield* f.sql`UPDATE session_delegations SET wake_turn_id = 'consumer'`;
 			else yield* f.sql`UPDATE session_delegations SET cancelled_at = 2`;
 			expect(yield* f.prepare).toBe(true);
+		}),
+	);
+});
+
+const archiveDuringFinalization = (f: Effect.Success<typeof fixture>) =>
+	Effect.gen(function* () {
+		const dispatch = (
+			commandId: string,
+			command: Parameters<typeof f.domain.dispatch>[0]["command"],
+		) => f.domain.dispatch({ commandId, streamId: "session-1", command });
+		yield* dispatch("start", {
+			_tag: "StartTurn",
+			turnId: "turn",
+			startedAt: 1,
+		});
+		yield* dispatch("interrupt", {
+			_tag: "RequestTurnInterrupt",
+			expectedTurnId: "turn",
+			requestedAt: 2,
+		});
+		yield* dispatch("acknowledge", {
+			_tag: "AcknowledgeTurnInterrupt",
+			turnId: "turn",
+			acknowledgedAt: 3,
+		});
+		yield* dispatch("finalize", {
+			_tag: "FinalizeTurn",
+			turnId: "turn",
+			outcome: "interrupted",
+			settledAt: 4,
+		});
+		yield* f.sql`UPDATE jobs SET status = 'succeeded', completed_at = 'now'`;
+		expect(yield* f.prepare).toBe(false);
+		yield* dispatch("archive", { _tag: "ArchiveSession", archivedAt: 5 });
+	});
+
+it("does not let a turn archived during finalization keep the engine busy", async () => {
+	await run(
+		Effect.gen(function* () {
+			const f = yield* fixture;
+			yield* archiveDuringFinalization(f);
+			expect(yield* f.prepare).toBe(true);
+		}),
+	);
+});
+
+it("settles a turn archived during finalization on engine startup", async () => {
+	await run(
+		Effect.gen(function* () {
+			const f = yield* fixture;
+			yield* archiveDuringFinalization(f);
+			yield* reconcileSessionRuntime(f.sql, f.domain);
+			expect(
+				yield* f.sql<{
+					status: string;
+				}>`SELECT status FROM session_turns WHERE id = 'turn'`,
+			).toEqual([{ status: "interrupted" }]);
 		}),
 	);
 });
