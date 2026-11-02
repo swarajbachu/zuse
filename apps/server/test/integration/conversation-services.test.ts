@@ -7538,6 +7538,49 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
+	it.each([
+		"chat",
+		"session",
+	] as const)("archiving a %s without cleanup stops its live provider", async (target) => {
+		await withRuntime(async (run) => {
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			const sessionId = created.initialSession.id;
+			await run(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.dispatch({
+						commandId: `test:attach-before-${target}-archive`,
+						streamId: sessionId,
+						command: {
+							_tag: "AttachProvider",
+							providerId: "claude",
+							attachedAt: Date.now(),
+						},
+					}),
+				),
+			);
+			activeProviderSessions.add(sessionId);
+			if (target === "chat")
+				await run(
+					Effect.flatMap(store, (service) =>
+						service.archiveChat(created.chat.id),
+					),
+				);
+			else
+				await run(
+					Effect.flatMap(store, (service) => service.archiveSession(sessionId)),
+				);
+			expect(activeProviderSessions.has(sessionId)).toBe(false);
+		});
+	});
+
 	it("archiveSession hides the row unless includeArchived is set", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
