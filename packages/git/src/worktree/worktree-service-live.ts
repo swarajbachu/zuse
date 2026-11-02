@@ -59,10 +59,8 @@ import {
 } from "./archive-constants.ts";
 import { linkIncludedFiles } from "./env-files.ts";
 import {
-	PokemonAssignment,
 	ProjectLocator,
 	RepositorySettingsReader,
-	WorktreeDecoration,
 	WorktreeNameAllocator,
 } from "./ports.ts";
 import { mergeArchivedContext } from "./restore-context.ts";
@@ -85,7 +83,6 @@ interface WorktreeRow {
 	readonly setup_output: string;
 	readonly setup_started_at: string | null;
 	readonly setup_finished_at: string | null;
-	readonly pokemon_number: number | null;
 }
 
 const FETCH_TIMEOUT = "5 seconds" as const;
@@ -99,10 +96,7 @@ const isSetupStatus = (value: string): value is WorktreeSetupStatus =>
 	value === "failed" ||
 	value === "skipped";
 
-const rowToWorktree = (
-	row: WorktreeRow,
-	pokemonSummary: WorktreeDecoration["Service"]["pokemonSummary"],
-): Worktree =>
+const rowToWorktree = (row: WorktreeRow): Worktree =>
 	Worktree.make({
 		id: WorktreeId.make(row.id),
 		projectId: row.project_id as FolderId,
@@ -118,7 +112,6 @@ const rowToWorktree = (
 			row.setup_started_at === null ? null : new Date(row.setup_started_at),
 		setupFinishedAt:
 			row.setup_finished_at === null ? null : new Date(row.setup_finished_at),
-		pokemon: pokemonSummary(row.pokemon_number, row.name),
 	});
 
 const SETUP_TIMEOUT_MS = 10 * 60 * 1000;
@@ -255,8 +248,6 @@ export const WorktreeServiceLive = Layer.effect(
 		const projects = yield* ProjectLocator;
 		const repositorySettings = yield* RepositorySettingsReader;
 		const nameAllocator = yield* WorktreeNameAllocator;
-		const pokemonAssignment = yield* PokemonAssignment;
-		const decoration = yield* WorktreeDecoration;
 		const executor = yield* CommandExecutor.ChildProcessSpawner;
 		const fs = yield* FileSystem.FileSystem;
 		const sql = yield* SqlClient.SqlClient;
@@ -481,29 +472,25 @@ export const WorktreeServiceLive = Layer.effect(
 			Effect.gen(function* () {
 				const rows = yield* sql<WorktreeRow>`
 		  SELECT id, project_id, path, name, branch, branch_provenance, base_branch, created_at,
-                 setup_status, setup_output, setup_started_at, setup_finished_at,
-                 pokemon_number
+                 setup_status, setup_output, setup_started_at, setup_finished_at
           FROM worktrees
           WHERE project_id = ${projectId}
           ORDER BY created_at DESC
         `.pipe(Effect.orDie);
-				return rows.map((row) => rowToWorktree(row, decoration.pokemonSummary));
+				return rows.map((row) => rowToWorktree(row));
 			});
 
 		const get: WorktreeService["Service"]["get"] = (worktreeId) =>
 			Effect.gen(function* () {
 				const rows = yield* sql<WorktreeRow>`
 		  SELECT id, project_id, path, name, branch, branch_provenance, base_branch, created_at,
-                 setup_status, setup_output, setup_started_at, setup_finished_at,
-                 pokemon_number
+                 setup_status, setup_output, setup_started_at, setup_finished_at
           FROM worktrees
           WHERE id = ${worktreeId}
           LIMIT 1
         `.pipe(Effect.orDie);
 				const row = rows[0];
-				return row === undefined
-					? null
-					: rowToWorktree(row, decoration.pokemonSummary);
+				return row === undefined ? null : rowToWorktree(row);
 			});
 
 		const updateBranch = (
@@ -523,7 +510,7 @@ export const WorktreeServiceLive = Layer.effect(
 			const rows = yield* sql<WorktreeRow>`
 				SELECT id, project_id, path, name, branch, branch_provenance,
 				       base_branch, created_at, setup_status, setup_output,
-				       setup_started_at, setup_finished_at, pokemon_number
+				       setup_started_at, setup_finished_at
 				FROM worktrees WHERE id = ${worktreeId} LIMIT 1
 			`.pipe(Effect.orDie);
 			const row = rows[0];
@@ -531,7 +518,7 @@ export const WorktreeServiceLive = Layer.effect(
 				return yield* new WorktreeNotFoundError({ worktreeId });
 			}
 			if (provenance === "automatic" && row.branch_provenance !== "pending") {
-				return rowToWorktree(row, decoration.pokemonSummary);
+				return rowToWorktree(row);
 			}
 
 			const fail = (reason: WorktreeBranchRenameReason, message: string) =>
@@ -564,10 +551,7 @@ export const WorktreeServiceLive = Layer.effect(
 					  AND branch = ${current}
 					  AND (${provenance} = 'manual' OR branch_provenance = 'pending')
 				`.pipe(Effect.mapError((error) => fail("git-failed", String(error))));
-				return (
-					(yield* get(worktreeId)) ??
-					rowToWorktree(row, decoration.pokemonSummary)
-				);
+				return (yield* get(worktreeId)) ?? rowToWorktree(row);
 			}
 
 			yield* runGit(row.path, ["check-ref-format", "--branch", requested]).pipe(
@@ -839,24 +823,11 @@ export const WorktreeServiceLive = Layer.effect(
 					if (trimmed !== "") unavailableNames.add(trimmed);
 				}
 
-				const usedPokemonRows = yield* sql<{
-					readonly pokemon_number: number;
-				}>`
-          SELECT pokemon_number FROM pokemon_unlocks
-        `.pipe(Effect.orDie);
-				const usedPokemonNumbers = new Set(
-					usedPokemonRows.map((row) => row.pokemon_number),
-				);
-
 				let attempt = 0;
 				while (attempt < 50) {
 					attempt += 1;
-					const allocation = yield* nameAllocator.allocate({
-						unavailableNames,
-						usedPokemonNumbers,
-					});
-					if (allocation === null) break;
-					const { name, pokemonNumber } = allocation;
+					const name = yield* nameAllocator.allocate({ unavailableNames });
+					if (name === null) break;
 					const branch = name;
 					const target = Path.join(baseDir, name);
 
@@ -902,10 +873,10 @@ export const WorktreeServiceLive = Layer.effect(
 						yield* sql`
 							INSERT INTO worktrees
 								(id, project_id, path, name, branch, branch_provenance, base_branch, created_at,
-								 setup_status, setup_output, pokemon_number)
+								 setup_status, setup_output)
 							VALUES
 								(${id}, ${projectId}, ${target}, ${name}, ${branch}, 'pending', ${baseBranch}, ${nowIso},
-								 'pending', '', ${pokemonNumber})
+								 'pending', '')
 						`.pipe(Effect.orDie);
 					}
 					const checkoutStartedAt = Date.now();
@@ -1107,13 +1078,12 @@ export const WorktreeServiceLive = Layer.effect(
 						yield* sql`
 							INSERT INTO worktrees
 								(id, project_id, path, name, branch, branch_provenance, base_branch, created_at,
-								 setup_status, setup_output, pokemon_number)
+								 setup_status, setup_output)
 							VALUES
 								(${id}, ${projectId}, ${target}, ${name}, ${checkedOutBranch}, ${source === undefined ? "pending" : "manual"}, ${baseBranch}, ${nowIso},
-								 'pending', '', ${pokemonNumber})
+								 'pending', '')
 						`.pipe(Effect.orDie);
 					}
-					yield* pokemonAssignment.record(pokemonNumber, id);
 
 					const created = yield* get(id);
 					if (created === null) {
@@ -1128,7 +1098,7 @@ export const WorktreeServiceLive = Layer.effect(
 				return yield* Effect.fail(
 					new WorktreeCreateError({
 						projectId,
-						reason: "could not pick a unique Pokémon worktree name",
+						reason: "could not pick a unique worktree name",
 					}),
 				);
 			});
@@ -1621,7 +1591,6 @@ export const WorktreeServiceLive = Layer.effect(
 						: row.branch,
 				detachedHead: symbolicBranch._tag === "Failure",
 				branchProvenance: row.branchProvenance,
-				pokemonNumber: row.pokemon?.number ?? null,
 			} satisfies WorktreeArchiveOutcome;
 			if (recordCheckpoint !== undefined) {
 				const recorded = yield* recordCheckpoint(outcome).pipe(Effect.result);
@@ -1901,11 +1870,11 @@ export const WorktreeServiceLive = Layer.effect(
 				const inserted = yield* sql`
 		  INSERT INTO worktrees
 					 (id, project_id, path, name, branch, branch_provenance, base_branch, created_at,
-							 setup_status, setup_output, pokemon_number)
+							 setup_status, setup_output)
 						VALUES
 							(${snapshot.id}, ${snapshot.projectId}, ${snapshot.path},
 						 ${snapshot.name}, ${snapshot.branch}, ${snapshot.branchProvenance ?? "manual"}, ${snapshot.baseBranch},
-							 ${createdAtIso}, 'pending', '', ${snapshot.pokemonNumber ?? null})
+							 ${createdAtIso}, 'pending', '')
         `.pipe(Effect.result);
 				if (inserted._tag === "Failure") {
 					yield* rollbackRestore;

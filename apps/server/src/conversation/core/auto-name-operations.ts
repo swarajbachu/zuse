@@ -1,6 +1,7 @@
 import type { Chat, ChatId, MessageContent, SessionId } from "@zuse/contracts";
 import type { ChatCommand } from "@zuse/domain/chat/commands";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
+import type { AutoNameTrigger } from "@zuse/domain/reactors/conversation";
 import type { GitServiceShape } from "@zuse/git/git-service";
 import type { WorktreeServiceShape } from "@zuse/git/worktree-service";
 import { Effect } from "effect";
@@ -39,12 +40,15 @@ interface FirstNamingMessageRow {
 	readonly content_json: string;
 }
 
-/** Only the session's first user turn is eligible for automatic naming. */
+/**
+ * Only the session's first user turn is eligible for automatic naming. A null
+ * turn asks for that first turn, whichever it is.
+ */
 export const qualifyTurnForNaming = Effect.fn("qualifyTurnForNaming")(
 	function* (
 		sql: SqlClient.SqlClient,
 		sessionId: SessionId,
-		turnId: string,
+		turnId: string | null,
 	): Effect.fn.Return<QualifiedNamingTurn | null> {
 		const rows = yield* sql<FirstNamingMessageRow>`
 			SELECT turn_id, content_json
@@ -56,7 +60,7 @@ export const qualifyTurnForNaming = Effect.fn("qualifyTurnForNaming")(
 			LIMIT 1
 		`.pipe(Effect.orDie);
 		const first = rows[0];
-		return first?.turn_id === turnId
+		return first !== undefined && (turnId === null || first.turn_id === turnId)
 			? qualifyNamingMessage(first.content_json)
 			: null;
 	},
@@ -136,11 +140,23 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 	const autoNameChat = (
 		chatId: ChatId,
 		sessionId: SessionId,
-		turnId: string,
+		turnId: string | null,
 		commandId: string,
+		trigger: AutoNameTrigger,
 	): Effect.Effect<void> =>
 		Effect.gen(function* () {
 			if (yield* reactorEffects.isCompleted(commandId)) return;
+			if (trigger === "turn-started") {
+				// A new chat holds its first turn until its worktree is attached;
+				// the release names the chat and its branch together.
+				const held = yield* sql<{ readonly queue_paused: number }>`
+					SELECT queue_paused FROM sessions WHERE id = ${sessionId} LIMIT 1
+				`.pipe(Effect.orDie);
+				if (held[0]?.queue_paused === 1) {
+					yield* reactorEffects.complete(commandId);
+					return;
+				}
+			}
 			const qualified = yield* qualifyTurnForNaming(sql, sessionId, turnId);
 			if (qualified === null) {
 				yield* reactorEffects.complete(commandId);
@@ -180,6 +196,7 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 				userText: qualified.userText,
 				title: wantsTitle,
 				branch: wantsBranch,
+				fallback: trigger === "turn-completed",
 			});
 			const title = names.title;
 			if (title !== null && title.length > 0 && title !== "New chat") {

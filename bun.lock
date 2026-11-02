@@ -314,7 +314,6 @@
         "@zuse/domain": "*",
         "@zuse/git": "*",
         "@zuse/index": "*",
-        "@zuse/pokemon-data": "*",
         "@zuse/sqlite": "*",
         "@zuse/tailnet": "*",
         "@zuse/utils": "*",
@@ -409,7 +408,6 @@
         "@zuse/executor-v2": "*",
         "@zuse/git": "*",
         "@zuse/machine-providers": "*",
-        "@zuse/pokemon-data": "*",
         "@zuse/sandbox-providers": "*",
         "@zuse/slack": "*",
         "@zuse/utils": "*",
@@ -662,14 +660,6 @@
         "@types/node": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
-      },
-    },
-    "packages/pokemon-data": {
-      "name": "@zuse/pokemon-data",
-      "version": "0.0.0",
-      "devDependencies": {
-        "@repo/typescript-config": "*",
-        "typescript": "catalog:",
       },
     },
     "packages/provider-registry": {
@@ -2439,8 +2429,6 @@
     "@zuse/mcp-server": ["@zuse/mcp-server@workspace:apps/mcp-server"],
 
     "@zuse/native-apple": ["@zuse/native-apple@workspace:apps/ios"],
-
-    "@zuse/pokemon-data": ["@zuse/pokemon-data@workspace:packages/pokemon-data"],
 
     "@zuse/provider-registry": ["@zuse/provider-registry@workspace:packages/provider-registry"],
 

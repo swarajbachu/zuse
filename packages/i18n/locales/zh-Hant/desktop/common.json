@@ -26,6 +26,7 @@
 	"notAvailable": "不適用",
 	"cancel": "取消",
 	"save": "儲存",
+	"rename_failed": "無法重新命名，請再試一次。",
 	"close": "關閉",
 	"copy": "複製",
 	"copied": "已複製",

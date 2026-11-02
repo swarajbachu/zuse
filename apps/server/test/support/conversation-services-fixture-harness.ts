@@ -307,7 +307,6 @@ export const makeConversationFixtureRuntime = (
 				branch: "fixture",
 				detachedHead: false,
 				branchProvenance: "manual" as const,
-				pokemonNumber: null,
 			};
 			return recordCheckpoint === undefined
 				? Effect.succeed(outcome)

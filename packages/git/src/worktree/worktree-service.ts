@@ -25,7 +25,6 @@ export interface WorktreeArchiveOutcome {
 	readonly branch: string;
 	readonly detachedHead: boolean;
 	readonly branchProvenance: "pending" | "automatic" | "manual";
-	readonly pokemonNumber: number | null;
 }
 
 export interface WorktreeRestoreOutcome {

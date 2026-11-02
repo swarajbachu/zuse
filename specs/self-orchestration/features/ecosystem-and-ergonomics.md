@@ -50,7 +50,7 @@ it's an orchestration agent using the tools we ship. Worth shipping a curated
 
 ## 4. Worktree reuse (treehouse parity)
 
-We already auto-name/allocate worktrees (Pokemon worktrees). Kun's `treehouse`
+We already auto-name/allocate worktrees (managed worktrees). Kun's `treehouse`
 adds **idle reuse** — when a thread closes, free its worktree; next request
 reuses an idle one instead of creating a new directory. Small addition to the
 worktree service that keeps the worktree pool from growing unbounded under heavy

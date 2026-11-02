@@ -473,6 +473,7 @@ const ConversationRuntimeLive = Layer.effect(
 					sessionId,
 					input.command.turnId,
 					input.commandId,
+					input.command.trigger,
 				);
 			});
 

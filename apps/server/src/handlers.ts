@@ -21,7 +21,6 @@ import { MachineHandlersLayer } from "./machine/handlers.ts";
 import { MasterHandlersLayer } from "./master/handlers.ts";
 import { ModelCatalogHandlersLayer } from "./model-catalog/handlers.ts";
 import { PingHandlersLayer } from "./ping/handlers.ts";
-import { PokemonHandlersLayer } from "./pokemon/handlers.ts";
 import { PreviewsHandlersLayer } from "./previews/handlers.ts";
 import { ProviderHandlersLayer } from "./provider/handlers.ts";
 import { PtyHandlersLayer } from "./pty/handlers.ts";
@@ -70,7 +69,6 @@ export const HandlersLayer = Layer.mergeAll(
 	FsHandlersLayer,
 	AttachmentHandlersLayer,
 	SkillHandlersLayer,
-	PokemonHandlersLayer,
 	UsageHandlersLayer,
 	VoiceHandlersLayer,
 	DiagnosticsHandlersLayer,

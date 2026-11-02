@@ -702,16 +702,6 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["provider.opencode2.removeCustom"](payload as never),
 				);
 				break;
-			case "pokemon.pokedex":
-				result = await Effect.runPromise(
-					client["pokemon.pokedex"](payload as never),
-				);
-				break;
-			case "pokemon.ensureSpriteCached":
-				result = await Effect.runPromise(
-					client["pokemon.ensureSpriteCached"](payload as never),
-				);
-				break;
 			case "skill.listGlobal":
 				result = await Effect.runPromise(
 					client["skill.listGlobal"](payload as never),

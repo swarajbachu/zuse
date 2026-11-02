@@ -86,7 +86,6 @@ import { importWorkspacesJson } from "./persistence/import-workspaces.ts";
 import { MigrationsLive } from "./persistence/migrations.ts";
 import { NdjsonLoggerLive } from "./persistence/ndjson-logger.ts";
 import { SqliteLive } from "./persistence/sqlite.ts";
-import { PokemonServiceLive } from "./pokemon/layers/pokemon-service.ts";
 import { AcpAgentServiceLive } from "./provider/acp/service.ts";
 import { HiddenAgentRunnerLive } from "./provider/hidden-agent-run.ts";
 import { BrowserBridgeServiceLive } from "./provider/layers/browser-bridge-service.ts";
@@ -119,10 +118,8 @@ import { ProjectScaffoldLive } from "./workspace/layers/project-scaffold-live.ts
 import { WorkspaceServiceLive } from "./workspace/layers/workspace-service.ts";
 import { FolderPicker } from "./workspace/services/folder-picker.ts";
 import {
-	PokemonAssignmentLive,
 	ProjectLocatorLive,
 	RepositorySettingsReaderLive,
-	WorktreeDecorationLive,
 	WorktreeNameAllocatorLive,
 } from "./worktree/worktree-ports-live.ts";
 
@@ -320,18 +317,10 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 	);
 
-	const PokemonLayer = PokemonServiceLive.pipe(
-		Layer.provide(MigratedSqlite),
-		Layer.provide(AppPathsLayer),
-		Layer.provide(NodeServices.layer),
-	);
-
 	const WorktreePortsLayer = Layer.mergeAll(
 		ProjectLocatorLive.pipe(Layer.provide(WorkspaceLayer)),
 		RepositorySettingsReaderLive.pipe(Layer.provide(RepositorySettingsLayer)),
 		WorktreeNameAllocatorLive,
-		WorktreeDecorationLive,
-		PokemonAssignmentLive.pipe(Layer.provide(PokemonLayer)),
 	);
 
 	const GitHubLayer = Layer.effect(
@@ -811,7 +800,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		WorktreeLayer,
 		WorktreeNameAllocatorLive,
 		RepositorySettingsLayer,
-		PokemonLayer,
 		ConfigStoreLayer,
 		AnalyticsLayer,
 		FsLayer,

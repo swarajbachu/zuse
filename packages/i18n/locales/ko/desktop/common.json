@@ -26,6 +26,7 @@
 	"notAvailable": "해당 없음",
 	"cancel": "취소",
 	"save": "저장",
+	"rename_failed": "이름을 변경할 수 없습니다. 다시 시도하세요.",
 	"close": "닫기",
 	"copy": "복사",
 	"copied": "복사됨",

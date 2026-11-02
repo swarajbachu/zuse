@@ -46,8 +46,6 @@ import {
 	type SealedProviderGrant,
 	WorkspaceSettingsUpdate,
 } from "@zuse/contracts";
-import { POKEMON_BRANCH_CATALOG } from "@zuse/pokemon-data/branch-catalog";
-import { allocatePokemonName } from "@zuse/pokemon-data/name-allocator";
 import { SandboxProviders } from "@zuse/sandbox-providers";
 import { cloudRuntimeCommandTurnId } from "@zuse/utils/cloud-api";
 import { launchGrantRequestId } from "@zuse/utils/cloud-launch-grant";
@@ -1775,14 +1773,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	const initialSessionId = `s_${crypto.randomUUID()}`;
 
 	const branch =
-		body.branch ??
-		`${
-			allocatePokemonName({
-				catalog: POKEMON_BRANCH_CATALOG,
-				unavailableNames: new Set(),
-				usedPokemonNumbers: new Set(),
-			})?.name ?? "cloud"
-		}-${workspaceId.slice("workspace_".length)}`;
+		body.branch ?? `cloud-${workspaceId.slice("workspace_".length)}`;
 	if (
 		!/^[A-Za-z0-9._/-]+$/u.test(branch) ||
 		!/^[A-Za-z0-9._/#-]+$/u.test(body.baseRef)

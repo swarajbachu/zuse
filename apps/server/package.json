@@ -99,7 +99,6 @@
 		"@zuse/domain": "*",
 		"@zuse/git": "*",
 		"@zuse/index": "*",
-		"@zuse/pokemon-data": "*",
 		"@zuse/sqlite": "*",
 		"@zuse/tailnet": "*",
 		"@zuse/utils": "*",

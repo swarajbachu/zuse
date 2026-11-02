@@ -57,7 +57,7 @@ the human from it. Spot-checking the gate periodically is part of the workflow
 
 | Need | Existing thing |
 |---|---|
-| Isolated validation | worktrees (Pokemon worktrees) |
+| Isolated validation | worktrees (managed worktrees) |
 | Recorded evidence | browser bridge / browser tools |
 | Rebase / PR / merge | GitService (`prState`/`prDetails`/`prMerge`/`prReady`) + new `prComments` |
 | PR babysitting | the Phase 2 loop engine (heartbeat on the PR) |

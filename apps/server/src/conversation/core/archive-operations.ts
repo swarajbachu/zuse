@@ -56,7 +56,6 @@ const WorktreeArchiveOutcomeSchema = Schema.Struct({
 	branchProvenance: Schema.optional(
 		Schema.Literals(["pending", "automatic", "manual"]),
 	),
-	pokemonNumber: Schema.optional(Schema.NullOr(Schema.Number)),
 });
 const WorktreeCheckpointJournalDetailSchema = Schema.Struct({
 	...WorktreeArchiveSnapshot.fields,

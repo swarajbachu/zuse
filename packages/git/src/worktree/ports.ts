@@ -1,4 +1,4 @@
-import type { FolderId, PokemonSummary, WorktreeId } from "@zuse/contracts";
+import type { FolderId } from "@zuse/contracts";
 import { Context, type Effect } from "effect";
 
 export interface ProjectLocation {
@@ -13,11 +13,6 @@ export interface WorktreeRepositorySettings {
 	readonly runScript: string | null;
 	readonly environmentVariables: Readonly<Record<string, string>>;
 	readonly fileIncludeGlobs: string;
-}
-
-export interface WorktreeNameAllocation {
-	readonly name: string;
-	readonly pokemonNumber: number;
 }
 
 export class ProjectLocator extends Context.Service<
@@ -41,29 +36,12 @@ export class RepositorySettingsReader extends Context.Service<
 export class WorktreeNameAllocator extends Context.Service<
 	WorktreeNameAllocator,
 	{
+		/**
+		 * A placeholder folder and branch name for a new worktree, or null when
+		 * none is free. Chats replace the branch once their first turn is named.
+		 */
 		readonly allocate: (input: {
 			readonly unavailableNames: ReadonlySet<string>;
-			readonly usedPokemonNumbers: ReadonlySet<number>;
-		}) => Effect.Effect<WorktreeNameAllocation | null>;
+		}) => Effect.Effect<string | null>;
 	}
 >()("zuse/git/worktree/WorktreeNameAllocator") {}
-
-export class PokemonAssignment extends Context.Service<
-	PokemonAssignment,
-	{
-		readonly record: (
-			pokemonNumber: number,
-			worktreeId: WorktreeId,
-		) => Effect.Effect<void>;
-	}
->()("zuse/git/worktree/PokemonAssignment") {}
-
-export class WorktreeDecoration extends Context.Service<
-	WorktreeDecoration,
-	{
-		readonly pokemonSummary: (
-			pokemonNumber: number | null,
-			worktreeName: string,
-		) => PokemonSummary | null;
-	}
->()("zuse/git/worktree/WorktreeDecoration") {}
