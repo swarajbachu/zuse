@@ -879,5 +879,18 @@
 	"image_gallery_title": "チャットの画像",
 	"review_guide_chapters_appear": "章は書かれ次第ここに表示されます。",
 	"review_guide_try_again": "再試行",
-	"review_guide_reading_changes": "変更を読み込んでいます…"
+	"review_guide_reading_changes": "変更を読み込んでいます…",
+	"tool_activity_activity": "アクティビティ",
+	"tool_activity_running_bash": "Bash を実行中…",
+	"tool_activity_running_command": "コマンドを実行中…",
+	"tool_activity_reading": "ファイルを読み取り中…",
+	"tool_activity_searching_files": "ファイルを検索中…",
+	"tool_activity_listing": "ファイルを一覧表示中…",
+	"tool_activity_editing": "ファイルを編集中…",
+	"tool_activity_writing": "ファイルを書き込み中…",
+	"tool_activity_searching_web": "ウェブを検索中…",
+	"tool_activity_fetching": "ページを取得中…",
+	"tool_activity_viewing": "画像を表示中…",
+	"tool_activity_using": "{{tool}} を使用中…",
+	"tool_activity_last": "直前のアクティビティ：{{tool}}"
 }

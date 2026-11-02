@@ -879,5 +879,18 @@
 	"image_gallery_title": "Chatbilder",
 	"review_guide_chapters_appear": "Kapitel erscheinen hier, sobald sie geschrieben sind.",
 	"review_guide_try_again": "Erneut versuchen",
-	"review_guide_reading_changes": "Änderungen werden gelesen…"
+	"review_guide_reading_changes": "Änderungen werden gelesen…",
+	"tool_activity_activity": "Aktivität",
+	"tool_activity_running_bash": "Bash wird ausgeführt…",
+	"tool_activity_running_command": "Befehl wird ausgeführt…",
+	"tool_activity_reading": "Dateien werden gelesen…",
+	"tool_activity_searching_files": "Dateien werden durchsucht…",
+	"tool_activity_listing": "Dateien werden aufgelistet…",
+	"tool_activity_editing": "Dateien werden bearbeitet…",
+	"tool_activity_writing": "Dateien werden geschrieben…",
+	"tool_activity_searching_web": "Web wird durchsucht…",
+	"tool_activity_fetching": "Seite wird abgerufen…",
+	"tool_activity_viewing": "Bild wird angezeigt…",
+	"tool_activity_using": "{{tool}} wird verwendet…",
+	"tool_activity_last": "Letzte Aktivität: {{tool}}"
 }

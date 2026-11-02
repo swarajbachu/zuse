@@ -879,5 +879,18 @@
 	"image_gallery_title": "聊天圖片",
 	"review_guide_chapters_appear": "章節寫好後會顯示在這裡。",
 	"review_guide_try_again": "重試",
-	"review_guide_reading_changes": "正在讀取改動…"
+	"review_guide_reading_changes": "正在讀取改動…",
+	"tool_activity_activity": "活動",
+	"tool_activity_running_bash": "正在執行 Bash…",
+	"tool_activity_running_command": "正在執行命令…",
+	"tool_activity_reading": "正在讀取檔案…",
+	"tool_activity_searching_files": "正在搜尋檔案…",
+	"tool_activity_listing": "正在列出檔案…",
+	"tool_activity_editing": "正在編輯檔案…",
+	"tool_activity_writing": "正在寫入檔案…",
+	"tool_activity_searching_web": "正在搜尋網頁…",
+	"tool_activity_fetching": "正在擷取頁面…",
+	"tool_activity_viewing": "正在檢視圖片…",
+	"tool_activity_using": "正在使用 {{tool}}…",
+	"tool_activity_last": "最近活動：{{tool}}"
 }

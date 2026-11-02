@@ -879,5 +879,18 @@
 	"image_gallery_title": "채팅 이미지",
 	"review_guide_chapters_appear": "챕터가 작성되는 대로 여기에 표시됩니다.",
 	"review_guide_try_again": "다시 시도",
-	"review_guide_reading_changes": "변경 사항을 읽는 중…"
+	"review_guide_reading_changes": "변경 사항을 읽는 중…",
+	"tool_activity_activity": "활동",
+	"tool_activity_running_bash": "Bash 실행 중…",
+	"tool_activity_running_command": "명령 실행 중…",
+	"tool_activity_reading": "파일 읽는 중…",
+	"tool_activity_searching_files": "파일 검색 중…",
+	"tool_activity_listing": "파일 목록 조회 중…",
+	"tool_activity_editing": "파일 편집 중…",
+	"tool_activity_writing": "파일 쓰는 중…",
+	"tool_activity_searching_web": "웹 검색 중…",
+	"tool_activity_fetching": "페이지 가져오는 중…",
+	"tool_activity_viewing": "이미지 보는 중…",
+	"tool_activity_using": "{{tool}} 사용 중…",
+	"tool_activity_last": "최근 활동: {{tool}}"
 }
