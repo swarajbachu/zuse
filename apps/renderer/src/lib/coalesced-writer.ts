@@ -1,6 +1,6 @@
 export type CoalescedWriter<Value> = {
 	readonly schedule: (value: Value) => void;
-	readonly flush: () => void;
+	readonly flush: (latest?: Value) => void;
 	readonly cancel: () => void;
 };
 
@@ -32,7 +32,11 @@ export const makeCoalescedWriter = <Value>(
 			hasPending = true;
 			handle ??= scheduler.schedule(commit);
 		},
-		flush: () => {
+		flush: (latest) => {
+			if (latest !== undefined) {
+				pending = latest;
+				hasPending = true;
+			}
 			if (handle !== null) scheduler.cancel(handle);
 			commit();
 		},

@@ -1306,5 +1306,8 @@
 	"settings_page_review_guides_auto": "自動重新整理導覽",
 	"settings_page_review_guides": "引導式檢閱",
 	"settings_page_review_guides_description": "在「更改」中於差異旁顯示由代理程式撰寫的變更導覽。",
-	"settings_page_review_guides_auto_description": "在每次完成輪次、提交或推送後更新導覽。使用該對話自己的模型。"
+	"settings_page_review_guides_auto_description": "在每次完成輪次、提交或推送後更新導覽。使用該對話自己的模型。",
+	"composer_title": "訊息編輯器",
+	"direct_steer_title": "直接引導",
+	"direct_steer_description": "將新訊息立即傳送給正在執行的代理，而不是加入佇列。使用 Alt+Enter 將訊息加入佇列。"
 }

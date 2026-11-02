@@ -446,6 +446,90 @@ export const COMMAND_META: Record<Command, CommandMeta> = {
 			return uiMessage("commands:command_group_composer");
 		},
 	},
+	"composer.previousMessage": {
+		labelKey: "commands:composer_previousMessage",
+		get label() {
+			return uiMessage("commands:composer_previousMessage");
+		},
+		get description() {
+			return uiMessage("commands:composer_previousMessage_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_composer");
+		},
+	},
+	"composer.nextMessage": {
+		labelKey: "commands:composer_nextMessage",
+		get label() {
+			return uiMessage("commands:composer_nextMessage");
+		},
+		get description() {
+			return uiMessage("commands:composer_nextMessage_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_composer");
+		},
+	},
+	"composer.queueSubmit": {
+		labelKey: "commands:composer_queueSubmit",
+		get label() {
+			return uiMessage("commands:composer_queueSubmit");
+		},
+		get description() {
+			return uiMessage("commands:composer_queueSubmit_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_composer");
+		},
+	},
+	"composer.deleteToStart": {
+		labelKey: "commands:composer_deleteToStart",
+		get label() {
+			return uiMessage("commands:composer_deleteToStart");
+		},
+		get description() {
+			return uiMessage("commands:composer_deleteToStart_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_composer");
+		},
+	},
+	"composer.deleteToEnd": {
+		labelKey: "commands:composer_deleteToEnd",
+		get label() {
+			return uiMessage("commands:composer_deleteToEnd");
+		},
+		get description() {
+			return uiMessage("commands:composer_deleteToEnd_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_composer");
+		},
+	},
+	"composer.deleteWord": {
+		labelKey: "commands:composer_deleteWord",
+		get label() {
+			return uiMessage("commands:composer_deleteWord");
+		},
+		get description() {
+			return uiMessage("commands:composer_deleteWord_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_composer");
+		},
+	},
+	"composer.interrupt": {
+		labelKey: "commands:composer_interrupt",
+		get label() {
+			return uiMessage("commands:composer_interrupt");
+		},
+		get description() {
+			return uiMessage("commands:composer_interrupt_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_composer");
+		},
+	},
 	"composer.togglePlanMode": {
 		labelKey: "commands:default_keybindings_toggle_plan_mode",
 		get label() {
@@ -547,6 +631,14 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
 	{ key: "shift+enter", command: "composer.newline" },
 	{ key: "mod+enter", command: "composer.forceSubmit" },
 	{ key: "shift+tab", command: "composer.togglePlanMode" },
+	{ key: "up", command: "composer.previousMessage" },
+	{ key: "down", command: "composer.nextMessage" },
+	{ key: "alt+enter", command: "composer.queueSubmit" },
+	{ key: "ctrl+u", command: "composer.deleteToStart" },
+	{ key: "ctrl+k", command: "composer.deleteToEnd" },
+	{ key: "ctrl+backspace", command: "composer.deleteWord" },
+	{ key: "alt+backspace", command: "composer.deleteWord" },
+	{ key: "escape", command: "composer.interrupt" },
 	{ key: "mod+s", command: "editor.save" },
 	{ key: "mod+shift+a", command: "editor.annotate" },
 ];

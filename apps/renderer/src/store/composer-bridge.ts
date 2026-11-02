@@ -1,4 +1,5 @@
 import type { QueuedMessage } from "@zuse/contracts";
+import type { ChipMeta } from "../lib/codemirror/composer-chips.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 
 export type AttachableFile = {
@@ -14,7 +15,11 @@ type FocusComposer = () => void;
 type SendText = (text: string) => Promise<boolean>;
 type EditQueuedMessage = (item: QueuedMessage) => void;
 
+type SettleAttachment = (id: string, meta: ChipMeta | null) => void;
+
 type Bridge = {
+	readonly settleAttachment: SettleAttachment | null;
+	readonly setSettleAttachment: (fn: SettleAttachment | null) => void;
 	readonly attachFile: AttachFile | null;
 	readonly draftKey: string | null;
 	readonly insertText: InsertText | null;
@@ -29,6 +34,8 @@ type Bridge = {
 };
 
 export const useComposerBridge = create<Bridge>((set) => ({
+	settleAttachment: null,
+	setSettleAttachment: (fn) => set({ settleAttachment: fn }),
 	attachFile: null,
 	draftKey: null,
 	insertText: null,

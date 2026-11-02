@@ -2,17 +2,17 @@ import type { WebsiteLocale } from "@zuse/i18n/registry";
 import { WebsiteProvider } from "@zuse/i18n/website/react";
 import { loadWebsiteCatalog } from "@zuse/i18n/website/server";
 import type { Metadata } from "next";
-import {
-	DM_Mono,
-	Geist,
-	Geist_Mono,
-	Inter,
-	Schibsted_Grotesk,
-} from "next/font/google";
 import { Navbar } from "@/components/navbar";
 import { ProgressiveBlur } from "@/components/progressive-blur";
 import { cn } from "@/lib/utils";
 
+import "@fontsource-variable/inter";
+import "@fontsource-variable/geist";
+import "@fontsource-variable/geist-mono";
+import "@fontsource-variable/schibsted-grotesk";
+import "@fontsource/dm-mono/latin-300.css";
+import "@fontsource/dm-mono/latin-400.css";
+import "@fontsource/dm-mono/latin-500.css";
 import "@/app/globals.css";
 import "@/components/site-typography.css";
 import "@/components/editorial.css";
@@ -24,32 +24,6 @@ import { getGitHubStars } from "@/lib/github";
 import { getSEO } from "@/lib/seo";
 
 export const metadata: Metadata = getSEO();
-
-const inter = Inter({
-	subsets: ["latin"],
-	variable: "--font-inter",
-	weight: ["400", "500", "600", "700", "800"],
-});
-
-const geistMono = Geist_Mono({
-	subsets: ["latin"],
-	variable: "--font-geist-mono",
-	weight: ["400", "500", "600", "700", "800"],
-});
-
-const DMMono = DM_Mono({
-	subsets: ["latin"],
-	variable: "--font-dm-mono",
-	weight: ["300", "400", "500"],
-});
-
-const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
-
-const schibstedGrotesk = Schibsted_Grotesk({
-	subsets: ["latin"],
-	weight: ["400", "500", "600", "700"],
-	variable: "--font-schibsted-grotesk",
-});
 
 export async function SiteDocument({
 	children,
@@ -69,11 +43,6 @@ export async function SiteDocument({
 		<html lang={locale} suppressHydrationWarning>
 			<body
 				className={cn(
-					inter.variable,
-					geistMono.variable,
-					DMMono.variable,
-					geist.variable,
-					schibstedGrotesk.variable,
 					studio
 						? "zuse-studio font-sans antialiased"
 						: "zuse-site bg-background relative overflow-x-hidden font-sans antialiased",
