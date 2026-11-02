@@ -13,11 +13,18 @@ import { describe, expect, it, vi } from "vitest";
 import { stopBackgroundTask } from "../../src/lib/session-actions.ts";
 
 const dispatch = vi.hoisted(() => vi.fn(async () => ({ status: "applied" })));
-vi.mock("../../src/lib/session-timeline-client-bus.ts", () => ({
-	dispatchSessionCommand: dispatch,
-}));
+vi.mock(
+	"../../src/lib/session-timeline-client-bus.ts",
+	async (importOriginal) => ({
+		...(await importOriginal<Record<string, unknown>>()),
+		dispatchSessionCommand: dispatch,
+	}),
+);
 
-import { BackgroundTasks } from "../../src/components/background-tasks.tsx";
+import {
+	BackgroundTaskRows,
+	BackgroundTasks,
+} from "../../src/components/background-tasks.tsx";
 
 const ref = {
 	environmentId: EnvironmentId.make("remote"),
@@ -74,9 +81,17 @@ const view: ResourceView<SessionTimelineProjection> = {
 };
 
 describe("background task controls", () => {
-	it("shows a named process with its own stop control", () => {
+	it("folds running tasks behind a count until opened", () => {
 		const html = renderToStaticMarkup(
 			<BackgroundTasks view={view} sessionRef={ref} providerId="claude" />,
+		);
+		expect(html).toContain("1 running");
+		expect(html).toContain('aria-expanded="false"');
+		expect(html).not.toContain("Watch build");
+	});
+	it("shows a named process with its own stop control", () => {
+		const html = renderToStaticMarkup(
+			<BackgroundTaskRows view={view} sessionRef={ref} providerId="claude" />,
 		);
 		expect(html).toContain("Watch build");
 		expect(html).toContain("Background process");
@@ -113,7 +128,11 @@ describe("background task controls", () => {
 			],
 		};
 		const html = renderToStaticMarkup(
-			<BackgroundTasks view={pending} sessionRef={ref} providerId="claude" />,
+			<BackgroundTaskRows
+				view={pending}
+				sessionRef={ref}
+				providerId="claude"
+			/>,
 		);
 		expect(html).toContain("Watch build");
 		expect(html).toContain("Stopping");
@@ -137,7 +156,7 @@ describe("background task controls", () => {
 			],
 		] as const) {
 			const html = renderToStaticMarkup(
-				<BackgroundTasks
+				<BackgroundTaskRows
 					view={{ ...view, data: data as SessionTimelineProjection }}
 					sessionRef={ref}
 					providerId={providerId}
@@ -146,7 +165,44 @@ describe("background task controls", () => {
 			expect(html).not.toContain("<button");
 		}
 	});
-	it("shows no running process after its native outcome is persisted", () => {
+	it("separates a stopped process from the running ones and keeps stop on each running row", () => {
+		const data = {
+			...projection,
+			executionSteps: [
+				...(projection.executionSteps ?? []),
+				{
+					...(projection.executionSteps ?? [])[0],
+					id: "second",
+					itemId: "second-shell",
+					label: "Run tests",
+					nativeChildId: "native-second",
+				},
+				{
+					...(projection.executionSteps ?? [])[0],
+					id: "ended",
+					itemId: "ended-shell",
+					label: "Old server",
+					status: "cancelled" as const,
+					nativeChildId: "native-ended",
+				},
+			],
+		} as SessionTimelineProjection;
+		const html = renderToStaticMarkup(
+			<BackgroundTaskRows
+				view={{ ...view, data }}
+				sessionRef={ref}
+				providerId="claude"
+			/>,
+		);
+		expect(html).toContain('aria-label="Running"');
+		expect(html).toContain('aria-label="Stopped"');
+		expect(html.indexOf("Run tests")).toBeLessThan(html.indexOf("Old server"));
+		expect(html).toContain('aria-label="Stop Watch build"');
+		expect(html).toContain('aria-label="Stop Run tests"');
+		expect(html).toContain("Stop all");
+		expect(html).not.toContain('aria-label="Stop Old server"');
+	});
+	it("moves a process to the stopped group once its native outcome is persisted", () => {
 		const data = {
 			...projection,
 			executionSteps: projection.executionSteps?.map((step) => ({
@@ -154,14 +210,25 @@ describe("background task controls", () => {
 				status: "cancelled" as const,
 			})),
 		};
-		expect(
-			renderToStaticMarkup(
-				<BackgroundTasks
-					view={{ ...view, data }}
-					sessionRef={ref}
-					providerId="claude"
-				/>,
-			),
-		).toBe("");
+		const section = renderToStaticMarkup(
+			<BackgroundTasks
+				view={{ ...view, data }}
+				sessionRef={ref}
+				providerId="claude"
+			/>,
+		);
+		expect(section).toContain("Background work");
+		expect(section).not.toContain("running");
+		const rows = renderToStaticMarkup(
+			<BackgroundTaskRows
+				view={{ ...view, data }}
+				sessionRef={ref}
+				providerId="claude"
+			/>,
+		);
+		expect(rows).not.toContain('aria-label="Running"');
+		expect(rows).toContain('aria-label="Stopped"');
+		expect(rows).toContain("Watch build");
+		expect(rows).not.toContain("<button");
 	});
 });

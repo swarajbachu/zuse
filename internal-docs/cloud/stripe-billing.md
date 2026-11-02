@@ -289,7 +289,7 @@ choices and are not launched by this migration.
 
 ### Prepaid Zuse invoice balance
 
-Customers can buy $10, $25, $50, or $100 of USD credit in Billing, before or after
+Customers can buy $10, $25, $50, $100, or $200 of USD credit in Billing, before or after
 subscribing. The balance pays **all future Zuse Stripe invoices**, including the
 subscription, cloud overage and invoice tax. Stripe applies it at finalization;
 unused credit rolls forward without a Zuse expiry. The remaining invoice amount
@@ -353,6 +353,74 @@ Activation:
 Keep the prepaid price configured while processing existing purchases/refunds,
 even when new sales are paused. Pausing live checkout disables purchases while
 balance visibility and webhook reconciliation remain available.
+
+### One-payment prepaid Pro activation
+
+The prepaid checkout request accepts `activatePro: true` for the $200 amount.
+This is an explicit first-subscription activation, not the default for top-ups.
+The Checkout Session remains a one-time card payment with the full $200 face
+value, even if the customer already has invoice credit. It collects a billing
+address and discloses the $40 monthly subscription and use of existing billing
+settings once credit runs out. The top-up card is not saved for subscription
+renewals.
+
+Only the signed successful-checkout webhook can activate Pro. It verifies the
+canonical payment, funds the invoice balance through the existing delivery
+receipt, then creates the standard base and metered-overage subscription with
+`error_if_incomplete`. Its initial invoice uses the funded balance, normally
+leaving $160 after the $40 base fee, before any tax or other invoice charges.
+Subsequent subscription and cloud-usage invoices consume the remaining balance.
+This does not fund external AI providers or add an AI consumption wallet.
+
+Activation has a separate durable receipt per Stripe customer, so duplicate
+payment events, concurrent checkout deliveries and retries after a funding or
+activation failure cannot grant the balance or create the initial subscription
+twice. The receipt is intentionally for initial activation only: after canceling,
+use normal subscription checkout to resubscribe with the remaining credit.
+An existing matching active or trialing subscription is preserved; incomplete,
+unpaid, paused, past-due, conflicting or ambiguous subscriptions require
+reconciliation without completing the activation receipt. Normal subscription
+checkout and prepaid activation share a transaction-scoped lock on the account's
+Stripe customer row. Waiting for that lock times out after 15 seconds, before
+the protected operation starts; checkout returns a retryable provider error and
+webhook delivery releases its lease for retry. Both paths expire older open
+subscription checkouts for the offer before inspecting subscriptions, including checkouts identified by
+price when older metadata is absent. A checkout completing during expiry is
+retrieved canonically and its subscription is adopted instead of creating a
+second one. If expiry cannot be confirmed, creation stops for reconciliation.
+Ended entitlements retain their billing provider while paid access remains. Refunded, disputed and unpaid purchases
+never trigger activation. Refund/dispute handling continues to reverse invoice
+credit through the existing receipts. Subscription events flow through normal
+entitlement reconciliation; redirects never grant access.
+
+After deploying this code and completing prepaid activation above, create an
+account-specific, single-use Checkout URL with:
+
+```sh
+# Supply live STRIPE_SECRET_KEY (or STRIPE_LIVE_KEY_FILE), WORKOS_API_KEY,
+# and production DATABASE_URL through the environment.
+bun run --cwd infra/api billing:stripe:prepaid-checkout friend@example.com
+```
+
+The command requires an existing WorkOS account with that verified email,
+configured prepaid prices and webhook events, and no conflicting billing
+provider. It uses the same durable customer mapping and checkout implementation
+as the API. It does not charge a card, create a subscription, send an email or
+grant funds when creating the URL. The URL expires according to Stripe Checkout's
+session lifetime. Creating a URL does not deploy the fulfillment code; deploy and
+verify the handler before sharing one.
+
+Production enabled prepaid activation on October 18, 2026, in Worker version
+`ab195f9d-b800-464e-b9c8-06d1014472be`, using credit price
+`price_1URzy8PTgFt61LRrIhYMuTS4`. The existing webhook was upgraded in place
+without replacing its signing secret. Verification covered an unpaid live $200
+Checkout Session, exact account/customer ownership, activation metadata, runtime
+read/write permissions, and a signed unrelated webhook acknowledged with HTTP
+200. All three enabled cloud providers passed the production allocation checks.
+No sandbox payment was completed for this rollout, and paid funding, first
+subscription activation and invoice credit consumption remain unverified until
+a hosted payment completes. Do not treat the unpaid checkout or signed
+unrelated event as paid-delivery evidence.
 
 ## Verification
 

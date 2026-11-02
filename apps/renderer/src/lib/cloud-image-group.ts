@@ -1,6 +1,6 @@
 import type { CloudAccountImage } from "@zuse/contracts";
 
-/** Newer build revisions win; only complete responses may remove a provider. */
+/** Compare build revisions within the same source/runtime; hosting switches may restore older images. */
 export const reconcileCloudImages = (
 	current: readonly CloudAccountImage[],
 	incoming: readonly CloudAccountImage[],
@@ -21,7 +21,13 @@ export const reconcileCloudImages = (
 		const previous = current.find(
 			(item) => item.providerId === image.providerId,
 		);
-		return previous && revision(previous) > revision(image) ? previous : image;
+		const sameConfiguration =
+			previous &&
+			(previous.source ?? "managed") === (image.source ?? "managed") &&
+			previous.runtimeVersion === image.runtimeVersion;
+		return sameConfiguration && revision(previous) > revision(image)
+			? previous
+			: image;
 	});
 };
 

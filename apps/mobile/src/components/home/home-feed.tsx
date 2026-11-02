@@ -31,7 +31,10 @@ import { EmptyState } from "~/components/ui/empty-state";
 import { Fab } from "~/components/ui/fab";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { HugeIcon } from "~/components/ui/huge-icon";
-import { connectionErrorMessage } from "~/lib/connection-error-message";
+import {
+	connectionNotice,
+	connectionProblemNotice,
+} from "~/lib/connection-notice";
 import { optionsForConnection } from "~/lib/connection-params";
 import {
 	availableConnections,
@@ -324,6 +327,17 @@ export function HomeFeed({
 		const status = connectionSnapshots[connection.key]?.status;
 		return status === "connecting" || status === "reconnecting";
 	});
+	const homeConnectionError =
+		(account === null ? null : environmentsError) ?? connectionError;
+	const homeConnectionNotice =
+		homeConnectionError !== null
+			? connectionProblemNotice(homeConnectionError)
+			: recoveringConnection !== undefined && feed.length > 0
+				? connectionNotice(
+						connectionSnapshots[recoveringConnection.key],
+						recoveringConnection.label,
+					)
+				: null;
 	const [loadTimedOut, setLoadTimedOut] = useState(false);
 	const [loadAttempt, setLoadAttempt] = useState(0);
 	const waitingForHome = loading || recoveringConnection !== undefined;
@@ -660,32 +674,14 @@ export function HomeFeed({
 								{cloudCatalog.error}
 							</Text>
 						) : null}
-						{showHomeRecovery ? null : ((account === null
-								? null
-								: environmentsError) ?? connectionError) ? (
-							<View className="mb-3">
-								<ConnectionRecoveryBanner
-									message={connectionErrorMessage(
-										(account === null ? null : environmentsError) ??
-											connectionError,
-									)}
-									onRetry={retryHome}
-									onPairAgain={() => router.push("/connect/scan")}
-								/>
-							</View>
-						) : recoveringConnection !== undefined && feed.length > 0 ? (
-							<View className="mb-3">
-								<ConnectionRecoveryBanner
-									message={
-										loadTimedOut
-											? "Computer unavailable. Check its connection and retry."
-											: `Reconnecting to ${recoveringConnection.label}…`
-									}
-									onRetry={retryHome}
-									recovering={!loadTimedOut}
-								/>
-							</View>
-						) : null}
+						{showHomeRecovery ? null : (
+							<ConnectionRecoveryBanner
+								notice={homeConnectionNotice}
+								onRetry={retryHome}
+								onPairAgain={() => router.push("/connect/scan")}
+								className="mb-3"
+							/>
+						)}
 					</>
 				}
 				ListEmptyComponent={

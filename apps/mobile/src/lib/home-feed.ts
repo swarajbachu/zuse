@@ -91,7 +91,7 @@ export const buildHomeFeed = ({
 		groups,
 		displayStates,
 		searching,
-	}).map((item) => {
+	}).map((item): HomeFeedItem => {
 		switch (item.type) {
 			case "header":
 				return {
@@ -110,7 +110,7 @@ export const buildHomeFeed = ({
 					isFirst: false,
 					isLast: item.isLast,
 				};
-			case "show-more":
+			default:
 				return item;
 		}
 	});

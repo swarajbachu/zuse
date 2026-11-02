@@ -1,6 +1,4 @@
-import {
-	Task01Icon,
-} from "@zuse/icons/solid-rounded";
+import { Task01Icon } from "@zuse/icons/solid-rounded";
 import { X } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 

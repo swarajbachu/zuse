@@ -126,6 +126,7 @@
 	"model_picker_context_window": "⟦{{value1}} côôntëëxt wïïndôôw⟧",
 	"model_picker_credit_multiplier": "⟦{{value1}} crëëdïït müültïïplïïëër⟧",
 	"provider_card_remove_custom_model": "⟦Rëëmôôvëë cüüstôôm môôdëël {{modelId}}⟧",
+	"muse_sign_in_hint": "⟦Müüsëë Côôdëë màànààgëës sïïgn-ïïn. Rüün <part0>müüsëë lôôgïïn</part0> ïïn àà tëërmïïnààl, ôôr sààvëë àà Mëëtàà ÀÀPÏÏ këëy wïïth <part1>müüsëë ààüüth sëët</part1>. Züüsëë dôôëësn't pààss MËËTÀÀ_ÀÀPÏÏ_KËËY thrôôüügh.⟧",
 	"pi_setup_hint": "⟦Pïï màànààgëës ààüüthëëntïïcààtïïôôn àànd tôôôôl pëërmïïssïïôôns. Rüün <part0>pïï</part0> ïïn àà tëërmïïnààl àànd üüsëë <part1>/lôôgïïn</part1> tôô sïïgn ïïn.⟧",
 	"pi_binary_path": "⟦Pïï bïïnààry pààth⟧",
 	"pi_binary_placeholder": "⟦Fïïnd pïï ôôn PÀÀTH⟧",

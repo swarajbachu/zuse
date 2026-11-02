@@ -11,7 +11,7 @@ import { Spinner } from "~/components/ui/spinner";
 import { cn } from "~/lib/utils";
 
 import { useRendererSessionTimeline } from "../../lib/session-timeline-hooks.ts";
-import { TrayPill } from "./tray-pill.tsx";
+import { TrayPill, trayPillActionClass } from "./tray-pill.tsx";
 
 const TODO_STATUS = {
 	pending: "pending",
@@ -76,6 +76,7 @@ const parseTodosFromOutput = (output: unknown): Todo[] => {
 
 const outputToString = (output: unknown): string => {
 	if (typeof output === "string") return output;
+	if (Array.isArray(output)) return output.map(outputToString).join("\n");
 	if (output !== null && typeof output === "object") {
 		const o = output as Record<string, unknown>;
 		if (typeof o.content === "string") return o.content;
@@ -91,13 +92,26 @@ const outputToString = (output: unknown): string => {
 
 /**
  * The newer Claude Agent SDK plans with incremental `TaskCreate`/`TaskUpdate`
- * tools instead of `TodoWrite`'s single snapshot. A create's *result* carries
- * both the id and title (`Task #4 created successfully: <subject>`); an update's
+ * tools instead of `TodoWrite`'s single snapshot. A create's structured result
+ * carries `task: { id, subject }`; older CLIs return a text confirmation. An update's
  * *input* carries `{ taskId, status }`. Reconstruct the live list from those.
  */
 const parseTaskCreated = (
 	output: unknown,
 ): { id: string; subject: string } | null => {
+	if (output !== null && typeof output === "object" && "task" in output) {
+		const task = output.task;
+		if (
+			task !== null &&
+			typeof task === "object" &&
+			"id" in task &&
+			"subject" in task &&
+			typeof task.id === "string" &&
+			typeof task.subject === "string"
+		) {
+			return { id: task.id, subject: task.subject };
+		}
+	}
 	const m = outputToString(output).match(/Task #(\d+) created[^:]*:\s*(.+)/i);
 	if (m === null) return null;
 	const id = m[1];
@@ -115,7 +129,7 @@ const parseTaskUpdate = (
 } | null => {
 	if (input === null || typeof input !== "object") return null;
 	const r = input as Record<string, unknown>;
-	const id = r.taskId;
+	const id = r.taskId ?? r.id ?? r.task_id;
 	if (typeof id !== "string" && typeof id !== "number") return null;
 	const raw = r.status;
 	const status =
@@ -143,6 +157,7 @@ const tasksFromMessages = (messages: ReadonlyArray<Message>): Todo[] => {
 	for (const m of messages) {
 		const c = m.content;
 		if (c._tag === "tool_result") {
+			if (c.isError) continue;
 			const created = parseTaskCreated(c.output);
 			if (created !== null) {
 				const existing = tasks.get(created.id);
@@ -186,15 +201,31 @@ const activeHeaderTodo = (todos: ReadonlyArray<Todo>): Todo | undefined =>
 	todos.find((t) => t.status !== TODO_STATUS.completed) ??
 	todos.at(-1);
 
-const projectPlanFromMessages = (messages: ReadonlyArray<Message>): Todo[] => {
-	const tasks = tasksFromMessages(messages);
-	if (tasks.length > 0) return tasks;
+export const projectPlanFromMessages = (
+	allMessages: ReadonlyArray<Message>,
+): Todo[] => {
+	const messages = allMessages.filter(
+		(m) =>
+			!("parentItemId" in m.content) || m.content.parentItemId === undefined,
+	);
+	const latestSnapshot = messages.findLastIndex(
+		(m) => m.content._tag === "tool_use" && m.content.tool === "TodoWrite",
+	);
+	const incrementalMessages = messages.slice(latestSnapshot + 1);
+	if (
+		incrementalMessages.some(
+			(m) =>
+				m.content._tag === "tool_use" &&
+				(m.content.tool === "TaskCreate" || m.content.tool === "TaskUpdate"),
+		)
+	) {
+		return tasksFromMessages(incrementalMessages);
+	}
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const content = messages[i]?.content;
 		if (content === undefined) continue;
 		if (content._tag === "tool_use" && content.tool === "TodoWrite") {
-			const parsed = parseTodosFromInput(content.input);
-			if (parsed.length > 0) return parsed;
+			return parseTodosFromInput(content.input);
 		} else if (content._tag === "tool_result") {
 			const parsed = parseTodosFromOutput(content.output);
 			if (parsed.length > 0) return parsed;
@@ -206,10 +237,10 @@ const projectPlanFromMessages = (messages: ReadonlyArray<Message>): Todo[] => {
 /**
  * "Project Plan" panel docked above the composer. Surfaces the agent's live
  * plan — reconstructed from the newer `TaskCreate`/`TaskUpdate` tools, falling
- * back to a legacy `TodoWrite` snapshot — as a
+ * back to a `TodoWrite` snapshot (including native Codex plans) — as a
  * glanceable, collapsible progress view: header with an `X of Y Done` count and
  * a spinner while the turn runs, expanding to a timeline of items with per-item
- * status icons. Renders nothing until a session has produced a TodoWrite list,
+ * status icons. Renders nothing until a session has produced a task list,
  * and persists after the turn ends.
  */
 export function ProjectPlanTray({
@@ -266,13 +297,25 @@ export function ProjectPlanTray({
 					: uiMessage("common:expand_plan")
 			}
 			actions={
-				<ChevronDown
-					className={cn(
-						"size-4 text-muted-foreground transition-transform",
-						expanded ? "rotate-180" : "",
-					)}
-					aria-hidden="true"
-				/>
+				<button
+					type="button"
+					className={trayPillActionClass}
+					onClick={() => setExpanded((v) => !v)}
+					aria-expanded={expanded}
+					aria-label={
+						expanded
+							? uiMessage("common:collapse_plan")
+							: uiMessage("common:expand_plan")
+					}
+				>
+					<ChevronDown
+						className={cn(
+							"size-4 text-muted-foreground transition-transform",
+							expanded ? "rotate-180" : "",
+						)}
+						aria-hidden="true"
+					/>
+				</button>
 			}
 			expanded={
 				expanded ? (

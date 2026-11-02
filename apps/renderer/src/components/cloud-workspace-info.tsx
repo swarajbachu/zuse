@@ -44,6 +44,7 @@ import { useMachineResources } from "../lib/machine-resources-client-bus.ts";
 import { openPathInTarget } from "../lib/open-path-in-target.ts";
 import { copyText } from "../lib/platform-capabilities.ts";
 
+import { CloudDeviceSelector } from "./cloud-device-selector.tsx";
 import { DitherCloudIcon } from "./dither-cloud-icon.tsx";
 import { OpenTargetIcon } from "./open-target-icon.tsx";
 import {
@@ -332,6 +333,10 @@ export function CloudWorkspaceMenu({
 								</span>
 							</div>
 						))}
+					</div>
+					<MenuSeparator />
+					<div className="px-2 py-2">
+						<CloudDeviceSelector workspaceId={workspaceId} />
 					</div>
 					{cloudSshSupported() ? (
 						<>

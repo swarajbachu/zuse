@@ -6,31 +6,24 @@ import {
 } from "@zuse/client-runtime/timeline";
 import type { Message } from "@zuse/contracts";
 import { useMessages } from "@zuse/i18n/react";
-import {
-	ChevronDown,
-	ChevronRight,
-	MessageSquare,
-	Wrench,
-} from "lucide-react-native";
-import { useMemo, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react-native";
+import { type ReactNode, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { InlineFileDiff } from "~/components/diff/inline-file-diff";
 import { FileIcon } from "~/components/ui/file-icon";
+import {
+	countToolCalls,
+	isToolActivity,
+	segmentTurnBody,
+} from "~/lib/tool-activity-tree";
 import { workspaceDisplayPath } from "~/lib/workspace-path";
 import { colors } from "~/theme";
 import { MessageRow, type MessageRowContext } from "./message-row";
+import { ToolActivityBranches, ToolActivityHeader } from "./tool-activity-tree";
 
 const isNarrative = (message: Message): boolean =>
 	message.content._tag === "assistant";
-
-const isActivity = (message: Message): boolean =>
-	message.content._tag === "thinking" ||
-	(message.content._tag === "tool_use" &&
-		message.content.tool !== "ExitPlanMode") ||
-	message.content._tag === "tool_result" ||
-	message.content._tag === "context_compaction" ||
-	message.content._tag === "subagent_summary";
 
 export function TurnRow({
 	turn,
@@ -52,20 +45,16 @@ export function TurnRow({
 	const activity = useMemo(() => summarizeTurnActivity(turn.body), [turn.body]);
 	const narrative = turn.body.filter(isNarrative);
 	const utility = turn.body.filter(
-		(message) => !isNarrative(message) && !isActivity(message),
+		(message) => !isNarrative(message) && !isToolActivity(message),
 	);
-	const activityMessages = turn.body.filter(isActivity);
+	const activityMessages = turn.body.filter(isToolActivity);
 	const assistantText = narrative
 		.flatMap((message) =>
 			message.content._tag === "assistant" ? [message.content.text] : [],
 		)
 		.join("\n\n");
 
-	const toolCount = turn.body.filter(
-		(message) =>
-			message.content._tag === "tool_use" &&
-			message.content.tool !== "ExitPlanMode",
-	).length;
+	const toolCount = countToolCalls(turn.body);
 	const messageCount = turn.body.filter(
 		(message) =>
 			message.content._tag === "thinking" ||
@@ -73,6 +62,7 @@ export function TurnRow({
 	).length;
 
 	const showSummary = !live && toolCount > 0 && assistantText.length > 0;
+	const lastMessage = turn.body.at(-1);
 
 	if (!showSummary) {
 		return (
@@ -85,14 +75,29 @@ export function TurnRow({
 						{uiMessage("chat:native_background_running")}
 					</Text>
 				) : null}
-				{turn.body.map((message, index) => (
-					<MessageRow
-						key={message.id}
-						message={message}
-						ctx={context}
-						isLast={live && index === turn.body.length - 1}
-					/>
-				))}
+				{segmentTurnBody(turn.body).map((segment) =>
+					segment.kind === "message" ? (
+						<MessageRow
+							key={segment.message.id}
+							message={segment.message}
+							ctx={context}
+							isLast={live && segment.message === lastMessage}
+						/>
+					) : (
+						<LiveToolActivity
+							key={segment.id}
+							messages={segment.messages}
+							toolCount={segment.toolCount}
+							renderRow={(message) => (
+								<MessageRow
+									message={message}
+									ctx={context}
+									isLast={live && message === lastMessage}
+								/>
+							)}
+						/>
+					),
+				)}
 			</View>
 		);
 	}
@@ -104,45 +109,19 @@ export function TurnRow({
 			)}
 
 			<View className="px-2 pt-1">
-				<Pressable
-					accessibilityRole="button"
-					accessibilityState={{ expanded: activityOpen }}
-					onPress={() => setActivityOpen((open) => !open)}
-					hitSlop={8}
-					className="flex-row items-center gap-3 py-1 active:opacity-60"
-				>
-					{activityOpen ? (
-						<ChevronDown size={16} color={colors.secondaryFg} />
-					) : (
-						<ChevronRight size={16} color={colors.secondaryFg} />
-					)}
-					<View className="flex-row items-center gap-1.5">
-						<Wrench size={13} color={colors.secondaryFg} />
-						<Text
-							className="font-sans text-[13px] text-muted-foreground"
-							style={{ fontVariant: ["tabular-nums"] }}
-						>
-							{toolCount} {toolCount === 1 ? "tool call" : "tool calls"}
-						</Text>
-					</View>
-					{messageCount > 0 ? (
-						<View className="flex-row items-center gap-1.5">
-							<MessageSquare size={13} color={colors.secondaryFg} />
-							<Text
-								className="font-sans text-[13px] text-muted-foreground"
-								style={{ fontVariant: ["tabular-nums"] }}
-							>
-								{messageCount}
-							</Text>
-						</View>
-					) : null}
-				</Pressable>
+				<ToolActivityHeader
+					open={activityOpen}
+					onToggle={() => setActivityOpen((open) => !open)}
+					toolCount={toolCount}
+					messageCount={messageCount}
+				/>
 				{activityOpen ? (
-					<View className="border-t border-border pt-1">
-						{activityMessages.map((message) => (
-							<MessageRow key={message.id} message={message} ctx={context} />
-						))}
-					</View>
+					<ToolActivityBranches
+						messages={activityMessages}
+						renderRow={(message) => (
+							<MessageRow message={message} ctx={context} />
+						)}
+					/>
 				) : null}
 			</View>
 
@@ -243,6 +222,31 @@ export function TurnRow({
 						</View>
 					) : null}
 				</View>
+			) : null}
+		</View>
+	);
+}
+
+/** Running work stays open so new tool calls grow the tree as they arrive. */
+function LiveToolActivity({
+	messages,
+	toolCount,
+	renderRow,
+}: {
+	messages: readonly Message[];
+	toolCount: number;
+	renderRow: (message: Message) => ReactNode;
+}) {
+	const [open, setOpen] = useState(true);
+	return (
+		<View className="px-2">
+			<ToolActivityHeader
+				open={open}
+				onToggle={() => setOpen((value) => !value)}
+				toolCount={toolCount}
+			/>
+			{open ? (
+				<ToolActivityBranches messages={messages} renderRow={renderRow} />
 			) : null}
 		</View>
 	);

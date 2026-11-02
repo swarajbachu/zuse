@@ -45,7 +45,9 @@ const server = await createServer({
 			load(id) {
 				if (id === "\0auth-client")
 					return `
-    export const subscribeControlPlaneSessionCache = () => () => {};
+    const listeners = new Set();
+    export const subscribeControlPlaneSessionCache = listener => { listeners.add(listener); return () => listeners.delete(listener); };
+    window.publishImageCache = () => { window.cachedImage = structuredClone(window.image); for (const listener of listeners) listener('cloud-workspace:image:boxd'); };
     export const runCloudControl = fn => fn(new Proxy({}, {get: (_, name) => async payload => {
      window.calls.push({name, payload});
      if(name === 'cloud.snapshot.import') {if(window.failImport) throw new Error('Import failed'); if(window.pauseImport) await new Promise(resolve => {window.resolveImport = resolve;}); window.image = {...window.image, snapshot: {...window.image.snapshot, agentAuthentication: payload.agentAuthentication}}; return window.image;}
@@ -72,13 +74,15 @@ const server = await createServer({
     window.calls = []; window.saved = 0;
     window.cold = new URLSearchParams(location.search).has('cold');
     window.image = {providerId:'boxd',state:'ready',snapshot:{snapshotId:'snap-original',runtimeUser:'developer',agentAuthentication:'native',gitAuthentication:'native',agents:[{providerId:'claude',state:'detected',account:'snapshot@example.test'},{providerId:'codex',state:'detected',account:'ChatGPT'}],repositories:[{path:'/home/developer/My Projects/repo'}]}};
+    window.completedImage = structuredClone(window.image);
+    if(new URLSearchParams(location.search).has('inspection')) delete window.image.snapshot.agents;
     window.cachedImage = structuredClone(window.image);
     window.stale = new URLSearchParams(location.search).has('stale');
     window.pauseImageRefresh = window.stale;
     if(window.stale) window.image.snapshot = {...window.image.snapshot, snapshotId:'snap-refreshed', runtimeUser:'current-user', gitAuthentication:'zuse', repositories:[{path:'/srv/current-repo'}]};
     window.connections = {customSnapshotsEnabled:true,connections:[{connectionId:'byok',providerId:'boxd',active:true}]};
     window.auth = {authorityState:'ready',providers:[]};
-    function App(){const [image,setImage] = React.useState(window.image);return React.createElement(CloudSnapshotAuthSetup,{image,onChanged:async()=>{window.saved++;setImage({...window.image});}})}
+    function App(){const [image,setImage] = React.useState(window.image);window.updateParentImage = () => setImage({...window.image});return React.createElement(CloudSnapshotAuthSetup,{image,onChanged:async()=>{window.saved++;setImage({...window.image});}})}
     createRoot(document.getElementById('root')).render(React.createElement(App));`;
 			},
 		},
@@ -96,6 +100,40 @@ try {
 	});
 	const errors = [];
 	page.on("pageerror", (e) => errors.push(e.message));
+	await page.goto(
+		`http://127.0.0.1:${server.httpServer.address().port}/__snapshot_auth?inspection`,
+	);
+	await page
+		.getByText("Not checked yet. Save the snapshot settings to check.")
+		.first()
+		.waitFor();
+	await page.screenshot({
+		path: resolve(root, "../../.context/snapshot-agent-refresh-before.png"),
+		fullPage: true,
+	});
+	await page.evaluate(() => {
+		window.image = window.completedImage;
+		window.publishImageCache();
+		window.updateParentImage();
+	});
+	await page
+		.getByText("Login detected", { exact: true })
+		.first()
+		.waitFor({ timeout: 2000 });
+	assert.equal(
+		await page.getByText("Login detected", { exact: true }).count(),
+		2,
+	);
+	assert.equal(
+		await page
+			.getByText("Not checked yet. Save the snapshot settings to check.")
+			.count(),
+		0,
+	);
+	await page.screenshot({
+		path: resolve(root, "../../.context/snapshot-agent-refresh-after.png"),
+		fullPage: true,
+	});
 	for (const query of ["", "?cold", "?stale"]) {
 		await page.goto(
 			`http://127.0.0.1:${server.httpServer.address().port}/__snapshot_auth${query}`,
@@ -113,6 +151,7 @@ try {
 		await source.waitFor();
 		if (query === "?stale") {
 			await page.waitForFunction(() => window.refreshStarted);
+			await page.evaluate(() => window.publishImageCache());
 			assert.equal(await source.getAttribute("data-disabled"), "");
 			assert.equal(await apply.count(), 0);
 			await page.evaluate(() => {
@@ -145,6 +184,8 @@ try {
 		await page
 			.getByRole("option", { name: "Zuse accounts", exact: true })
 			.click();
+		await page.evaluate(() => window.publishImageCache());
+		assert.equal(await source.textContent(), "Zuse accounts");
 		assert.equal(await page.getByRole("dialog").count(), 0);
 		assert.equal(await apply.isDisabled(), true);
 		await page
@@ -300,7 +341,7 @@ try {
 	}
 	assert.deepEqual(errors, []);
 	console.log(
-		"Snapshot-first authentication: inline switching, cancellation, provider login, apply/retry and narrow layout passed with cached, uncached and stale snapshots",
+		"Snapshot-first authentication: completed inspection refresh, inline switching, cancellation, provider login, apply/retry and narrow layout passed with cached, uncached and stale snapshots",
 	);
 } finally {
 	await browser?.close();

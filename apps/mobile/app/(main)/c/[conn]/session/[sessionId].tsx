@@ -74,12 +74,14 @@ import {
 import { cloudLifecycle } from "~/lib/cloud-lifecycle";
 import { isFreshChat, summarizeComposerActivity } from "~/lib/composer-state";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
+import { connectionNotice } from "~/lib/connection-notice";
 import {
 	normalizeConnParam,
 	optionsForConnection,
 } from "~/lib/connection-params";
 import { connectionSupports } from "~/lib/connection-records";
 import { captureMobileError } from "~/lib/crash-reporting";
+import { visibleConnectionLabel } from "~/lib/display-names";
 import { useReadableInset } from "~/lib/form-factor";
 import { scrollListToLatest } from "~/lib/legend-list-scroll";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
@@ -438,21 +440,13 @@ function ThreadScreen() {
 
 	const error = messagesError;
 	const transportOnline = connectionSnapshot?.status === "connected";
-	const connectionProblem =
-		connectionSnapshot?.status === "blockedAuth" ||
-		connectionSnapshot?.status === "error"
-			? connectionSnapshot.error
-				? connectionErrorMessage(connectionSnapshot.error)
-				: "Connection unavailable. Retry from the status above."
-			: null;
-	const connectionRecovering =
-		connectionSnapshot?.status === "connecting" ||
-		connectionSnapshot?.status === "reconnecting";
-	const connectionNotice =
+	const transportNotice =
 		options?.cloudWorkspaceId !== undefined
 			? null
-			: (connectionProblem ??
-				(connectionRecovering ? "Trying to reach your computer…" : null));
+			: connectionNotice(
+					connectionSnapshot,
+					visibleConnectionLabel(connectionRecord?.label),
+				);
 
 	useEffect(() => {
 		if (
@@ -1276,7 +1270,7 @@ function ThreadScreen() {
 								messages={messages}
 								error={error}
 							/>
-						) : error && connectionNotice === null ? (
+						) : error && transportNotice === null ? (
 							<InlineErrorNotice
 								message={connectionErrorMessage(error)}
 								compact
@@ -1446,15 +1440,12 @@ function ThreadScreen() {
 					pointerEvents="box-none"
 					style={{ marginHorizontal: readableInset }}
 				>
-					{executionHealth === "stalled" ||
-					executionHealth === "unavailable" ? (
+					{executionHealth === "unavailable" ? (
 						<Text
 							accessibilityRole="alert"
 							className="px-3 py-2 text-xs text-muted-foreground"
 						>
-							{executionHealth === "stalled"
-								? "No recent provider activity. You can wait or stop this turn."
-								: "Execution ownership could not be confirmed. Waiting for recovery."}
+							Execution ownership could not be confirmed. Waiting for recovery.
 						</Text>
 					) : null}
 					{options === null ? null : bottomState.blocking?.kind ===
@@ -1500,16 +1491,13 @@ function ThreadScreen() {
 							{options.cloudWorkspaceId === undefined ? null : (
 								<CloudLifecycleBar workspaceId={options.cloudWorkspaceId} />
 							)}
-							{connectionNotice === null ||
-							cloudLifecycleState !== null ? null : (
-								<View className="px-3 pt-2">
-									<ConnectionRecoveryBanner
-										message={connectionNotice}
-										onRetry={() => retryConnection(connKey, options)}
-										onPairAgain={() => router.push("/connect/scan")}
-										recovering={connectionRecovering}
-									/>
-								</View>
+							{cloudLifecycleState !== null ? null : (
+								<ConnectionRecoveryBanner
+									notice={transportNotice}
+									onRetry={() => retryConnection(connKey, options)}
+									onPairAgain={() => router.push("/connect/scan")}
+									className="mx-3 mt-2"
+								/>
 							)}
 							<ChatManagementBars
 								runningThreads={runningThreadCount}

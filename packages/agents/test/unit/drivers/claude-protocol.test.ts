@@ -1,13 +1,18 @@
+import { AgentItemId, type UserQuestionAnswer } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
-
 import {
+	awaitClaudeUserQuestion,
 	CLAUDE_READ_ONLY_DISALLOWED_TOOLS,
+	claudeNativeQuestionAnswers,
+	claudeNativeUserQuestions,
 	claudeReadOnlyToolAllowed,
 	claudeToolPermissionPolicy,
 	makeClaudeUserMessage,
 	runtimeModeToSdkPermissionMode,
 	translateClaudeSdkMessages,
 } from "../../../src/drivers/claude.ts";
+import type { ProviderDriverEvent } from "../../../src/kernel/driver.ts";
+import { makeBoundedQuestionCallbackRegistry } from "../../../src/kernel/user-question-answer.ts";
 
 describe("Claude streaming input protocol", () => {
 	it("does not expose an application session id as a provider conversation id", () => {
@@ -392,5 +397,207 @@ describe("Claude read-only sessions", () => {
 		expect(
 			claudeReadOnlyToolAllowed("Read", { file_path: ".env" }, sessionTools),
 		).toBe(false);
+	});
+});
+
+describe("Claude native AskUserQuestion", () => {
+	const nativeInput = {
+		questions: [
+			{
+				question: "Which signups should be charged upfront?",
+				header: "Billing",
+				options: [
+					{ label: "Razorpay only", description: "Recommended" },
+					{ label: "All stores", description: "Shopify too" },
+				],
+				multiSelect: false,
+			},
+			{
+				question: "Which regions?",
+				header: "Regions",
+				options: [
+					{ label: "India", description: "" },
+					{ label: "US", description: "" },
+				],
+				multiSelect: true,
+			},
+		],
+	};
+
+	it("reduces native input to the question card", () => {
+		expect(claudeNativeUserQuestions(nativeInput)).toEqual([
+			{
+				question: "Which signups should be charged upfront?",
+				options: ["Razorpay only", "All stores"],
+			},
+			{
+				question: "Which regions?",
+				options: ["India", "US"],
+				multiSelect: true,
+			},
+		]);
+	});
+
+	it("rejects input without usable questions", () => {
+		expect(claudeNativeUserQuestions({})).toBeNull();
+		expect(claudeNativeUserQuestions({ questions: [] })).toBeNull();
+		expect(
+			claudeNativeUserQuestions({
+				questions: [{ question: " ", options: [] }],
+			}),
+		).toBeNull();
+	});
+
+	it("keys answers by question text with picks, free text and notes", () => {
+		const questions = claudeNativeUserQuestions(nativeInput) ?? [];
+
+		expect(
+			claudeNativeQuestionAnswers(questions, [
+				{ questionIndex: 0, selected: [], other: " Only new stores " },
+				{ questionIndex: 1, selected: [0, 1], other: "EU later" },
+			]),
+		).toEqual({
+			answers: {
+				"Which signups should be charged upfront?": "Only new stores",
+				"Which regions?": "India, US",
+			},
+			annotations: { "Which regions?": { notes: "EU later" } },
+		});
+		expect(
+			claudeNativeQuestionAnswers(questions, [
+				{ questionIndex: 0, selected: [0] },
+				{ questionIndex: 1, selected: [1] },
+			]),
+		).toEqual({
+			answers: {
+				"Which signups should be charged upfront?": "Razorpay only",
+				"Which regions?": "US",
+			},
+		});
+	});
+
+	it("keeps the native tool call out of the transcript", () => {
+		const events = translateClaudeSdkMessages([
+			{
+				type: "assistant",
+				message: {
+					id: "message-1",
+					role: "assistant",
+					content: [
+						{
+							type: "tool_use",
+							id: "toolu_question",
+							name: "AskUserQuestion",
+							input: nativeInput,
+						},
+					],
+				},
+				parent_tool_use_id: null,
+			},
+			{
+				type: "user",
+				message: {
+					role: "user",
+					content: [
+						{
+							type: "tool_result",
+							tool_use_id: "toolu_question",
+							content: "answered",
+						},
+					],
+				},
+				parent_tool_use_id: null,
+			},
+		] as never);
+
+		expect(
+			events.filter(
+				(event) => event._tag === "ToolUse" || event._tag === "ToolResult",
+			),
+		).toEqual([]);
+	});
+});
+
+describe("Claude native question callback", () => {
+	const makeRegistry = () =>
+		makeBoundedQuestionCallbackRegistry<
+			(answers: ReadonlyArray<UserQuestionAnswer> | null) => void
+		>();
+	const setup = () => {
+		const pending = makeRegistry();
+		const events: ProviderDriverEvent[] = [];
+		const controller = new AbortController();
+		const itemId = AgentItemId.make("question-1");
+		const answer = awaitClaudeUserQuestion({
+			pending,
+			emit: (event) => events.push(event),
+			itemId,
+			questions: [{ question: "Continue?", options: ["Yes", "No"] }],
+			parentItemId: undefined,
+			signal: controller.signal,
+		});
+		return { pending, events, controller, itemId, answer };
+	};
+
+	it("shows the question and resolves with the user's answer", async () => {
+		const { pending, events, itemId, answer } = setup();
+
+		expect(events).toMatchObject([{ _tag: "UserQuestion", itemId }]);
+		pending.take(itemId)([{ questionIndex: 0, selected: [0] }]);
+
+		await expect(answer).resolves.toEqual([
+			{ questionIndex: 0, selected: [0] },
+		]);
+	});
+
+	it("resolves null when the user dismisses the question", async () => {
+		const { pending, itemId, answer } = setup();
+
+		pending.take(itemId)(null);
+
+		await expect(answer).resolves.toBeNull();
+	});
+
+	it("releases the card when the SDK aborts the tool call", async () => {
+		const { pending, events, controller, itemId, answer } = setup();
+
+		controller.abort();
+
+		await expect(answer).resolves.toBeNull();
+		expect(pending.get(itemId)).toBeUndefined();
+		expect(events.at(-1)).toEqual({
+			_tag: "QuestionCallbackReleased",
+			itemId,
+			reason: "cancelled",
+		});
+	});
+
+	it("ignores an abort after the answer was delivered", async () => {
+		const { pending, events, controller, itemId, answer } = setup();
+
+		pending.take(itemId)([{ questionIndex: 0, selected: [1] }]);
+		controller.abort();
+
+		await expect(answer).resolves.toEqual([
+			{ questionIndex: 0, selected: [1] },
+		]);
+		expect(events).toHaveLength(1);
+	});
+
+	it("never shows a question for an already aborted call", async () => {
+		const pending = makeRegistry();
+		const events: ProviderDriverEvent[] = [];
+
+		await expect(
+			awaitClaudeUserQuestion({
+				pending,
+				emit: (event) => events.push(event),
+				itemId: AgentItemId.make("question-2"),
+				questions: [{ question: "Continue?", options: ["Yes"] }],
+				parentItemId: undefined,
+				signal: AbortSignal.abort(),
+			}),
+		).resolves.toBeNull();
+		expect(events).toEqual([]);
 	});
 });

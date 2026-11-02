@@ -1,3 +1,11 @@
+:root {
+	--font-inter: "Inter Variable";
+	--font-geist: "Geist Variable";
+	--font-geist-mono: "Geist Mono Variable";
+	--font-dm-mono: "DM Mono";
+	--font-schibsted-grotesk: "Schibsted Grotesk Variable";
+}
+
 @font-face {
 	font-family: "Sagittaire Display";
 	src: url("/brand/sagittaire-display-regular.woff2") format("woff2");

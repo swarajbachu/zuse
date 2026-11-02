@@ -13,7 +13,7 @@ import { pairWithDesktop } from "~/lib/pairing";
 import { addConnection } from "~/store/connections";
 
 export default function PairDeepLinkScreen() {
-	const url = Linking.useURL();
+	const url = Linking.useLinkingURL();
 	const { pairing } = useLocalSearchParams<{ pairing?: string | string[] }>();
 	const pairingUrl = Array.isArray(pairing) ? pairing[0] : pairing;
 	const candidate = pairingUrl ?? url;

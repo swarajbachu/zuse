@@ -19,7 +19,13 @@ describe("iOS native menu compatibility", () => {
 	test("uses supported native label primitives for provider artwork", () => {
 		const modelSheet = source("model-sheet.ios.tsx");
 		expect(modelSheet).toContain("<Label");
-		expect(modelSheet).toContain("assetName={PROVIDER_NATIVE_ASSET_NAMES");
+		expect(modelSheet).toMatch(
+			/assetName:\s*PROVIDER_NATIVE_ASSET_NAMES\[provider\.value\]/,
+		);
+		expect(modelSheet).toMatch(
+			/assetName:\s*PROVIDER_NATIVE_ASSET_NAMES\[value\.providerId\]/,
+		);
+		expect(modelSheet).toContain('systemName: sf("sparkles")');
 		expect(modelSheet).toContain("seedColor={colors.fg}");
 		expect(modelSheet).toContain("padding({ trailing: 6 })");
 	});

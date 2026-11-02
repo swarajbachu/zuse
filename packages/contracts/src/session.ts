@@ -3,6 +3,7 @@ import { Rpc } from "effect/unstable/rpc";
 import {
 	AgentDefinition,
 	AgentErrorKind,
+	BackgroundTaskOutcome,
 	ContextUsagePrecision,
 	PermissionMode,
 	PlanApprovalOutcome,
@@ -261,6 +262,7 @@ const ToolResultContent = Schema.TaggedStruct("tool_result", {
 	output: Schema.Unknown,
 	isError: Schema.Boolean,
 	parentItemId: Schema.optional(AgentItemId),
+	backgroundOutcome: Schema.optional(BackgroundTaskOutcome),
 });
 
 const ErrorContent = Schema.TaggedStruct("error", {

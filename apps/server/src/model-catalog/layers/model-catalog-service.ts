@@ -7,6 +7,7 @@ import { listClaudeModels } from "@zuse/agents/drivers/claude-models";
 import { withCodexControlClient } from "@zuse/agents/drivers/codex-control-client";
 import { listCursorModels } from "@zuse/agents/drivers/cursor-models";
 import { loadKiroInventory } from "@zuse/agents/drivers/kiro-inventory";
+import { loadMuseInventory } from "@zuse/agents/drivers/muse-client";
 import { loadOpencodeInventory } from "@zuse/agents/drivers/opencode";
 import { loadOpencode2Inventory } from "@zuse/agents/drivers/opencode2";
 import { loadPiInventory } from "@zuse/agents/drivers/pi-inventory";
@@ -60,6 +61,7 @@ const LIVE_CONCURRENCY = 2;
 const LIVE_PROVIDERS: ReadonlyArray<ProviderId> = [
 	"zuse",
 	"pi",
+	"muse",
 	"codex",
 	"claude",
 	"cursor",
@@ -341,6 +343,22 @@ export const ModelCatalogServiceLive = Layer.effect(
 				Effect.catchCause((cause) => Effect.succeed(listingError(true, cause))),
 			);
 
+		const listMuse = (): Effect.Effect<LiveListingDocument> =>
+			Effect.gen(function* () {
+				const binary = yield* cliPath("muse");
+				if (!binary) return unsupportedListing;
+				const models = yield* loadMuseInventory(binary, userData);
+				return {
+					status: "ok" as const,
+					authoritative: true,
+					fetchedAt: Date.now(),
+					error: null,
+					models,
+				};
+			}).pipe(
+				Effect.catchCause((cause) => Effect.succeed(listingError(true, cause))),
+			);
+
 		const listPi = (): Effect.Effect<LiveListingDocument> =>
 			Effect.gen(function* () {
 				const binary = yield* cliPath("pi");
@@ -483,6 +501,8 @@ export const ModelCatalogServiceLive = Layer.effect(
 					return listClaude();
 				case "cursor":
 					return listCursor();
+				case "muse":
+					return listMuse();
 				case "pi":
 					return listPi();
 				case "kiro":
@@ -505,6 +525,8 @@ export const ModelCatalogServiceLive = Layer.effect(
 							: "unavailable";
 					case "codex":
 						return cliFingerprint(yield* cliPath("codex"));
+					case "muse":
+						return cliFingerprint(yield* cliPath("muse"));
 					case "pi":
 						return `${cliFingerprint(yield* cliPath("pi"))}:${process.env.PI_CODING_AGENT_DIR ?? process.env.HOME ?? ""}`;
 					case "kiro":

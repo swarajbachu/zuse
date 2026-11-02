@@ -1,6 +1,9 @@
 {
-  "platforms": ["apple"],
-  "apple": {
-    "modules": ["ZuseLocalConnectivityModule"]
-  }
+	"platforms": ["apple", "android"],
+	"apple": {
+		"modules": ["ZuseLocalConnectivityModule"]
+	},
+	"android": {
+		"modules": ["com.zuse.localconnectivity.ZuseLocalConnectivityModule"]
+	}
 }

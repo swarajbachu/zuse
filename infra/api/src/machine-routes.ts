@@ -77,17 +77,26 @@ export type MachineRouteContext =
 	| ManagedTunnelProvider
 	| CloudBillingStore;
 
+const retainsBillingOwnership = (
+	entitlement: EntitlementPersistenceRecord,
+	nowMs: number,
+) =>
+	entitlement.status !== "ended" ||
+	(entitlement.paidThroughMs !== undefined &&
+		entitlement.paidThroughMs > nowMs);
+
 const billingProviderForAccount = (accountId: string) =>
 	Effect.gen(function* () {
 		const store = yield* MachineStore;
 		const entitlements = yield* store.listEntitlements(accountId);
+		const nowMs = yield* Clock.currentTimeMillis;
 		const providerIds = [
 			...new Set(
 				entitlements
 					.filter(
 						(entitlement) =>
 							entitlement.providerSubscriptionId !== undefined &&
-							entitlement.status !== "ended",
+							retainsBillingOwnership(entitlement, nowMs),
 					)
 					.map((entitlement) => entitlement.provider),
 			),
@@ -1148,6 +1157,9 @@ export const routeMachineRequest = (
 				.prepaidCheckout({
 					accountId: workspace.ownerId,
 					amountCents: body.amountCents,
+					...(body.activatePro === undefined
+						? {}
+						: { activatePro: body.activatePro }),
 					successUrl: new URL(ApiPaths.billingPrepaidComplete, api.apiIssuer)
 						.href,
 				})
@@ -1194,9 +1206,9 @@ export const routeMachineRequest = (
 				entitlements.some(
 					(entitlement) =>
 						entitlement.offerId === body.offerId &&
-						(entitlement.status === "pending" ||
-							entitlement.status === "active" ||
-							entitlement.status === "grace") &&
+						(isCloudWorkspace
+							? retainsBillingOwnership(entitlement, nowMs)
+							: entitlement.status !== "ended") &&
 						(entitlement.paidThroughMs === undefined ||
 							entitlement.paidThroughMs > nowMs),
 				) ||

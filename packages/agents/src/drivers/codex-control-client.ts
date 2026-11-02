@@ -8,36 +8,53 @@ interface CodexControlClientKey {
 	readonly accountHome?: string;
 }
 
-const IDLE_TIMEOUT_MS = 5_000;
+// Every app-server startup performs an online catalog refresh. Keep metadata
+// callers on one process across their normal polling intervals.
+// Bound the idle grace so unused control workers still shut down.
+const IDLE_TIMEOUT_MS = 2 * 60_000;
 const STARTUP_TIMEOUT_MS = 10_000;
 const keys = new Map<string, CodexControlClientKey>();
-const pool = createSharedResourcePool<string, CodexAppServerClient>({
-	create: (key) => {
-		const config = keys.get(key);
-		if (config === undefined) {
-			return Promise.reject(
-				new Error(`Unknown Codex control client key: ${key}`),
-			);
-		}
-		return CodexAppServerClient.start({
-			codexPath: config.codexPath,
-			...(config.accountHome
-				? {
-						env: isolatedProviderAccountEnv(
-							"codex",
-							config.accountHome,
-							process.env,
-						),
-						externalAuthProvider: null,
-					}
-				: {}),
-			startupTimeoutMs: STARTUP_TIMEOUT_MS,
-			onNotification: () => undefined,
-			onServerRequest: (_request, respond) => respond({}),
-		});
-	},
-	idleTimeoutMs: IDLE_TIMEOUT_MS,
-});
+const createControlPool = () => {
+	const clients = createSharedResourcePool<string, CodexAppServerClient>({
+		create: (key) => {
+			const config = keys.get(key);
+			if (config === undefined) {
+				return Promise.reject(
+					new Error(`Unknown Codex control client key: ${key}`),
+				);
+			}
+			return CodexAppServerClient.start({
+				codexPath: config.codexPath,
+				...(config.accountHome
+					? {
+							env: isolatedProviderAccountEnv(
+								"codex",
+								config.accountHome,
+								process.env,
+							),
+							externalAuthProvider: null,
+						}
+					: {}),
+				startupTimeoutMs: STARTUP_TIMEOUT_MS,
+				onUnexpectedTermination: () => {
+					void clients.remove(key);
+				},
+				onNotification: () => undefined,
+				onServerRequest: (_request, respond) => respond({}),
+			});
+		},
+		idleTimeoutMs: IDLE_TIMEOUT_MS,
+	});
+	return clients;
+};
+let pool = createControlPool();
+
+/** Release control workers with the owning runtime instead of waiting for idle expiry. */
+export const closeCodexControlClients = async (): Promise<void> => {
+	const previous = pool;
+	pool = createControlPool();
+	await previous.dispose();
+};
 
 const controlClientKey = (
 	codexPath: string | null,

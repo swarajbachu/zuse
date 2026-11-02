@@ -1,0 +1,5 @@
+appId: com.zuse.sh
+---
+- launchApp:
+    clearState: true
+- assertVisible: "Where will your agents run?"

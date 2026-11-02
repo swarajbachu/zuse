@@ -12,7 +12,7 @@ import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banne
 import { SessionRow } from "~/components/session-row";
 import { EmptyState } from "~/components/ui/empty-state";
 import { ListSection } from "~/components/ui/list";
-import { connectionErrorMessage } from "~/lib/connection-error-message";
+import { connectionProblemNotice } from "~/lib/connection-notice";
 import {
 	normalizeConnParam,
 	optionsForConnection,
@@ -170,15 +170,17 @@ export default function SessionsScreen() {
 						connect the computer again.
 					</Text>
 				) : null}
-				{connectionFailure !== null &&
-				connectionFailure !== undefined &&
-				options !== null ? (
+				{options === null ? null : (
 					<ConnectionRecoveryBanner
-						message={connectionErrorMessage(connectionFailure)}
+						notice={
+							connectionFailure === null || connectionFailure === undefined
+								? null
+								: connectionProblemNotice(connectionFailure)
+						}
 						onRetry={() => retryConnection(connKey, options)}
 						onPairAgain={() => router.push("/connect/scan")}
 					/>
-				) : null}
+				)}
 
 				{rows.length === 0 ? (
 					<View className="pt-24">

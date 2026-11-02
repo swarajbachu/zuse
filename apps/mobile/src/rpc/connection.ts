@@ -1,10 +1,14 @@
-import { makeRpcClientSession } from "@zuse/client-runtime/connection";
+import {
+	isRpcCredentialExpired,
+	makeRpcClientSession,
+} from "@zuse/client-runtime/connection";
 import {
 	grantRouteEndpoints,
 	raceConnectionRoutes,
 } from "@zuse/client-runtime/connection-routes";
 import type { EnvironmentWakeIntent } from "@zuse/client-runtime/environment-runtime";
 import {
+	type ConnectionHealth,
 	type ConnectionSnapshot,
 	type ConnectionSupervisorEntry,
 	createConnectionSupervisor,
@@ -13,6 +17,8 @@ import { MemoizeRpcs, WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 import type { RpcClient, RpcGroup } from "effect/unstable/rpc";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
+import { captureMobileAnalytics } from "../lib/analytics";
+import { createConnectionTelemetry } from "../lib/connection-telemetry";
 import { verifyPinnedLocalServer } from "../lib/nearby-pairing";
 import { connectEnvironment } from "./api-client";
 import {
@@ -75,6 +81,7 @@ const makeClientSession = async (
 	const protocolLayer = wsClientProtocolLayer(options, {
 		openTimeout: "25 seconds",
 		makeWebSocket: makeMobileWebSocket,
+		supervised: true,
 		protocols: options.cloudProtocols,
 	}).pipe(Layer.orDie);
 	const session = await makeRpcClientSession(
@@ -161,6 +168,8 @@ const prepareOptions = async (
 	};
 };
 
+const recordConnectionTelemetry = createConnectionTelemetry();
+
 const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 	{
 		keyOf: runtimeKey,
@@ -175,7 +184,9 @@ const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 				descriptor.capabilities,
 			);
 		},
-		isOnline: () => currentOnline,
+		// Sockets are probed on resume instead of closed in the background, so
+		// mobile has no platform offline edge; failures drive recovery.
+		isOnline: () => true,
 		shouldReconnectOnOptionsChange: (previous, next) =>
 			previous.host !== next.host ||
 			previous.port !== next.port ||
@@ -189,15 +200,20 @@ const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 		},
 		onDiagnostic: ({ event, key, details }) => {
 			logConnectionDiagnostic(`supervisor.${event}`, { key, ...details });
+			const telemetry = recordConnectionTelemetry(
+				`supervisor.${event}`,
+				key,
+				details,
+				supervisor.optionsList().find((options) => runtimeKey(options) === key),
+			);
+			if (telemetry !== null)
+				captureMobileAnalytics(telemetry.name, telemetry.properties);
 		},
+		confirmFailuresWithProbe: true,
 		isRetryableCommandError: isRetryableClientError,
 		isIgnorableFailure: isIntentionalConnectionInterruption,
 	},
 );
-
-let currentOnline = true;
-
-export const isConnectionOnline = (): boolean => currentOnline;
 
 const connectionEntry = (
 	options: WsProtocolOptions,
@@ -241,7 +257,10 @@ export const reportConnectionFailure = (
 		key: runtimeKey(options),
 		reason: cause instanceof Error ? cause.message : String(cause),
 	});
-	connectionEntry(options).reportFailure(cause);
+	// Expiry is definitive; replace at once instead of probing a socket whose
+	// requests will keep failing with the same stale grant.
+	if (isRpcCredentialExpired(cause)) connectionEntry(options).replaceSession();
+	else connectionEntry(options).reportFailure(cause);
 };
 
 export const retryConnectionNow = (options: WsProtocolOptions): void => {
@@ -263,11 +282,31 @@ export const subscribeConnection = (
 	listener: (snapshot: ConnectionSnapshot) => void,
 ): (() => void) => connectionEntry(options).subscribe(listener);
 
-export const setConnectionOnline = (online: boolean): void => {
-	logConnectionDiagnostic("runtime.online_set", { online });
-	currentOnline = online;
-	supervisor.setOnline(online);
-};
+/**
+ * Probe every supervised connection after the app returns to the foreground.
+ * Healthy sockets are kept; silent dead ones are replaced without a backoff.
+ */
+export const checkConnectionsHealth = (
+	timeoutMs: number,
+): Promise<
+	readonly {
+		readonly options: WsProtocolOptions;
+		readonly health: ConnectionHealth;
+	}[]
+> => supervisor.checkHealth(timeoutMs);
+
+/**
+ * Replace supervised sessions after a long background: suspended apps often
+ * lose sockets without a close event, so probing would only wait out a dead
+ * socket. Returns the options of the replaced connections.
+ */
+export const replaceConnectionSessions = (
+	filter: (options: WsProtocolOptions) => boolean,
+): readonly WsProtocolOptions[] => supervisor.replaceSessions(filter);
+
+/** Options of every supervised connection. */
+export const supervisedConnectionOptions = (): readonly WsProtocolOptions[] =>
+	supervisor.optionsList();
 
 export const getConnectionSnapshot = (
 	options: WsProtocolOptions,

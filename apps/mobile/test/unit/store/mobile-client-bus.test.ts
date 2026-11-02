@@ -72,11 +72,9 @@ vi.mock("../../../src/rpc/github", () => ({
 import { cancelQuestion } from "../../../src/rpc/actions";
 import {
 	MobileCommandOutbox,
-	mobileClientBus,
 	mobileTerminalCommandRetry,
 	rehydrateMobileCommandPayload,
 	resetMobileClientBus,
-	setMobileClientBusOnline,
 } from "../../../src/store/mobile-client-bus";
 
 const command = {
@@ -259,15 +257,6 @@ describe("mobile ClientBus command persistence", () => {
 		expect(mobileTerminalCommandRetry("pty.restart", true)).toBe("safe");
 		expect(mobileTerminalCommandRetry("pty.restart")).toBe("never");
 		expect(mobileTerminalCommandRetry("pty.write")).toBe("never");
-	});
-
-	test("forwards native offline and online edges to the shared runtime", () => {
-		const setOnline = vi.spyOn(mobileClientBus(), "setOnline");
-
-		setMobileClientBusOnline(false);
-		setMobileClientBusOnline(true);
-
-		expect(setOnline.mock.calls).toEqual([[false], [true]]);
 	});
 
 	test("cancels a question through the durable safe command without encoding an empty answer", async () => {

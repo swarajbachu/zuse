@@ -17,6 +17,7 @@ import {
 import { useUniwind } from "uniwind";
 
 import { FileIcon } from "~/components/ui/file-icon";
+import { cn } from "~/lib/cn";
 import type { PreparedReviewPatch } from "~/lib/review-diff-model";
 import {
 	DARK_SYNTAX,
@@ -205,7 +206,7 @@ export function ReviewDiffList({
 	).current;
 	const onScroll = useCallback(
 		(event: NativeSyntheticEvent<NativeScrollEvent>) => {
-			const shouldPin = event.nativeEvent.contentOffset.y > 18;
+			const shouldPin = event.nativeEvent.contentOffset.y > 0;
 			if (shouldPin === pinnedHeaderRef.current) return;
 			pinnedHeaderRef.current = shouldPin;
 			setShowPinnedHeader(shouldPin);
@@ -242,14 +243,12 @@ export function ReviewDiffList({
 						/>
 					)
 				}
-				contentContainerStyle={{ paddingTop: 18, paddingBottom: 40 }}
+				contentContainerStyle={{ paddingBottom: 40 }}
 				renderSectionHeader={renderSectionHeader}
 				renderSectionFooter={({ section }) =>
-					section.expanded ? (
-						<View className="h-7 bg-background" />
-					) : (
-						<View className="h-3" />
-					)
+					section.expanded && section.data.length > 0 ? (
+						<View className="h-4" />
+					) : null
 				}
 				renderItem={renderItem}
 				ListEmptyComponent={
@@ -290,78 +289,56 @@ const DiffFileHeader = memo(function DiffFileHeader({
 	const name = basename(file.path);
 	const directory = dirname(file.path);
 	return (
-		<View
-			className={expanded || pinned ? "bg-background" : "bg-transparent px-4"}
+		<Pressable
+			accessibilityRole="button"
+			accessibilityLabel={`${expanded ? "Collapse" : "Expand"} ${file.path}`}
+			accessibilityState={{ expanded }}
+			onPress={onPress}
+			className={cn(
+				"h-12 flex-row items-center gap-3 bg-background px-4",
+				pinned && "bg-card",
+			)}
+			style={styles.fileHeader}
 		>
-			<Pressable
-				accessibilityRole="button"
-				accessibilityLabel={`${expanded ? "Collapse" : "Expand"} ${file.path}`}
-				accessibilityState={{ expanded }}
-				onPress={onPress}
-				className={
-					pinned
-						? "h-[52px] flex-row items-center gap-2.5 border-y border-border bg-card px-4"
-						: expanded
-							? "h-[64px] flex-row items-center gap-3 border-y border-border bg-card px-4 py-2.5"
-							: "h-[70px] flex-row items-center gap-3 rounded-2xl bg-card px-4 py-3"
-				}
-				style={
-					expanded || pinned
-						? {
-								borderTopWidth: StyleSheet.hairlineWidth,
-								borderBottomWidth: StyleSheet.hairlineWidth,
-							}
-						: { borderCurve: "continuous" }
-				}
-			>
-				{onToggleSelection === undefined ? null : (
-					<Pressable
-						accessibilityRole="checkbox"
-						accessibilityState={{ checked: selected === true }}
-						accessibilityLabel={`Select ${file.path}`}
-						onPress={(event) => {
-							event.stopPropagation();
-							onToggleSelection(file.path);
-						}}
-						className="h-11 w-11 items-center justify-center"
-					>
-						<View
-							className={`h-5 w-5 items-center justify-center rounded-md border ${
-								selected ? "border-accent bg-accent" : "border-border"
-							}`}
-						>
-							{selected ? (
-								<Check size={14} color={colors.primaryForeground} />
-							) : null}
-						</View>
-					</Pressable>
-				)}
-				<FileIcon path={file.path} size={pinned ? 18 : 21} />
-				<View className="min-w-0 flex-1">
-					<Text
-						className="font-sans-medium text-[15px] text-foreground"
-						numberOfLines={1}
-					>
-						{name}
-					</Text>
-					{!pinned && directory.length > 0 ? (
-						<Text
-							className="mt-1 font-sans text-[12px] text-muted-foreground"
-							numberOfLines={1}
-							ellipsizeMode="middle"
-						>
-							{directory}
-						</Text>
+			{onToggleSelection === undefined ? null : (
+				<Pressable
+					accessibilityRole="checkbox"
+					accessibilityState={{ checked: selected === true }}
+					accessibilityLabel={`Select ${file.path}`}
+					hitSlop={12}
+					onPress={(event) => {
+						event.stopPropagation();
+						onToggleSelection(file.path);
+					}}
+					className={cn(
+						"h-[18px] w-[18px] items-center justify-center rounded-[5px]",
+						selected ? "bg-primary" : "border-[1.5px] border-foreground/25",
+					)}
+				>
+					{selected ? (
+						<Check size={12} strokeWidth={3} color={colors.primaryForeground} />
 					) : null}
-				</View>
-				<DiffStats additions={file.additions} deletions={file.deletions} />
-				{expanded ? (
-					<ChevronDown size={16} color={colors.secondaryFg} />
-				) : (
-					<ChevronRight size={16} color={colors.secondaryFg} />
-				)}
-			</Pressable>
-		</View>
+				</Pressable>
+			)}
+			<FileIcon path={file.path} size={16} />
+			<Text className="min-w-0 flex-1" numberOfLines={1}>
+				<Text className="font-sans-medium text-[14px] text-foreground">
+					{name}
+				</Text>
+				{directory.length > 0 ? (
+					<Text className="font-sans text-[13px] text-muted-foreground">
+						{"  "}
+						{directory}
+					</Text>
+				) : null}
+			</Text>
+			<DiffStats additions={file.additions} deletions={file.deletions} />
+			{expanded ? (
+				<ChevronDown size={15} color={colors.tertiaryFg} />
+			) : (
+				<ChevronRight size={15} color={colors.tertiaryFg} />
+			)}
+		</Pressable>
 	);
 });
 
@@ -374,14 +351,14 @@ const DiffDocumentRow = memo(function DiffDocumentRow({
 }) {
 	if (item.kind === "loading") {
 		return (
-			<View className="h-7 justify-center bg-card px-4">
-				<View className="h-3 rounded bg-muted" style={{ width: "72%" }} />
+			<View className="h-6 justify-center px-4">
+				<View className="h-2.5 rounded bg-muted" style={{ width: "72%" }} />
 			</View>
 		);
 	}
 	if (item.kind === "error") {
 		return (
-			<View className="bg-card px-4 py-5">
+			<View className="px-4 py-4">
 				<Text className="font-sans text-[13px] leading-5 text-danger">
 					{item.message}
 				</Text>
@@ -390,8 +367,8 @@ const DiffDocumentRow = memo(function DiffDocumentRow({
 	}
 	if (item.kind === "empty" || item.kind === "truncated") {
 		return (
-			<View className="bg-card px-4 py-4">
-				<Text className="font-sans text-[12px] text-muted-foreground">
+			<View className="px-4 py-3">
+				<Text className="font-sans text-[13px] text-muted-foreground">
 					{item.kind === "truncated"
 						? "Large diff truncated for mobile"
 						: item.message}
@@ -411,11 +388,11 @@ export const DiffCodeRow = memo(function DiffCodeRow({
 }) {
 	if (line.kind === "hunk") {
 		return (
-			<View className="min-h-9 justify-center border-y border-border bg-card px-4 py-2">
+			<View className="h-7 justify-center bg-foreground/[0.04] px-4">
 				<Text
 					selectable
-					className="font-mono text-[11px]"
-					style={{ color: colors.diffHunk }}
+					numberOfLines={1}
+					className="font-mono text-[11px] text-muted-foreground"
 				>
 					{line.text}
 				</Text>
@@ -426,45 +403,40 @@ export const DiffCodeRow = memo(function DiffCodeRow({
 	const removed = line.kind === "removed";
 	return (
 		<View
-			className="min-h-6 flex-row items-stretch bg-background"
+			className="min-h-5 flex-row items-stretch"
 			style={{
 				backgroundColor: added
 					? colors.diffAddedBg
 					: removed
 						? colors.diffRemovedBg
 						: "transparent",
-				borderLeftColor: added
-					? colors.diffAdded
-					: removed
-						? colors.diffRemoved
-						: "transparent",
-				borderLeftWidth: added || removed ? 2 : 0,
 			}}
 		>
-			<View className="w-[68px] flex-row justify-end gap-2 border-r border-border px-2 py-0.5">
-				<Text className="w-5 text-right font-mono text-[10px] leading-5 text-muted-foreground">
+			<View className="w-[64px] flex-row justify-end gap-1 pr-1 pl-2">
+				<Text className="w-6 text-right font-mono text-[10px] leading-5 text-foreground-faint">
 					{line.oldLine ?? ""}
 				</Text>
-				<Text className="w-5 text-right font-mono text-[10px] leading-5 text-muted-foreground">
+				<Text className="w-6 text-right font-mono text-[10px] leading-5 text-foreground-faint">
 					{line.newLine ?? ""}
 				</Text>
 			</View>
 			<Text
+				className="w-4 text-center font-mono text-[11px] leading-5"
+				style={{
+					color: added
+						? colors.diffAdded
+						: removed
+							? colors.diffRemoved
+							: "transparent",
+				}}
+			>
+				{added ? "+" : removed ? "−" : " "}
+			</Text>
+			<Text
 				selectable
-				className="min-w-0 flex-1 px-2 py-0.5 font-mono text-[11px] leading-5"
+				className="min-w-0 flex-1 pr-3 font-mono text-[11px] leading-5"
 				style={{ color: palette.plain }}
 			>
-				<Text
-					style={{
-						color: added
-							? colors.diffAdded
-							: removed
-								? colors.diffRemoved
-								: colors.tertiaryFg,
-					}}
-				>
-					{added ? "+" : removed ? "−" : " "}
-				</Text>
 				<SyntaxLine text={line.text} palette={palette} />
 			</Text>
 		</View>
@@ -493,10 +465,10 @@ function DiffStats({
 	deletions: number;
 }) {
 	return (
-		<View className="flex-row gap-2">
+		<View className="flex-row gap-1.5">
 			<Text
 				className="font-mono text-[12px]"
-				style={{ color: colors.accent, fontVariant: ["tabular-nums"] }}
+				style={{ color: colors.diffAdded, fontVariant: ["tabular-nums"] }}
 			>
 				+{additions}
 			</Text>
@@ -519,9 +491,16 @@ function ReviewEmptyState({
 }) {
 	if (loading) {
 		return (
-			<View className="gap-4 px-4 py-3">
+			<View className="px-4">
 				{[0, 1, 2, 3].map((index) => (
-					<View key={index} className="h-[70px] rounded-2xl bg-card" />
+					<View
+						key={index}
+						className="h-12 flex-row items-center gap-3"
+						style={styles.fileHeader}
+					>
+						<View className="h-4 w-4 rounded bg-muted" />
+						<View className="h-3 rounded bg-muted" style={{ width: "42%" }} />
+					</View>
 				))}
 			</View>
 		);
@@ -542,5 +521,9 @@ const styles = StyleSheet.create({
 	pinnedHeader: {
 		zIndex: 10,
 		elevation: 3,
+	},
+	fileHeader: {
+		borderBottomWidth: StyleSheet.hairlineWidth,
+		borderBottomColor: colors.border,
 	},
 });

@@ -45,3 +45,24 @@ describe("coalesced writer", () => {
 		expect(pending).toHaveLength(0);
 	});
 });
+
+it("flushes live draft annotations on teardown even after the text write already completed", () => {
+	let annotations = ["original"];
+	const saved: { text: string; annotations: string[] }[] = [];
+	const tasks: (() => void)[] = [];
+	const writer = makeCoalescedWriter<string>(
+		(text) => saved.push({ text, annotations: [...annotations] }),
+		{ schedule: (run) => tasks.push(run), cancel: () => undefined },
+	);
+	writer.schedule("unchanged text");
+	tasks[0]?.();
+	annotations = ["edited context"];
+	writer.flush("unchanged text");
+	expect(saved.at(-1)).toEqual({
+		text: "unchanged text",
+		annotations: ["edited context"],
+	});
+	annotations = [];
+	writer.flush("unchanged text");
+	expect(saved.at(-1)).toEqual({ text: "unchanged text", annotations: [] });
+});

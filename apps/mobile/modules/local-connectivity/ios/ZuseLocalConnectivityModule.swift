@@ -5,6 +5,22 @@ import Network
 
 private let serviceType = "_zuse._tcp"
 private let connectivityQueue = DispatchQueue(label: "com.zuse.local-connectivity")
+/// A remote that cannot become ready in this window is unreachable; failing
+/// fast lets the client recover the route instead of waiting out its socket
+/// open timeout while the connection sits in `.waiting`.
+private let remoteConnectDeadline: TimeInterval = 10
+
+/// Small WebSocket frames (pings, pongs, acks) must not wait for Nagle
+/// coalescing, and keepalive notices a peer that vanished without a FIN.
+private func proxyTCPOptions() -> NWProtocolTCP.Options {
+  let tcp = NWProtocolTCP.Options()
+  tcp.noDelay = true
+  tcp.enableKeepalive = true
+  tcp.keepaliveIdle = 15
+  tcp.keepaliveInterval = 5
+  tcp.keepaliveCount = 3
+  return tcp
+}
 
 struct NearbyServiceRecord: Record {
   @Field var id: String = ""
@@ -49,10 +65,17 @@ private final class ProxySession {
 
   func start() {
     local.start(queue: connectivityQueue)
+    var ready = false
+    connectivityQueue.asyncAfter(deadline: .now() + remoteConnectDeadline) { [weak self] in
+      guard let self, !ready, !self.closed else { return }
+      print("[zuse:nearby-native] proxy.remote.connect_timeout")
+      self.close()
+    }
     remote.stateUpdateHandler = { [weak self] state in
       guard let self else { return }
       switch state {
       case .ready:
+        ready = true
         self.pump(from: self.local, to: self.remote)
         self.pump(from: self.remote, to: self.local)
       case .failed(let error):
@@ -118,7 +141,7 @@ private final class ByteProxy {
   }
 
   func start() async throws -> UInt16 {
-    let localParameters = NWParameters.tcp
+    let localParameters = NWParameters(tls: nil, tcp: proxyTCPOptions())
     localParameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
     let listener = try NWListener(using: localParameters, on: .any)
     self.listener = listener
@@ -185,7 +208,7 @@ private final class ByteProxy {
       },
       connectivityQueue
     )
-    let parameters = NWParameters(tls: tls, tcp: NWProtocolTCP.Options())
+    let parameters = NWParameters(tls: tls, tcp: proxyTCPOptions())
 
     parameters.includePeerToPeer =
       service.interfaceName?.hasPrefix("awdl") == true
@@ -242,8 +265,10 @@ public final class ZuseLocalConnectivityModule: Module {
       self.startDiscovery()
     }
 
+    // Live proxies outlast short trips to another app. If iOS reclaims them
+    // while suspended, the resume health check reopens that one route.
     OnAppEntersBackground {
-      self.stopDiscovery()
+      self.stopDiscovery(cancelProxies: false)
     }
 
     OnDestroy {

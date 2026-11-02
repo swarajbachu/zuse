@@ -126,6 +126,7 @@
 	"model_picker_context_window": "Kontextfenster {{value1}}",
 	"model_picker_credit_multiplier": "{{value1}} Kreditmultiplikator",
 	"provider_card_remove_custom_model": "Entfernen Sie das benutzerdefinierte Modell {{modelId}}",
+	"muse_sign_in_hint": "Muse Code verwaltet die Anmeldung. Führen Sie <part0>muse login</part0> in einem Terminal aus oder speichern Sie einen Meta-API-Schlüssel mit <part1>muse auth set</part1>. Zuse gibt META_API_KEY nicht weiter.",
 	"pi_setup_hint": "Pi verwaltet die Authentifizierung und Werkzeugberechtigungen. Starten Sie <part0>pi</part0> in einem Terminal und melden Sie sich mit <part1>/login</part1> an.",
 	"pi_binary_path": "Pfad zur Pi-Programmdatei",
 	"pi_binary_placeholder": "pi in PATH suchen",

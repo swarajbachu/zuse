@@ -14,6 +14,7 @@
 		4D5D6A98E416D1896104A863 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 1FCE2B65B58032B1A3949BA8 /* PrivacyInfo.xcprivacy */; };
 		71D6A9D499515C503E043D6F /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15A380D230FBC86C19A3AC3 /* ExpoModulesProvider.swift */; };
 		9F46EFCBA858613E8AAFC34E /* libPods-ZuseMobile.a in Frameworks */ = {isa = PBXBuildFile; fileRef = DB2088FB3EEA107C2EB71683 /* libPods-ZuseMobile.a */; };
+		A24818D94CB1FEF7FF6F8B59 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E05CC60323D3DDC0D4A47A50 /* SceneDelegate.swift */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 		FA00653C86DB25C0887A091C /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41752F47FA8A1320F743A140 /* ExpoModulesProvider.swift */; };
@@ -46,6 +47,7 @@
 		CBB105AA93F745D24B3B4DA7 /* Pods-ZuseMobile.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ZuseMobile.debug.xcconfig"; path = "Target Support Files/Pods-ZuseMobile/Pods-ZuseMobile.debug.xcconfig"; sourceTree = "<group>"; };
 		D15A380D230FBC86C19A3AC3 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-ZuseMobile/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		DB2088FB3EEA107C2EB71683 /* libPods-ZuseMobile.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-ZuseMobile.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		E05CC60323D3DDC0D4A47A50 /* SceneDelegate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SceneDelegate.swift; path = ZuseMobile/SceneDelegate.swift; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = ZuseMobile/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* ZuseMobile-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "ZuseMobile-Bridging-Header.h"; path = "ZuseMobile/ZuseMobile-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -90,6 +92,7 @@
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
 				1FCE2B65B58032B1A3949BA8 /* PrivacyInfo.xcprivacy */,
+				E05CC60323D3DDC0D4A47A50 /* SceneDelegate.swift */,
 			);
 			name = ZuseMobile;
 			sourceTree = "<group>";
@@ -508,6 +511,7 @@
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
 				71D6A9D499515C503E043D6F /* ExpoModulesProvider.swift in Sources */,
+				A24818D94CB1FEF7FF6F8B59 /* SceneDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -597,7 +601,7 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.4;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -633,7 +637,7 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.4;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",

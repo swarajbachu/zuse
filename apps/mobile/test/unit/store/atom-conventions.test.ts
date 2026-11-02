@@ -1,10 +1,7 @@
 import { Atom } from "effect/unstable/reactivity";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-	appAtomRegistry,
-	batchAtomUpdates,
-} from "../../../src/store/registry";
+import { appAtomRegistry, batchAtomUpdates } from "../../../src/store/registry";
 
 describe("atom store conventions", () => {
 	it("keepAlive state survives unsubscribing the last watcher", () => {

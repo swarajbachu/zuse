@@ -48,8 +48,12 @@ describe("mobile UI contracts", () => {
 			`${process.cwd()}/src/components/connection-recovery-banner.tsx`,
 			"utf8",
 		);
+		const notice = readFileSync(
+			`${process.cwd()}/src/lib/connection-notice.ts`,
+			"utf8",
+		);
 		expect(banner).not.toContain('"Offline"');
-		expect(banner).toContain('"Connection issue"');
+		expect(notice).toContain('"Connection issue"');
 	});
 	test("only the latest assistant message exposes response actions", () => {
 		const row = readFileSync(
@@ -105,7 +109,9 @@ describe("mobile UI contracts", () => {
 			"onSelect: () => setCloudSandbox(provider.providerId)",
 		);
 		expect(newChat).not.toContain("/new-cloud-chat");
-		expect(existsSync(`${process.cwd()}/app/(main)/new-cloud-chat.tsx`)).toBe(false);
+		expect(existsSync(`${process.cwd()}/app/(main)/new-cloud-chat.tsx`)).toBe(
+			false,
+		);
 	});
 	test("lets people remove a saved computer from Settings", () => {
 		const settings = readFileSync(
@@ -779,9 +785,9 @@ describe("mobile UI contracts", () => {
 		expect(files).not.toContain("<ActivityIndicator");
 		expect(files).toContain("<ReviewDiffList");
 		expect(review).toContain("<ReviewDiffList");
-		expect(review).toContain(
-			"<Stack.Screen.Title>{reviewScopeLabel(scope)}</Stack.Screen.Title>",
-		);
+		// Phone-width sheets cannot fit a title beside the toolbar; the summary names the scope.
+		expect(review).toContain('headerTitle: ""');
+		expect(review).toContain("{reviewScopeLabel(scope)} · {fileCount}");
 		expect(review).toContain('<Stack.Toolbar placement="left">');
 		expect(review).toContain('<Stack.Toolbar placement="right">');
 		expect(review).toContain("<Stack.Toolbar.Menu");
@@ -808,7 +814,7 @@ describe("mobile UI contracts", () => {
 		expect(diffList).toContain("<SectionList");
 		expect(diffList).not.toContain("directionalLockEnabled");
 		expect(diffList).not.toContain('ellipsizeMode="clip"');
-		expect(diffList).toContain("min-h-6 flex-row items-stretch");
+		expect(diffList).toContain("min-h-5 flex-row items-stretch");
 		expect(diffList).toContain('contentInsetAdjustmentBehavior="never"');
 		expect(diffList).toContain("stickySectionHeadersEnabled={false}");
 		expect(diffList).toContain("onViewableItemsChanged");

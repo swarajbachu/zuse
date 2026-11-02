@@ -3,12 +3,12 @@ PODS:
     - ReactNativeDependencies
   - DoubleConversion (1.1.6):
     - ReactNativeDependencies
-  - EXConstants (58.0.12):
+  - EXConstants (58.0.13):
     - ExpoModulesCore
   - EXJSONUtils (58.0.1)
   - EXManifests (58.0.1):
     - ExpoModulesCore
-  - Expo (58.0.16):
+  - Expo (58.0.19):
     - ExpoModulesCore
     - ExpoModulesJSI
     - hermes-engine
@@ -35,13 +35,13 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - expo-dev-client (58.0.14):
+  - expo-dev-client (58.0.15):
     - EXManifests
     - expo-dev-launcher
     - expo-dev-menu
     - expo-dev-menu-interface
     - EXUpdatesInterface
-  - expo-dev-launcher (58.0.14):
+  - expo-dev-launcher (58.0.15):
     - EXManifests
     - expo-dev-menu
     - expo-dev-menu-interface
@@ -126,15 +126,15 @@ PODS:
     - Yoga
   - ExpoApplication (58.1.2):
     - ExpoModulesCore
-  - ExpoAsset (57.0.16):
+  - ExpoAsset (58.0.18):
     - ExpoModulesCore
-  - ExpoAudio (58.0.9):
+  - ExpoAudio (58.0.10):
     - ExpoModulesCore
-  - ExpoCamera (58.0.11):
+  - ExpoCamera (58.0.12):
     - ExpoModulesCore
-  - ExpoCameraBarcodeScanning (58.0.11):
+  - ExpoCameraBarcodeScanning (58.0.12):
     - ExpoCamera
-  - ExpoClipboard (58.0.3):
+  - ExpoClipboard (58.0.4):
     - ExpoModulesCore
   - ExpoCrypto (58.0.7):
     - ExpoModulesCore
@@ -142,27 +142,27 @@ PODS:
     - ExpoModulesCore
   - ExpoDomWebView (58.0.2):
     - ExpoModulesCore
-  - ExpoFileSystem (58.0.10):
+  - ExpoFileSystem (58.0.11):
     - ExpoModulesCore
-  - ExpoFont (58.0.9):
+  - ExpoFont (58.0.10):
     - ExpoModulesCore
-  - ExpoGlassEffect (58.0.4):
+  - ExpoGlassEffect (58.0.5):
     - ExpoModulesCore
   - ExpoHaptics (58.0.7):
     - ExpoModulesCore
-  - ExpoImage (58.0.16):
+  - ExpoImage (58.0.17):
     - ExpoModulesCore
   - ExpoImagePicker (58.0.10):
     - ExpoModulesCore
   - ExpoKeepAwake (58.0.3):
     - ExpoModulesCore
-  - ExpoLinking (58.0.13):
+  - ExpoLinking (58.0.14):
     - ExpoModulesCore
   - ExpoLocalization (58.0.5):
     - ExpoModulesCore
-  - ExpoLogBox (58.0.12):
+  - ExpoLogBox (58.0.13):
     - React-Core
-  - ExpoModulesCore (58.0.23):
+  - ExpoModulesCore (58.0.26):
     - ExpoModulesJSI
     - hermes-engine
     - RCTRequired
@@ -187,20 +187,20 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - ExpoModulesJSI (58.0.16):
+  - ExpoModulesJSI (58.0.19):
     - React-Core
     - ReactCommon
-  - ExpoModulesWorklets (58.0.23):
+  - ExpoModulesWorklets (58.0.26):
     - ExpoModulesCore
     - ExpoModulesJSI
-  - ExpoModulesWorkletsAdapter (58.0.23):
+  - ExpoModulesWorkletsAdapter (58.0.26):
     - ExpoModulesCore
     - ExpoModulesJSI
     - ExpoModulesWorklets
     - RNWorklets
-  - ExpoNotifications (58.1.5):
+  - ExpoNotifications (58.1.6):
     - ExpoModulesCore
-  - ExpoRouter (58.0.24):
+  - ExpoRouter (58.0.26):
     - ExpoModulesCore
     - RNScreens
   - ExpoScreenOrientation (58.0.3):
@@ -229,11 +229,13 @@ PODS:
     - Yoga
   - ExpoSecureStore (58.0.2):
     - ExpoModulesCore
+  - ExpoStatusBar (58.0.4):
+    - ExpoModulesCore
   - ExpoSymbols (58.0.4):
     - ExpoModulesCore
   - ExpoSystemUI (58.0.6):
     - ExpoModulesCore
-  - ExpoUI (58.0.21):
+  - ExpoUI (58.0.23):
     - ExpoModulesCore
     - ExpoModulesWorklets
     - React-RCTFabric
@@ -2539,6 +2541,7 @@ DEPENDENCIES:
   - ExpoRouter (from `../../../node_modules/expo-router/ios`)
   - ExpoScreenOrientation (from `../../../node_modules/expo-screen-orientation/ios`)
   - ExpoSecureStore (from `../../../node_modules/expo-secure-store/ios`)
+  - ExpoStatusBar (from `../../../node_modules/expo-status-bar/ios`)
   - ExpoSymbols (from `../../../node_modules/expo-symbols/ios`)
   - ExpoSystemUI (from `../../../node_modules/expo-system-ui/ios`)
   - "ExpoUI (from `../../../node_modules/@expo/ui/ios`)"
@@ -2723,6 +2726,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/expo-screen-orientation/ios"
   ExpoSecureStore:
     :path: "../../../node_modules/expo-secure-store/ios"
+  ExpoStatusBar:
+    :path: "../../../node_modules/expo-status-bar/ios"
   ExpoSymbols:
     :path: "../../../node_modules/expo-symbols/ios"
   ExpoSystemUI:
@@ -2934,44 +2939,45 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   boost: 8502bfdc46e2804408af2e163049ece181009af4
   DoubleConversion: 501a575c40c0b50c89685762dd3e415e6bb26fb0
-  EXConstants: ff5c226215048137ea31d39fa460027a6daeeadc
+  EXConstants: e90e362a4ffafaa03999f456bf81d7fb8021db9d
   EXJSONUtils: d59bf6b18639752631a81818559b2675a46f99e2
   EXManifests: b0b83ad894166f7e080b18814c5e73aed46e366e
-  Expo: 994438bd7721559fbf1d33989f3166a87395c395
-  expo-dev-client: 9e1f44c1c5d548611e9e9534d9d169b21373a218
-  expo-dev-launcher: 57931b569ed64a2a06764b1ad68a1d16a8074b6d
+  Expo: dbf974c6df7a0fbb3877ea2a17b6593e3be5710f
+  expo-dev-client: 630c10eb8c9a46f367b85158a8ed0baf8f82e196
+  expo-dev-launcher: a2e3f730a9087e358a9ce2243b7aba94c34058dd
   expo-dev-menu: 467097ec7bcafceb0fd2d32328bc6315a0ed6ba9
   expo-dev-menu-interface: d304e400271187edf1534704a4a05dcc140076e2
   ExpoApplication: c83355b2f69f996b5d26b64fef39228e7f1e1208
-  ExpoAsset: bea9115098b9f4ddfb0456961c8a7d2779ccc8f5
-  ExpoAudio: 7963cae3818d0a9f9b6ac927b7f5401b2539daa6
-  ExpoCamera: 9b757be605fc66d1fb4a51376d7c9450843221d9
-  ExpoCameraBarcodeScanning: 4c517582126b79d09d37f2b6406a76016f4ad2e7
-  ExpoClipboard: 4fe2f488588bef9708f9b7a9aacf11aa2c312300
+  ExpoAsset: 9548991f0332bd8ed8819299e0b413d713104a1a
+  ExpoAudio: 7f919daf0ebf1b0e1cf8b7464b7c85be6664a412
+  ExpoCamera: baa3429b8e3609ffd9f17888978e1963ca1171e5
+  ExpoCameraBarcodeScanning: 64af648214637c7e6e16f3d7e8a50d9828fcefdd
+  ExpoClipboard: 244adf0a38b60ec7105e217042dd266a722f5a5e
   ExpoCrypto: 33ede543a3747abbef071c3bd747135ccc4e4fd5
   ExpoDocumentPicker: af0917aa6f1b54ab3a0f47977935a1e20ffb1537
   ExpoDomWebView: b2a6d681b9d34c23b1f584321386ca8da1d36afb
-  ExpoFileSystem: 6e11203047bfcbd318e6db7bb91210a95a4162b3
-  ExpoFont: 1d6500b0c451edb1f9676276b477fb1838190ccb
-  ExpoGlassEffect: 008d906ff11ffeb03a8e702af9d6a471c16c10eb
+  ExpoFileSystem: b35d87e5219408a4052ee5adde99962d014efb09
+  ExpoFont: b215bc738b2e3fba7ffed79903a6fccf66959dd0
+  ExpoGlassEffect: 6594e055df1e0b88d34cc189ba0b21589adec6bf
   ExpoHaptics: c95d1e2162895e710b68dd912eec619900ebdf33
-  ExpoImage: 002ec1de17e9d4328d7b930ed112244227b69a5c
+  ExpoImage: 04f6e13379ea155eec04e99499baefba1c313f77
   ExpoImagePicker: a466134ec92fed0b38bbf9062c7eb5f3c8c49d94
   ExpoKeepAwake: fd18a5d233329013c578030ad399d8e10b252b5f
-  ExpoLinking: 5e84f6510eef3dd1985e3afce4de809610f7f0c4
+  ExpoLinking: 0937be9faa1580dee244062cc4c5a77732dc2c4d
   ExpoLocalization: ed930f5d68e7b3c2073a04787358839e1a8e1680
-  ExpoLogBox: 14c42e5429c85e1e2acfb9316b4e821db8e40d42
-  ExpoModulesCore: fcab5fe8f02b3adc484b270ce0a89bd1d45b723d
-  ExpoModulesJSI: dc5ce2e1bab90688002a41af81bb6b9243ca1a99
-  ExpoModulesWorklets: a09d8313cdc714c0e539f5f432445d6a9783d2e2
-  ExpoModulesWorkletsAdapter: 2127aa8f190cccb8954519a50111149a6119034a
-  ExpoNotifications: b2f5a3a301a48a546ee3156f8633055b8a15fd93
-  ExpoRouter: cc1ecd075ac6d03c90ff5daf2fb2bdfbdccce40a
+  ExpoLogBox: 624d64042d73abe0dc230a24b1a9f835adb2cec9
+  ExpoModulesCore: ad2929e13f22db13f6b5972ed76a1cd20299b548
+  ExpoModulesJSI: d9f7f7a1625c1a29cb116a6c264f1752230d4783
+  ExpoModulesWorklets: 208e6112a0467df1cc21530e280d650a3adf6261
+  ExpoModulesWorkletsAdapter: 90b767c4eb39d9907ba2a0f6772ffe521feab3fa
+  ExpoNotifications: d0ab853f324bacf76f0fe32d06eba2e1f8532ca5
+  ExpoRouter: c5f712d2c761df71f8c9a42739f6ecae38ba8315
   ExpoScreenOrientation: 6d18aac397d3adcf8397cf10742d435b163ae03f
   ExpoSecureStore: 64e1fe78b5b0a1edb61beff044bb2cad03084f9c
+  ExpoStatusBar: 56aa9746e1bee4d8adbab12f4d7efc97000ac49f
   ExpoSymbols: 1260e741b35b6fd105942779895418db306645c8
   ExpoSystemUI: 7f794f868bd10f62788f85bf169bc8ca45fbe736
-  ExpoUI: 2dfa03387386304db67c1fb125c67beec0813ae6
+  ExpoUI: ee7843da6bf0b16255f3f5c5de69c3cd4f956cd6
   ExpoWebBrowser: 2999ed3f2ee8c06985cb37b4ac566328ca0e4c7a
   EXUpdatesInterface: 1c6a522d0eb0485f4de3fa55d0316288763b3f10
   fast_float: 7c925d1cebf8328d4018d061f49377e9f887e3b4

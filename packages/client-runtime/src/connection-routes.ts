@@ -1,5 +1,11 @@
 import type { ApiConnectGrant, EnvironmentEndpoint } from "@zuse/contracts";
 
+/**
+ * One route covers DNS, TCP, TLS, the upgrade, handshake, and describe
+ * through a tunnel; cellular links need more than a LAN round trip budget.
+ */
+const ROUTE_ATTEMPT_TIMEOUT_MS = 12_000;
+
 export const grantRouteEndpoints = (
 	grant: ApiConnectGrant,
 	secureOnly = false,
@@ -101,7 +107,7 @@ export const raceConnectionRoutes = <
 						const deadline = setTimeout(() => {
 							controller.abort();
 							fail(index, new Error("Connection route timed out"));
-						}, options.timeoutMs ?? 8000);
+						}, options.timeoutMs ?? ROUTE_ATTEMPT_TIMEOUT_MS);
 						timers.push(deadline);
 						void Promise.resolve()
 							.then(() => {

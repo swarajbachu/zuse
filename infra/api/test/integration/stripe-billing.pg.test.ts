@@ -119,6 +119,97 @@ it.skipIf(!connectionString)(
 				1,
 			);
 
+			await stripe.reserveCustomer("lock-other");
+			const events: string[] = [];
+			let release = () => {};
+			let entered = () => {};
+			const hold = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			const started = new Promise<void>((resolve) => {
+				entered = resolve;
+			});
+			const firstLock = stripe.withSubscriptionLock("account", async () => {
+				events.push("first-start");
+				entered();
+				await hold;
+				events.push("first-end");
+			});
+			await started;
+			const secondLock = makeStripeBillingStorePg(sql).withSubscriptionLock(
+				"account",
+				async () => {
+					events.push("second");
+				},
+			);
+			try {
+				await stripe.withSubscriptionLock("lock-other", async () => {
+					events.push("other-account");
+				});
+				expect(
+					await Promise.race([
+						secondLock.then(() => true),
+						new Promise<boolean>((resolve) =>
+							setTimeout(() => resolve(false), 50),
+						),
+					]),
+				).toBe(false);
+			} finally {
+				release();
+			}
+			await Promise.all([firstLock, secondLock]);
+			expect(events).toEqual([
+				"first-start",
+				"other-account",
+				"first-end",
+				"second",
+			]);
+			await expect(
+				stripe.withSubscriptionLock("account", async () => {
+					throw new Error("activation-failed");
+				}),
+			).rejects.toThrow("activation-failed");
+			expect(
+				await stripe.withSubscriptionLock("account", async () => "released"),
+			).toBe("released");
+
+			// A contending request must fail before starting any remote operation.
+			await db.query("BEGIN");
+			await db.query(
+				"SELECT account_id FROM api_stripe_customers WHERE account_id='account' FOR UPDATE",
+			);
+			let operationStarted = false;
+			const waiting = stripe
+				.withSubscriptionLock("account", async () => {
+					operationStarted = true;
+				})
+				.then(
+					() => "unexpected-success",
+					(error: unknown) => error,
+				);
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			let outcome: unknown;
+			try {
+				outcome = await Promise.race([
+					waiting,
+					new Promise<string>((resolve) => {
+						timer = setTimeout(() => resolve("unbounded-lock-wait"), 18_000);
+					}),
+				]);
+			} finally {
+				clearTimeout(timer);
+				await db.query("ROLLBACK");
+				await waiting;
+			}
+			expect(outcome).toMatchObject({
+				_tag: "SqlError",
+				reason: { cause: { code: "55P03" } },
+			});
+			expect(operationStarted).toBe(false);
+			expect(
+				await stripe.withSubscriptionLock("account", async () => "retried"),
+			).toBe("retried");
+
 			await stripe.reserveCustomer("scan-account");
 			await db.query(
 				"UPDATE api_stripe_customers SET created_at=created_at-86400000 WHERE account_id='scan-account'",

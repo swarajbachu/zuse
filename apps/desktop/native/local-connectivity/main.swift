@@ -4,6 +4,18 @@ import Network
 
 private let queue = DispatchQueue(label: "com.zuse.local-connectivity.helper")
 
+/// Small WebSocket frames (pings, pongs, acks) must not wait for Nagle
+/// coalescing, and keepalive notices a phone that left without a FIN.
+private func bridgeTCPOptions() -> NWProtocolTCP.Options {
+  let tcp = NWProtocolTCP.Options()
+  tcp.noDelay = true
+  tcp.enableKeepalive = true
+  tcp.keepaliveIdle = 15
+  tcp.keepaliveInterval = 5
+  tcp.keepaliveCount = 3
+  return tcp
+}
+
 private func emit(_ event: String, _ fields: [String: Any] = [:]) {
   var payload = fields
   payload["event"] = event
@@ -33,7 +45,7 @@ private final class ConnectionBridge {
     self.outbound = NWConnection(
       host: "127.0.0.1",
       port: targetPort,
-      using: .tcp
+      using: NWParameters(tls: nil, tcp: bridgeTCPOptions())
     )
   }
 
@@ -120,7 +132,7 @@ private final class NearbyListener {
     retryWork?.cancel()
     listener?.cancel()
     listener = nil
-    let parameters = NWParameters.tcp
+    let parameters = NWParameters(tls: nil, tcp: bridgeTCPOptions())
 
     parameters.allowLocalEndpointReuse = true
     do {

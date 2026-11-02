@@ -13,7 +13,10 @@ export const deliverStripeOperation = (
 	const call = <A>(operation: () => Promise<A>) =>
 		Effect.tryPromise({
 			try: operation,
-			catch: () => new BillingProviderError({ code: "provider-unavailable" }),
+			catch: (error) =>
+				error instanceof BillingProviderError
+					? error
+					: new BillingProviderError({ code: "provider-unavailable" }),
 		});
 	return Effect.gen(function* () {
 		const claim = yield* call(() =>

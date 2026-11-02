@@ -152,6 +152,15 @@ export function getProviderSummary(
 			actionable: false,
 		};
 	}
+	if (a.providerId === "muse")
+		return {
+			statusKey: "warning",
+			headline: "Muse Code installed",
+			detail:
+				"Run muse login in a terminal to sign in. Authentication is verified when you send a message.",
+			authEmail: null,
+			actionable: false,
+		};
 	if (a.providerId === "pi")
 		return {
 			statusKey: "ready",

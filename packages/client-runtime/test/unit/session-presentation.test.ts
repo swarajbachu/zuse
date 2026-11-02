@@ -12,7 +12,9 @@ import {
 import { describe, expect, it } from "vitest";
 import {
 	countRunningBackgroundAgents,
+	endedBackgroundProcesses,
 	runningBackgroundAgents,
+	runningBackgroundProcesses,
 	runningBackgroundTasks,
 } from "../../src/background-agent-presentation.ts";
 import { clientCommandTargetId } from "../../src/client-command-target.ts";
@@ -595,4 +597,117 @@ it("classifies a durable background shell as a process, separate from the agent 
 			}),
 		),
 	).toEqual([]);
+});
+
+it("needs a running execution step to show a background process", () => {
+	const shell = Message.make({
+		id: MessageId.make("shell-launch"),
+		sessionId: AgentSessionId.make("presentation-session"),
+		role: "assistant",
+		createdAt: new Date(1),
+		content: {
+			_tag: "tool_use",
+			itemId: AgentItemId.make("shell"),
+			tool: "Bash",
+			input: { description: "Start dev server" },
+			backgroundTask: { taskId: "native-shell" },
+		},
+	});
+	const historical = projection("idle", false, [shell]);
+	expect(runningBackgroundProcesses(view(historical))).toEqual([]);
+	expect(
+		runningBackgroundProcesses(
+			view({ ...historical, executionStepsTruncated: true }),
+		).map((task) => task.description),
+	).toEqual(["Start dev server"]);
+	expect(
+		runningBackgroundProcesses(
+			view({
+				...projection("running", true, [shell]),
+				executionSteps: [
+					{
+						id: "shell",
+						turnId: "turn-presentation",
+						attemptId: "attempt-presentation",
+						itemId: "shell",
+						parentItemId: null,
+						kind: "background",
+						label: "Bash",
+						status: "running",
+						childSessionId: null,
+						nativeChildId: "native-shell",
+						rootCompletedAt: null,
+						createdAt: 1,
+						updatedAt: 1,
+						checkpointCapability: "unsupported",
+					},
+				],
+			}),
+		).map((task) => task.description),
+	).toEqual(["Start dev server"]);
+});
+
+it("lists ended processes, newest first, with their native outcome", () => {
+	const at = (ms: number) => new Date(ms);
+	const message = (
+		id: string,
+		ms: number,
+		content: Message["content"],
+	): Message =>
+		Message.make({
+			id: MessageId.make(id),
+			sessionId: AgentSessionId.make("presentation-session"),
+			role: "assistant",
+			createdAt: at(ms),
+			content,
+		});
+	const launch = (id: string, ms: number, description: string) =>
+		message(`${id}-launch`, ms, {
+			_tag: "tool_use",
+			itemId: AgentItemId.make(id),
+			tool: "Bash",
+			input: { description },
+			backgroundTask: { taskId: `native-${id}` },
+		});
+	const data = projection("idle", false, [
+		launch("built", 1, "Build docs"),
+		message("built-result", 5, {
+			_tag: "tool_result",
+			itemId: AgentItemId.make("built"),
+			output: "done",
+			isError: false,
+		}),
+		launch("server", 2, "Start dev server"),
+		message("server-result", 9, {
+			_tag: "tool_result",
+			itemId: AgentItemId.make("server"),
+			output: "Stopped",
+			isError: true,
+			backgroundOutcome: "stopped",
+		}),
+		launch("orphan", 3, "Tail logs"),
+	]);
+	expect(endedBackgroundProcesses(view(data))).toEqual([
+		{
+			id: "server",
+			description: "Start dev server",
+			startedAtMs: 2,
+			endedAtMs: 9,
+			outcome: "stopped",
+		},
+		{
+			id: "built",
+			description: "Build docs",
+			startedAtMs: 1,
+			endedAtMs: 5,
+			outcome: "completed",
+		},
+		{
+			id: "orphan",
+			description: "Tail logs",
+			startedAtMs: 3,
+			endedAtMs: null,
+			outcome: "stopped",
+		},
+	]);
 });

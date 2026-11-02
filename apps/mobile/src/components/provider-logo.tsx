@@ -1,4 +1,5 @@
 import type { ProviderId } from "@zuse/contracts";
+import { Bot } from "lucide-react-native";
 import { type ColorValue, Image } from "react-native";
 
 import { PROVIDER_LOGOS } from "~/lib/provider-logos";
@@ -19,7 +20,7 @@ export function ProviderLogo({
 	color?: ColorValue;
 }) {
 	const source = PROVIDER_LOGOS[providerId];
-	if (source === undefined) return null;
+	if (source === undefined) return <Bot size={size} color={color} />;
 	return (
 		<Image
 			source={source}

@@ -90,6 +90,9 @@ const polarConfig = (
 };
 
 const unavailableStore: StripeBillingStore = {
+	withSubscriptionLock: async () => {
+		throw new Error("stripe_store_unavailable");
+	},
 	claimCustomerRecoveries: async () => {
 		throw new Error("stripe_store_unavailable");
 	},

@@ -722,6 +722,7 @@ const SETTINGS_FIXTURE: typeof SettingsFile.Encoded = {
 		opencode: "sonnet",
 		opencode2: "opencode/claude-sonnet-5",
 		kiro: "auto",
+		muse: "",
 		pi: "auto",
 
 		zuse: "",
@@ -742,6 +743,7 @@ const SETTINGS_FIXTURE: typeof SettingsFile.Encoded = {
 		opencode: true,
 		opencode2: true,
 		kiro: true,
+		muse: true,
 		pi: true,
 
 		zuse: true,
@@ -758,6 +760,7 @@ const SETTINGS_FIXTURE: typeof SettingsFile.Encoded = {
 		opencode: [],
 		opencode2: [],
 		kiro: [],
+		muse: [],
 		pi: [],
 
 		zuse: [],
@@ -853,6 +856,7 @@ describe("SettingsFile round-trip", () => {
 					opencode: "sonnet",
 					opencode2: "opencode/claude-sonnet-5",
 					kiro: "auto",
+					muse: "",
 					pi: "auto",
 
 					zuse: "",
@@ -872,6 +876,7 @@ describe("SettingsFile round-trip", () => {
 					opencode: true,
 					opencode2: true,
 					kiro: true,
+					muse: true,
 					pi: true,
 
 					zuse: true,
@@ -901,6 +906,7 @@ describe("SettingsFile round-trip", () => {
 					opencode: "sonnet",
 					opencode2: "opencode/claude-sonnet-5",
 					kiro: "auto",
+					muse: "",
 					pi: "auto",
 
 					zuse: "",
@@ -920,6 +926,7 @@ describe("SettingsFile round-trip", () => {
 					opencode: true,
 					opencode2: true,
 					kiro: true,
+					muse: true,
 					pi: true,
 
 					zuse: true,

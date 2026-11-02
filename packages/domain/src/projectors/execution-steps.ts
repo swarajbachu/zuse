@@ -75,7 +75,13 @@ export const evolveExecutionStep = (
 	)
 		return {
 			...previous,
-			status: content.isError ? "failed" : "completed",
+			status:
+				content._tag === "tool_result" &&
+				content.backgroundOutcome === "stopped"
+					? "cancelled"
+					: content.isError
+						? "failed"
+						: "completed",
 			updatedAt: identity.at,
 		};
 	if (content._tag === "subagent_progress")

@@ -9,7 +9,7 @@ import type {
 	SessionStatus,
 	WorktreeId,
 } from "@zuse/contracts";
-import { Effect, Fiber, Stream } from "effect";
+import { Duration, Effect, Fiber, Schedule, Stream } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { createConnectionRefreshCoordinator } from "~/lib/connection-refresh-coordinator";
@@ -29,8 +29,8 @@ import {
 	getConnectionClient,
 	getConnectionSnapshot,
 	reportConnectionFailure,
-	retryConnectionNow,
 } from "~/rpc/connection";
+import { logConnectionDiagnostic } from "~/rpc/connection-diagnostics";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import {
 	archiveCloudWorkspace,
@@ -154,7 +154,22 @@ type SnapshotStreamSupervisorOptions = {
 	readonly missingSnapshotMessage: string;
 };
 
-const superviseSnapshotStream = <E, R>(
+/**
+ * The server may end a summary stream on a healthy socket (a projection reset
+ * or a restarted subscription). Resubscribe on that same socket with a capped
+ * backoff. Failures also report transport health, but must resubscribe when
+ * the supervisor keeps a healthy socket.
+ */
+const SNAPSHOT_STREAM_RESUBSCRIBE = Schedule.exponential("500 millis").pipe(
+	Schedule.modifyDelay(({ duration }) =>
+		Effect.succeed(
+			Duration.millis(Math.min(Duration.toMillis(duration), 30_000)),
+		),
+	),
+	Schedule.jittered,
+);
+
+export const superviseSnapshotStream = <E, R>(
 	program: Effect.Effect<void, E, R>,
 	options: SnapshotStreamSupervisorOptions,
 ): Effect.Effect<void, never, R> =>
@@ -162,9 +177,10 @@ const superviseSnapshotStream = <E, R>(
 		Effect.tap(() =>
 			Effect.sync(() => {
 				if (!options.isReady()) return;
-				const cause = new Error(options.completedMessage);
-				retryConnectionNow(options.connectionOptions);
-				setConnectionError(options.connectionKey, cause.message);
+				logConnectionDiagnostic("stream.resubscribe", {
+					key: options.connectionKey,
+					reason: options.completedMessage,
+				});
 			}),
 		),
 		Effect.catch((cause) =>
@@ -180,6 +196,10 @@ const superviseSnapshotStream = <E, R>(
 				);
 			}),
 		),
+		Effect.repeat({
+			schedule: SNAPSHOT_STREAM_RESUBSCRIBE,
+			while: () => options.isReady(),
+		}),
 		Effect.ensuring(
 			Effect.sync(() => {
 				if (!options.isReady()) {
@@ -644,6 +664,7 @@ const hydrateSessionsOnce = async (
 										change.chats,
 									),
 								);
+								setConnectionError(connKey, null);
 								chatReady = true;
 								markReady();
 							} else {
@@ -691,6 +712,7 @@ const hydrateSessionsOnce = async (
 										patchConnectionStatuses(state, connKey, change.sessions),
 									);
 								});
+								setConnectionError(connKey, null);
 								sessionsReady = true;
 								markReady();
 								void persistConnectionBundles(connKey);

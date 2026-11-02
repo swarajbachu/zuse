@@ -26,6 +26,26 @@ const availabilityFor = (
 });
 
 describe("model picker provider visibility", () => {
+	it("offers installed Muse even when its native authentication cannot be probed", () => {
+		expect(
+			isModelPickerProviderVisible({
+				providerId: "muse",
+				availability: availabilityFor("muse", {
+					authStatus: "unknown",
+					cliLoggedIn: false,
+					status: "warning",
+				}),
+				providerEnabled: {},
+			}),
+		).toBe(true);
+		expect(
+			isModelPickerProviderVisible({
+				providerId: "muse",
+				availability: availabilityFor("muse", { cliInstalled: false }),
+				providerEnabled: {},
+			}),
+		).toBe(false);
+	});
 	it("uses workspace Cloud connections rather than this computer's agents", () => {
 		const connected = connectedCloudProviders(
 			CloudAuthStatus.make({

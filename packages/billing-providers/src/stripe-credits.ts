@@ -1,9 +1,17 @@
-import { PREPAID_CREDIT_AMOUNTS } from "@zuse/contracts";
+import {
+	CLOUD_WORKSPACE_OFFER_ID,
+	PREPAID_CREDIT_AMOUNTS,
+	PREPAID_PRO_CREDIT_AMOUNT,
+} from "@zuse/contracts";
 import { Effect } from "effect";
 import type Stripe from "stripe";
 import { BillingProviderError } from "./index.ts";
 import type { StripeBillingStore } from "./stripe.ts";
 import { deliverStripeOperation } from "./stripe-delivery.ts";
+import {
+	stripeSubscriptionItems,
+	stripeSubscriptionsAfterCheckoutExpiry,
+} from "./stripe-subscription.ts";
 
 const PURPOSE = "zuse_prepaid_v1";
 export interface StripeCreditPurchase {
@@ -17,6 +25,7 @@ export interface StripeCreditPurchase {
 	readonly quantity: number;
 	readonly chargeId: string;
 	readonly disputed: boolean;
+	readonly activatePro?: boolean;
 	readonly refunds: ReadonlyArray<{
 		readonly id: string;
 		readonly amount: number;
@@ -32,6 +41,10 @@ export interface StripeCreditClient {
 		readonly sessionId?: string;
 		readonly chargeId?: string;
 	}) => Promise<StripeCreditPurchase | null>;
+	readonly activateSubscription?: (
+		purchase: StripeCreditPurchase,
+		key: string,
+	) => Promise<void>;
 	readonly adjustment: (
 		customerId: string,
 		amount: number,
@@ -41,7 +54,14 @@ export interface StripeCreditClient {
 }
 
 /** Retrieves canonical Stripe payment evidence and writes idempotent invoice balance adjustments. */
-export const makeStripeCreditClient = (sdk: Stripe): StripeCreditClient => ({
+export const makeStripeCreditClient = (
+	sdk: Stripe,
+	activation?: {
+		readonly basePriceId?: string;
+		readonly overagePriceId?: string;
+		readonly automaticTaxEnabled: boolean;
+	},
+): StripeCreditClient => ({
 	validatePrice: async (id) => {
 		const price = await sdk.prices.retrieve(id);
 		if (
@@ -137,9 +157,65 @@ export const makeStripeCreditClient = (sdk: Stripe): StripeCreditClient => ({
 			quantity: item.quantity ?? 0,
 			chargeId: charge.id,
 			disputed: charge.disputed,
+			activatePro: session.metadata.activate_pro === "true",
 			refunds,
 		};
 	},
+	activateSubscription: activation?.basePriceId
+		? async (purchase, key) => {
+				if (!activation?.basePriceId)
+					throw new Error("prepaid_activation_disabled");
+				// Do not save the top-up card or replace an existing subscription.
+				let existing = false;
+				for (const subscription of await stripeSubscriptionsAfterCheckoutExpiry(
+					sdk,
+					{
+						customerId: purchase.customerId,
+						accountId: purchase.accountId,
+						offerId: CLOUD_WORKSPACE_OFFER_ID,
+						basePriceId: activation.basePriceId,
+					},
+				)) {
+					if (
+						subscription.status === "canceled" ||
+						subscription.status === "incomplete_expired"
+					)
+						continue;
+					if (
+						existing ||
+						subscription.metadata.account_id !== purchase.accountId ||
+						!subscription.items.data.some(
+							(item) => item.price.id === activation.basePriceId,
+						)
+					)
+						throw new Error("conflicting_prepaid_subscription");
+					if (
+						subscription.status !== "active" &&
+						subscription.status !== "trialing"
+					)
+						throw new BillingProviderError({ code: "reconciliation-required" });
+					existing = true;
+				}
+				if (existing) return;
+				await sdk.subscriptions.create(
+					{
+						customer: purchase.customerId,
+						items: stripeSubscriptionItems(
+							activation.basePriceId,
+							activation.overagePriceId,
+						),
+						metadata: {
+							account_id: purchase.accountId,
+							offer_id: CLOUD_WORKSPACE_OFFER_ID,
+							prepaid_activation: "true",
+						},
+						automatic_tax: { enabled: activation.automaticTaxEnabled },
+						payment_behavior: "error_if_incomplete",
+					},
+					{ idempotencyKey: key },
+				);
+			}
+		: undefined,
 	adjustment: async (customerId, amount, key, purchaseId) => {
 		await sdk.customers.createBalanceTransaction(
 			customerId,
@@ -160,7 +236,7 @@ export const makeStripeCredits = (input: {
 	readonly client: StripeCreditClient;
 	readonly store: Pick<
 		StripeBillingStore,
-		"claimDelivery" | "finishDelivery" | "getCustomer"
+		"claimDelivery" | "finishDelivery" | "getCustomer" | "withSubscriptionLock"
 	>;
 	readonly customer: (
 		accountId: string,
@@ -243,11 +319,19 @@ export const makeStripeCredits = (input: {
 					currency: "usd" as const,
 				};
 			}),
-		checkout: (accountId: string, amountCents: number, successUrl: string) =>
+		checkout: (
+			accountId: string,
+			amountCents: number,
+			successUrl: string,
+			activatePro = false,
+		) =>
 			Effect.gen(function* () {
 				if (
 					!priceId ||
-					!PREPAID_CREDIT_AMOUNTS.some((amount) => amount === amountCents)
+					!PREPAID_CREDIT_AMOUNTS.some((amount) => amount === amountCents) ||
+					(activatePro &&
+						(amountCents !== PREPAID_PRO_CREDIT_AMOUNT ||
+							!client.activateSubscription))
 				)
 					return yield* new BillingProviderError({ code: "checkout-disabled" });
 				yield* call(() => client.validatePrice(priceId));
@@ -261,7 +345,26 @@ export const makeStripeCredits = (input: {
 						allowed_payment_method_types: ["card"],
 						success_url: successUrl,
 						line_items: [{ price: priceId, quantity: amountCents / 100 }],
-						metadata: { purpose: PURPOSE, account_id: accountId },
+						metadata: {
+							purpose: PURPOSE,
+							account_id: accountId,
+							...(activatePro ? { activate_pro: "true" } : {}),
+						},
+						...(activatePro
+							? {
+									billing_address_collection: "required" as const,
+									customer_update: {
+										address: "auto" as const,
+										name: "auto" as const,
+									},
+									custom_text: {
+										submit: {
+											message:
+												"$200 funds your Zuse invoice balance and activates the $40/month Pro plan. Subscription and cloud usage invoices use this balance. Existing billing settings apply after credits run out.",
+										},
+									},
+								}
+							: {}),
 						payment_intent_data: {
 							metadata: { purpose: PURPOSE, account_id: accountId },
 						},
@@ -328,6 +431,34 @@ export const makeStripeCredits = (input: {
 							code: "reconciliation-required",
 						});
 					yield* reconcile(purchase);
+					if (
+						purchase.activatePro &&
+						purchase.paid &&
+						(event.type === "checkout.session.completed" ||
+							event.type === "checkout.session.async_payment_succeeded") &&
+						!purchase.disputed &&
+						purchase.refunds.length === 0
+					) {
+						const activate = client.activateSubscription;
+						if (purchase.amountCents !== PREPAID_PRO_CREDIT_AMOUNT || !activate)
+							return yield* new BillingProviderError({
+								code: "reconciliation-required",
+							});
+						const key = `prepaid:activate:${purchase.customerId}`;
+						yield* deliverStripeOperation(
+							store,
+							key,
+							{
+								accountId: purchase.accountId,
+								customerId: purchase.customerId,
+								offerId: CLOUD_WORKSPACE_OFFER_ID,
+							},
+							() =>
+								store.withSubscriptionLock(purchase.accountId, () =>
+									activate(purchase, key),
+								),
+						);
+					}
 					if (dispute && purchase.paid) {
 						yield* adjust(
 							purchase,

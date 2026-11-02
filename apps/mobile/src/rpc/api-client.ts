@@ -166,6 +166,8 @@ export const getEnvironmentStatus = async (
 	return decoded;
 };
 
+const CONNECT_GRANT_TIMEOUT_MS = 15_000;
+
 export const connectEnvironment = async (
 	environmentId: string,
 	localPairing?: {
@@ -178,6 +180,9 @@ export const connectEnvironment = async (
 	const target = url(ApiPaths.connect(environmentId));
 	const response = await fetch(target, {
 		method: "POST",
+		// Every reconnect mints a grant; a stalled API must not hold the
+		// connection attempt open for the socket's whole open timeout.
+		signal: AbortSignal.timeout(CONNECT_GRANT_TIMEOUT_MS),
 		headers: {
 			authorization: `DPoP ${token}`,
 			dpop: await signDpopProof({ method: "POST", url: target }),

@@ -117,6 +117,13 @@ const liveOnlyDescriptors = (
 ): OptionDescriptor[] => {
 	const out: OptionDescriptor[] = [];
 	switch (providerId) {
+		case "muse": {
+			const reasoning = reasoningSelectDescriptorFromIds(
+				meta?.reasoningEfforts ?? [],
+			);
+			if (reasoning !== undefined) out.push(reasoning);
+			break;
+		}
 		case "codex": {
 			const reasoning = reasoningSelectDescriptorFromIds(
 				meta?.reasoningEfforts ?? ["low", "medium", "high"],
