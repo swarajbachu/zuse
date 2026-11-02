@@ -56,7 +56,7 @@ const PROBED = {
 
 const modes = new Map<
 	string,
-	"oauth" | "no-registration" | "missing" | "down" | "key"
+	"oauth" | "no-registration" | "missing" | "down" | "key" | "stalled"
 >([
 	["mcp.linear.app", "oauth"],
 	["mcp.custom-oauth.test", "oauth"],
@@ -72,6 +72,10 @@ const outboundService = async (request: Request): Promise<Response> => {
 	const mode = modes.get(url.host);
 	if (mode === "missing") return new Response(null, { status: 404 });
 	if (mode === "down") return new Response(null, { status: 503 });
+	if (mode === "stalled") {
+		await new Promise((resolve) => setTimeout(resolve, 45_000));
+		return new Response(null, { status: 503 });
+	}
 	if (mode === "key" && request.headers.get("x-api-key") !== "right-key")
 		return new Response(null, { status: 401 });
 	if (url.pathname.includes("oauth-protected-resource"))
@@ -524,6 +528,63 @@ test("keeps multiple plugin connections independently addressable", async () => 
 		).status,
 	).toBe(200);
 }, 60_000);
+
+test("search skips a failing connection instead of hiding every plugin", async () => {
+	const a = await client(create());
+	const healthy = await a.request({
+		action: "connect",
+		pluginId: "cloudflare",
+		label: "Docs",
+		requestId: crypto.randomUUID(),
+	});
+	expect(healthy.body.state).toBe("connected");
+	const keyed = await addServer(a, "https://mcp.keyed.test/mcp", {
+		apiKey: { header: "x-api-key", value: "right-key" },
+	});
+	expect(keyed.body.state).toBe("connected");
+	modes.set("mcp.keyed.test", "down");
+	try {
+		const search = await a.request(undefined, { action: "search", query: "" });
+		expect(search.status).toBe(200);
+		expect(search.body).toHaveLength(1);
+		expect(firstAddress(search.body)).toContain(healthy.body.connectionId);
+
+		await a.request({
+			action: "disconnect",
+			connectionId: healthy.body.connectionId,
+		});
+		expect(
+			(await a.request(undefined, { action: "search", query: "" })).status,
+		).toBe(400);
+	} finally {
+		modes.set("mcp.keyed.test", "key");
+	}
+}, 60_000);
+
+test("search returns healthy tools before a stalled connection times out", async () => {
+	const a = await client(create());
+	const healthy = await a.request({
+		action: "connect",
+		pluginId: "cloudflare",
+		label: "Docs",
+		requestId: crypto.randomUUID(),
+	});
+	const keyed = await addServer(a, "https://mcp.keyed.test/mcp", {
+		apiKey: { header: "x-api-key", value: "right-key" },
+	});
+	expect(keyed.body.state).toBe("connected");
+	modes.set("mcp.keyed.test", "stalled");
+	try {
+		const started = Date.now();
+		const search = await a.request(undefined, { action: "search", query: "" });
+		expect(Date.now() - started).toBeLessThan(25_000);
+		expect(search.status).toBe(200);
+		expect(search.body).toHaveLength(1);
+		expect(firstAddress(search.body)).toContain(healthy.body.connectionId);
+	} finally {
+		modes.set("mcp.keyed.test", "key");
+	}
+}, 90_000);
 
 test("refreshes expiring OAuth credentials through v2 before invoking", async () => {
 	tokenExpiresIn = 1;

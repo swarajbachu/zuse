@@ -83,10 +83,18 @@ export const createHttpPluginClient = (
 			body: JSON.stringify(input),
 			signal: AbortSignal.timeout(60_000),
 		});
-		if (!response.ok)
+		if (!response.ok) {
+			const body = (await response.json().catch(() => null)) as {
+				error?: unknown;
+			} | null;
+			const code =
+				typeof body?.error === "string" && /^[a-z_]{1,64}$/.test(body.error)
+					? body.error
+					: `http_${response.status}`;
 			throw new Error(
-				"Plugin request failed. Check Plugins in the workspace this chat belongs to.",
+				`Plugin request failed (${code}). Check Plugins in the workspace this chat belongs to.`,
 			);
+		}
 		return response.json();
 	},
 });
