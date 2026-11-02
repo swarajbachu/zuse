@@ -1042,6 +1042,12 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					}
 				}
 				if (worktree !== null && !force) yield* scheduleArchiveCleanup(chatId);
+				else
+					for (const { id } of liveSessions) {
+						const sessionId = SessionId.make(id);
+						yield* closeProvider(sessionId);
+						yield* interruptProviderFiber(sessionId);
+					}
 				yield* reactorEffects.complete(commandId);
 				return {
 					chat: yield* lookupChat(chatId),

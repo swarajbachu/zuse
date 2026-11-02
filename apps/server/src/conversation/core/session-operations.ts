@@ -1095,6 +1095,8 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				_tag: "ArchiveSession",
 				archivedAt: yield* currentTimestamp,
 			});
+			yield* closeProvider(sessionId);
+			yield* interruptProviderFiber(sessionId);
 		});
 
 	const releaseInitialTurn: ConversationOperations["releaseInitialTurn"] = (
