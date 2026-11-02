@@ -80,6 +80,7 @@ export interface SettingsSlice {
 	readonly defaultAutoCreateWorktree: boolean;
 	readonly defaultAutonomyLevel: AutonomyLevel;
 	readonly providerUpdateNotificationsEnabled: boolean;
+	readonly directSteerEnabled: boolean;
 	readonly reviewGuidesEnabled: boolean;
 	readonly reviewGuidesAutoGenerate: boolean;
 	readonly completionSoundEnabled: boolean;
@@ -125,6 +126,7 @@ type SettingsState = SettingsSlice & {
 	readonly setDefaultAutoCreateWorktree: (value: boolean) => void;
 	readonly setDefaultAutonomyLevel: (level: AutonomyLevel) => void;
 	readonly setProviderUpdateNotificationsEnabled: (value: boolean) => void;
+	readonly setDirectSteerEnabled: (value: boolean) => void;
 	readonly setReviewGuidesEnabled: (value: boolean) => void;
 	readonly setReviewGuidesAutoGenerate: (value: boolean) => void;
 	readonly setCompletionSoundEnabled: (value: boolean) => void;
@@ -228,6 +230,7 @@ const FALLBACK: SettingsSlice = {
 	defaultAutoCreateWorktree: true,
 	defaultAutonomyLevel: "approval-gated",
 	providerUpdateNotificationsEnabled: false,
+	directSteerEnabled: false,
 	reviewGuidesEnabled: true,
 	reviewGuidesAutoGenerate: true,
 	completionSoundEnabled: false,
@@ -257,6 +260,9 @@ const SettingsSliceSchema = Schema.Struct({
 	defaultAutoCreateWorktree: Schema.Boolean,
 	defaultAutonomyLevel: AutonomyLevel,
 	providerUpdateNotificationsEnabled: Schema.Boolean.pipe(
+		Schema.withDecodingDefaultType(Effect.succeed(false)),
+	),
+	directSteerEnabled: Schema.Boolean.pipe(
 		Schema.withDecodingDefaultType(Effect.succeed(false)),
 	),
 	reviewGuidesEnabled: Schema.Boolean.pipe(
@@ -360,6 +366,7 @@ const fromFile = (file: SettingsFile): SettingsSlice => {
 		defaultAutonomyLevel: file.defaultAutonomyLevel,
 		providerUpdateNotificationsEnabled:
 			file.providerUpdateNotificationsEnabled === true,
+		directSteerEnabled: file.directSteerEnabled === true,
 		reviewGuidesEnabled: file.reviewGuidesEnabled !== false,
 		reviewGuidesAutoGenerate: file.reviewGuidesAutoGenerate !== false,
 		completionSoundEnabled: file.completionSoundEnabled,
@@ -851,6 +858,8 @@ const ACTIONS = {
 	setProviderUpdateNotificationsEnabled: (
 		providerUpdateNotificationsEnabled: boolean,
 	) => update(() => ({ providerUpdateNotificationsEnabled })),
+	setDirectSteerEnabled: (directSteerEnabled: boolean) =>
+		update(() => ({ directSteerEnabled })),
 	setReviewGuidesEnabled: (reviewGuidesEnabled: boolean) =>
 		update(() => ({ reviewGuidesEnabled })),
 	setReviewGuidesAutoGenerate: (reviewGuidesAutoGenerate: boolean) =>

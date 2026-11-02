@@ -1304,6 +1304,10 @@ function ComputerAwakeSettings() {
 }
 
 function GeneralPane() {
+	const directSteerEnabled = useSettingsStore((s) => s.directSteerEnabled);
+	const setDirectSteerEnabled = useSettingsStore(
+		(s) => s.setDirectSteerEnabled,
+	);
 	useOrganizationWorkspaces();
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 
@@ -1371,6 +1375,19 @@ function GeneralPane() {
 
 	return (
 		<div className="flex flex-col gap-4">
+			<SettingsGroup title={uiMessage("settings:composer_title")}>
+				<SettingsRow
+					title={uiMessage("settings:direct_steer_title")}
+					description={uiMessage("settings:direct_steer_description")}
+					action={
+						<Switch
+							checked={directSteerEnabled}
+							onCheckedChange={setDirectSteerEnabled}
+							aria-label={uiMessage("settings:direct_steer_title")}
+						/>
+					}
+				/>
+			</SettingsGroup>
 			<SettingsGroup
 				title={uiMessage("settings:settings_page_account")}
 				description={uiMessage(

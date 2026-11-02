@@ -1306,5 +1306,8 @@
 	"settings_page_review_guides_auto": "自动刷新导览",
 	"settings_page_review_guides": "引导式审阅",
 	"settings_page_review_guides_description": "在“更改”中于差异旁显示由智能体撰写的变更导览。",
-	"settings_page_review_guides_auto_description": "在每次完成轮次、提交或推送后更新导览。使用该对话自己的模型。"
+	"settings_page_review_guides_auto_description": "在每次完成轮次、提交或推送后更新导览。使用该对话自己的模型。",
+	"composer_title": "消息编辑器",
+	"direct_steer_title": "直接引导",
+	"direct_steer_description": "将新消息立即发送给正在运行的智能体，而不是加入队列。使用 Alt+Enter 将消息加入队列。"
 }

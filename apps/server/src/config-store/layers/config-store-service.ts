@@ -83,6 +83,7 @@ const freshSettings = (): SettingsFile =>
 		onboardingCompleted: false,
 		appearanceMode: "dark",
 		providerUpdateNotificationsEnabled: false,
+		directSteerEnabled: false,
 		reviewGuidesEnabled: true,
 		reviewGuidesAutoGenerate: true,
 		completionSoundEnabled: false,
@@ -551,6 +552,7 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 		appearanceMode,
 		providerUpdateNotificationsEnabled:
 			obj.providerUpdateNotificationsEnabled === true,
+		directSteerEnabled: obj.directSteerEnabled === true,
 		reviewGuidesEnabled: obj.reviewGuidesEnabled !== false,
 		reviewGuidesAutoGenerate: obj.reviewGuidesAutoGenerate !== false,
 		completionSoundEnabled,
@@ -817,6 +819,8 @@ export const ConfigStoreServiceLive = Layer.effect(
 						patch.providerUpdateNotificationsEnabled ??
 						cur.providerUpdateNotificationsEnabled ??
 						false,
+					directSteerEnabled:
+						patch.directSteerEnabled ?? cur.directSteerEnabled ?? false,
 					reviewGuidesEnabled:
 						patch.reviewGuidesEnabled ?? cur.reviewGuidesEnabled ?? true,
 					reviewGuidesAutoGenerate:
@@ -960,6 +964,7 @@ export const ConfigStoreServiceLive = Layer.effect(
 						appearanceMode,
 						providerUpdateNotificationsEnabled:
 							cur.providerUpdateNotificationsEnabled ?? false,
+						directSteerEnabled: cur.directSteerEnabled ?? false,
 						reviewGuidesEnabled: cur.reviewGuidesEnabled ?? true,
 						reviewGuidesAutoGenerate: cur.reviewGuidesAutoGenerate ?? true,
 						completionSoundEnabled,

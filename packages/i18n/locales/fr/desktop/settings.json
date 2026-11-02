@@ -1310,5 +1310,8 @@
 	"settings_page_review_guides_auto": "Actualiser les guides automatiquement",
 	"settings_page_review_guides": "Revues guidées",
 	"settings_page_review_guides_description": "Afficher, à côté du diff dans Modifications, une visite des changements rédigée par un agent.",
-	"settings_page_review_guides_auto_description": "Met à jour le guide après chaque tour terminé, commit ou push. Utilise le modèle de la discussion."
+	"settings_page_review_guides_auto_description": "Met à jour le guide après chaque tour terminé, commit ou push. Utilise le modèle de la discussion.",
+	"composer_title": "Éditeur de message",
+	"direct_steer_title": "Guidage direct",
+	"direct_steer_description": "Envoyer les nouveaux messages immédiatement à l’agent en cours au lieu de les mettre en attente. Utilisez Alt+Entrée pour mettre un message en attente."
 }

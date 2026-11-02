@@ -1306,5 +1306,8 @@
 	"settings_page_review_guides_auto": "Leitfäden automatisch aktualisieren",
 	"settings_page_review_guides": "Geführte Reviews",
 	"settings_page_review_guides_description": "Zeigt in „Änderungen“ neben dem Diff eine von einem Agenten geschriebene Tour durch die Änderungen.",
-	"settings_page_review_guides_auto_description": "Aktualisiert den Leitfaden nach jedem abgeschlossenen Zug, Commit oder Push. Nutzt das Modell des Chats."
+	"settings_page_review_guides_auto_description": "Aktualisiert den Leitfaden nach jedem abgeschlossenen Zug, Commit oder Push. Nutzt das Modell des Chats.",
+	"composer_title": "Nachrichteneingabe",
+	"direct_steer_title": "Direkte Steuerung",
+	"direct_steer_description": "Neue Nachrichten sofort an den laufenden Agenten senden, statt sie einzureihen. Mit Alt+Enter wird eine Nachricht eingereiht."
 }

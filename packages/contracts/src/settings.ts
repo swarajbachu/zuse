@@ -92,6 +92,7 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
 	 * the diff. On unless turned off; `reviewGuidesAutoGenerate` refreshes the
 	 * guide after each finished turn, commit, or push.
 	 */
+	directSteerEnabled: Schema.optional(Schema.Boolean),
 	reviewGuidesEnabled: Schema.optional(Schema.Boolean),
 	reviewGuidesAutoGenerate: Schema.optional(Schema.Boolean),
 	completionSoundEnabled: Schema.Boolean,
@@ -228,6 +229,7 @@ export const SettingsPatch = Schema.Struct({
 	onboardingCompleted: Schema.optional(Schema.Boolean),
 	appearanceMode: Schema.optional(AppearanceMode),
 	providerUpdateNotificationsEnabled: Schema.optional(Schema.Boolean),
+	directSteerEnabled: Schema.optional(Schema.Boolean),
 	reviewGuidesEnabled: Schema.optional(Schema.Boolean),
 	reviewGuidesAutoGenerate: Schema.optional(Schema.Boolean),
 	completionSoundEnabled: Schema.optional(Schema.Boolean),
@@ -279,6 +281,7 @@ export type SettingsPatch = typeof SettingsPatch.Type;
 export const DevicePreferences = SettingsPatch.mapFields(
 	Struct.pick([
 		"appearanceMode",
+		"directSteerEnabled",
 		"completionSoundEnabled",
 		"completionSoundPreset",
 		"onboardingCompleted",

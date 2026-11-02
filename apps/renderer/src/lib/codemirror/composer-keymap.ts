@@ -1,8 +1,14 @@
-import { insertNewlineAndIndent } from "@codemirror/commands";
+import {
+	deleteGroupBackward,
+	deleteToLineEnd,
+	deleteToLineStart,
+	insertNewlineAndIndent,
+} from "@codemirror/commands";
 import type { KeyBinding } from "@codemirror/view";
 
 import type { Command } from "@zuse/contracts";
 
+import { DoubleEscape } from "../../composer/double-escape.ts";
 import { keybindingsSnapshot } from "../keybindings-client-bus.ts";
 import type { ComposerCallbacks } from "./composer.ts";
 import { keyToCodeMirrorKey } from "./keybinding-bridge.ts";
@@ -41,17 +47,81 @@ export const buildComposerKeymap = (
 	return bindings;
 };
 
+const escapePresses = new WeakMap<
+	import("@codemirror/view").EditorView,
+	DoubleEscape
+>();
+export const resetComposerInterrupt = (
+	view: import("@codemirror/view").EditorView,
+): void => {
+	escapePresses.get(view)?.reset();
+};
+
 const makeComposerBinding = (
 	command: Command,
 	key: string,
 	callbacks: ComposerCallbacks,
 ): KeyBinding | null => {
 	switch (command) {
+		case "composer.deleteToStart":
+		case "composer.deleteToEnd":
+		case "composer.deleteWord":
+			return {
+				key,
+				run: (view) => {
+					if (view.composing) return false;
+					return (
+						command === "composer.deleteToStart"
+							? deleteToLineStart
+							: command === "composer.deleteToEnd"
+								? deleteToLineEnd
+								: deleteGroupBackward
+					)(view);
+				},
+			};
+		case "composer.interrupt":
+			return {
+				key,
+				run: (view) => {
+					if (view.composing || callbacks.canInterrupt?.() === false) {
+						resetComposerInterrupt(view);
+						return false;
+					}
+					if (key === "Escape") {
+						let presses = escapePresses.get(view);
+						if (!presses) {
+							presses = new DoubleEscape();
+							escapePresses.set(view, presses);
+						}
+						if (!presses.press(view.state.doc)) return true;
+					}
+					return callbacks.onInterrupt?.() ?? false;
+				},
+			};
 		case "composer.submit":
 			return {
 				key,
 				preventDefault: true,
 				run: (view) => !view.composing && callbacks.onSubmit(),
+			};
+		case "composer.previousMessage":
+		case "composer.nextMessage":
+			return {
+				key,
+				run: (view) => {
+					if (view.composing || !view.state.selection.main.empty) return false;
+					const direction = command === "composer.previousMessage" ? -1 : 1;
+					const head = view.state.selection.main.head;
+					if (direction === -1 && head !== 0) return false;
+					if (direction === 1 && head !== view.state.doc.length) return false;
+					return callbacks.onHistory?.(direction) ?? false;
+				},
+			};
+		case "composer.queueSubmit":
+			return {
+				key,
+				preventDefault: true,
+				run: (view) => !view.composing && callbacks.onSubmit("queue"),
 			};
 		case "composer.newline":
 			return { key, run: insertNewlineAndIndent };
@@ -62,7 +132,7 @@ const makeComposerBinding = (
 				run: (view) => {
 					if (view.composing) return false;
 
-					callbacks.onSubmit();
+					callbacks.onSubmit("steer");
 					return true;
 				},
 			};

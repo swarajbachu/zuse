@@ -1306,5 +1306,8 @@
 	"settings_page_review_guides_auto": "ガイドを自動で更新",
 	"settings_page_review_guides": "ガイド付きレビュー",
 	"settings_page_review_guides_description": "変更タブの差分の横に、エージェントが書いた変更のツアーを表示します。",
-	"settings_page_review_guides_auto_description": "各ターンの完了、コミット、プッシュのたびにガイドを更新します。チャット自身のモデルを使います。"
+	"settings_page_review_guides_auto_description": "各ターンの完了、コミット、プッシュのたびにガイドを更新します。チャット自身のモデルを使います。",
+	"composer_title": "メッセージ入力",
+	"direct_steer_title": "直接指示",
+	"direct_steer_description": "新しいメッセージをキューに追加せず、実行中のエージェントにすぐ送信します。Alt+Enter でキューに追加できます。"
 }
