@@ -103,6 +103,19 @@ const errorCode = (error: unknown): PluginErrorCode =>
 			? ENGINE_ERRORS[error.code]
 			: "plugin_operation_failed";
 const TTL = 10 * 60_000;
+/** Well inside the 60 s agent client timeout, leaving room for the response. */
+const SEARCH_DEADLINE_MS = 20_000;
+/** Stop waiting at the deadline; the abandoned discovery settles in the background. */
+const withinDeadline = <A>(pending: Promise<A>, signal: AbortSignal) =>
+	new Promise<A>((resolve, reject) => {
+		const onAbort = () =>
+			reject(new PluginOperationError({ code: "plugin_unreachable" }));
+		if (signal.aborted) return onAbort();
+		signal.addEventListener("abort", onAbort, { once: true });
+		pending
+			.then(resolve, reject)
+			.finally(() => signal.removeEventListener("abort", onAbort));
+	});
 const encoder = new TextEncoder();
 const publicAttempt = (a: PluginAttempt): PluginAttempt => ({
 	kind: "attempt",
@@ -791,34 +804,41 @@ export class PluginVault {
 				.toLowerCase()
 				.split(/\s+/)
 				.filter(Boolean);
+			// Discover concurrently under one deadline: a stale or stalled connection
+			// must not hide every other plugin's tools or outlast the client timeout.
+			const deadline = AbortSignal.timeout(SEARCH_DEADLINE_MS);
+			const lists = await Promise.allSettled(
+				connected.map(async ({ row, subject }) =>
+					withinDeadline(
+						e.list(
+							this.owner({ ...identity, subject }),
+							await this.ref(subject, row.id, row.pluginId),
+						),
+						deadline,
+					),
+				),
+			);
 			const tools = [];
 			let failure: unknown;
-			let reachable = false;
-			for (const { row, subject } of connected) {
-				let list: Awaited<ReturnType<PluginEngine["list"]>>;
-				try {
-					list = await e.list(
-						this.owner({ ...identity, subject }),
-						await this.ref(subject, row.id, row.pluginId),
-					);
-				} catch (error) {
-					// One stale connection must not hide every other plugin's tools.
+			for (const [index, { row }] of connected.entries()) {
+				const list = lists[index];
+				if (!list) continue;
+				if (list.status === "rejected") {
 					console.warn(
 						JSON.stringify({
 							event: "plugin_tools_unavailable",
 							plugin: row.pluginId,
-							...failureKind(error),
+							...failureKind(list.reason),
 						}),
 					);
-					failure ??= error;
+					failure ??= list.reason;
 					continue;
 				}
-				reachable = true;
 
 				const catalog = this.plugin(row.pluginId);
 				const plugin = `${row.pluginId} ${catalog?.name ?? ""} ${row.label}`;
 				const serviceNames = plugin.toLowerCase().replace(/[^a-z0-9]/g, "");
-				for (const tool of list) {
+				for (const tool of list.value) {
 					if (
 						terms.every(
 							(term) =>
@@ -836,7 +856,11 @@ export class PluginVault {
 					if (tools.length >= 100) return tools;
 				}
 			}
-			if (!reachable && failure !== undefined) throw failure;
+			if (
+				failure !== undefined &&
+				lists.every((list) => list.status === "rejected")
+			)
+				throw failure;
 			return tools;
 		}
 		const connection = connected.find(({ row }) =>
