@@ -687,7 +687,7 @@ export function ChatComposer({
 		pendingDraftContextFilesRef.current = [
 			...(initialSnapshot?.pendingContextFiles ?? []),
 		];
-		if (initialSnapshot?.annotations)
+		if (isDraft && initialSnapshot?.annotations)
 			useAnnotationsStore
 				.getState()
 				.replace(sessionId, initialSnapshot.annotations);
@@ -976,7 +976,7 @@ export function ChatComposer({
 		});
 
 		return () => {
-			draftWriter.flush();
+			draftWriter.flush(view.state);
 			if (history.unsentDraft)
 				useAnnotationsStore
 					.getState()
