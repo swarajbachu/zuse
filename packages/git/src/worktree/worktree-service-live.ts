@@ -43,7 +43,10 @@ import {
 	ChildProcessSpawner as CommandExecutor,
 } from "effect/unstable/process";
 import { SqlClient } from "effect/unstable/sql";
-import { recoverGitCheckpointRef } from "../checkpoints.ts";
+import {
+	checkpointRefFromGitError,
+	recoverGitCheckpointRef,
+} from "../checkpoints.ts";
 import { parseRemoteUrl, resolveGitHubRepository } from "../git-remote.ts";
 import {
 	GitHubClient,
@@ -460,10 +463,15 @@ export const WorktreeServiceLive = Layer.effect(
 			args: ReadonlyArray<string>,
 			env?: Readonly<Record<string, string>>,
 		) {
-			for (let attempt = 0; ; attempt += 1) {
+			const recoveredRefs = new Set<string>();
+			for (;;) {
 				const result = yield* runGitOnce(cwd, args, env).pipe(Effect.result);
 				if (result._tag === "Success") return result.success;
-				if (args[0] !== "fetch" || attempt >= 3)
+				const ref =
+					args[0] === "fetch"
+						? checkpointRefFromGitError(result.failure)
+						: null;
+				if (ref === null || recoveredRefs.has(ref))
 					return yield* Effect.fail(result.failure);
 				const recovered = yield* Effect.tryPromise({
 					try: (signal) => recoverGitCheckpointRef(cwd, result.failure, signal),
@@ -471,6 +479,7 @@ export const WorktreeServiceLive = Layer.effect(
 						`${result.failure}\nCheckpoint recovery failed: ${error instanceof Error ? error.message : String(error)}`,
 				});
 				if (!recovered) return yield* Effect.fail(result.failure);
+				recoveredRefs.add(ref);
 				yield* Effect.logWarning(
 					"Quarantined an invalid Zuse checkpoint reference; retrying Git fetch. Evidence is retained in the repository's zuse/checkpoint-recovery directory.",
 				);
@@ -911,7 +920,7 @@ export const WorktreeServiceLive = Layer.effect(
 					const checkoutStartedAt = Date.now();
 					const addResult = yield* Effect.gen(function* () {
 						if (source === undefined) {
-							return yield* runGit(repoPath, [
+							const output = yield* runGit(repoPath, [
 								"worktree",
 								"add",
 								"-b",
@@ -919,6 +928,16 @@ export const WorktreeServiceLive = Layer.effect(
 								target,
 								baseRef,
 							]);
+							if (hasOrigin)
+								yield* runGit(target, [
+									"-c",
+									`remote.origin.fetch=+refs/heads/${baseBranch}:refs/remotes/origin/${baseBranch}`,
+									"branch",
+									"--set-upstream-to",
+									`origin/${baseBranch}`,
+									branch,
+								]);
+							return output;
 						}
 						if (source._tag === "branch") {
 							checkedOutBranch = source.branch;
