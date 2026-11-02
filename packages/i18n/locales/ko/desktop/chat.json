@@ -5,8 +5,6 @@
 	"background_tasks_title": "백그라운드 작업",
 	"background_process": "백그라운드 프로세스",
 	"background_stop_task": "{{task}} 중지",
-	"background_group_running": "실행 중",
-	"background_group_stopped": "중지됨",
 	"background_stop_all": "모두 중지",
 	"terminal_bottom": "하단 터미널",
 	"terminal_resize_bottom": "하단 터미널 크기 조절",

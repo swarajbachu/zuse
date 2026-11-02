@@ -1,6 +1,5 @@
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import { useGitPrState } from "../lib/use-git-pr-state.ts";
-import { BackgroundTasks } from "./background-tasks.tsx";
 import { GitStackMenu } from "./git-stack-menu.tsx";
 import { GitHubStatusNotice } from "./github-status-notice.tsx";
 import { PrActionsMenu } from "./pr-actions-menu.tsx";
@@ -52,14 +51,14 @@ import { useGitStack } from "../store/git-stack.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
-import { AgentsSummary } from "./agents-summary.tsx";
 import { ChatPullRequestList } from "./chat-pull-request-list.tsx";
 import {
 	CloudWorkspaceInfo,
 	summaryRowClass as rowClass,
 	summaryMetaClass,
 } from "./cloud-workspace-info.tsx";
-import { SummaryActivity, SummarySection } from "./summary-section.tsx";
+import { SessionActivity } from "./session-activity.tsx";
+import { SummarySection } from "./summary-section.tsx";
 import { BranchMenuButton } from "./top-bar.tsx";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu.tsx";
 import {
@@ -565,25 +564,14 @@ export function EnvironmentSummary() {
 					</span>
 				</button>
 			) : null}
-			<SummaryActivity>
-				{timeline.ref !== null && session !== null ? (
-					<BackgroundTasks
-						key={`${timeline.ref.environmentId}:${timeline.ref.sessionId}`}
-						view={timeline.view}
-						sessionRef={timeline.ref}
-						providerId={session.providerId}
-					/>
-				) : null}
-				{chatRef !== null && session !== null ? (
-					<AgentsSummary
-						key={`${chatRef.environmentId}:${session.id}`}
-						chatRef={chatRef}
-						session={session}
-						sessions={Object.values(sessionsByProject).flat()}
-						nativeAgents={subagents}
-					/>
-				) : null}
-			</SummaryActivity>
+			<SessionActivity
+				session={session}
+				sessionRef={timeline.ref}
+				view={timeline.view}
+				chatRef={chatRef}
+				sessions={Object.values(sessionsByProject).flat()}
+				nativeAgents={subagents}
+			/>
 		</aside>
 	);
 }

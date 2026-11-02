@@ -5,8 +5,6 @@
 	"background_tasks_title": "Travail en arrière-plan",
 	"background_process": "Processus en arrière-plan",
 	"background_stop_task": "Arrêter {{task}}",
-	"background_group_running": "En cours",
-	"background_group_stopped": "Arrêtés",
 	"background_stop_all": "Tout arrêter",
 	"terminal_bottom": "Terminal inférieur",
 	"terminal_resize_bottom": "Redimensionner le terminal inférieur",

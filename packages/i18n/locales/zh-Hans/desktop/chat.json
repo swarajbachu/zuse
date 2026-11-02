@@ -5,8 +5,6 @@
 	"background_tasks_title": "后台任务",
 	"background_process": "后台进程",
 	"background_stop_task": "停止 {{task}}",
-	"background_group_running": "运行中",
-	"background_group_stopped": "已停止",
 	"background_stop_all": "全部停止",
 	"terminal_bottom": "底部终端",
 	"terminal_resize_bottom": "调整底部终端大小",

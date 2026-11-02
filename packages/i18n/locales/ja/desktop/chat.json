@@ -5,8 +5,6 @@
 	"background_tasks_title": "バックグラウンド作業",
 	"background_process": "バックグラウンドプロセス",
 	"background_stop_task": "{{task}} を停止",
-	"background_group_running": "実行中",
-	"background_group_stopped": "停止",
 	"background_stop_all": "すべて停止",
 	"terminal_bottom": "下部ターミナル",
 	"terminal_resize_bottom": "下部ターミナルのサイズを変更",

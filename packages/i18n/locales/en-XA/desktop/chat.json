@@ -5,8 +5,6 @@
 	"background_tasks_title": "⟦Bààckgrôôüünd wôôrk⟧",
 	"background_process": "⟦Bààckgrôôüünd prôôcëëss⟧",
 	"background_stop_task": "⟦Stôôp {{task}}⟧",
-	"background_group_running": "⟦Rüünnïïng⟧",
-	"background_group_stopped": "⟦Stôôppëëd⟧",
 	"background_stop_all": "⟦Stôôp ààll⟧",
 	"native_background_running": "⟦Bààckgrôôüünd wôôrk rüünnïïng⟧",
 	"terminal_bottom": "⟦Bôôttôôm tëërmïïnààl⟧",

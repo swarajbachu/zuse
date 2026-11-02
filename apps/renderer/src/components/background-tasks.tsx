@@ -1,7 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-	type EndedBackgroundProcess,
-	endedBackgroundProcesses,
 	type RunningBackgroundTask,
 	runningBackgroundProcesses,
 } from "@zuse/client-runtime/background-agent-presentation";
@@ -12,17 +10,12 @@ import "@zuse/i18n/english/chat";
 import "@zuse/i18n/english/common";
 import { useMessages } from "@zuse/i18n/react";
 import { ComputerTerminal01Icon, StopIcon } from "@zuse/icons/solid-rounded";
-import { type ReactNode, useMemo, useState } from "react";
-import type { DelegationStatus } from "../lib/delegation-display.ts";
+import { useMemo, useState } from "react";
 import { formatError } from "../lib/format-error.ts";
 import { stopBackgroundTask } from "../lib/session-actions.ts";
 import { cn } from "../lib/utils.ts";
 import { summaryMetaClass, summaryRowClass } from "./cloud-workspace-info.tsx";
-import {
-	DelegationElapsed,
-	StatusGlyph,
-	useDelegationStatusLabel,
-} from "./delegation-row.tsx";
+import { DelegationElapsed, StatusGlyph } from "./delegation-row.tsx";
 import { SummarySection } from "./summary-section.tsx";
 import { Spinner } from "./ui/spinner.tsx";
 
@@ -32,18 +25,9 @@ interface BackgroundTasksProps {
 	readonly providerId: ProviderId;
 }
 
-const OUTCOME_STATUS = {
-	completed: "done",
-	failed: "failed",
-	stopped: "stopped",
-} as const satisfies Record<
-	EndedBackgroundProcess["outcome"],
-	DelegationStatus
->;
-
 /**
- * Background processes for the session, folded by default. Detached agents
- * are listed with the other agents instead.
+ * Background processes still running for the session, folded by default.
+ * Finished shells drop out; detached agents are listed with the other agents.
  */
 export function BackgroundTasks(props: BackgroundTasksProps) {
 	const { message } = useMessages(["chat"]);
@@ -51,20 +35,14 @@ export function BackgroundTasks(props: BackgroundTasksProps) {
 		() => runningBackgroundProcesses(props.view).length,
 		[props.view],
 	);
-	const ended = useMemo(
-		() => endedBackgroundProcesses(props.view).length,
-		[props.view],
-	);
-	if (running + ended === 0) return null;
+	if (running === 0) return null;
 	return (
 		<SummarySection
 			icon={ComputerTerminal01Icon}
 			label={message("chat:background_tasks_title")}
-			meta={
-				running > 0
-					? message("chat:agents_summary_running", { count: String(running) })
-					: null
-			}
+			meta={message("chat:agents_summary_running", {
+				count: String(running),
+			})}
 			defaultOpen={false}
 		>
 			<BackgroundTaskRows {...props} />
@@ -73,8 +51,8 @@ export function BackgroundTasks(props: BackgroundTasksProps) {
 }
 
 /**
- * Running processes first, each with its own stop control, then the stopped
- * ones with how they ended. Rows align with the section label.
+ * Running processes, each with its own stop control. Rows align with the
+ * section label.
  */
 export function BackgroundTaskRows({
 	view,
@@ -82,9 +60,7 @@ export function BackgroundTaskRows({
 	providerId,
 }: BackgroundTasksProps) {
 	const { message } = useMessages(["chat", "common"]);
-	const statusLabel = useDelegationStatusLabel();
 	const running = useMemo(() => runningBackgroundProcesses(view), [view]);
-	const ended = useMemo(() => endedBackgroundProcesses(view), [view]);
 	const [errors, setErrors] = useState<Readonly<Record<string, string | null>>>(
 		{},
 	);
@@ -127,11 +103,18 @@ export function BackgroundTaskRows({
 		return (
 			<div key={task.id}>
 				<div
-					title={label}
+					title={task.command ? `${label}\n${task.command}` : label}
 					aria-description={processLabel}
 					className={cn(summaryRowClass, "ps-[34px] hover:bg-muted/60")}
 				>
-					<span className="min-w-0 flex-1 truncate">{label}</span>
+					<span className="flex min-w-0 flex-1 flex-col py-1">
+						<span className="truncate">{label}</span>
+						{task.command && task.command !== label ? (
+							<code className="truncate font-mono text-[10px] text-muted-foreground">
+								{task.command}
+							</code>
+						) : null}
+					</span>
 					<span className={summaryMetaClass}>
 						<span role="timer" aria-live="off">
 							<DelegationElapsed
@@ -180,83 +163,22 @@ export function BackgroundTaskRows({
 		);
 	};
 
-	const endedRow = (task: EndedBackgroundProcess) => {
-		const status = OUTCOME_STATUS[task.outcome];
-		const label = task.description || processLabel;
-		return (
-			<div
-				key={task.id}
-				title={label}
-				aria-description={statusLabel(status)}
-				className={cn(
-					summaryRowClass,
-					"ps-[34px] text-muted-foreground hover:bg-muted/60",
-				)}
-			>
-				<span className="min-w-0 flex-1 truncate">{label}</span>
-				<span className={summaryMetaClass}>
-					<DelegationElapsed
-						timing={{
-							status,
-							startedAt: task.startedAtMs,
-							completedAt: task.endedAtMs,
-						}}
-					/>
-					<span className="grid size-3 place-items-center">
-						<StatusGlyph status={status} />
-					</span>
-				</span>
-			</div>
-		);
-	};
-
 	return (
 		<>
-			{running.length > 0 ? (
-				<BackgroundGroup
-					label={message("chat:background_group_running")}
-					action={
-						stoppable.length > 1 ? (
-							<button
-								type="button"
-								onClick={() => {
-									for (const task of stoppable) stop(task);
-								}}
-								className="rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
-							>
-								{message("chat:background_stop_all")}
-							</button>
-						) : null
-					}
-				>
-					{running.map(runningRow)}
-				</BackgroundGroup>
-			) : null}
-			{ended.length > 0 ? (
-				<BackgroundGroup label={message("chat:background_group_stopped")}>
-					{ended.map(endedRow)}
-				</BackgroundGroup>
+			{running.map(runningRow)}
+			{stoppable.length > 1 ? (
+				<div className="flex h-6 items-center justify-end pe-2.5 text-[11px] text-muted-foreground/80">
+					<button
+						type="button"
+						onClick={() => {
+							for (const task of stoppable) stop(task);
+						}}
+						className="rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+					>
+						{message("chat:background_stop_all")}
+					</button>
+				</div>
 			) : null}
 		</>
-	);
-}
-
-function BackgroundGroup({
-	label,
-	action,
-	children,
-}: {
-	readonly label: string;
-	readonly action?: ReactNode;
-	readonly children: ReactNode;
-}) {
-	return (
-		<section aria-label={label}>
-			<div className="flex h-6 items-center justify-between gap-2 ps-[34px] pe-2.5 text-[11px] text-muted-foreground/80">
-				<span className="truncate">{label}</span>
-				{action}
-			</div>
-			{children}
-		</section>
 	);
 }
