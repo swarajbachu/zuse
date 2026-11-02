@@ -5,8 +5,6 @@
 	"background_tasks_title": "Hintergrundarbeit",
 	"background_process": "Hintergrundprozess",
 	"background_stop_task": "{{task}} stoppen",
-	"background_group_running": "Läuft",
-	"background_group_stopped": "Gestoppt",
 	"background_stop_all": "Alle stoppen",
 	"terminal_bottom": "Unteres Terminal",
 	"terminal_resize_bottom": "Unteres Terminal skalieren",

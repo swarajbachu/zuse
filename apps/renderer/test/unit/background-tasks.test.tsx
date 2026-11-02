@@ -98,6 +98,36 @@ describe("background task controls", () => {
 		expect(html).toContain('aria-label="Stop Watch build"');
 		expect(html).not.toContain("Waiting");
 	});
+	it("shows the command a process runs beneath its description", () => {
+		const data = {
+			...projection,
+			messages: [
+				{
+					id: "launch",
+					sessionId: "agent-session",
+					role: "assistant",
+					createdAt: new Date(0),
+					content: {
+						_tag: "tool_use",
+						itemId: "shell",
+						tool: "Bash",
+						input: { command: "bun run dev", description: "Watch build" },
+						backgroundTask: { taskId: "native-task" },
+					},
+				},
+			],
+		} as unknown as SessionTimelineProjection;
+		const html = renderToStaticMarkup(
+			<BackgroundTaskRows
+				view={{ ...view, data }}
+				sessionRef={ref}
+				providerId="claude"
+			/>,
+		);
+		expect(html).toContain("Watch build");
+		expect(html).toContain("<code");
+		expect(html).toContain("bun run dev");
+	});
 	it("dispatches the exact task, environment and execution identity", async () => {
 		const task = runningBackgroundTasks(view).at(0);
 		if (task === undefined) throw new Error("Missing task");
@@ -165,7 +195,7 @@ describe("background task controls", () => {
 			expect(html).not.toContain("<button");
 		}
 	});
-	it("separates a stopped process from the running ones and keeps stop on each running row", () => {
+	it("lists only running processes and keeps stop on each row", () => {
 		const data = {
 			...projection,
 			executionSteps: [
@@ -194,15 +224,12 @@ describe("background task controls", () => {
 				providerId="claude"
 			/>,
 		);
-		expect(html).toContain('aria-label="Running"');
-		expect(html).toContain('aria-label="Stopped"');
-		expect(html.indexOf("Run tests")).toBeLessThan(html.indexOf("Old server"));
 		expect(html).toContain('aria-label="Stop Watch build"');
 		expect(html).toContain('aria-label="Stop Run tests"');
 		expect(html).toContain("Stop all");
-		expect(html).not.toContain('aria-label="Stop Old server"');
+		expect(html).not.toContain("Old server");
 	});
-	it("moves a process to the stopped group once its native outcome is persisted", () => {
+	it("hides the section once every process has ended", () => {
 		const data = {
 			...projection,
 			executionSteps: projection.executionSteps?.map((step) => ({
@@ -210,25 +237,13 @@ describe("background task controls", () => {
 				status: "cancelled" as const,
 			})),
 		};
-		const section = renderToStaticMarkup(
+		const html = renderToStaticMarkup(
 			<BackgroundTasks
 				view={{ ...view, data }}
 				sessionRef={ref}
 				providerId="claude"
 			/>,
 		);
-		expect(section).toContain("Background work");
-		expect(section).not.toContain("running");
-		const rows = renderToStaticMarkup(
-			<BackgroundTaskRows
-				view={{ ...view, data }}
-				sessionRef={ref}
-				providerId="claude"
-			/>,
-		);
-		expect(rows).not.toContain('aria-label="Running"');
-		expect(rows).toContain('aria-label="Stopped"');
-		expect(rows).toContain("Watch build");
-		expect(rows).not.toContain("<button");
+		expect(html).toBe("");
 	});
 });

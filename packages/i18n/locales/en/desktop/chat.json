@@ -5,8 +5,6 @@
 	"background_tasks_title": "Background work",
 	"background_process": "Background process",
 	"background_stop_task": "Stop {{task}}",
-	"background_group_running": "Running",
-	"background_group_stopped": "Stopped",
 	"background_stop_all": "Stop all",
 	"native_background_running": "Background work running",
 	"terminal_bottom": "Bottom terminal",

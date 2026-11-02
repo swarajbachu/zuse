@@ -5,8 +5,6 @@
 	"background_tasks_title": "後臺工作",
 	"background_process": "後臺處理程序",
 	"background_stop_task": "停止 {{task}}",
-	"background_group_running": "執行中",
-	"background_group_stopped": "已停止",
 	"background_stop_all": "全部停止",
 	"terminal_bottom": "底部終端機",
 	"terminal_resize_bottom": "調整底部終端機大小",

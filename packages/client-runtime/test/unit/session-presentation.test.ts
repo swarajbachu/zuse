@@ -12,7 +12,6 @@ import {
 import { describe, expect, it } from "vitest";
 import {
 	countRunningBackgroundAgents,
-	endedBackgroundProcesses,
 	runningBackgroundAgents,
 	runningBackgroundProcesses,
 	runningBackgroundTasks,
@@ -580,6 +579,7 @@ it("classifies a durable background shell as a process, separate from the agent 
 			taskId: "native-shell",
 			kind: "process",
 			description: "Watch build",
+			command: "",
 			startedAtMs: 0,
 			turnId: "turn-presentation",
 			attemptId: "attempt-presentation",
@@ -645,69 +645,4 @@ it("needs a running execution step to show a background process", () => {
 			}),
 		).map((task) => task.description),
 	).toEqual(["Start dev server"]);
-});
-
-it("lists ended processes, newest first, with their native outcome", () => {
-	const at = (ms: number) => new Date(ms);
-	const message = (
-		id: string,
-		ms: number,
-		content: Message["content"],
-	): Message =>
-		Message.make({
-			id: MessageId.make(id),
-			sessionId: AgentSessionId.make("presentation-session"),
-			role: "assistant",
-			createdAt: at(ms),
-			content,
-		});
-	const launch = (id: string, ms: number, description: string) =>
-		message(`${id}-launch`, ms, {
-			_tag: "tool_use",
-			itemId: AgentItemId.make(id),
-			tool: "Bash",
-			input: { description },
-			backgroundTask: { taskId: `native-${id}` },
-		});
-	const data = projection("idle", false, [
-		launch("built", 1, "Build docs"),
-		message("built-result", 5, {
-			_tag: "tool_result",
-			itemId: AgentItemId.make("built"),
-			output: "done",
-			isError: false,
-		}),
-		launch("server", 2, "Start dev server"),
-		message("server-result", 9, {
-			_tag: "tool_result",
-			itemId: AgentItemId.make("server"),
-			output: "Stopped",
-			isError: true,
-			backgroundOutcome: "stopped",
-		}),
-		launch("orphan", 3, "Tail logs"),
-	]);
-	expect(endedBackgroundProcesses(view(data))).toEqual([
-		{
-			id: "server",
-			description: "Start dev server",
-			startedAtMs: 2,
-			endedAtMs: 9,
-			outcome: "stopped",
-		},
-		{
-			id: "built",
-			description: "Build docs",
-			startedAtMs: 1,
-			endedAtMs: 5,
-			outcome: "completed",
-		},
-		{
-			id: "orphan",
-			description: "Tail logs",
-			startedAtMs: 3,
-			endedAtMs: null,
-			outcome: "stopped",
-		},
-	]);
 });

@@ -568,7 +568,7 @@ export function EnvironmentSummary() {
 			<SummaryActivity>
 				{timeline.ref !== null && session !== null ? (
 					<BackgroundTasks
-						key={`${timeline.ref.environmentId}:${timeline.ref.sessionId}`}
+						key={`background:${timeline.ref.environmentId}:${timeline.ref.sessionId}`}
 						view={timeline.view}
 						sessionRef={timeline.ref}
 						providerId={session.providerId}
@@ -576,7 +576,7 @@ export function EnvironmentSummary() {
 				) : null}
 				{chatRef !== null && session !== null ? (
 					<AgentsSummary
-						key={`${chatRef.environmentId}:${session.id}`}
+						key={`agents:${chatRef.environmentId}:${session.id}`}
 						chatRef={chatRef}
 						session={session}
 						sessions={Object.values(sessionsByProject).flat()}
