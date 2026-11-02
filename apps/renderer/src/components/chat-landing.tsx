@@ -163,10 +163,7 @@ import { switchToEnvironment } from "~/lib/switch-environment";
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
 import { useComposerBridge } from "~/store/composer-bridge";
-import {
-	composerDraftKeyForLanding,
-	composerDraftKeyForRemoteLanding,
-} from "~/store/composer-drafts";
+import { composerDraftKeyForNewChat } from "~/store/composer-drafts";
 import { useEnvironmentCatalogStore } from "~/store/environment-catalog";
 import { useExternalThreadsStore } from "~/store/external-threads";
 import { currentModelCatalog } from "~/store/model-catalog";
@@ -1510,19 +1507,12 @@ function WorkspaceChatLanding({
 					environmentId={EnvironmentId.make(
 						remoteAnchor?.member.environmentId ?? activeEnvironmentId,
 					)}
-					composerDraftKey={
-						remoteAnchor !== null
-							? composerDraftKeyForRemoteLanding(
-									EnvironmentId.make(remoteAnchor.member.environmentId),
-									remoteAnchor.member.folderId,
-									workspace.scope,
-								)
-							: composerDraftKeyForLanding(
-									EnvironmentId.make(activeEnvironmentId),
-									selectedFolderId,
-									workspace.scope,
-								)
-					}
+					composerDraftKey={composerDraftKeyForNewChat(
+						EnvironmentId.make(
+							remoteAnchor?.member.environmentId ?? activeEnvironmentId,
+						),
+						workspace.scope,
+					)}
 					projectlessDraft={noProject}
 					onDraftSubmit={(input, opts) => {
 						if (submissionInFlight.current) return;

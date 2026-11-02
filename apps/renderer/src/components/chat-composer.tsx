@@ -118,7 +118,11 @@ import type {
 	PendingDraftAttachment,
 	PendingDraftContextFile,
 } from "../composer/draft-attachments.ts";
-import { composerSnapshotFromInput } from "../composer/input-snapshot.ts";
+import {
+	composerSnapshotFromInput,
+	settleComposerDraftImage,
+} from "../composer/input-snapshot.ts";
+import { ComposerMessageHistory } from "../composer/message-history.ts";
 import { parseComposerInput } from "../composer/segment-parser.ts";
 import {
 	cachedAttachmentUrl,
@@ -156,6 +160,7 @@ import {
 	interruptSession,
 	persistQueuedMessage,
 	queueSessionMessage,
+	runQueuedMessageNext,
 	sendSessionMessage,
 	sessionModelOptionStorageKey,
 	takeQueuedMessageForEdit,
@@ -166,6 +171,7 @@ import {
 	useSessionGoalResource,
 } from "../lib/session-goal-client-bus.ts";
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
+import { useSettingsStore } from "../lib/settings-client-bus.ts";
 import { useActiveWorkspaceRoot } from "../store/active-workspace.ts";
 import {
 	annotationsForSession,
@@ -430,24 +436,37 @@ export function ChatComposer({
 		});
 	const platformOnline = usePlatformOnline();
 
-	const queue = async (input: ComposerInput) => {
+	const directSteerEnabled = useSettingsStore((s) => s.directSteerEnabled);
+	const queue = async (input: ComposerInput, steer = false) => {
 		const options = {
 			providerId: session.providerId,
 			rejectIfBlocked: true,
-			...(platformOnline ? {} : { flush: false }),
+			...(steer || !platformOnline ? { flush: false } : {}),
 		};
 		const queueId = queueSessionMessage(goalRef, input, {
 			...options,
 			persist: false,
 			ready: false,
 		});
-		return persistQueuedMessage(goalRef, queueId, input, options);
+		const accepted = await persistQueuedMessage(
+			goalRef,
+			queueId,
+			input,
+			options,
+		);
+		if (accepted && steer)
+			await runQueuedMessageNext(goalRef, queueId, session.providerId);
+		return accepted;
 	};
 
 	const saveComposerDraft = useComposerDraftsStore((s) => s.save);
 	const clearComposerDraft = useComposerDraftsStore((s) => s.clear);
 
 	const sessionMessages = timeline.messages;
+	const messageHistoryRef = useRef(sessionMessages);
+	messageHistoryRef.current = sessionMessages;
+	const historyBlockedRef = useRef(false);
+
 	const questionAttachmentsByKey =
 		useEnvironmentQuestionAttachments(qualifiedEnvironmentId).data
 			?.attachmentsByKey ?? EMPTY_QUESTION_ATTACHMENTS;
@@ -589,7 +608,9 @@ export function ChatComposer({
 	const pendingDraftAttachmentsRef = useRef<PendingDraftAttachment[]>([]);
 	const pendingDraftContextFilesRef = useRef<PendingDraftContextFile[]>([]);
 
-	const submitRef = useRef<() => boolean>(() => false);
+	const interruptAvailableRef = useRef(false);
+	const interruptRef = useRef<() => boolean>(() => false);
+	const submitRef = useRef<(mode?: "steer" | "queue") => boolean>(() => false);
 	const sendTextRef = useRef<(text: string) => Promise<boolean>>(
 		async () => false,
 	);
@@ -663,12 +684,24 @@ export function ChatComposer({
 		if (host === null) return;
 		const initialSnapshot =
 			useComposerDraftsStore.getState().draftsByKey[draftKey] ?? null;
+		pendingDraftAttachmentsRef.current = [
+			...(initialSnapshot?.pendingAttachments ?? []),
+		];
+		pendingDraftContextFilesRef.current = [
+			...(initialSnapshot?.pendingContextFiles ?? []),
+		];
+		const history = new ComposerMessageHistory();
 		const draftWriter = makeCoalescedWriter<EditorView["state"]>(
 			(state) => {
-				saveComposerDraft(draftKey, {
-					doc: state.doc.toString(),
-					chips: allChips(state),
-				});
+				saveComposerDraft(
+					draftKey,
+					history.unsentDraft ?? {
+						doc: state.doc.toString(),
+						chips: allChips(state),
+						pendingAttachments: pendingDraftAttachmentsRef.current,
+						pendingContextFiles: pendingDraftContextFilesRef.current,
+					},
+				);
 			},
 			{
 				schedule: (run) => window.setTimeout(run, 120),
@@ -676,15 +709,64 @@ export function ChatComposer({
 			},
 		);
 
+		let recalling = false;
 		const callbacks = {
-			onSubmit: () => submitRef.current(),
+			canInterrupt: () => interruptAvailableRef.current,
+			onInterrupt: () => interruptRef.current(),
+			onSubmit: (mode?: "steer" | "queue") => submitRef.current(mode),
+			onHistory: (direction: -1 | 1) => {
+				const view = editorViewRef.current;
+				if (!view || historyBlockedRef.current) return false;
+				if (
+					(useComposerDraftsStore.getState().contextsByKey[draftKey]?.length ??
+						0) > 0
+				)
+					return false;
+				const entries = history.browsing
+					? []
+					: messageHistoryRef.current.flatMap(({ content }) => {
+							if (content._tag === "user")
+								return [{ doc: content.text, chips: [] }];
+							if (content._tag !== "user_rich") return [];
+							return [composerSnapshotFromInput(ComposerInput.make(content))];
+						});
+				const snapshot = history.navigate(
+					direction,
+					{
+						doc: view.state.doc.toString(),
+						chips: allChips(view.state),
+						pendingAttachments: pendingDraftAttachmentsRef.current,
+						pendingContextFiles: pendingDraftContextFilesRef.current,
+					},
+					entries,
+				);
+				if (!snapshot) return false;
+				recalling = true;
+				view.dispatch({ effects: clearChipsEffect.of() });
+				setComposerDoc(view, snapshot.doc);
+				restoreComposerChips(view, snapshot.chips);
+				view.dispatch({
+					selection: { anchor: direction === -1 ? 0 : view.state.doc.length },
+				});
+				recalling = false;
+				return true;
+			},
 			onChange: (doc: string) => {
+				if (!recalling) history.reset();
 				const next = doc.trim().length > 0;
 				if (hasTextRef.current === next) return;
 				hasTextRef.current = next;
 				setHasText(next);
 			},
 			onSnapshotChange: (state: EditorView["state"]) => {
+				if (!isDraft)
+					setUploadingAttachmentCount(
+						allChips(state).filter(
+							(chip) =>
+								chip.meta.kind === "image" &&
+								chip.meta.id.startsWith("pending-"),
+						).length,
+					);
 				for (const chip of allChips(state)) {
 					if (chip.meta.kind === "image") {
 						knownImageChipMetaRef.current.set(chip.meta.id, chip.meta);
@@ -724,6 +806,13 @@ export function ChatComposer({
 		});
 		if (initialSnapshot !== null) {
 			restoreComposerChips(view, initialSnapshot.chips);
+			if (!isDraft)
+				setUploadingAttachmentCount(
+					initialSnapshot.chips.filter(
+						(chip) =>
+							chip.meta.kind === "image" && chip.meta.id.startsWith("pending-"),
+					).length,
+				);
 			const restoredHasText = view.state.doc.toString().trim().length > 0;
 			hasTextRef.current = restoredHasText;
 			setHasText(restoredHasText);
@@ -736,6 +825,22 @@ export function ChatComposer({
 		});
 
 		const bridge = useComposerBridge.getState();
+		bridge.setSettleAttachment((id, meta) => {
+			if (meta) {
+				view.dispatch({
+					effects: updateImageChipEffect.of({ previousId: id, meta }),
+				});
+				return;
+			}
+			const chip = allChips(view.state).find(
+				(item) => item.meta.kind === "image" && item.meta.id === id,
+			);
+			if (chip)
+				view.dispatch({
+					changes: { from: chip.from, to: chip.to },
+					effects: removeImageChipEffect.of({ id }),
+				});
+		});
 		bridge.setAttachFile((ref) => {
 			const v = editorViewRef.current;
 			if (v === null) return;
@@ -867,14 +972,22 @@ export function ChatComposer({
 			draftWriter.flush();
 			unsubKeybindings();
 			const b = useComposerBridge.getState();
+			b.setSettleAttachment(null);
 			b.setAttachFile(null);
 			b.setInsertText(null);
 			b.setSendText(null);
 			b.setFocus(null);
 			b.setEditQueuedMessage(null);
 			usePaneFocus.getState().unregister("composer");
+			const retained =
+				useComposerDraftsStore.getState().draftsByKey[draftKey]
+					?.pendingAttachments ?? [];
 			for (const pending of pendingDraftAttachmentsRef.current) {
-				if (pending.previewUrl) URL.revokeObjectURL(pending.previewUrl);
+				if (
+					pending.previewUrl &&
+					!retained.some((item) => item.previewUrl === pending.previewUrl)
+				)
+					URL.revokeObjectURL(pending.previewUrl);
 			}
 			pendingDraftAttachmentsRef.current = [];
 			pendingDraftContextFilesRef.current = [];
@@ -1030,6 +1143,16 @@ export function ChatComposer({
 			);
 		}
 
+		const settleAttachment = (id: string, meta: ChipMeta | null) => {
+			const bridge = useComposerBridge.getState();
+			if (bridge.draftKey === draftKey && bridge.settleAttachment) {
+				bridge.settleAttachment(id, meta);
+				return;
+			}
+			const saved = useComposerDraftsStore.getState().draftsByKey[draftKey];
+			if (saved)
+				saveComposerDraft(draftKey, settleComposerDraftImage(saved, id, meta));
+		};
 		for (const file of accepted) {
 			const tempId = `pending-${Math.random().toString(36).slice(2, 10)}`;
 			const isImage = file.type.startsWith("image/");
@@ -1064,7 +1187,6 @@ export function ChatComposer({
 				continue;
 			}
 
-			setUploadingAttachmentCount((count) => count + 1);
 			void uploadOne(
 				{ environmentId: qualifiedEnvironmentId, sessionId },
 				file,
@@ -1077,35 +1199,18 @@ export function ChatComposer({
 								ref.id,
 							) ?? "")
 						: "";
-					editorViewRef.current?.dispatch({
-						effects: updateImageChipEffect.of({
-							previousId: tempId,
-							meta: {
-								kind: "image",
-								id: ref.id,
-								mimeType: ref.mimeType,
-								originalName: ref.originalName,
-								previewUrl: finalUrl,
-							},
-						}),
-					});
+					const meta: ChipMeta = {
+						kind: "image",
+						id: ref.id,
+						mimeType: ref.mimeType,
+						originalName: ref.originalName,
+						previewUrl: finalUrl,
+					};
+					settleAttachment(tempId, meta);
 				})
 				.catch((err) => {
 					console.error("[chat-composer] upload failed", err);
-					const activeView = editorViewRef.current;
-					const chip =
-						activeView === null
-							? undefined
-							: allChips(activeView.state).find(
-									(item) =>
-										item.meta.kind === "image" && item.meta.id === tempId,
-								);
-					if (activeView !== null && chip !== undefined) {
-						activeView.dispatch({
-							changes: { from: chip.from, to: chip.to },
-							effects: removeImageChipEffect.of({ id: tempId }),
-						});
-					}
+					settleAttachment(tempId, null);
 					toastManager.add({
 						type: "error",
 						title: uiMessage("chat:chat_composer_image_upload_failed"),
@@ -1116,7 +1221,6 @@ export function ChatComposer({
 				})
 				.finally(() => {
 					if (blobUrl) URL.revokeObjectURL(blobUrl);
-					setUploadingAttachmentCount((count) => Math.max(0, count - 1));
 				});
 		}
 	};
@@ -1249,7 +1353,7 @@ export function ChatComposer({
 		return true;
 	};
 
-	const submit = (): boolean => {
+	const submit = (mode?: "steer" | "queue"): boolean => {
 		if (answerableQuestion !== null)
 			return submitQuestionAnswer(answerableQuestion);
 		if (
@@ -1365,7 +1469,6 @@ export function ChatComposer({
 			};
 			const pendingAttachments = pendingDraftAttachmentsRef.current;
 			setSubmitting(true);
-			view.contentDOM.blur();
 			void submitComposerDelivery(
 				() => send(input, options),
 				() => commitComposerSubmission(true),
@@ -1431,14 +1534,12 @@ export function ChatComposer({
 				.catch(() => undefined)
 				.finally(() => {
 					setSubmitting(false);
-					editorViewRef.current?.focus();
 				});
 		};
 
 		switch (route) {
 			case "planFeedback":
 				setSubmitting(true);
-				view.contentDOM.blur();
 				void commitAcceptedComposerDelivery(
 					(async () => {
 						if (pendingNativePlanApproval !== null) {
@@ -1470,7 +1571,6 @@ export function ChatComposer({
 					.catch(() => undefined)
 					.finally(() => {
 						setSubmitting(false);
-						editorViewRef.current?.focus();
 					});
 				break;
 			case "goal":
@@ -1483,6 +1583,9 @@ export function ChatComposer({
 						goalSendMode
 							? ComposerInput.make({ ...input, asGoal: true })
 							: input,
+						inFlight &&
+							platformOnline &&
+							(mode === "steer" || (mode !== "queue" && directSteerEnabled)),
 					),
 					commitComposerSubmission,
 				)
@@ -1493,9 +1596,15 @@ export function ChatComposer({
 				sendAndClear();
 				break;
 		}
+		view.focus();
 		return true;
 	};
 
+	historyBlockedRef.current =
+		trigger !== null ||
+		modelPickerOpen ||
+		answerableQuestion !== null ||
+		editingQueuedItem !== null;
 	submitRef.current = submit;
 
 	sendTextRef.current = async (text) => {
@@ -1573,6 +1682,13 @@ export function ChatComposer({
 		await interruptSession(goalRef, session.providerId);
 	};
 
+	interruptAvailableRef.current =
+		inFlight && !interrupting && !historyBlockedRef.current;
+	interruptRef.current = () => {
+		if (!inFlight || interrupting || historyBlockedRef.current) return false;
+		void requestInterrupt();
+		return true;
+	};
 	const showCard =
 		headPermission !== undefined || headDeviceCommand !== undefined;
 
@@ -1964,10 +2080,16 @@ export function ChatComposer({
 													disabled={!canSend}
 													loading={uploadingAttachmentCount > 0}
 													aria-label={uiMessage(
-														"chat:chat_composer_add_message_to_queue",
+														directSteerEnabled && platformOnline
+															? "chat:queue_chip_steer_to_queued_message"
+															: "chat:chat_composer_add_message_to_queue",
 													)}
 												>
-													{uiMessage("chat:chat_composer_queue")}
+													{uiMessage(
+														directSteerEnabled && platformOnline
+															? "chat:queue_chip_steer"
+															: "chat:chat_composer_queue",
+													)}
 												</Button>
 											) : null}
 											<Tooltip>

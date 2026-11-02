@@ -1,4 +1,13 @@
+import { EditorState } from "@codemirror/state";
 import type { ComposerInput } from "@zuse/contracts";
+import {
+	addChipEffect,
+	allChips,
+	type ChipMeta,
+	chipExtensions,
+	removeImageChipEffect,
+	updateImageChipEffect,
+} from "../lib/codemirror/composer-chips.ts";
 
 import { attachmentUrl } from "../lib/platform-capabilities.ts";
 import type { ComposerDraftSnapshot } from "../store/composer-drafts.ts";
@@ -84,4 +93,32 @@ export const composerSnapshotFromInput = (
 		doc,
 		chips: chips.sort((left, right) => left.from - right.from),
 	};
+};
+
+/** Apply upload completion to a saved draft using the editor's chip mapping rules. */
+export const settleComposerDraftImage = (
+	snapshot: ComposerDraftSnapshot,
+	id: string,
+	meta: ChipMeta | null,
+): ComposerDraftSnapshot => {
+	let state = EditorState.create({
+		doc: snapshot.doc,
+		extensions: chipExtensions,
+	});
+	state = state.update({
+		effects: snapshot.chips.map((chip) => addChipEffect.of(chip)),
+	}).state;
+	const chip = allChips(state).find(
+		(chip) => chip.meta.kind === "image" && chip.meta.id === id,
+	);
+	if (!chip) return snapshot;
+	state = state.update(
+		meta
+			? { effects: updateImageChipEffect.of({ previousId: id, meta }) }
+			: {
+					changes: { from: chip.from, to: chip.to },
+					effects: removeImageChipEffect.of({ id }),
+				},
+	).state;
+	return { ...snapshot, doc: state.doc.toString(), chips: allChips(state) };
 };

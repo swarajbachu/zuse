@@ -49,6 +49,13 @@ export const Command = Schema.Literals([
 	"composer.newline",
 	"composer.forceSubmit",
 	"composer.togglePlanMode",
+	"composer.previousMessage",
+	"composer.nextMessage",
+	"composer.queueSubmit",
+	"composer.deleteToStart",
+	"composer.deleteToEnd",
+	"composer.deleteWord",
+	"composer.interrupt",
 
 	"editor.save",
 	"editor.annotate",

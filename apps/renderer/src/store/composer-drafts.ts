@@ -3,12 +3,18 @@ import {
 	type SessionRef,
 } from "@zuse/client-runtime/resource-ref";
 import type { EnvironmentId, FolderId, WorkspaceScope } from "@zuse/contracts";
+import type {
+	PendingDraftAttachment,
+	PendingDraftContextFile,
+} from "../composer/draft-attachments.ts";
 import type { ChipRange } from "../lib/codemirror/composer-chips.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 
 export type ComposerDraftSnapshot = {
 	readonly doc: string;
 	readonly chips: readonly ChipRange[];
+	readonly pendingAttachments?: readonly PendingDraftAttachment[];
+	readonly pendingContextFiles?: readonly PendingDraftContextFile[];
 };
 
 export type ComposerContext = {
@@ -28,6 +34,14 @@ export const recoverComposerDraft = (
 	const prefix = `${submitted.doc}\n\n`;
 	return {
 		doc: prefix + current.doc,
+		pendingAttachments: [
+			...(submitted.pendingAttachments ?? []),
+			...(current.pendingAttachments ?? []),
+		],
+		pendingContextFiles: [
+			...(submitted.pendingContextFiles ?? []),
+			...(current.pendingContextFiles ?? []),
+		],
 		chips: [
 			...submitted.chips,
 			...current.chips.map((chip) => ({
@@ -68,6 +82,11 @@ export const composerDraftKeyForLanding = (
 		: `organization:${encodeURIComponent(scope.organizationId)}:${key}`;
 };
 
+export const composerDraftKeyForNewChat = (
+	environmentId: EnvironmentId,
+	scope: WorkspaceScope = { kind: "personal" },
+): string => composerDraftKeyForLanding(environmentId, null, scope);
+
 export const composerDraftKeyForRemoteLanding = composerDraftKeyForLanding;
 
 export const useComposerDraftsStore = create<ComposerDraftsState>((set) => ({
@@ -104,6 +123,12 @@ export const useComposerDraftsStore = create<ComposerDraftsState>((set) => ({
 				next[key] = {
 					doc: snapshot.doc,
 					chips: snapshot.chips.map((chip) => ({ ...chip })),
+					...(snapshot.pendingAttachments
+						? { pendingAttachments: [...snapshot.pendingAttachments] }
+						: {}),
+					...(snapshot.pendingContextFiles
+						? { pendingContextFiles: [...snapshot.pendingContextFiles] }
+						: {}),
 				};
 			}
 			return { draftsByKey: next };

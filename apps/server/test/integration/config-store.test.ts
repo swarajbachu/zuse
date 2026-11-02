@@ -75,6 +75,34 @@ afterEach(() => {
 });
 
 describe("config-store settings coercion", () => {
+	it("requires explicit opt-in for direct steer and persists changes", async () => {
+		for (const value of [undefined, null, false, "true", 1]) {
+			expect(
+				coerceSettings({ directSteerEnabled: value }).directSteerEnabled,
+			).toBe(false);
+		}
+		expect(
+			coerceSettings({ directSteerEnabled: true }).directSteerEnabled,
+		).toBe(true);
+		await withRuntime(async ({ run, userConfig }) => {
+			for (const enabled of [true, false]) {
+				await run(
+					Effect.flatMap(ConfigStoreService, (svc) =>
+						svc.updateSettings({ directSteerEnabled: enabled }),
+					),
+				);
+				await run(
+					Effect.flatMap(ConfigStoreService, (svc) =>
+						svc.updateSettings({ appearanceMode: "dark" }),
+					),
+				);
+				const saved = coerceSettings(
+					JSON.parse(readFileSync(join(userConfig, "settings.json"), "utf8")),
+				);
+				expect(saved.directSteerEnabled).toBe(enabled);
+			}
+		});
+	});
 	it("requires explicit opt-in for provider update notifications", () => {
 		for (const value of [undefined, null, false, "true", 1]) {
 			expect(

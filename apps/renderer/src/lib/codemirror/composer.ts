@@ -16,7 +16,11 @@ import {
 	chipResolverFacet,
 	isChipEffect,
 } from "./composer-chips.ts";
-import { buildComposerKeymap, composerKeymap } from "./composer-keymap.ts";
+import {
+	buildComposerKeymap,
+	composerKeymap,
+	resetComposerInterrupt,
+} from "./composer-keymap.ts";
 import { composerLinks } from "./composer-links.ts";
 import { composerTheme } from "./composer-theme.ts";
 import {
@@ -34,7 +38,10 @@ export type ComposerCallbacks = {
 	 * newline) take over. Useful for guards like "popover is open" where the
 	 * Enter should be swallowed by the popover instead of submitting.
 	 */
-	readonly onSubmit: () => boolean;
+	readonly onSubmit: (mode?: "steer" | "queue") => boolean;
+	readonly canInterrupt?: () => boolean;
+	readonly onInterrupt?: () => boolean;
+	readonly onHistory?: (direction: -1 | 1) => boolean;
 	readonly onChange: (doc: string) => void;
 	readonly onSnapshotChange?: (state: EditorState) => void;
 	readonly onTrigger: (trigger: ActiveTrigger | null) => void;
@@ -126,6 +133,13 @@ export const createComposerView = ({
 			}
 		}),
 
+		EditorView.domEventObservers({
+			keydown: (event, view) => {
+				if (event.key !== "Escape" || event.repeat)
+					resetComposerInterrupt(view);
+			},
+			blur: (_event, view) => resetComposerInterrupt(view),
+		}),
 		EditorView.domEventHandlers({
 			dragover: (event) => {
 				if (event.dataTransfer?.types.includes("Files") === true) {

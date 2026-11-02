@@ -9490,7 +9490,7 @@
 		"context": "commands interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"commands:default_keybindings_force_submit": {
-		"source": "Force submit",
+		"source": "Send / steer message",
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/default-keybindings.ts",
@@ -9504,7 +9504,7 @@
 		"context": "commands interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"commands:default_keybindings_submit_regardless_of_mention_skill_popover_state": {
-		"source": "Submit regardless of mention/skill popover state",
+		"source": "Send now, steering the running agent when possible.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/default-keybindings.ts",
@@ -38978,5 +38978,207 @@
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"commands:composer_deleteToEnd": {
+		"source": "Delete to line end",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 492
+			},
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 493
+			}
+		],
+		"context": "commands interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"commands:composer_deleteToEnd_description": {
+		"source": "Delete text after the cursor on the current line.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 494
+			}
+		],
+		"context": "commands interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"commands:composer_deleteToStart": {
+		"source": "Delete to line start",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 486
+			},
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 487
+			}
+		],
+		"context": "commands interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"commands:composer_deleteToStart_description": {
+		"source": "Delete text before the cursor on the current line.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 488
+			}
+		],
+		"context": "commands interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"commands:composer_deleteWord": {
+		"source": "Delete previous word",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 498
+			},
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 499
+			}
+		],
+		"context": "commands interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"commands:composer_deleteWord_description": {
+		"source": "Delete the word before the cursor.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 500
+			}
+		],
+		"context": "commands interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"commands:composer_interrupt": {
+		"source": "Stop response",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 504
+			},
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 505
+			}
+		],
+		"context": "commands interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"commands:composer_interrupt_description": {
+		"source": "Press Escape twice quickly to stop the running response and keep the draft.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 506
+			}
+		],
+		"context": "commands interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"commands:composer_nextMessage": {
+		"source": "Next message",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 462
+			},
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 464
+			}
+		],
+		"context": "commands interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"commands:composer_nextMessage_description": {
+		"source": "Recall a newer message or restore the current draft.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 467
+			}
+		],
+		"context": "commands interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"commands:composer_previousMessage": {
+		"source": "Previous message",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 450
+			},
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 452
+			}
+		],
+		"context": "commands interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"commands:composer_previousMessage_description": {
+		"source": "Recall an earlier sent message without losing the current draft.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 455
+			}
+		],
+		"context": "commands interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"commands:composer_queueSubmit": {
+		"source": "Queue message",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 474
+			},
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 476
+			}
+		],
+		"context": "commands interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"commands:composer_queueSubmit_description": {
+		"source": "Queue this message even when direct steer is enabled.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/default-keybindings.ts",
+				"line": 479
+			}
+		],
+		"context": "commands interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:composer_title": {
+		"source": "Composer",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings-page.tsx",
+				"line": 1378
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:direct_steer_description": {
+		"source": "Send new messages to the running agent immediately instead of queuing them. Use Alt+Enter to queue a message.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings-page.tsx",
+				"line": 1381
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:direct_steer_title": {
+		"source": "Direct steer",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings-page.tsx",
+				"line": 1380
+			},
+			{
+				"path": "apps/renderer/src/components/settings-page.tsx",
+				"line": 1386
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	}
 }
