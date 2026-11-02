@@ -1,6 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -67,6 +75,38 @@ describe("Claude zsh shell", () => {
 			await Effect.runPromise(withClaudeZshShell(env, join(blocked, "x"))),
 		).toEqual(env);
 	});
+
+	it("removes the temporary wrapper when installing it fails", async () => {
+		const dir = await tempDir();
+		const first = await Effect.runPromise(
+			withClaudeZshShell({ SHELL: "/bin/zsh" }, dir),
+		);
+		const wrapper = first.CLAUDE_CODE_SHELL as string;
+		await rm(wrapper);
+		await mkdir(join(wrapper, "occupied"), { recursive: true });
+		const env = { SHELL: "/bin/zsh" };
+		expect(await Effect.runPromise(withClaudeZshShell(env, dir))).toEqual(env);
+		expect(
+			(await readdir(dir)).filter((name) => name.endsWith(".tmp")),
+		).toEqual([]);
+	});
+
+	it.skipIf(process.platform === "win32")(
+		"makes the wrapper executable under a restrictive umask",
+		async () => {
+			const dir = await tempDir();
+			const previous = process.umask(0o177);
+			try {
+				const env = await Effect.runPromise(
+					withClaudeZshShell({ SHELL: "/bin/zsh" }, dir),
+				);
+				const mode = (await stat(env.CLAUDE_CODE_SHELL as string)).mode;
+				expect(mode & 0o777).toBe(0o700);
+			} finally {
+				process.umask(previous);
+			}
+		},
+	);
 
 	it.skipIf(process.platform === "win32" || !existsSync("/bin/zsh"))(
 		"passes unmatched globs through like bash",

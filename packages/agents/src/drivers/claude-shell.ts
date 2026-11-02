@@ -1,5 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	mkdir,
+	readFile,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { Effect } from "effect";
@@ -52,8 +59,15 @@ const ensureWrapper = (zsh: string, dir: string) =>
 		}
 		await mkdir(dir, { recursive: true, mode: 0o700 });
 		const temp = `${file}.${randomUUID()}.tmp`;
-		await writeFile(temp, script, { mode: 0o700 });
-		await rename(temp, file);
+		try {
+			await writeFile(temp, script, { mode: 0o700 });
+			// The creation mode is masked by the umask; the wrapper must be executable.
+			await chmod(temp, 0o700);
+			await rename(temp, file);
+		} catch (error) {
+			await rm(temp, { force: true });
+			throw error;
+		}
 		return file;
 	});
 
