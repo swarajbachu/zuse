@@ -78,6 +78,7 @@ const randomNonce = (): string =>
 		byte.toString(16).padStart(2, "0"),
 	).join("");
 
+/** Discover nearby Macs and retain approved pairing credentials for reconnect. */
 export default function NearbyConnectScreen() {
 	const headerHeight = useHeaderContentInset();
 	const insets = useSafeAreaInsets();
@@ -243,6 +244,10 @@ export default function NearbyConnectScreen() {
 					serverPublicKey: pending.environmentPublicKey,
 					transportCertificatePin: pending.service.tlsCertificatePin,
 					nearbyServiceName: pending.service.name,
+					approvedNearbyEnvironment: {
+						environmentId: credential.environmentId,
+						label: nearbyMacDisplayName(pending.service.name),
+					},
 					pathType: pending.service.interfaceName?.startsWith("awdl")
 						? "apple-peer"
 						: "lan",

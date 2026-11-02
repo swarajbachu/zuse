@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enable organization beta access for selected users and their teams, with automatic access for approved creators' members and optional access for existing teams.
 
 ### Fixed
+- Preserve approved nearby Mac pairings when the first desktop connection fails, so reconnect can recover without another approval.
 - Keep new-chat text, image files, and pasted context when changing projects; preserve drafts while sending, and require double Escape to stop a response.
 - Prevent overlapping normal and prepaid Pro checkouts from creating duplicate subscriptions, and retain billing ownership while paid access remains.
 - Keep cloud billing recovery polls compatible with Cloudflare Workers while rejecting redirects that could expose provider credentials.
