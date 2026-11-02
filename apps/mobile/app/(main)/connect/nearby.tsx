@@ -56,7 +56,6 @@ type PendingApproval = {
 	readonly safetyPhrase: string;
 	readonly deviceIdentifier: string;
 	readonly environmentPublicKey: string;
-	readonly environmentId: string;
 	readonly service: NearbyService;
 	readonly proxy: LocalProxy;
 };
@@ -165,7 +164,6 @@ export default function NearbyConnectScreen() {
 					safetyPhrase: pairing.safetyPhrase,
 					deviceIdentifier: pairing.request.deviceIdentifier,
 					environmentPublicKey: pairing.environmentPublicKey,
-					environmentId: challenge.environmentId,
 					service,
 					proxy,
 				});
@@ -247,7 +245,7 @@ export default function NearbyConnectScreen() {
 					transportCertificatePin: pending.service.tlsCertificatePin,
 					nearbyServiceName: pending.service.name,
 					approvedNearbyEnvironment: {
-						environmentId: pending.environmentId,
+						environmentId: credential.environmentId,
 						label: nearbyMacDisplayName(pending.service.name),
 					},
 					pathType: pending.service.interfaceName?.startsWith("awdl")
