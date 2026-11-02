@@ -169,6 +169,10 @@ export function ComposerVoiceButton({
 							aria-label={label}
 							disabled={disabled || starting}
 							onClick={() => void controller.current?.start()}
+							// Confirm the account while the pointer is on its way, so
+							// the click goes straight to the microphone.
+							onPointerEnter={() => void controller.current?.prepare()}
+							onFocus={() => void controller.current?.prepare()}
 							className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
 						>
 							{starting ? (

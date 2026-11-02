@@ -97,6 +97,32 @@ const refreshCompatibleAccount = async (): Promise<AccountAuth> => {
 	}
 };
 
+/** Access tokens outlive this by far; reuse avoids an agent launch per phrase. */
+const ACCOUNT_REUSE_MS = 5 * 60_000;
+let cachedAccount: {
+	readonly auth: Promise<AccountAuth>;
+	readonly expiresAt: number;
+} | null = null;
+
+/**
+ * Dictation transcribes phrase by phrase, so every request needs the account.
+ * Concurrent callers share one refresh; a rejected token forces a fresh one.
+ */
+const compatibleAccount = (fresh = false): Promise<AccountAuth> => {
+	const now = Date.now();
+	if (!fresh && cachedAccount !== null && cachedAccount.expiresAt > now)
+		return cachedAccount.auth;
+	const entry = {
+		auth: refreshCompatibleAccount(),
+		expiresAt: now + ACCOUNT_REUSE_MS,
+	};
+	cachedAccount = entry;
+	entry.auth.catch(() => {
+		if (cachedAccount === entry) cachedAccount = null;
+	});
+	return entry.auth;
+};
+
 const validateRecording = (
 	bytes: Uint8Array,
 	mimeType: string,
@@ -109,7 +135,7 @@ const validateRecording = (
 const Capabilities = MemoizeRpcs.toLayerHandler("voice.capabilities", () =>
 	Effect.promise(async () => {
 		try {
-			await refreshCompatibleAccount();
+			await compatibleAccount();
 			return {
 				available: true,
 				accountKind: "chatgpt" as const,
@@ -130,7 +156,7 @@ const Capabilities = MemoizeRpcs.toLayerHandler("voice.capabilities", () =>
 const Prewarm = MemoizeRpcs.toLayerHandler("voice.prewarm", () =>
 	Effect.tryPromise({
 		try: async () => {
-			await refreshCompatibleAccount();
+			await compatibleAccount();
 			return { ready: true };
 		},
 		catch: () =>
@@ -146,20 +172,31 @@ const Transcribe = MemoizeRpcs.toLayerHandler(
 		Effect.gen(function* () {
 			const validation = validateRecording(bytes, mimeType, durationMs);
 			if (validation !== null) return yield* validation;
-			const auth = yield* Effect.tryPromise({
-				try: refreshCompatibleAccount,
-				catch: () =>
-					new VoiceUnavailableError({
-						reason: "A compatible signed-in account is unavailable.",
-					}),
-			});
-			const result = yield* Effect.tryPromise({
-				try: () => uploadVoiceRecording({ ...auth, bytes, mimeType, fetch }),
-				catch: () =>
-					new VoiceUnavailableError({
-						reason: "Transcription could not be completed.",
-					}),
-			});
+			const upload = (fresh: boolean) =>
+				Effect.gen(function* () {
+					const auth = yield* Effect.tryPromise({
+						try: () => compatibleAccount(fresh),
+						catch: () =>
+							new VoiceUnavailableError({
+								reason: "A compatible signed-in account is unavailable.",
+							}),
+					});
+					return yield* Effect.tryPromise({
+						try: () =>
+							uploadVoiceRecording({ ...auth, bytes, mimeType, fetch }),
+						catch: () =>
+							new VoiceUnavailableError({
+								reason: "Transcription could not be completed.",
+							}),
+					});
+				});
+			let result = yield* upload(false);
+			// A reused token may have been revoked since it was cached.
+			if (
+				result._tag === "fallback" &&
+				result.reason === "authentication-rejected"
+			)
+				result = yield* upload(true);
 			if (result._tag === "transcribed") return result;
 			const now = Date.now();
 			for (const [id, pending] of tickets) {
@@ -187,7 +224,7 @@ const ResolveAuth = MemoizeRpcs.toLayerHandler(
 				});
 			}
 			const auth = yield* Effect.tryPromise({
-				try: refreshCompatibleAccount,
+				try: () => compatibleAccount(),
 				catch: () =>
 					new VoiceUnavailableError({
 						reason: "A compatible signed-in account is unavailable.",

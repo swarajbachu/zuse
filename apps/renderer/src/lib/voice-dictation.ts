@@ -50,15 +50,46 @@ export interface VoiceLimits {
 	maxBytes: number;
 }
 
-/** Owns microphone lifetime; cancelled work can never deliver a late transcript. */
+/** A pause this long ends a phrase; shorter gaps fall between words. */
+const PAUSE_MS = 800;
+/** Phrases grow to at least this length: tiny clips transcribe poorly. */
+const MIN_PHRASE_MS = 1_500;
+const PAUSE_POLL_MS = 100;
+/** Meter level that counts as speech rather than room noise. */
+const SPEECH_LEVEL = 0.08;
+/** A confirmed account is reused briefly so a click skips the round trip. */
+const LIMITS_REUSE_MS = 30_000;
+
+interface Phrase {
+	readonly recorder: MediaRecorder;
+	readonly startedAt: number;
+	heardSpeech: boolean;
+}
+
+/**
+ * Owns microphone lifetime; cancelled work can never deliver a late transcript.
+ *
+ * Audio is cut into phrases at natural pauses. Each phrase is transcribed
+ * while the speaker keeps talking and delivered in spoken order, so text
+ * appears during dictation and stopping waits only for the final phrase.
+ */
 export class VoiceDictation {
 	private generation = 0;
 	private state: DictationState = "idle";
-	private recorder: MediaRecorder | null = null;
+	private phrase: Phrase | null = null;
+	/** Always transcribed, so a quiet speaker the meter misses still gets text. */
+	private firstPhrase: Phrase | null = null;
 	private stream: MediaStream | null = null;
 	private timer: ReturnType<typeof setTimeout> | null = null;
+	private pausePoll: ReturnType<typeof setInterval> | null = null;
+	private quietSince: number | null = null;
 	private startedAt = 0;
 	private limitMs = 0;
+	private recordedBytes = 0;
+	private delivered = false;
+	/** Settles once every phrase begun so far has been delivered or skipped. */
+	private delivery: Promise<void> = Promise.resolve();
+	private limits: { value: Promise<VoiceLimits>; at: number } | null = null;
 	private analyser: {
 		context: AudioContext;
 		node: AnalyserNode;
@@ -84,30 +115,49 @@ export class VoiceDictation {
 		this.options.onState(state);
 	}
 
+	/** Checks the account ahead of a click, e.g. on hover, so recording starts at once. */
+	prepare(): Promise<VoiceLimits> {
+		const now = performance.now();
+		if (this.limits !== null && now - this.limits.at < LIMITS_REUSE_MS)
+			return this.limits.value;
+		const entry = { value: this.options.capabilities(), at: now };
+		this.limits = entry;
+		const forget = () => {
+			if (this.limits === entry) this.limits = null;
+		};
+		entry.value.then((limits) => {
+			if (!limits.available) forget();
+		}, forget);
+		return entry.value;
+	}
+
+	private inputLevel(): number {
+		if (this.analyser === null) return 0;
+		const { node, samples } = this.analyser;
+		node.getByteTimeDomainData(samples);
+		let sum = 0;
+		for (const sample of samples) {
+			const centered = (sample - 128) / 128;
+			sum += centered * centered;
+		}
+		// Speech RMS rarely exceeds ~0.3; scale so normal speaking fills the meter.
+		return Math.min(1, Math.sqrt(sum / samples.length) * 4);
+	}
+
 	/** Live input level and time budget while recording; null otherwise. */
 	meter(): DictationMeter | null {
 		if (this.state !== "recording") return null;
 		const elapsedMs = Math.max(0, performance.now() - this.startedAt);
-		let level = 0;
-		if (this.analyser !== null) {
-			const { node, samples } = this.analyser;
-			node.getByteTimeDomainData(samples);
-			let sum = 0;
-			for (const sample of samples) {
-				const centered = (sample - 128) / 128;
-				sum += centered * centered;
-			}
-			// Speech RMS rarely exceeds ~0.3; scale so normal speaking fills the meter.
-			level = Math.min(1, Math.sqrt(sum / samples.length) * 4);
-		}
 		return {
-			level,
+			level: this.inputLevel(),
 			elapsedMs,
 			remainingMs: Math.max(0, this.limitMs - elapsedMs),
 		};
 	}
 
 	private releaseInput() {
+		if (this.pausePoll !== null) clearInterval(this.pausePoll);
+		this.pausePoll = null;
 		const analyser = this.analyser;
 		this.analyser = null;
 		void analyser?.context.close().catch(() => undefined);
@@ -120,9 +170,9 @@ export class VoiceDictation {
 	private release() {
 		if (this.timer !== null) clearTimeout(this.timer);
 		this.timer = null;
-		const recorder = this.recorder;
-		this.recorder = null;
-		if (recorder !== null) {
+		const recorder = this.phrase?.recorder;
+		this.phrase = null;
+		if (recorder !== undefined) {
 			recorder.onstop = null;
 			recorder.ondataavailable = null;
 			recorder.onerror = null;
@@ -140,10 +190,27 @@ export class VoiceDictation {
 
 	stop() {
 		if (this.state !== "recording") return;
+		const generation = this.generation;
 		this.setState("transcribing");
-		if (this.recorder?.state === "recording") this.recorder.stop();
+		const recorder = this.phrase?.recorder;
+		if (recorder?.state === "recording") recorder.stop();
 		// Release the hardware immediately, before waiting for transcription.
 		this.releaseInput();
+		// Every phrase is already queued, so this runs after the final one lands.
+		void this.delivery.then(() => {
+			if (generation !== this.generation) return;
+			this.release();
+			if (!this.delivered) {
+				this.fail(this.recordedBytes === 0 ? "no_audio" : "no_speech");
+				return;
+			}
+			this.setState("idle");
+		});
+	}
+
+	private fail(code: DictationErrorCode) {
+		this.cancel();
+		this.options.onError(code);
 	}
 
 	private attachAnalyser(stream: MediaStream) {
@@ -164,15 +231,130 @@ export class VoiceDictation {
 		}
 	}
 
+	/**
+	 * Records the next phrase on the shared stream. Its delivery slot is
+	 * reserved now, so phrases land in spoken order however their requests race.
+	 */
+	private beginPhrase(
+		stream: MediaStream,
+		mimeType: string,
+		maxBytes: number,
+		current: () => boolean,
+	): Phrase {
+		const fail = (code: DictationErrorCode) => {
+			if (current()) this.fail(code);
+		};
+		const recorder = new MediaRecorder(stream, {
+			mimeType,
+			audioBitsPerSecond: 64_000,
+		});
+		const phrase: Phrase = {
+			recorder,
+			startedAt: performance.now(),
+			heardSpeech: false,
+		};
+		const metered = this.analyser !== null;
+		const chunks: Blob[] = [];
+		let finished!: (audio: { blob: Blob; durationMs: number } | null) => void;
+		const audio = new Promise<{ blob: Blob; durationMs: number } | null>(
+			(resolve) => {
+				finished = resolve;
+			},
+		);
+		recorder.ondataavailable = ({ data }) => {
+			if (!current() || data.size === 0) return;
+			this.recordedBytes += data.size;
+			if (this.recordedBytes > maxBytes) {
+				fail("too_large");
+				return;
+			}
+			chunks.push(data);
+		};
+		recorder.onerror = () => fail("recorder_failed");
+		recorder.onstop = () => {
+			const blob = new Blob(chunks, { type: mimeType.split(";")[0] });
+			// A trailing phrase the meter heard as silence would only invite a
+			// hallucinated transcript; without a meter, every phrase is sent.
+			const silent = metered && !phrase.heardSpeech;
+			const skip = blob.size === 0 || (silent && phrase !== this.firstPhrase);
+			finished(
+				skip
+					? null
+					: {
+							blob,
+							durationMs: Math.max(
+								1,
+								Math.min(performance.now() - phrase.startedAt, this.limitMs),
+							),
+						},
+			);
+		};
+		const text = audio.then(async (recording) => {
+			if (recording === null || !current()) return "";
+			const bytes = new Uint8Array(await recording.blob.arrayBuffer());
+			if (!current()) return "";
+			return this.options.transcribe({
+				bytes,
+				mimeType: recording.blob.type,
+				durationMs: recording.durationMs,
+			});
+		});
+		this.delivery = this.delivery
+			.then(() => text)
+			.then(
+				(transcript) => {
+					const trimmed = transcript.trim();
+					if (!current() || trimmed === "") return;
+					this.delivered = true;
+					this.options.onTranscript(trimmed);
+				},
+				(error: unknown) =>
+					fail(
+						error instanceof DictationError
+							? error.code
+							: "transcription_failed",
+					),
+			);
+		recorder.start(250);
+		this.phrase = phrase;
+		return phrase;
+	}
+
+	/** Cuts the phrase once the speaker pauses, so it transcribes while they go on. */
+	private watchForPauses(
+		stream: MediaStream,
+		mimeType: string,
+		maxBytes: number,
+		current: () => boolean,
+	) {
+		if (this.analyser === null) return;
+		this.pausePoll = setInterval(() => {
+			const phrase = this.phrase;
+			if (phrase === null || this.state !== "recording") return;
+			const now = performance.now();
+			if (this.inputLevel() >= SPEECH_LEVEL) {
+				phrase.heardSpeech = true;
+				this.quietSince = null;
+				return;
+			}
+			this.quietSince ??= now;
+			if (
+				!phrase.heardSpeech ||
+				now - this.quietSince < PAUSE_MS ||
+				now - phrase.startedAt < MIN_PHRASE_MS
+			)
+				return;
+			// Start the next recorder before stopping this one so no audio is lost.
+			this.beginPhrase(stream, mimeType, maxBytes, current);
+			phrase.recorder.stop();
+			this.quietSince = null;
+		}, PAUSE_POLL_MS);
+	}
+
 	async start() {
 		if (this.state !== "idle") return;
 		const generation = ++this.generation;
 		const current = () => generation === this.generation;
-		const fail = (code: DictationErrorCode) => {
-			if (!current()) return;
-			this.cancel();
-			this.options.onError(code);
-		};
 		this.setState("starting");
 		try {
 			if (
@@ -181,7 +363,7 @@ export class VoiceDictation {
 			) {
 				throw new DictationError("unsupported");
 			}
-			const limits = await this.options.capabilities();
+			const limits = await this.prepare();
 			if (!current()) return;
 			if (!limits.available) throw new DictationError("account_required");
 			const mimeType = [
@@ -198,66 +380,27 @@ export class VoiceDictation {
 				return;
 			}
 			this.stream = stream;
-			const recorder = new MediaRecorder(stream, {
-				mimeType,
-				audioBitsPerSecond: 64_000,
-			});
-			this.recorder = recorder;
-			const chunks: Blob[] = [];
-			let size = 0;
-			recorder.ondataavailable = ({ data }) => {
-				if (!current() || data.size === 0) return;
-				size += data.size;
-				if (size > limits.maxBytes) {
-					fail("too_large");
-					return;
-				}
-				chunks.push(data);
-			};
-			recorder.onerror = () => fail("recorder_failed");
-			recorder.onstop = () => {
-				if (!current()) return;
-				const durationMs = Math.max(
-					1,
-					Math.min(performance.now() - this.startedAt, this.limitMs),
-				);
-				this.release();
-				this.setState("transcribing");
-				void (async () => {
-					try {
-						const blob = new Blob(chunks, { type: mimeType.split(";")[0] });
-						if (blob.size === 0) throw new DictationError("no_audio");
-						const bytes = new Uint8Array(await blob.arrayBuffer());
-						if (!current()) return;
-						const text = await this.options.transcribe({
-							bytes,
-							mimeType: blob.type,
-							durationMs,
-						});
-						if (!current()) return;
-						if (!text.trim()) throw new DictationError("no_speech");
-						this.setState("idle");
-						this.options.onTranscript(text.trim());
-					} catch (error) {
-						fail(
-							error instanceof DictationError
-								? error.code
-								: "transcription_failed",
-						);
-					}
-				})();
-			};
+			this.recordedBytes = 0;
+			this.delivered = false;
+			this.quietSince = null;
+			this.delivery = Promise.resolve();
+			this.limitMs = limits.maxDurationSeconds * 1000;
 			stream.getTracks().forEach((track) => {
 				track.onended = () => this.stop();
 			});
 			this.attachAnalyser(stream);
-			recorder.start(250);
+			this.firstPhrase = this.beginPhrase(
+				stream,
+				mimeType,
+				limits.maxBytes,
+				current,
+			);
 			this.startedAt = performance.now();
-			this.limitMs = limits.maxDurationSeconds * 1000;
 			this.setState("recording");
+			this.watchForPauses(stream, mimeType, limits.maxBytes, current);
 			this.timer = setTimeout(() => this.stop(), this.limitMs);
 		} catch (error) {
-			fail(startErrorCode(error));
+			if (current()) this.fail(startErrorCode(error));
 		}
 	}
 }
