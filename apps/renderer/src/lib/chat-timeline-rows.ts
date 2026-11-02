@@ -158,6 +158,11 @@ export const isVisualMessage = (message: Message): boolean =>
 			).tool,
 		));
 
+/** Plan cards must stay readable before the user approves them. */
+const isPlanMessage = (message: Message): boolean =>
+	message.content._tag === "tool_use" &&
+	message.content.tool === "ExitPlanMode";
+
 export { isToolTreeBranch } from "@zuse/client-runtime/timeline";
 
 /** The reply that closes a turn — the only one that carries copy and fork. */
@@ -244,11 +249,7 @@ export function deriveChatTimelineRows({
 			!isLive &&
 			hasToolCalls &&
 			(hasFinalText || turn.body.some(isVisualMessage));
-		const planMessages = turn.body.filter(
-			(message) =>
-				message.content._tag === "tool_use" &&
-				message.content.tool === "ExitPlanMode",
-		);
+		const planMessages = turn.body.filter(isPlanMessage);
 		const planItemIds = new Set(
 			planMessages.flatMap((message) =>
 				message.content._tag === "tool_use" ? [message.content.itemId] : [],
@@ -258,10 +259,7 @@ export function deriveChatTimelineRows({
 			planMessages.length === 0
 				? undelegatedBody
 				: undelegatedBody.filter((message) => {
-						if (
-							message.content._tag === "tool_use" &&
-							message.content.tool === "ExitPlanMode"
-						) {
+						if (isPlanMessage(message)) {
 							return false;
 						}
 						if (
@@ -436,6 +434,7 @@ export function groupToolActivityRows(
 		if (
 			row.kind === "message" &&
 			!isVisualMessage(row.message) &&
+			!isPlanMessage(row.message) &&
 			(tag === "tool_use" || (active !== undefined && joinsActivity))
 		) {
 			if (active === undefined) {

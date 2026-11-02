@@ -60,10 +60,10 @@ it("never renders visual output as part of the turn summary", () => {
 	expect(html).not.toContain("Tool detail");
 });
 
-it("collapses a live tool group once its turn settles", () => {
+it("keeps live and settled tool groups collapsed by default", () => {
 	expect(
 		renderToStaticMarkup(<ToolActivityTree messages={messages} live />),
-	).toContain('aria-expanded="true"');
+	).toContain('aria-expanded="false"');
 	expect(
 		renderToStaticMarkup(<ToolActivityTree messages={messages} live={false} />),
 	).toContain('aria-expanded="false"');
@@ -100,4 +100,82 @@ it("opens working delegation groups and collapses them once the parent finishes"
 		);
 	expect(render(true)).toContain('aria-expanded="true"');
 	expect(render(false)).toContain('aria-expanded="false"');
+});
+
+it("shows the latest running tool without mounting its details", () => {
+	const html = renderToStaticMarkup(
+		<ToolActivityTree messages={messages} live />,
+	);
+	expect(html).toContain('role="status"');
+	expect(html).toContain("Reading files…");
+	expect(html).not.toContain("Tool detail");
+});
+
+it("stops showing running progress when the tool result arrives", () => {
+	const tool = messages[0];
+	if (tool?.content._tag !== "tool_use") throw new Error("Missing tool");
+	const result: Message = {
+		...tool,
+		id: MessageId.make("done"),
+		content: {
+			_tag: "tool_result",
+			itemId: tool.content.itemId,
+			output: "done",
+			isError: false,
+		},
+	};
+	const html = renderToStaticMarkup(
+		<ToolActivityTree messages={[tool, result]} live />,
+	);
+	expect(html).toContain('aria-expanded="false"');
+	expect(html).not.toContain("Reading files…");
+	expect(html).not.toContain("animate-spin");
+	expect(html).not.toContain("Tool detail");
+});
+
+it("replaces the count with the latest tool activity", () => {
+	const first = messages[0];
+	if (!first) throw new Error("Missing tool");
+	const bash: Message = {
+		...first,
+		id: MessageId.make("latest-bash"),
+		content: {
+			_tag: "tool_use",
+			itemId: AgentItemId.make("bash"),
+			tool: "Bash",
+			input: { command: "pwd" },
+		},
+	};
+	const html = renderToStaticMarkup(
+		<ToolActivityTree messages={[first, bash]} live />,
+	);
+	expect(html).toContain("Running Bash…");
+	expect(html).not.toContain("Reading files…");
+	expect(html).not.toContain("tool calls");
+	expect(html).not.toContain("Tool detail");
+});
+
+it("does not inspect edit payloads while a group is collapsed", () => {
+	const first = messages[0];
+	if (!first) throw new Error("Missing fixture");
+	const input = {
+		get edits(): never {
+			throw new Error("Closed groups must not compute edit details");
+		},
+	};
+	const edit: Message = {
+		...first,
+		content: {
+			_tag: "tool_use",
+			itemId: AgentItemId.make("large-edit"),
+			tool: "MultiEdit",
+			input,
+		},
+	};
+	expect(
+		renderToStaticMarkup(<ToolActivityTree messages={[edit]} live />),
+	).toContain("Editing files…");
+	expect(
+		renderToStaticMarkup(<ToolActivityTree messages={[edit]} />),
+	).toContain("Last activity: MultiEdit");
 });

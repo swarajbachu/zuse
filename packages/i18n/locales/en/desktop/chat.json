@@ -881,5 +881,18 @@
 	"image_gallery_title": "Chat images",
 	"review_guide_chapters_appear": "Chapters appear here as they're written.",
 	"review_guide_try_again": "Try again",
-	"review_guide_reading_changes": "Reading the changes…"
+	"review_guide_reading_changes": "Reading the changes…",
+	"tool_activity_activity": "Activity",
+	"tool_activity_running_bash": "Running Bash…",
+	"tool_activity_running_command": "Running command…",
+	"tool_activity_reading": "Reading files…",
+	"tool_activity_searching_files": "Searching files…",
+	"tool_activity_listing": "Listing files…",
+	"tool_activity_editing": "Editing files…",
+	"tool_activity_writing": "Writing files…",
+	"tool_activity_searching_web": "Searching the web…",
+	"tool_activity_fetching": "Fetching page…",
+	"tool_activity_viewing": "Viewing image…",
+	"tool_activity_using": "Using {{tool}}…",
+	"tool_activity_last": "Last activity: {{tool}}"
 }
