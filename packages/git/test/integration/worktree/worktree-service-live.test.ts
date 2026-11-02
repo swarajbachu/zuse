@@ -124,9 +124,11 @@ describe("WorktreeServiceLive", () => {
 			}),
 			Layer.succeed(WorktreeNameAllocator, {
 				allocate: ({ unavailableNames }) => {
-					const names = ["work-aaaaaa", "work-bbbbbb", "work-cccccc"];
+					const name = ["work-aaaaaa", "work-bbbbbb", "work-cccccc"].find(
+						(candidate) => !unavailableNames.has(candidate),
+					);
 					return Effect.succeed(
-						names.find((name) => !unavailableNames.has(name)) ?? null,
+						name === undefined ? null : { name, branch: `zuse/${name}` },
 					);
 				},
 			}),
@@ -630,7 +632,7 @@ describe("WorktreeServiceLive", () => {
 		expect(created).toMatchObject({
 			projectId,
 			name: "work-aaaaaa",
-			branch: "work-aaaaaa",
+			branch: "zuse/work-aaaaaa",
 			baseBranch: "main",
 		});
 		expect(created.path).toBe(join(worktreeRoot, "work-aaaaaa"));

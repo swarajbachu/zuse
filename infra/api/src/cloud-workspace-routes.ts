@@ -1773,7 +1773,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	const initialSessionId = `s_${crypto.randomUUID()}`;
 
 	const branch =
-		body.branch ?? `cloud-${workspaceId.slice("workspace_".length)}`;
+		body.branch ?? `zuse/cloud-${workspaceId.slice("workspace_".length)}`;
 	if (
 		!/^[A-Za-z0-9._/-]+$/u.test(branch) ||
 		!/^[A-Za-z0-9._/#-]+$/u.test(body.baseRef)

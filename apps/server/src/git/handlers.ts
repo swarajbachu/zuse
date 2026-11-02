@@ -93,8 +93,8 @@ const ContinueBranch = MemoizeRpcs.toLayerHandler(
 								: [branch.name, branch.remote],
 						),
 					);
-					const name = yield* allocator.allocate({ unavailableNames });
-					if (name === null)
+					const allocation = yield* allocator.allocate({ unavailableNames });
+					if (allocation === null)
 						return yield* Effect.fail(
 							new GitCommandError({
 								folderId,
@@ -103,7 +103,7 @@ const ContinueBranch = MemoizeRpcs.toLayerHandler(
 						);
 					return yield* git.switchBranch(
 						folderId,
-						name,
+						allocation.branch,
 						null,
 						worktreeId ?? null,
 						"origin/main",

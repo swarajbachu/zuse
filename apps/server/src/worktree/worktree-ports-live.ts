@@ -39,13 +39,18 @@ export const RepositorySettingsReaderLive = Layer.effect(
 
 const PLACEHOLDER_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 
-/** A short neutral name such as `work-k3f9xq`; the chat's first turn names the branch. */
+/**
+ * A short neutral name such as `work-k3f9xq` for the folder, checked out on
+ * `zuse/work-k3f9xq` until the chat's first turn names the branch.
+ */
 export const placeholderWorktreeName = (random: () => number = Math.random) =>
 	`work-${Array.from(
 		{ length: 6 },
 		() =>
 			PLACEHOLDER_ALPHABET[Math.floor(random() * PLACEHOLDER_ALPHABET.length)],
 	).join("")}`;
+
+export const placeholderBranch = (name: string) => `zuse/${name}`;
 
 export const WorktreeNameAllocatorLive = Layer.succeed(
 	WorktreeNameAllocator,
@@ -54,7 +59,9 @@ export const WorktreeNameAllocatorLive = Layer.succeed(
 			Effect.sync(() => {
 				for (let attempt = 0; attempt < 100; attempt += 1) {
 					const name = placeholderWorktreeName();
-					if (!unavailableNames.has(name)) return name;
+					const branch = placeholderBranch(name);
+					if (!unavailableNames.has(name) && !unavailableNames.has(branch))
+						return { name, branch };
 				}
 				return null;
 			}),

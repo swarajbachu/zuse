@@ -826,9 +826,11 @@ export const WorktreeServiceLive = Layer.effect(
 				let attempt = 0;
 				while (attempt < 50) {
 					attempt += 1;
-					const name = yield* nameAllocator.allocate({ unavailableNames });
-					if (name === null) break;
-					const branch = name;
+					const allocation = yield* nameAllocator.allocate({
+						unavailableNames,
+					});
+					if (allocation === null) break;
+					const { name, branch } = allocation;
 					const target = Path.join(baseDir, name);
 
 					const targetExists = yield* fs
@@ -836,6 +838,7 @@ export const WorktreeServiceLive = Layer.effect(
 						.pipe(Effect.catch(() => Effect.succeed(false)));
 					if (targetExists) {
 						unavailableNames.add(name);
+						unavailableNames.add(branch);
 						continue;
 					}
 
@@ -846,6 +849,7 @@ export const WorktreeServiceLive = Layer.effect(
           `.pipe(Effect.orDie);
 					if (dupes.length > 0) {
 						unavailableNames.add(name);
+						unavailableNames.add(branch);
 						continue;
 					}
 
@@ -860,6 +864,7 @@ export const WorktreeServiceLive = Layer.effect(
 					);
 					if (branchExists) {
 						unavailableNames.add(name);
+						unavailableNames.add(branch);
 						continue;
 					}
 
