@@ -54,3 +54,65 @@ describe("composer message history", () => {
 		).toBeNull();
 	});
 });
+
+it("does not hide an upload in history before it finishes", () => {
+	const history = new ComposerMessageHistory();
+	const pending: ComposerDraftSnapshot = {
+		doc: "image",
+		chips: [
+			{
+				from: 0,
+				to: 5,
+				meta: {
+					kind: "image",
+					id: "pending-upload",
+					mimeType: "image/png",
+					originalName: "image.png",
+					previewUrl: "blob:pending",
+				},
+			},
+		],
+	};
+	expect(history.navigate(-1, pending, [snapshot("previous")])).toBeNull();
+	expect(history.browsing).toBe(false);
+	const finished = {
+		...pending,
+		chips: pending.chips.map((chip) => ({
+			...chip,
+			meta: { ...chip.meta, id: "uploaded" },
+		})),
+	} as ComposerDraftSnapshot;
+	expect(history.navigate(-1, finished, [snapshot("previous")])?.doc).toBe(
+		"previous",
+	);
+	expect(history.navigate(1, snapshot("previous"), [])).toBe(finished);
+});
+it("restores each message's full context and the original draft's context", () => {
+	const history = new ComposerMessageHistory();
+	const draft = {
+		...snapshot("draft"),
+		annotations: [
+			{
+				_tag: "context" as const,
+				id: "unsent",
+				label: "Unsent",
+				comment: "keep draft context",
+			},
+		],
+	};
+	const sent = {
+		...snapshot("sent"),
+		annotations: [
+			{
+				_tag: "context" as const,
+				id: "sent",
+				label: "Sent",
+				comment: "keep sent context",
+			},
+		],
+	};
+	expect(history.navigate(-1, draft, [sent])?.annotations).toEqual(
+		sent.annotations,
+	);
+	expect(history.navigate(1, sent, [])?.annotations).toEqual(draft.annotations);
+});

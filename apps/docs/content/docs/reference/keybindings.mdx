@@ -54,13 +54,13 @@ The file holds only your overrides. Defaults are built into the app, so updates 
 | `composer.nextMessage` | Recall a newer message or restore the draft at the end of the composer | `down` |
 | `composer.deleteToStart` | Delete to line start | `ctrl+u` |
 | `composer.deleteToEnd` | Delete to line end | `ctrl+k` |
-| `composer.deleteWord` | Delete previous word | `ctrl+w` |
+| `composer.deleteWord` | Delete previous word | `ctrl+backspace` or `alt+backspace` |
 | `composer.interrupt` | Stop the response and keep the draft | `escape` twice |
 | `composer.togglePlanMode` | Toggle Plan mode | `shift+tab` |
 | `editor.save` | Save file | `mod+s` |
 | `editor.annotate` | Annotate selection | `mod+shift+a` |
 
-Enable **Settings → General → Composer → Direct steer** to make Enter steer a running agent by default. It is off by default. Alt+Enter keeps messages queued. Offline messages stay queued until delivery is available. History recall preserves attachments and returns to the unsent draft with Down. Typing in a recalled message starts a new draft. Press Escape twice within half a second to stop a response; a single Escape can dismiss menus. New-chat text, image files, and pasted context stay with the composer when you change projects on the same computer.
+Enable **Settings → General → Composer → Direct steer** to make Enter steer a running agent by default. It is off by default. Alt+Enter keeps messages queued. Offline messages stay queued until delivery is available. History recall pauses while an attachment is uploading. It preserves saved annotations and attachments and returns to the unsent draft with Down. Typing in a recalled message starts a new draft. Press Escape twice within half a second to stop a response; a single Escape can dismiss menus. New-chat text, image files, and pasted context stay with the composer when you change projects on the same computer.
 
 `composer.*` commands work only while the composer has focus, and `editor.*` commands work only in the file editor. All other commands are global. Shortcuts for new chat, open project, settings, close tab, the sidebar and terminal toggles, and focus composer also appear in the menu bar.
 

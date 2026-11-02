@@ -2,7 +2,12 @@ import {
 	resourceRefKey,
 	type SessionRef,
 } from "@zuse/client-runtime/resource-ref";
-import type { EnvironmentId, FolderId, WorkspaceScope } from "@zuse/contracts";
+import type {
+	ComposerAnnotation,
+	EnvironmentId,
+	FolderId,
+	WorkspaceScope,
+} from "@zuse/contracts";
 import type {
 	PendingDraftAttachment,
 	PendingDraftContextFile,
@@ -11,6 +16,7 @@ import type { ChipRange } from "../lib/codemirror/composer-chips.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 
 export type ComposerDraftSnapshot = {
+	readonly annotations?: readonly ComposerAnnotation[];
 	readonly doc: string;
 	readonly chips: readonly ChipRange[];
 	readonly pendingAttachments?: readonly PendingDraftAttachment[];
@@ -66,7 +72,9 @@ type ComposerDraftsState = {
 };
 
 const isEmptySnapshot = (snapshot: ComposerDraftSnapshot): boolean =>
-	snapshot.doc.length === 0 && snapshot.chips.length === 0;
+	snapshot.doc.length === 0 &&
+	snapshot.chips.length === 0 &&
+	(snapshot.annotations?.length ?? 0) === 0;
 
 export const composerDraftKeyForSession = (ref: SessionRef): string =>
 	resourceRefKey(ref);
@@ -121,6 +129,7 @@ export const useComposerDraftsStore = create<ComposerDraftsState>((set) => ({
 				delete next[key];
 			} else {
 				next[key] = {
+					annotations: snapshot.annotations,
 					doc: snapshot.doc,
 					chips: snapshot.chips.map((chip) => ({ ...chip })),
 					...(snapshot.pendingAttachments

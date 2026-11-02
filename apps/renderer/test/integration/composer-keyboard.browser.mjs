@@ -109,6 +109,14 @@ try {
 	assert.deepEqual(await page.evaluate(() => window.result.submissions), [
 		"queue",
 	]);
+	await editor.fill("keep word");
+	await page.keyboard.press("Control+End");
+	await page.keyboard.press("Control+Backspace");
+	assert.equal(
+		(await editor.innerText()).trim(),
+		"keep",
+		"delete word uses a non-closing shortcut",
+	);
 	assert.deepEqual(errors, []);
 	console.log(
 		"Composer keyboard browser checks passed: double Escape, held keys, blur, editing, draft retention, queue shortcut.",

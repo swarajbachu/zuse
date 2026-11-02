@@ -118,17 +118,14 @@ import type {
 	PendingDraftAttachment,
 	PendingDraftContextFile,
 } from "../composer/draft-attachments.ts";
+import { hydrateComposerImagePreviews } from "../composer/image-previews.ts";
 import {
 	composerSnapshotFromInput,
 	settleComposerDraftImage,
 } from "../composer/input-snapshot.ts";
 import { ComposerMessageHistory } from "../composer/message-history.ts";
 import { parseComposerInput } from "../composer/segment-parser.ts";
-import {
-	cachedAttachmentUrl,
-	resolveAttachmentUrl,
-	uploadAttachment,
-} from "../lib/attachments.ts";
+import { cachedAttachmentUrl, uploadAttachment } from "../lib/attachments.ts";
 import {
 	cloudChatShowsWorking,
 	deriveCloudChatActivity,
@@ -690,12 +687,17 @@ export function ChatComposer({
 		pendingDraftContextFilesRef.current = [
 			...(initialSnapshot?.pendingContextFiles ?? []),
 		];
+		if (initialSnapshot?.annotations)
+			useAnnotationsStore
+				.getState()
+				.replace(sessionId, initialSnapshot.annotations);
 		const history = new ComposerMessageHistory();
 		const draftWriter = makeCoalescedWriter<EditorView["state"]>(
 			(state) => {
 				saveComposerDraft(
 					draftKey,
 					history.unsentDraft ?? {
+						annotations: annotationsForSession(sessionId),
 						doc: state.doc.toString(),
 						chips: allChips(state),
 						pendingAttachments: pendingDraftAttachmentsRef.current,
@@ -728,11 +730,17 @@ export function ChatComposer({
 							if (content._tag === "user")
 								return [{ doc: content.text, chips: [] }];
 							if (content._tag !== "user_rich") return [];
-							return [composerSnapshotFromInput(ComposerInput.make(content))];
+							return [
+								composerSnapshotFromInput(
+									ComposerInput.make(content),
+									(id) => cachedAttachmentUrl(goalRef, id) ?? "",
+								),
+							];
 						});
 				const snapshot = history.navigate(
 					direction,
 					{
+						annotations: annotationsForSession(sessionId),
 						doc: view.state.doc.toString(),
 						chips: allChips(view.state),
 						pendingAttachments: pendingDraftAttachmentsRef.current,
@@ -745,6 +753,14 @@ export function ChatComposer({
 				view.dispatch({ effects: clearChipsEffect.of() });
 				setComposerDoc(view, snapshot.doc);
 				restoreComposerChips(view, snapshot.chips);
+				useAnnotationsStore
+					.getState()
+					.replace(sessionId, snapshot.annotations ?? []);
+				hydrateComposerImagePreviews(
+					view,
+					goalRef,
+					() => editorViewRef.current === view,
+				);
 				view.dispatch({
 					selection: { anchor: direction === -1 ? 0 : view.state.doc.length },
 				});
@@ -934,20 +950,11 @@ export function ChatComposer({
 					activeView.dispatch({ effects: clearChipsEffect.of() });
 					setComposerDoc(activeView, snapshot.doc);
 					restoreComposerChips(activeView, snapshot.chips);
-					for (const attachment of taken.input.attachments) {
-						if (!attachment.mimeType.startsWith("image/")) continue;
-						void resolveAttachmentUrl(goalRef, attachment.id)
-							.then((src) => {
-								if (editorViewRef.current !== activeView) return;
-								activeView.dispatch({
-									effects: updateImageChipEffect.of({
-										previousId: attachment.id,
-										meta: { kind: "image", ...attachment, previewUrl: src },
-									}),
-								});
-							})
-							.catch(() => undefined);
-					}
+					hydrateComposerImagePreviews(
+						activeView,
+						goalRef,
+						() => editorViewRef.current === activeView,
+					);
 					const nextHasText = snapshot.doc.trim().length > 0;
 					hasTextRef.current = nextHasText;
 					setHasText(nextHasText);
@@ -970,6 +977,10 @@ export function ChatComposer({
 
 		return () => {
 			draftWriter.flush();
+			if (history.unsentDraft)
+				useAnnotationsStore
+					.getState()
+					.replace(sessionId, history.unsentDraft.annotations ?? []);
 			unsubKeybindings();
 			const b = useComposerBridge.getState();
 			b.setSettleAttachment(null);

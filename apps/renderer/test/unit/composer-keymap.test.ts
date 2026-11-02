@@ -70,7 +70,8 @@ describe("composer keyboard behavior", () => {
 			"Escape",
 			"Ctrl-u",
 			"Ctrl-k",
-			"Ctrl-w",
+			"Ctrl-Backspace",
+			"Alt-Backspace",
 		]) {
 			expect(press(key, editor("", 0, true))).toBe(false);
 		}
@@ -94,4 +95,11 @@ describe("composer keyboard behavior", () => {
 		expect(key?.run?.(view)).toBe(false);
 		expect(callbacks.onInterrupt).not.toHaveBeenCalled();
 	});
+});
+
+it("does not register the native Close Tab chord as a composer edit", () => {
+	const keys = buildComposerKeymap(callbacks);
+	expect(keys.some((binding) => binding.key === "Ctrl-w")).toBe(false);
+	expect(keys.some((binding) => binding.key === "Ctrl-Backspace")).toBe(true);
+	expect(keys.some((binding) => binding.key === "Alt-Backspace")).toBe(true);
 });

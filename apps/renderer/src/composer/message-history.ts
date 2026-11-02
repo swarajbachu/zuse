@@ -24,6 +24,13 @@ export class ComposerMessageHistory {
 		current: ComposerDraftSnapshot,
 		messages: readonly ComposerDraftSnapshot[],
 	): ComposerDraftSnapshot | null {
+		if (
+			current.chips.some(
+				(chip) =>
+					chip.meta.kind === "image" && chip.meta.id.startsWith("pending-"),
+			)
+		)
+			return null;
 		if (this.index === -1) {
 			if (direction === 1 || messages.length === 0) return null;
 			this.draft = current;

@@ -91,6 +91,7 @@ export const composerSnapshotFromInput = (
 
 	return {
 		doc,
+		annotations: input.annotations,
 		chips: chips.sort((left, right) => left.from - right.from),
 	};
 };
