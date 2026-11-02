@@ -113,7 +113,7 @@ See [features/autonomy-and-safety.md](features/autonomy-and-safety.md).
   *code* loops into *work* loops (ADR 0032).
 - **axi tool-ergonomics** — token-efficient control-plane output (ADR 0031).
 - **"First mate" orchestrator** mode (Layer 3 made turnkey).
-- **Worktree reuse** (treehouse parity) on top of Pokemon worktrees.
+- **Worktree reuse** (treehouse parity) on top of managed worktrees.
 - **Voice input + mobile/remote supervision** (honest gaps vs. terminal flows).
 - **External HTTP control plane** (drive memoize threads from terminal agents).
 

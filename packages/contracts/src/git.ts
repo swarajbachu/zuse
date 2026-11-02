@@ -123,7 +123,7 @@ export const GitSwitchBranchRpc = Rpc.make("git.switchBranch", {
 	error: GitErrors,
 });
 
-/** Start fresh from origin/main using the shared Pokémon branch allocator. */
+/** Start fresh from origin/main on a newly allocated placeholder branch. */
 export const GitContinueBranchRpc = Rpc.make("git.continueBranch", {
 	payload: Schema.Struct({
 		folderId: FolderId,

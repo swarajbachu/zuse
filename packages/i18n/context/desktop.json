@@ -10014,10 +10014,6 @@
 				"line": 72
 			},
 			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 249
-			},
-			{
 				"path": "apps/renderer/src/components/settings/update-channel-settings.tsx",
 				"line": 76
 			},
@@ -10484,6 +10480,16 @@
 			{
 				"path": "apps/renderer/src/components/settings/organization-sharing-pane.tsx",
 				"line": 88
+			}
+		],
+		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"common:rename_failed": {
+		"source": "Could not rename. Try again.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/inline-rename-input.tsx",
+				"line": 61
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -26619,134 +26625,6 @@
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
-	"settings:pokedex_pane_pokedex": {
-		"source": "Pokedex",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 237
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:pokedex_pane_search_by_name_or_number": {
-		"source": "Search by name or number",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 261
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:pokedex_pane_all": {
-		"source": "All",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 273
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:pokedex_pane_unlocked_2": {
-		"source": "Unlocked",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 276
-			},
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 591
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:pokedex_pane_locked": {
-		"source": "Locked",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 279
-			},
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 592
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:pokedex_pane_all_generations": {
-		"source": "All generations",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 292
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:pokedex_pane_all_rarity": {
-		"source": "All rarity",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 310
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:pokedex_pane_sprite_zoom": {
-		"source": "Sprite zoom",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 495
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:pokedex_pane_evolution": {
-		"source": "Evolution",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 508
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:pokedex_pane_variants": {
-		"source": "Variants",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 554
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:pokedex_pane_status": {
-		"source": "Status",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 587
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:pokedex_pane_slug": {
-		"source": "Slug",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 597
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
 	"settings:access_confirm_dialogs_set_up_zuse_serve": {
 		"source": "Set up Zuse Serve?",
 		"locations": [
@@ -29364,16 +29242,6 @@
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
-	"settings:settings_page_pokedex": {
-		"source": "Pokedex",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings-page.tsx",
-				"line": 457
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
 	"settings:settings_page_diagnostics": {
 		"source": "Diagnostics",
 		"locations": [
@@ -29584,16 +29452,6 @@
 			{
 				"path": "apps/renderer/src/lib/settings-navigation.ts",
 				"line": 84
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:settings_navigation_pokedex": {
-		"source": "Pokedex",
-		"locations": [
-			{
-				"path": "apps/renderer/src/lib/settings-navigation.ts",
-				"line": 100
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29869,56 +29727,6 @@
 			{
 				"path": "apps/renderer/src/components/settings/keybindings-editor.tsx",
 				"line": 702
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:pokedex_pane_unlocked_points_sentence": {
-		"source": "{{value}}/{{value2}} unlocked · {{value3}} points",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 240
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:pokedex_pane_gen_sentence": {
-		"source": "Gen {{gen}}",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 296
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:pokedex_pane_gen_pts_sentence": {
-		"source": "Gen {{value}} · {{value2}} pts",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 413
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:pokedex_pane_gen_pts_sentence_2": {
-		"source": "#{{value}} · Gen {{value2}} · {{value3}} pts",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 453
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:pokedex_pane_zoom_sentence": {
-		"source": "<part0>Zoom</part0><part1>{{value}}%</part1>",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/pokedex-pane.tsx",
-				"line": 486
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

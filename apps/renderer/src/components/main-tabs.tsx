@@ -21,7 +21,7 @@ import {
 	TaskDone01Icon,
 } from "@zuse/icons/solid-rounded";
 import { Plus, X } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { type MouseEvent, type ReactNode, useMemo, useState } from "react";
 import {
 	type AgentActivityState,
 	deriveAgentActivityState,
@@ -44,13 +44,17 @@ import {
 	activeChatId as deriveActiveChatId,
 	orderedChatTabs,
 } from "../lib/tab-order.ts";
+import { cn } from "../lib/utils.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { currentModelCatalog } from "../store/model-catalog.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { FileIcon } from "./file-icon.tsx";
+import {
+	InlineRenameInput,
+	isRenameDoubleClick,
+} from "./inline-rename-input.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
-import { RenameDialog } from "./rename-dialog.tsx";
 import { TypewriterText } from "./typewriter-text.tsx";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { Spinner } from "./ui/spinner";
@@ -104,7 +108,6 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 			? (sessionsByProject[projectId] ?? EMPTY_SESSIONS)
 			: EMPTY_SESSIONS;
 	const renameSession = useSessionsStore((s) => s.rename);
-	const [renamingSession, setRenamingSession] = useState<Session | null>(null);
 
 	const pendingCreationByChat = useChatsStore((s) => s.pendingCreationByChat);
 
@@ -161,125 +164,108 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 	);
 
 	return (
-		<>
-			{!readOnly && renamingSession !== null ? (
-				<RenameDialog
-					title={uiMessage("errors:main_tabs_rename_session")}
-					description={uiMessage(
-						"errors:main_tabs_change_the_name_shown_on_this_conversation_tab",
-					)}
-					label={uiMessage("errors:main_tabs_session_name")}
-					value={renamingSession.title}
-					open
-					onOpenChange={(open) => {
-						if (!open) setRenamingSession(null);
-					}}
-					onRename={(title) =>
-						renameSession(renamingSession.id, title, environmentId)
-					}
-				/>
-			) : null}
-			<header className="flex h-9 min-w-0 max-w-full shrink-0 items-center overflow-hidden pt-1.5">
-				<div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden px-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-					{changesTabOpen ? (
-						<FileTabButton
-							active={activeMainTab === "changes"}
-							name="Review"
-							path="Review every change on this branch"
-							dirty={false}
-							icon={
-								<HugeiconsIcon
-									icon={GitCompareIcon}
-									className="size-4 shrink-0"
-								/>
+		<header className="flex h-9 min-w-0 max-w-full shrink-0 items-center overflow-hidden pt-1.5">
+			<div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden px-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+				{changesTabOpen ? (
+					<FileTabButton
+						active={activeMainTab === "changes"}
+						name="Review"
+						path="Review every change on this branch"
+						dirty={false}
+						icon={
+							<HugeiconsIcon
+								icon={GitCompareIcon}
+								className="size-4 shrink-0"
+							/>
+						}
+						closeLabel="Close review"
+						onClick={() => setActiveMainTab("changes")}
+						onClose={closeChangesTab}
+					/>
+				) : null}
+				{openFile && (
+					<FileTabButton
+						active={activeMainTab === "file"}
+						name={openFile.name}
+						path={openFile.kind === "text" ? openFile.path : openFile.name}
+						dirty={openFile.kind === "text" ? fileDirty : false}
+						onClick={() => setActiveMainTab("file")}
+						onClose={closeFileTab}
+					/>
+				)}
+				{tabs.length === 0 && (
+					<TabButton
+						active={activeMainTab === "chat"}
+						onClick={() => selectReviewChatTab(selectedSessionId)}
+						label={emptyLabel}
+					/>
+				)}
+				{tabs.map((session) => {
+					const timeline = timelineBySession.get(session.id);
+					const runtimeState = timeline?.runtime ?? "idle";
+					const messages = timeline?.messages ?? [];
+					const pendingCreation = pendingCreationByChat[session.chatId];
+					const creationPending =
+						pendingCreation !== undefined &&
+						chatCreationIsInProgress(pendingCreation.phase);
+					const isActive =
+						activeMainTab === "chat" && selectedSessionId === session.id;
+					const modelLabel = lookupModelLabel(
+						session.providerId,
+						session.model,
+					);
+					const tooltip = modelLabel
+						? `${session.title} — ${providerDisplayName(session.providerId)} · ${modelLabel}`
+						: session.title;
+					return (
+						<ChatTabButton
+							readOnly={readOnly}
+							key={session.id}
+							active={isActive}
+							label={session.title}
+							title={tooltip}
+							providerId={session.providerId}
+							booting={creationPending || runtimeState === "starting"}
+							running={
+								runtimeState === "running" || runtimeState === "stopping"
 							}
-							closeLabel="Close review"
-							onClick={() => setActiveMainTab("changes")}
-							onClose={closeChangesTab}
+							activityState={deriveAgentActivityState(
+								messages,
+								filterActionableQuestionInteractions(
+									session.id,
+									timeline?.presentation.interactions.map(
+										(item) => item.interaction,
+									) ?? [],
+									questionAttachmentsByKey,
+								),
+							)}
+							awaitingPermission={awaitingPermission.has(session.id)}
+							awaitingPlanApproval={
+								awaitingPlanApproval.has(session.id) ||
+								deriveChatAttentionState(messages, false, []) === "planReady"
+							}
+							onClick={() => selectReviewChatTab(session.id)}
+							onClose={() => {
+								void closeChatTab(session.id, environmentId);
+							}}
+							onRename={(title) =>
+								renameSession(session.id, title, environmentId)
+							}
 						/>
-					) : null}
-					{openFile && (
-						<FileTabButton
-							active={activeMainTab === "file"}
-							name={openFile.name}
-							path={openFile.kind === "text" ? openFile.path : openFile.name}
-							dirty={openFile.kind === "text" ? fileDirty : false}
-							onClick={() => setActiveMainTab("file")}
-							onClose={closeFileTab}
+					);
+				})}
+				{!readOnly &&
+					projectId !== null &&
+					activeChatId !== null &&
+					pendingCreationByChat[activeChatId] === undefined && (
+						<NewChatTabButton
+							chatId={activeChatId}
+							environmentId={environmentId}
+							projectId={projectId}
 						/>
 					)}
-					{tabs.length === 0 && (
-						<TabButton
-							active={activeMainTab === "chat"}
-							onClick={() => selectReviewChatTab(selectedSessionId)}
-							label={emptyLabel}
-						/>
-					)}
-					{tabs.map((session) => {
-						const timeline = timelineBySession.get(session.id);
-						const runtimeState = timeline?.runtime ?? "idle";
-						const messages = timeline?.messages ?? [];
-						const pendingCreation = pendingCreationByChat[session.chatId];
-						const creationPending =
-							pendingCreation !== undefined &&
-							chatCreationIsInProgress(pendingCreation.phase);
-						const isActive =
-							activeMainTab === "chat" && selectedSessionId === session.id;
-						const modelLabel = lookupModelLabel(
-							session.providerId,
-							session.model,
-						);
-						const tooltip = modelLabel
-							? `${session.title} — ${providerDisplayName(session.providerId)} · ${modelLabel}`
-							: session.title;
-						return (
-							<ChatTabButton
-								readOnly={readOnly}
-								key={session.id}
-								active={isActive}
-								label={session.title}
-								title={tooltip}
-								providerId={session.providerId}
-								booting={creationPending || runtimeState === "starting"}
-								running={
-									runtimeState === "running" || runtimeState === "stopping"
-								}
-								activityState={deriveAgentActivityState(
-									messages,
-									filterActionableQuestionInteractions(
-										session.id,
-										timeline?.presentation.interactions.map(
-											(item) => item.interaction,
-										) ?? [],
-										questionAttachmentsByKey,
-									),
-								)}
-								awaitingPermission={awaitingPermission.has(session.id)}
-								awaitingPlanApproval={
-									awaitingPlanApproval.has(session.id) ||
-									deriveChatAttentionState(messages, false, []) === "planReady"
-								}
-								onClick={() => selectReviewChatTab(session.id)}
-								onClose={() => {
-									void closeChatTab(session.id, environmentId);
-								}}
-								onRename={() => setRenamingSession(session)}
-							/>
-						);
-					})}
-					{!readOnly &&
-						projectId !== null &&
-						activeChatId !== null &&
-						pendingCreationByChat[activeChatId] === undefined && (
-							<NewChatTabButton
-								chatId={activeChatId}
-								environmentId={environmentId}
-								projectId={projectId}
-							/>
-						)}
-				</div>
-			</header>
-		</>
+			</div>
+		</header>
 	);
 }
 
@@ -340,17 +326,27 @@ export function ChatTabButton({
 	awaitingPlanApproval: boolean;
 	onClick: () => void;
 	onClose: () => void;
-	onRename: () => void;
+	onRename: (title: string) => Promise<void>;
 }) {
 	const { message: uiMessage } = useUiMessages(["errors"]);
+	const [renaming, setRenaming] = useState(false);
+	const startRename = readOnly
+		? undefined
+		: (event: MouseEvent) => {
+				if (isRenameDoubleClick(event)) setRenaming(true);
+			};
 
 	return (
 		<div className={tabClassName(active, "group gap-1")}>
 			<button
 				type="button"
 				onClick={onClick}
-				title={title ?? label}
-				className="flex h-full min-w-0 flex-1 items-center gap-1.5 py-0 leading-none"
+				onDoubleClick={startRename}
+				title={renaming ? undefined : (title ?? label)}
+				className={cn(
+					"flex h-full min-w-0 items-center gap-1.5 py-0 leading-none",
+					!renaming && "flex-1",
+				)}
 			>
 				<span className="inline-grid size-5 shrink-0 place-items-center">
 					{awaitingPlanApproval ? (
@@ -385,17 +381,28 @@ export function ChatTabButton({
 						/>
 					)}
 				</span>
-				<span className="min-w-0 truncate leading-none">
-					<TypewriterText text={label} className="truncate" />
-				</span>
+				{renaming ? null : (
+					<span className="min-w-0 truncate leading-none">
+						<TypewriterText text={label} className="truncate" />
+					</span>
+				)}
 			</button>
-			{!readOnly && (
+			{renaming ? (
+				<InlineRenameInput
+					value={label}
+					label={uiMessage("errors:main_tabs_session_name")}
+					onRename={onRename}
+					onDone={() => setRenaming(false)}
+					className="h-5 flex-1 leading-none"
+				/>
+			) : null}
+			{!readOnly && !renaming && (
 				<div className="absolute right-0.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-accent p-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
 					<button
 						type="button"
 						onClick={(event) => {
 							event.stopPropagation();
-							onRename();
+							setRenaming(true);
 						}}
 						aria-label={uiMessage("errors:main_tabs_rename", {
 							label: String(label),

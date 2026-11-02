@@ -23,11 +23,8 @@ const onePixelPng = Buffer.from(
 
 const seedInternalImageFixtures = (userData: string): void => {
 	const attachments = join(userData, "attachments");
-	const pokemon = join(userData, "pokemon-sprites");
 	mkdirSync(attachments, { recursive: true });
-	mkdirSync(pokemon, { recursive: true });
 	writeFileSync(join(attachments, "e2e-attachment.png"), onePixelPng);
-	writeFileSync(join(pokemon, "25.png"), onePixelPng);
 };
 
 describe("built Electron terminal", () => {
@@ -116,14 +113,10 @@ describe("built Electron terminal", () => {
 						};
 						image.src = src;
 					});
-				return Promise.all([
-					load("zuse://attachments/e2e-attachment"),
-					load("zuse://pokemon/25"),
-				]);
+				return Promise.all([load("zuse://attachments/e2e-attachment")]);
 			});
 			expect(internalImages).toEqual([
 				{ src: "zuse://attachments/e2e-attachment", width: 1, height: 1 },
-				{ src: "zuse://pokemon/25", width: 1, height: 1 },
 			]);
 			await conversationLink.click();
 			await page.keyboard.press(`${primaryModifier}+j`);

@@ -26,6 +26,7 @@
 	"notAvailable": "k. A.",
 	"cancel": "Abbrechen",
 	"save": "Speichern",
+	"rename_failed": "Umbenennen fehlgeschlagen. Versuche es erneut.",
 	"close": "Schließen",
 	"copy": "Kopieren",
 	"copied": "Kopiert",

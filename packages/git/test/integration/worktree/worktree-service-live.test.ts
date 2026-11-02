@@ -24,10 +24,8 @@ import {
 	GitHubFailure,
 } from "../../../src/github-client.ts";
 import {
-	PokemonAssignment,
 	ProjectLocator,
 	RepositorySettingsReader,
-	WorktreeDecoration,
 	WorktreeNameAllocator,
 } from "../../../src/worktree/ports.ts";
 import { WorktreeService } from "../../../src/worktree/worktree-service.ts";
@@ -88,15 +86,7 @@ describe("WorktreeServiceLive", () => {
 						setup_output TEXT NOT NULL DEFAULT '',
 						setup_started_at TEXT,
 						setup_finished_at TEXT,
-						pokemon_number INTEGER,
 						UNIQUE(project_id, path)
-					)
-				`;
-				yield* sql`
-					CREATE TABLE pokemon_unlocks (
-						pokemon_number INTEGER PRIMARY KEY,
-						worktree_id TEXT,
-						unlocked_at TEXT NOT NULL
 					)
 				`;
 				yield* sql`
@@ -134,19 +124,13 @@ describe("WorktreeServiceLive", () => {
 			}),
 			Layer.succeed(WorktreeNameAllocator, {
 				allocate: ({ unavailableNames }) => {
-					const names = ["bulbasaur", "ivysaur", "venusaur"];
-					const index = names.findIndex((name) => !unavailableNames.has(name));
-					const name = names[index];
+					const name = ["work-aaaaaa", "work-bbbbbb", "work-cccccc"].find(
+						(candidate) => !unavailableNames.has(candidate),
+					);
 					return Effect.succeed(
-						name === undefined ? null : { name, pokemonNumber: index + 1 },
+						name === undefined ? null : { name, branch: `zuse/${name}` },
 					);
 				},
-			}),
-			Layer.succeed(PokemonAssignment, {
-				record: () => Effect.void,
-			}),
-			Layer.succeed(WorktreeDecoration, {
-				pokemonSummary: () => null,
 			}),
 		);
 
@@ -647,11 +631,11 @@ describe("WorktreeServiceLive", () => {
 		const created = await run((service) => service.create(projectId));
 		expect(created).toMatchObject({
 			projectId,
-			name: "bulbasaur",
-			branch: "bulbasaur",
+			name: "work-aaaaaa",
+			branch: "zuse/work-aaaaaa",
 			baseBranch: "main",
 		});
-		expect(created.path).toBe(join(worktreeRoot, "bulbasaur"));
+		expect(created.path).toBe(join(worktreeRoot, "work-aaaaaa"));
 		expect(await run((service) => service.list(projectId))).toHaveLength(1);
 
 		const setupEvents = await run((service) =>

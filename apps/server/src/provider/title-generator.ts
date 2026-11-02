@@ -110,7 +110,9 @@ export const cleanTitle = (raw: string): string => {
 
 /**
  * Read the naming reply. Agents sometimes wrap JSON in prose or a code fence,
- * so take the outermost object; a bare line still counts as the title.
+ * so take the outermost object. Anything else is unusable: a failing provider
+ * answers with plain text such as "Limit reached", which must never become a
+ * name.
  */
 export const parseNamingReply = (
 	raw: string,
@@ -129,7 +131,7 @@ export const parseNamingReply = (
 			};
 		} catch {}
 	}
-	return { title: start === -1 ? cleanTitle(raw) : "", branch: "" };
+	return { title: "", branch: "" };
 };
 
 /**
@@ -213,12 +215,17 @@ export interface GenerateNamesInput {
 	readonly userText: string;
 	readonly title: boolean;
 	readonly branch: boolean;
+	/**
+	 * Name from the request itself when the model gives nothing usable.
+	 * Without it, an unusable reply leaves the names unset for a later retry.
+	 */
+	readonly fallback: boolean;
 }
 
 export interface GeneratedNames {
-	/** Present when requested; falls back to the first line of the request. */
+	/** Present when requested and named; see `GenerateNamesInput.fallback`. */
 	readonly title: string | null;
-	/** Branch slug (no prefix) when requested. */
+	/** Branch slug (no prefix) when requested and named. */
 	readonly branch: string | null;
 }
 
@@ -226,8 +233,8 @@ export interface TitleGeneratorShape {
 	/**
 	 * Name a chat (and optionally its fresh branch) from its first message in
 	 * a single throwaway turn on the chat's OWN provider, so it reuses whatever
-	 * auth that provider has. Never fails: any error / timeout / unusable
-	 * reply collapses to deterministic fallbacks.
+	 * auth that provider has. Never fails: an error, timeout, or unusable
+	 * reply yields the deterministic fallbacks or, without them, no names.
 	 */
 	readonly generate: (
 		input: GenerateNamesInput,
@@ -261,20 +268,29 @@ export const TitleGeneratorLive = Layer.effect(
 						access: { _tag: "TextOnly" },
 						timeout: `${TITLE_TIMEOUT_MS} millis`,
 					},
+					// Replies stream as revised checkpoints of one message, so wait
+					// for the finished text; an early revision is only a fragment.
 					(events) =>
 						events.pipe(
 							Stream.filterMap((event) =>
-								event._tag === "AssistantMessage" &&
-								event.text.trim().length > 0
-									? Result.succeed(event.text)
+								event._tag === "AssistantMessage"
+									? Result.succeed(event)
 									: Result.fail(undefined),
 							),
-							Stream.take(1),
-							Stream.runHead,
+							Stream.takeUntil(
+								(message) =>
+									message.checkpoint === undefined || message.checkpoint.final,
+							),
+							Stream.runLast,
 						),
 				)
 				.pipe(
-					Effect.map((head) => Option.getOrElse(head, () => "")),
+					Effect.map((last) =>
+						Option.match(last, {
+							onNone: () => "",
+							onSome: (message) => message.text,
+						}),
+					),
 					Effect.catch(() => Effect.succeed("")),
 				);
 
@@ -284,9 +300,12 @@ export const TitleGeneratorLive = Layer.effect(
 				: generateText(input, buildNamingPrompt(input.userText, input)).pipe(
 						Effect.map((raw) => {
 							const reply = parseNamingReply(raw);
+							const named = reply.title.length > 0;
+							if (!named && !input.fallback)
+								return { title: null, branch: null };
 							return {
 								title: input.title
-									? reply.title.length > 0
+									? named
 										? reply.title
 										: fallbackTitle(input.userText)
 									: null,
@@ -294,7 +313,7 @@ export const TitleGeneratorLive = Layer.effect(
 									? slugify(
 											reply.branch.length > 0
 												? reply.branch
-												: reply.title.length > 0
+												: named
 													? reply.title
 													: input.userText,
 										)

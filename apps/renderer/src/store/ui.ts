@@ -51,7 +51,6 @@ export type SettingsSection =
 	  }
 	| { readonly kind: "browser" }
 	| { readonly kind: "simulator" }
-	| { readonly kind: "pokedex" }
 	| { readonly kind: "diagnostics" }
 	| { readonly kind: "shortcuts" }
 	| { readonly kind: "experimental" }

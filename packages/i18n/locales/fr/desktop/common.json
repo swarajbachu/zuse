@@ -26,6 +26,7 @@
 	"notAvailable": "N/D",
 	"cancel": "Annuler",
 	"save": "Enregistrer",
+	"rename_failed": "Impossible de renommer. Réessayez.",
 	"close": "Fermer",
 	"copy": "Copier",
 	"copied": "Copié",

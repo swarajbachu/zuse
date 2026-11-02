@@ -233,6 +233,8 @@ let archiveWorktreeStarts = 0;
 let archiveWorktreeFailure: "git-missing" | null = null;
 let generatedTitle: string | null = null;
 let generatedBranch: string | null = null;
+/** The naming model gives nothing usable, as when its provider is failing. */
+let namingModelUnavailable = false;
 let titleGenerationBarrier: Promise<void> | null = null;
 let titleGenerationStarts = 0;
 let renamedBranches: Array<{
@@ -602,7 +604,6 @@ const StubWorktreeLive = Layer.succeed(WorktreeService, {
 					worktreeId === TEST_WORKTREE_ID ? testWorktree.branch : "fixture",
 				detachedHead: false,
 				branchProvenance: "manual" as const,
-				pokemonNumber: null,
 			};
 			const markRemoved = Effect.gen(function* () {
 				if (allowRemoval !== undefined && !(yield* allowRemoval())) return;
@@ -691,6 +692,8 @@ const StubTitleGeneratorLive = Layer.succeed(TitleGenerator, {
 			}
 			if (generatedTitle === null && generatedBranch === null)
 				return yield* Effect.die("not used");
+			if (namingModelUnavailable && !input.fallback)
+				return { title: null, branch: null };
 			return {
 				title: input.title ? generatedTitle : null,
 				branch: input.branch ? generatedBranch : null,
@@ -1046,6 +1049,7 @@ beforeEach(() => {
 	archiveWorktreeFailure = null;
 	generatedTitle = null;
 	generatedBranch = null;
+	namingModelUnavailable = false;
 	titleGenerationBarrier = null;
 	titleGenerationStarts = 0;
 	renamedBranches = [];
@@ -8371,6 +8375,7 @@ describe("ConversationServices — provider event persistence", () => {
 
 	it("keeps pending New chat titles when the first turn errors", async () => {
 		generatedTitle = "Your Organization Has Disabled Access";
+		namingModelUnavailable = true;
 		scriptedEvents = [
 			{
 				_tag: "Error",
@@ -8420,6 +8425,63 @@ describe("ConversationServices — provider event persistence", () => {
 					title: "New chat",
 					titleProvenance: "pending",
 				});
+			});
+		} finally {
+			scriptedEvents = [];
+		}
+	});
+
+	it("names the chat and its branch while the first turn is still running", async () => {
+		generatedTitle = "Reconnect Reliability";
+		generatedBranch = "reconnect-reliability";
+		scriptedEvents = [
+			{
+				_tag: "AssistantMessage",
+				itemId: "i_name_running" as never,
+				text: "Looking into reconnect handling.",
+			},
+		];
+		try {
+			await withRuntime(async (run) => {
+				const created = await run(
+					Effect.flatMap(store, (service) =>
+						service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+							initialPrompt: "Make reconnect handling reliable",
+							worktreeId: TEST_WORKTREE_ID,
+						}),
+					),
+				);
+				const named = await run(
+					Effect.gen(function* () {
+						const service = yield* store;
+						const chat = yield* service.getChat(created.chat.id);
+						return chat.titleProvenance === "automatic" &&
+							renamedBranches.length > 0
+							? {
+									chat,
+									session: yield* service.getSession(created.initialSession.id),
+								}
+							: yield* Effect.fail("not named yet" as const);
+					}).pipe(
+						Effect.retry(
+							Schedule.max([
+								Schedule.spaced("10 millis"),
+								Schedule.recurs(100),
+							]),
+						),
+					),
+				);
+				expect(named.chat.title).toBe("Reconnect Reliability");
+				expect(named.session.status).toBe("running");
+				expect(renamedBranches).toEqual([
+					{
+						worktreeId: TEST_WORKTREE_ID,
+						branch: "reconnect-reliability",
+					},
+				]);
 			});
 		} finally {
 			scriptedEvents = [];

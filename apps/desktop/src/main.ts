@@ -3353,7 +3353,6 @@ async function createMainWindow() {
 }
 
 const ATTACHMENTS_HOST = "attachments";
-const POKEMON_HOST = "pokemon";
 const SITE_FAVICON_HOST = "site-favicon";
 
 const MIME_BY_EXT: Record<string, string> = {
@@ -3450,12 +3449,7 @@ const registerZuseProtocol = (): void => {
 		},
 	});
 	const attachmentsDir = Path.join(app.getPath("userData"), "attachments");
-	const pokemonDir = Path.join(app.getPath("userData"), "pokemon-sprites");
 	const attachmentFilenames: AssetFilenameCache = {
-		byStem: new Map(),
-		loaded: false,
-	};
-	const pokemonFilenames: AssetFilenameCache = {
 		byStem: new Map(),
 		loaded: false,
 	};
@@ -3470,7 +3464,7 @@ const registerZuseProtocol = (): void => {
 		if (url.host === RENDERER_ASSET_HOST) {
 			return handleRendererAsset(request);
 		}
-		if (url.host !== ATTACHMENTS_HOST && url.host !== POKEMON_HOST) {
+		if (url.host !== ATTACHMENTS_HOST) {
 			return new Response(null, { status: 404 });
 		}
 
@@ -3480,33 +3474,17 @@ const registerZuseProtocol = (): void => {
 		}
 
 		let absPath: string | null = null;
-		if (url.host === ATTACHMENTS_HOST) {
-			const fromDb = resolveAttachmentAbsPathFromDb(
-				app.getPath("userData"),
-				id,
-			);
-			if (fromDb !== null && isServableAttachmentPath(attachmentsDir, fromDb)) {
-				absPath = fromDb;
-			} else {
-				try {
-					const filename = await findAssetFilename(
-						attachmentsDir,
-						attachmentFilenames,
-						id,
-					);
-					if (filename) absPath = Path.join(attachmentsDir, filename);
-				} catch {
-					absPath = null;
-				}
-			}
+		const fromDb = resolveAttachmentAbsPathFromDb(app.getPath("userData"), id);
+		if (fromDb !== null && isServableAttachmentPath(attachmentsDir, fromDb)) {
+			absPath = fromDb;
 		} else {
 			try {
 				const filename = await findAssetFilename(
-					pokemonDir,
-					pokemonFilenames,
+					attachmentsDir,
+					attachmentFilenames,
 					id,
 				);
-				if (filename) absPath = Path.join(pokemonDir, filename);
+				if (filename) absPath = Path.join(attachmentsDir, filename);
 			} catch {
 				absPath = null;
 			}
