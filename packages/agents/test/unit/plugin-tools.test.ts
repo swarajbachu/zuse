@@ -1,5 +1,6 @@
 import { expect, test, vi } from "vitest";
 import {
+	createHttpPluginClient,
 	handlePluginTool,
 	type PluginPermissionOptions,
 	pluginCliEnv,
@@ -62,4 +63,28 @@ test("session plugin credentials survive provider shell secret-name filtering", 
 		ZUSE_ORCHESTRATION_URL: "http://127.0.0.1:1234/orchestration",
 		ZUSE_ORCHESTRATION_AUTH: "session-auth",
 	});
+});
+
+test("HTTP plugin failures keep the API's stable error code", async () => {
+	const fetchMock = vi.spyOn(globalThis, "fetch");
+	try {
+		fetchMock.mockResolvedValueOnce(
+			Response.json({ error: "plugin_unreachable" }, { status: 400 }),
+		);
+		const client = createHttpPluginClient(
+			"https://api.test/plugins",
+			async () => "t",
+		);
+		await expect(client.request({ action: "list" })).rejects.toThrow(
+			"Plugin request failed (plugin_unreachable).",
+		);
+		fetchMock.mockResolvedValueOnce(
+			new Response("<html>gateway</html>", { status: 502 }),
+		);
+		await expect(client.request({ action: "list" })).rejects.toThrow(
+			"Plugin request failed (http_502).",
+		);
+	} finally {
+		fetchMock.mockRestore();
+	}
 });
