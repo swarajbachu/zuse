@@ -860,3 +860,40 @@ it("puts settled visual-only replies after final text without creating an empty 
 	]);
 	expect(settled.at(-1)).toMatchObject({ kind: "message", interactive: true });
 });
+
+it.each([
+	false,
+	true,
+])("keeps live plan text outside collapsed tools (cloud: %s)", (cloud) => {
+	const plan = message("pending-plan", {
+		_tag: "tool_use",
+		itemId: AgentItemId.make("plan"),
+		tool: "ExitPlanMode",
+		input: { plan: "Review this proposed implementation before approving." },
+	});
+	const derive = cloud ? createCloudTimelineRows() : deriveChatTimelineRows;
+	const rows = derive({
+		messages: [
+			message("request", { _tag: "user", text: "Plan a change" }),
+			message("read", {
+				_tag: "tool_use",
+				itemId: AgentItemId.make("read"),
+				tool: "Read",
+				input: {},
+			}),
+			plan,
+		],
+		inFlight: true,
+		awaitingPlanApproval: true,
+	});
+	expect(
+		rows.some((row) => row.kind === "message" && row.message === plan),
+	).toBe(true);
+	expect(
+		rows
+			.filter((row) => row.kind === "tool-activity")
+			.flatMap((row) => row.messages),
+	).not.toContain(plan);
+	expect(rows.some((row) => row.kind === "tool-activity")).toBe(true);
+	expect(rows.some((row) => row.kind === "working")).toBe(false);
+});
