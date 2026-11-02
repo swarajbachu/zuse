@@ -77,8 +77,6 @@ export class VoiceDictation {
 	private generation = 0;
 	private state: DictationState = "idle";
 	private phrase: Phrase | null = null;
-	/** Always transcribed, so a quiet speaker the meter misses still gets text. */
-	private firstPhrase: Phrase | null = null;
 	private stream: MediaStream | null = null;
 	private timer: ReturnType<typeof setTimeout> | null = null;
 	private pausePoll: ReturnType<typeof setInterval> | null = null;
@@ -240,7 +238,7 @@ export class VoiceDictation {
 		mimeType: string,
 		maxBytes: number,
 		current: () => boolean,
-	): Phrase {
+	): void {
 		const fail = (code: DictationErrorCode) => {
 			if (current()) this.fail(code);
 		};
@@ -253,7 +251,6 @@ export class VoiceDictation {
 			startedAt: performance.now(),
 			heardSpeech: false,
 		};
-		const metered = this.analyser !== null;
 		const chunks: Blob[] = [];
 		let finished!: (audio: { blob: Blob; durationMs: number } | null) => void;
 		const audio = new Promise<{ blob: Blob; durationMs: number } | null>(
@@ -273,12 +270,10 @@ export class VoiceDictation {
 		recorder.onerror = () => fail("recorder_failed");
 		recorder.onstop = () => {
 			const blob = new Blob(chunks, { type: mimeType.split(";")[0] });
-			// A trailing phrase the meter heard as silence would only invite a
-			// hallucinated transcript; without a meter, every phrase is sent.
-			const silent = metered && !phrase.heardSpeech;
-			const skip = blob.size === 0 || (silent && phrase !== this.firstPhrase);
+			// The meter only decides where to cut; quiet speech it missed is
+			// still sent, and the service returns no text for silence.
 			finished(
-				skip
+				blob.size === 0
 					? null
 					: {
 							blob,
@@ -299,25 +294,23 @@ export class VoiceDictation {
 				durationMs: recording.durationMs,
 			});
 		});
-		this.delivery = this.delivery
-			.then(() => text)
-			.then(
-				(transcript) => {
-					const trimmed = transcript.trim();
-					if (!current() || trimmed === "") return;
-					this.delivered = true;
-					this.options.onTranscript(trimmed);
-				},
-				(error: unknown) =>
-					fail(
-						error instanceof DictationError
-							? error.code
-							: "transcription_failed",
-					),
+		// A failure ends dictation at once rather than after earlier phrases land.
+		const transcript = text.catch((error: unknown) => {
+			fail(
+				error instanceof DictationError ? error.code : "transcription_failed",
 			);
+			return "";
+		});
+		this.delivery = this.delivery
+			.then(() => transcript)
+			.then((spoken) => {
+				const trimmed = spoken.trim();
+				if (!current() || trimmed === "") return;
+				this.delivered = true;
+				this.options.onTranscript(trimmed);
+			});
 		recorder.start(250);
 		this.phrase = phrase;
-		return phrase;
 	}
 
 	/** Cuts the phrase once the speaker pauses, so it transcribes while they go on. */
@@ -389,12 +382,7 @@ export class VoiceDictation {
 				track.onended = () => this.stop();
 			});
 			this.attachAnalyser(stream);
-			this.firstPhrase = this.beginPhrase(
-				stream,
-				mimeType,
-				limits.maxBytes,
-				current,
-			);
+			this.beginPhrase(stream, mimeType, limits.maxBytes, current);
 			this.startedAt = performance.now();
 			this.setState("recording");
 			this.watchForPauses(stream, mimeType, limits.maxBytes, current);

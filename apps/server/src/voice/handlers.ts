@@ -69,8 +69,11 @@ const readAccountAuth = async (): Promise<AccountAuth> => {
 	};
 };
 
-const refreshCompatibleAccount = async (): Promise<AccountAuth> => {
-	const external = await getDefaultCodexExternalAuthTokens("proactive");
+/** `unauthorized` makes a token provider replace a token the service rejected. */
+const refreshCompatibleAccount = async (
+	reason: "proactive" | "unauthorized",
+): Promise<AccountAuth> => {
+	const external = await getDefaultCodexExternalAuthTokens(reason);
 	if (external !== null) {
 		return {
 			token: external.accessToken,
@@ -113,7 +116,7 @@ const compatibleAccount = (fresh = false): Promise<AccountAuth> => {
 	if (!fresh && cachedAccount !== null && cachedAccount.expiresAt > now)
 		return cachedAccount.auth;
 	const entry = {
-		auth: refreshCompatibleAccount(),
+		auth: refreshCompatibleAccount(fresh ? "unauthorized" : "proactive"),
 		expiresAt: now + ACCOUNT_REUSE_MS,
 	};
 	cachedAccount = entry;

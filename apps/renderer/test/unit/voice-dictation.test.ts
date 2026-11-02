@@ -329,16 +329,42 @@ describe("phrase-by-phrase dictation", () => {
 		expect(voice.onTranscript.mock.calls).toEqual([["earlier"], ["later"]]);
 		expect(voice.onState).toHaveBeenLastCalledWith("idle");
 	});
-	it("skips a silent trailing phrase instead of transcribing silence", async () => {
+	it("sends a trailing phrase the meter heard as silence", async () => {
 		const voice = create();
+		voice.transcribe
+			.mockResolvedValueOnce("loud part")
+			.mockResolvedValueOnce("quiet part");
 		await voice.controller.start();
 		await speakPhrase();
 		await vi.advanceTimersByTimeAsync(2_000);
 		voice.controller.stop();
 		await flush();
-		expect(voice.transcribe).toHaveBeenCalledTimes(1);
-		expect(voice.onTranscript).toHaveBeenCalledExactlyOnceWith("phrase");
+		expect(voice.transcribe).toHaveBeenCalledTimes(2);
+		expect(voice.onTranscript.mock.calls).toEqual([
+			["loud part"],
+			["quiet part"],
+		]);
 		expect(voice.onState).toHaveBeenLastCalledWith("idle");
+	});
+	it("ends dictation as soon as a later phrase fails", async () => {
+		const first = deferred<string>();
+		const voice = create();
+		voice.transcribe
+			.mockReturnValueOnce(first.promise)
+			.mockRejectedValueOnce(new Error("offline"));
+		await voice.controller.start();
+		await speakPhrase();
+		loudness = 1;
+		await vi.advanceTimersByTimeAsync(500);
+		voice.controller.stop();
+		await flush();
+		expect(voice.onError).toHaveBeenCalledExactlyOnceWith(
+			"transcription_failed",
+		);
+		expect(voice.onState).toHaveBeenLastCalledWith("idle");
+		first.resolve("arrives after the failure");
+		await flush();
+		expect(voice.onTranscript).not.toHaveBeenCalled();
 	});
 	it("always sends the first phrase, even when the meter heard nothing", async () => {
 		const voice = create();
