@@ -1,15 +1,16 @@
 import "@zuse/i18n/english/chat";
 import type { Message } from "@zuse/contracts";
+import { useMessages } from "@zuse/i18n/react";
 import { ChevronDown, LoaderCircle } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import type { ComponentProps } from "react";
 import { useId, useRef } from "react";
 import { isToolTreeBranch } from "../lib/chat-timeline-rows.ts";
+import { toolActivityLabel } from "../lib/tool-activity-label.ts";
 import { normalizeToolCallEnvelope } from "../lib/tool-call-envelope.ts";
 import { useTranscriptDisclosure } from "../store/transcript-disclosures.ts";
 import { useChatLookups } from "./chat-lookups.tsx";
 import { MessageRow } from "./message-row.tsx";
-import { toolActivityLabel } from "./tool-row.tsx";
 
 /** One disclosure owns the activity between text messages. */
 export function ToolActivityTree({
@@ -20,6 +21,7 @@ export function ToolActivityTree({
 	readonly messages: readonly Message[];
 	readonly live?: boolean;
 } & Omit<ComponentProps<typeof MessageRow>, "message">) {
+	const { message } = useMessages(["chat"]);
 	const [open, toggleOpen] = useTranscriptDisclosure(
 		JSON.stringify([
 			rowProps.environmentId,
@@ -53,13 +55,8 @@ export function ToolActivityTree({
 		? normalizeToolCallEnvelope(tool.tool, tool.input, result)
 		: undefined;
 	const label = normalized
-		? toolActivityLabel(
-				normalized.tool,
-				normalized.input,
-				normalized.result,
-				active,
-			)
-		: undefined;
+		? toolActivityLabel(normalized.tool, active, message)
+		: message("chat:tool_activity_activity");
 	const id = useId();
 	const reduce = useReducedMotion();
 	const initialIds = useRef(new Set(messages.map((item) => item.id)));
@@ -68,7 +65,7 @@ export function ToolActivityTree({
 		<div className="py-1">
 			<button
 				type="button"
-				aria-label={label ?? "Activity"}
+				aria-label={label}
 				aria-expanded={open}
 				aria-controls={id}
 				onClick={() => {
@@ -88,7 +85,7 @@ export function ToolActivityTree({
 					/>
 				) : null}
 				<span className="min-w-0 truncate" role="status">
-					{label ?? "Activity"}
+					{label}
 				</span>
 			</button>
 			<div id={id} hidden={!open} className="tool-activity-tree">

@@ -881,5 +881,18 @@
 	"image_gallery_title": "⟦Chààt ïïmààgëës⟧",
 	"review_guide_chapters_appear": "⟦Chààptëërs ààppëëààr hëërëë ààs thëëy'rëë wrïïttëën.⟧",
 	"review_guide_try_again": "⟦Try ààgààïïn⟧",
-	"review_guide_reading_changes": "⟦Rëëààdïïng thëë chààngëës…⟧"
+	"review_guide_reading_changes": "⟦Rëëààdïïng thëë chààngëës…⟧",
+	"tool_activity_activity": "⟦ÀÀctïïvïïty⟧",
+	"tool_activity_running_bash": "⟦Rüünnïïng Bààsh…⟧",
+	"tool_activity_running_command": "⟦Rüünnïïng côômmàànd…⟧",
+	"tool_activity_reading": "⟦Rëëààdïïng fïïlëës…⟧",
+	"tool_activity_searching_files": "⟦Sëëààrchïïng fïïlëës…⟧",
+	"tool_activity_listing": "⟦Lïïstïïng fïïlëës…⟧",
+	"tool_activity_editing": "⟦ËËdïïtïïng fïïlëës…⟧",
+	"tool_activity_writing": "⟦Wrïïtïïng fïïlëës…⟧",
+	"tool_activity_searching_web": "⟦Sëëààrchïïng thëë wëëb…⟧",
+	"tool_activity_fetching": "⟦Fëëtchïïng pààgëë…⟧",
+	"tool_activity_viewing": "⟦Vïïëëwïïng ïïmààgëë…⟧",
+	"tool_activity_using": "⟦ÜÜsïïng {{tool}}…⟧",
+	"tool_activity_last": "⟦Lààst ààctïïvïïty: {{tool}}⟧"
 }

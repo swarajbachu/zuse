@@ -154,3 +154,28 @@ it("replaces the count with the latest tool activity", () => {
 	expect(html).not.toContain("tool calls");
 	expect(html).not.toContain("Tool detail");
 });
+
+it("does not inspect edit payloads while a group is collapsed", () => {
+	const first = messages[0];
+	if (!first) throw new Error("Missing fixture");
+	const input = {
+		get edits(): never {
+			throw new Error("Closed groups must not compute edit details");
+		},
+	};
+	const edit: Message = {
+		...first,
+		content: {
+			_tag: "tool_use",
+			itemId: AgentItemId.make("large-edit"),
+			tool: "MultiEdit",
+			input,
+		},
+	};
+	expect(
+		renderToStaticMarkup(<ToolActivityTree messages={[edit]} live />),
+	).toContain("Editing files…");
+	expect(
+		renderToStaticMarkup(<ToolActivityTree messages={[edit]} />),
+	).toContain("Last activity: MultiEdit");
+});

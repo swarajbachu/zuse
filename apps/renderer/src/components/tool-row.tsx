@@ -1937,34 +1937,6 @@ function answerSummaryText(
 	return parts.join(" · ");
 }
 
-/** Compact activity labels use the same tool normalization and fallback as tool rows. */
-export function toolActivityLabel(
-	tool: string,
-	input: unknown,
-	result?: ToolResult,
-	pending = result === undefined,
-): string {
-	const view = buildToolView(tool, input, result);
-	const normalized = normalizeToolName(tool);
-	if (normalized === "Read" || normalized === "ReadFile") {
-		return pending ? "Reading files…" : "Read files";
-	}
-	if (!pending) return view.label;
-	if (view.icon === TerminalIcon) {
-		return normalized === "Bash" ? "Running Bash…" : "Running command…";
-	}
-	if (normalized === "Grep" || normalized === "Glob") return "Searching files…";
-	if (normalized === "ListDir" || normalized === "ListDirectory")
-		return "Listing files…";
-	if (normalized === "Edit" || normalized === "MultiEdit")
-		return "Editing files…";
-	if (normalized === "Write") return "Writing files…";
-	if (normalized === "WebSearch") return "Searching the web…";
-	if (normalized === "WebFetch") return "Fetching page…";
-	if (normalized === "ViewImage") return "Viewing image…";
-	return `Using ${view.label}…`;
-}
-
 export function ToolRow({
 	tool,
 	input,
