@@ -881,5 +881,18 @@
 	"image_gallery_title": "聊天图片",
 	"review_guide_chapters_appear": "章节写好后会显示在这里。",
 	"review_guide_try_again": "重试",
-	"review_guide_reading_changes": "正在读取改动…"
+	"review_guide_reading_changes": "正在读取改动…",
+	"tool_activity_activity": "活动",
+	"tool_activity_running_bash": "正在运行 Bash…",
+	"tool_activity_running_command": "正在运行命令…",
+	"tool_activity_reading": "正在读取文件…",
+	"tool_activity_searching_files": "正在搜索文件…",
+	"tool_activity_listing": "正在列出文件…",
+	"tool_activity_editing": "正在编辑文件…",
+	"tool_activity_writing": "正在写入文件…",
+	"tool_activity_searching_web": "正在搜索网页…",
+	"tool_activity_fetching": "正在获取页面…",
+	"tool_activity_viewing": "正在查看图片…",
+	"tool_activity_using": "正在使用 {{tool}}…",
+	"tool_activity_last": "最近活动：{{tool}}"
 }

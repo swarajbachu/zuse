@@ -886,5 +886,18 @@
 	"image_gallery_title": "Images de la conversation",
 	"review_guide_chapters_appear": "Les chapitres apparaissent ici au fur et à mesure.",
 	"review_guide_try_again": "Réessayer",
-	"review_guide_reading_changes": "Lecture des modifications…"
+	"review_guide_reading_changes": "Lecture des modifications…",
+	"tool_activity_activity": "Activité",
+	"tool_activity_running_bash": "Exécution de Bash…",
+	"tool_activity_running_command": "Exécution de la commande…",
+	"tool_activity_reading": "Lecture des fichiers…",
+	"tool_activity_searching_files": "Recherche dans les fichiers…",
+	"tool_activity_listing": "Liste des fichiers…",
+	"tool_activity_editing": "Modification des fichiers…",
+	"tool_activity_writing": "Écriture des fichiers…",
+	"tool_activity_searching_web": "Recherche sur le Web…",
+	"tool_activity_fetching": "Récupération de la page…",
+	"tool_activity_viewing": "Affichage de l’image…",
+	"tool_activity_using": "Utilisation de {{tool}}…",
+	"tool_activity_last": "Dernière activité : {{tool}}"
 }
