@@ -76,20 +76,25 @@ describe("Claude zsh shell", () => {
 		).toEqual(env);
 	});
 
-	it("removes the temporary wrapper when installing it fails", async () => {
-		const dir = await tempDir();
-		const first = await Effect.runPromise(
-			withClaudeZshShell({ SHELL: "/bin/zsh" }, dir),
-		);
-		const wrapper = first.CLAUDE_CODE_SHELL as string;
-		await rm(wrapper);
-		await mkdir(join(wrapper, "occupied"), { recursive: true });
-		const env = { SHELL: "/bin/zsh" };
-		expect(await Effect.runPromise(withClaudeZshShell(env, dir))).toEqual(env);
-		expect(
-			(await readdir(dir)).filter((name) => name.endsWith(".tmp")),
-		).toEqual([]);
-	});
+	it.skipIf(process.platform === "win32")(
+		"removes the temporary wrapper when installing it fails",
+		async () => {
+			const dir = await tempDir();
+			const first = await Effect.runPromise(
+				withClaudeZshShell({ SHELL: "/bin/zsh" }, dir),
+			);
+			const wrapper = first.CLAUDE_CODE_SHELL as string;
+			await rm(wrapper);
+			await mkdir(join(wrapper, "occupied"), { recursive: true });
+			const env = { SHELL: "/bin/zsh" };
+			expect(await Effect.runPromise(withClaudeZshShell(env, dir))).toEqual(
+				env,
+			);
+			expect(
+				(await readdir(dir)).filter((name) => name.endsWith(".tmp")),
+			).toEqual([]);
+		},
+	);
 
 	it.skipIf(process.platform === "win32")(
 		"makes the wrapper executable under a restrictive umask",
