@@ -61,6 +61,7 @@ import {
 } from "~/lib/tool-image-result";
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
+import { useLocalTranscriptDisclosure } from "~/store/transcript-disclosures.ts";
 import { type FileView, useUiStore } from "~/store/ui";
 import { useFileOpenTarget } from "./file-chip.tsx";
 import { FileIcon } from "./file-icon.tsx";
@@ -668,7 +669,7 @@ function ExpandableIconRow({
 }) {
 	const { message: uiMessage } = useUiMessages(["tools", "chat", "common"]);
 
-	const [expanded, setExpanded] = useState(false);
+	const [expanded, toggleExpanded, viaBulk] = useLocalTranscriptDisclosure();
 	const reduce = useReducedMotion();
 	const contentId = useId();
 	const Chevron = expanded ? ChevronDown : ChevronRight;
@@ -678,7 +679,7 @@ function ExpandableIconRow({
 				type="button"
 				aria-expanded={hasContent ? expanded : undefined}
 				aria-controls={hasContent ? contentId : undefined}
-				onClick={() => hasContent && setExpanded((e) => !e)}
+				onClick={() => hasContent && toggleExpanded()}
 				className={cn(
 					"group flex w-full max-w-2xl items-center gap-2 rounded px-1.5 py-1 text-left text-xs",
 					hasContent ? "cursor-pointer" : "cursor-default",
@@ -755,7 +756,10 @@ function ExpandableIconRow({
 						initial={{ height: 0 }}
 						animate={{ height: "auto" }}
 						exit={{ height: 0 }}
-						transition={{ duration: reduce ? 0 : 0.16, ease: "easeOut" }}
+						transition={{
+							duration: reduce || viaBulk ? 0 : 0.16,
+							ease: "easeOut",
+						}}
 						className="overflow-hidden"
 					>
 						<div className="ml-6 mt-1 max-h-96 max-w-2xl space-y-2 overflow-y-auto border-l border-border/60 pl-2 pr-1">

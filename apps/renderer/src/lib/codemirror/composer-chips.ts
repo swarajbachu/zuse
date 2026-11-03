@@ -1,3 +1,4 @@
+import { invertedEffects } from "@codemirror/commands";
 import {
 	EditorState,
 	Facet,
@@ -306,12 +307,40 @@ const chipPasteRehydration = EditorState.transactionExtender.of((tr) => {
 });
 
 /**
+ * Undoing a change that removed chips puts the chips back with their text,
+ * so Cmd+Z after deleting a chip (or redo after undoing an insert) restores
+ * the chip rather than its raw token. Failed uploads stay removed.
+ */
+const chipHistory = invertedEffects.of((tr) => {
+	const before = tr.startState.field(chipsField, false) ?? [];
+	if (before.length === 0) return [];
+	const after = tr.state.field(chipsField);
+	const dropped = new Set(
+		tr.effects.flatMap((e) =>
+			e.is(removeImageChipEffect) ? [e.value.id] : [],
+		),
+	);
+	return before
+		.filter(
+			(chip) =>
+				!(chip.meta.kind === "image" && dropped.has(chip.meta.id)) &&
+				!after.some(
+					(next) =>
+						next.from === tr.changes.mapPos(chip.from, -1) &&
+						next.to === tr.changes.mapPos(chip.to, 1),
+				),
+		)
+		.map((chip) => addChipEffect.of(chip));
+});
+
+/**
  * Bundle: the field + a derived ViewPlugin-equivalent decoration provider
  * + an `atomicRanges` provider so cursor movement skips over chips.
  */
 export const chipExtensions = [
 	chipsField,
 	chipPasteRehydration,
+	chipHistory,
 	EditorView.decorations.compute([chipsField], (state) =>
 		chipDecorations(state),
 	),

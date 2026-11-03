@@ -102,6 +102,7 @@ import {
 	TranscriptScrollCoordinator,
 	type TranscriptScrollSnapshot,
 } from "../lib/transcript-scroll-coordinator.ts";
+import { useChatFindStore } from "../store/chat-find.ts";
 import {
 	chatStartupUsesQueue,
 	type PendingChatCreation,
@@ -109,6 +110,7 @@ import {
 } from "../store/chats.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
+import { ChatFindBar } from "./chat-find-bar.tsx";
 import { ChatLookupsProvider, deriveChatLookups } from "./chat-lookups.tsx";
 import { ChatTurnNavigator } from "./chat-turn-navigator.tsx";
 import { DelegationGroup } from "./delegation-group.tsx";
@@ -812,6 +814,11 @@ export function ChatView({
 			timeline.view.pendingCommands,
 		],
 	);
+	const findOpen = useChatFindStore((state) => state.open);
+	const onFindNavigate = useCallback(() => {
+		setTimelineAnchorMessageId(null);
+		coordinator.readerTookControl();
+	}, [coordinator]);
 	const showPill =
 		(scrollSnapshot.mode === "detached" ||
 			scrollSnapshot.mode === "navigating" ||
@@ -971,21 +978,29 @@ export function ChatView({
 								/>
 							</ChatLookupsProvider>
 						)}
-						<ChatTurnNavigator
-							turns={turns}
-							activeMessageId={activeTurnMessageId}
-							hasOutOfViewUpdates={hasOutOfViewUpdates}
-							onReaderIntent={() => {
-								coordinator.readerTookControl();
-							}}
-							onNavigate={(turn) => {
-								setTimelineAnchorMessageId(null);
-								coordinator.jumpToTurn(turn.rowIndex, {
-									viewportOffset: TRANSCRIPT_TURN_INSET_PX,
-									animated: !prefersReducedMotion,
-								});
-							}}
+						<ChatFindBar
+							sessionId={sessionId}
+							rows={rows}
+							listRef={listRef}
+							onNavigate={onFindNavigate}
 						/>
+						{findOpen ? null : (
+							<ChatTurnNavigator
+								turns={turns}
+								activeMessageId={activeTurnMessageId}
+								hasOutOfViewUpdates={hasOutOfViewUpdates}
+								onReaderIntent={() => {
+									coordinator.readerTookControl();
+								}}
+								onNavigate={(turn) => {
+									setTimelineAnchorMessageId(null);
+									coordinator.jumpToTurn(turn.rowIndex, {
+										viewportOffset: TRANSCRIPT_TURN_INSET_PX,
+										animated: !prefersReducedMotion,
+									});
+								}}
+							/>
+						)}
 						<div
 							className="pointer-events-none absolute inset-x-0 z-30 px-[var(--chat-row-gutter,0.75rem)]"
 							style={{ bottom: Math.max(0, endInset - 8) }}

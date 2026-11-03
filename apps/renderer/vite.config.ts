@@ -138,6 +138,7 @@ export default defineConfig({
 			"d3-shape",
 			"diff",
 			"fflate",
+			"gemoji",
 			"fuzzysort",
 			"gradient-shimmer",
 			"lucide-react",

@@ -1747,3 +1747,13 @@ html[data-sidebar-dragging] * {
 .fz-prose p:has(> .chat-image-preview):not(:has(> :not(.chat-image-preview))) {
 	display: inline;
 }
+
+/* Find-in-chat paints matches through the CSS Custom Highlight API so the
+   transcript DOM is never mutated. Only color-like properties apply here. */
+::highlight(chat-find) {
+	background-color: color-mix(in oklab, var(--primary) 26%, transparent);
+}
+::highlight(chat-find-current) {
+	background-color: color-mix(in oklab, var(--primary) 78%, transparent);
+	color: var(--primary-foreground);
+}

@@ -43,4 +43,12 @@ export const APPLICATION_COMMANDS: ReadonlySet<Command> = new Set<Command>([
 	"focus-next-pane",
 	"focus-prev-pane",
 	"open-chat-switcher",
+	"show-shortcuts",
+	"find-in-chat",
+	"open-model-picker",
+	"cycle-reasoning-effort",
+	"toggle-fast-mode",
+	"toggle-tool-details",
+	"toggle-task-list",
+	"stop-background-tasks",
 ]);

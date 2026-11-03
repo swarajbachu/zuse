@@ -74,6 +74,7 @@ import { normalizeToolCallEnvelope } from "~/lib/tool-call-envelope";
 import { cn } from "~/lib/utils";
 import { useEnvironmentCatalogStore } from "~/store/environment-catalog";
 import { useModelCatalogStore } from "~/store/model-catalog";
+import { useLocalTranscriptDisclosure } from "~/store/transcript-disclosures.ts";
 import { useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
@@ -917,7 +918,7 @@ function AssistantBubble({
 function ToolErrorRow({ output }: { output: unknown }) {
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 
-	const [expanded, setExpanded] = useState(false);
+	const [expanded, toggleExpanded] = useLocalTranscriptDisclosure();
 	const Chevron = expanded ? ChevronDown : ChevronRight;
 	const text = typeof output === "string" ? output : stringifyJson(output);
 	const firstLine = text.split("\n", 1)[0] ?? "";
@@ -925,7 +926,7 @@ function ToolErrorRow({ output }: { output: unknown }) {
 		<div className="px-4">
 			<button
 				type="button"
-				onClick={() => setExpanded((e) => !e)}
+				onClick={toggleExpanded}
 				className="group flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs hover:bg-accent"
 			>
 				<div className="relative grid size-4 shrink-0 place-items-center">
@@ -972,7 +973,7 @@ function ProviderErrorRow({
 	environmentId?: EnvironmentId;
 }) {
 	const describe = useProviderErrorCopy(environmentId);
-	const [open, setOpen] = useState(false);
+	const [open, toggleOpen] = useLocalTranscriptDisclosure();
 	const notice = describeProviderError(error, providerId, environmentId);
 	const copy = describe(notice, error);
 	const fullText = error.message.trim();
@@ -1016,7 +1017,13 @@ function ProviderErrorRow({
 		);
 
 	return (
-		<Collapsible open={open} onOpenChange={setOpen} className="px-4 py-0.5">
+		<Collapsible
+			open={open}
+			onOpenChange={(next) => {
+				if (next !== open) toggleOpen();
+			}}
+			className="px-4 py-0.5"
+		>
 			<CollapsibleTrigger className="group flex w-fit min-w-0 max-w-full items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring">
 				<span className="grid size-4 shrink-0 place-items-center">
 					<span

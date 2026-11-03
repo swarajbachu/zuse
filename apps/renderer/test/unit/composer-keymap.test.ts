@@ -95,6 +95,33 @@ describe("composer keyboard behavior", () => {
 		expect(key?.run?.(view)).toBe(false);
 		expect(callbacks.onInterrupt).not.toHaveBeenCalled();
 	});
+	it("clears an idle draft only after a second Escape", () => {
+		const view = editor("draft", 5);
+		const idle = {
+			...callbacks,
+			canInterrupt: () => false,
+			onClearArmed: vi.fn(),
+			onClearDraft: vi.fn(),
+		};
+		const escapeKey = buildComposerKeymap(idle).find(
+			(binding) => binding.key === "Escape",
+		);
+		expect(escapeKey?.run?.(view)).toBe(true);
+		expect(idle.onClearArmed).toHaveBeenLastCalledWith(true);
+		expect(idle.onClearDraft).not.toHaveBeenCalled();
+		expect(escapeKey?.run?.(view)).toBe(true);
+		expect(idle.onClearArmed).toHaveBeenLastCalledWith(false);
+		expect(idle.onClearDraft).toHaveBeenCalledOnce();
+		expect(callbacks.onInterrupt).not.toHaveBeenCalled();
+	});
+	it("routes Ctrl+S to the stash", () => {
+		const onStash = vi.fn(() => true);
+		const stash = buildComposerKeymap({ ...callbacks, onStash }).find(
+			(binding) => binding.key === "Ctrl-s",
+		);
+		expect(stash?.run?.(editor("draft", 5))).toBe(true);
+		expect(onStash).toHaveBeenCalledOnce();
+	});
 });
 
 it("does not register the native Close Tab chord as a composer edit", () => {
