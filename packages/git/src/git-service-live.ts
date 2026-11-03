@@ -889,7 +889,7 @@ export const GitServiceLive = Layer.effect(
 					remote,
 				]).pipe(Effect.catch(() => Effect.succeed("")));
 				return {
-					branch: merge && branch.endsWith(`/${merge}`) ? merge : branch,
+					branch: merge || branch,
 					owner: parseRemoteUrl(url.trim())?.owner,
 				};
 			});
