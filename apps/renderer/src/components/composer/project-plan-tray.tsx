@@ -5,12 +5,13 @@ import { message as uiMessage } from "@zuse/i18n";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { CheckListIcon, Tick02Icon } from "@zuse/icons/solid-rounded";
 import { ChevronDown } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Spinner } from "~/components/ui/spinner";
 import { cn } from "~/lib/utils";
 
 import { useRendererSessionTimeline } from "../../lib/session-timeline-hooks.ts";
+import { useTaskListToggle } from "../../store/task-list-toggle.ts";
 import { TrayPill, trayPillActionClass } from "./tray-pill.tsx";
 
 const TODO_STATUS = {
@@ -257,6 +258,13 @@ export function ProjectPlanTray({
 	);
 
 	const [expanded, setExpanded] = useState(false);
+	const toggleEpoch = useTaskListToggle((s) => s.epoch);
+	const seenToggleEpoch = useRef(toggleEpoch);
+	useEffect(() => {
+		if (toggleEpoch === seenToggleEpoch.current) return;
+		seenToggleEpoch.current = toggleEpoch;
+		setExpanded((open) => !open);
+	}, [toggleEpoch]);
 
 	const todos = useMemo(() => {
 		return projectPlanFromMessages(messages);

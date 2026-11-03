@@ -48,6 +48,8 @@ import {
 	Upload01Icon,
 } from "@zuse/icons/solid-rounded";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { HistorySearchPopover } from "~/components/composer/history-search-popover";
+import { StashTray } from "~/components/composer/stash-tray";
 import { Button } from "~/components/ui/button";
 import { Card, CardPanel } from "~/components/ui/card";
 import {
@@ -60,6 +62,7 @@ import {
 	DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
+import { Kbd } from "~/components/ui/kbd";
 import {
 	compactMenuItemClass,
 	Menu,
@@ -85,6 +88,7 @@ import {
 	createComposerView,
 	reconfigureComposerKeymap,
 	replaceWithChip,
+	resetComposerHistory,
 	restoreComposerChips,
 	setComposerDoc,
 	setComposerPlaceholder,
@@ -114,6 +118,7 @@ import {
 	type BuiltinCommand,
 	matchBuiltin,
 } from "../composer/builtin-commands.ts";
+import { CLEAR_CONFIRM_MS } from "../composer/double-escape.ts";
 import type {
 	PendingDraftAttachment,
 	PendingDraftContextFile,
@@ -126,6 +131,10 @@ import {
 import { ComposerMessageHistory } from "../composer/message-history.ts";
 import { parseComposerInput } from "../composer/segment-parser.ts";
 import { cachedAttachmentUrl, uploadAttachment } from "../lib/attachments.ts";
+import {
+	stopAllBackgroundTasks,
+	stoppableBackgroundTasks,
+} from "../lib/background-task-control.ts";
 import {
 	cloudChatShowsWorking,
 	deriveCloudChatActivity,
@@ -177,6 +186,7 @@ import {
 import { useChatsStore } from "../store/chats.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
 import {
+	type ComposerDraftSnapshot,
 	composerDraftKeyForSession,
 	EMPTY_COMPOSER_CONTEXTS,
 	recoverComposerDraft,
@@ -188,9 +198,11 @@ import {
 } from "../store/model-catalog.ts";
 import { usePaneFocus } from "../store/pane-focus.ts";
 import { useProvidersStore } from "../store/providers.ts";
+import { useShortcutsPanel } from "../store/shortcuts-panel.ts";
 import { CloudConnectionNotice } from "./cloud-connection-notice.tsx";
 import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
 import { ContextTray } from "./composer/context-tray.tsx";
+import { EmojiPopover } from "./composer/emoji-popover.tsx";
 import { FileTagPopover } from "./composer/file-tag-popover.tsx";
 import { NoConnectionTray } from "./composer/no-connection-tray.tsx";
 import {
@@ -262,6 +274,7 @@ const MINIMAL_HIDDEN_COMMANDS: ReadonlySet<string> = new Set([
 	"goal",
 ]);
 const MAX_HEIGHT = 240;
+const MAX_CLEARED_DRAFTS = 10;
 const MAX_ATTACHMENTS_PER_TURN = 20;
 
 export function ChatComposer({
@@ -463,6 +476,32 @@ export function ChatComposer({
 	const messageHistoryRef = useRef(sessionMessages);
 	messageHistoryRef.current = sessionMessages;
 	const historyBlockedRef = useRef(false);
+	const timelineRef = useRef(timeline);
+	timelineRef.current = timeline;
+	const providerIdRef = useRef(session.providerId);
+	providerIdRef.current = session.providerId;
+	useEffect(() => {
+		if (isDraft) return;
+		const tasks = {
+			count: () =>
+				stoppableBackgroundTasks(
+					timelineRef.current.view,
+					providerIdRef.current,
+				).length,
+			stopAll: () =>
+				stopAllBackgroundTasks(
+					timelineRef.current.ref,
+					timelineRef.current.view,
+					providerIdRef.current,
+				),
+		};
+		const bridge = useComposerBridge.getState();
+		bridge.setBackgroundTasks(tasks);
+		return () => {
+			if (useComposerBridge.getState().backgroundTasks === tasks)
+				bridge.setBackgroundTasks(null);
+		};
+	}, [isDraft]);
 
 	const questionAttachmentsByKey =
 		useEnvironmentQuestionAttachments(qualifiedEnvironmentId).data
@@ -595,6 +634,22 @@ export function ChatComposer({
 	const pickingQueuedItemRef = useRef(false);
 	const [trigger, setTrigger] = useState<ActiveTrigger | null>(null);
 	const [modelPickerOpen, setModelPickerOpen] = useState(false);
+	const [clearArmed, setClearArmed] = useState(false);
+	const [historySearchEntries, setHistorySearchEntries] = useState<
+		readonly ComposerDraftSnapshot[] | null
+	>(null);
+	useEffect(() => {
+		if (!clearArmed) return;
+		const timer = window.setTimeout(
+			() => setClearArmed(false),
+			CLEAR_CONFIRM_MS,
+		);
+		return () => window.clearTimeout(timer);
+	}, [clearArmed]);
+	/** Drafts cleared with Esc Esc this session, recallable with Up. */
+	const clearedDraftsRef = useRef<
+		{ readonly at: number; readonly snapshot: ComposerDraftSnapshot }[]
+	>([]);
 	const [isDragging, setIsDragging] = useState(false);
 	const editorHostRef = useRef<HTMLDivElement | null>(null);
 	const editorViewRef = useRef<EditorView | null>(null);
@@ -619,6 +674,8 @@ export function ChatComposer({
 	const textPastedRef = useRef<(text: string) => boolean>(() => false);
 
 	const togglePlanModeRef = useRef<() => void>(() => undefined);
+	const stashRef = useRef<() => boolean>(() => false);
+	const searchHistoryRef = useRef<() => boolean>(() => false);
 
 	const setModel = useSessionsStore((s) => s.setModel);
 	const setRuntimeMode = useSessionsStore((s) => s.setRuntimeMode);
@@ -676,6 +733,29 @@ export function ChatComposer({
 		uploadingAttachmentCount === 0 &&
 		(hasText || annotationCount > 0 || composerContexts.length > 0);
 
+	/** Sent messages and cleared drafts, oldest first. Reads refs only. */
+	const recallEntries = (): ComposerDraftSnapshot[] =>
+		[
+			...messageHistoryRef.current.flatMap(({ content, createdAt }) => {
+				const at = createdAt.getTime();
+				if (content._tag === "user")
+					return [{ at, snapshot: { doc: content.text, chips: [] } }];
+				if (content._tag !== "user_rich") return [];
+				return [
+					{
+						at,
+						snapshot: composerSnapshotFromInput(
+							ComposerInput.make(content),
+							(id) => cachedAttachmentUrl(goalRef, id) ?? "",
+						),
+					},
+				];
+			}),
+			...clearedDraftsRef.current,
+		]
+			.sort((a, b) => a.at - b.at)
+			.map((entry) => entry.snapshot);
+
 	useEffect(() => {
 		const host = editorHostRef.current;
 		if (host === null) return;
@@ -715,6 +795,25 @@ export function ChatComposer({
 		const callbacks = {
 			canInterrupt: () => interruptAvailableRef.current,
 			onInterrupt: () => interruptRef.current(),
+			onClearArmed: setClearArmed,
+			onClearDraft: () => {
+				const view = editorViewRef.current;
+				if (!view) return;
+				clearedDraftsRef.current = [
+					...clearedDraftsRef.current.slice(-(MAX_CLEARED_DRAFTS - 1)),
+					{
+						at: Date.now(),
+						snapshot: {
+							doc: view.state.doc.toString(),
+							chips: allChips(view.state),
+						},
+					},
+				];
+				view.dispatch({
+					changes: { from: 0, to: view.state.doc.length },
+					userEvent: "delete",
+				});
+			},
 			onSubmit: (mode?: "steer" | "queue") => submitRef.current(mode),
 			onHistory: (direction: -1 | 1) => {
 				const view = editorViewRef.current;
@@ -724,19 +823,7 @@ export function ChatComposer({
 						0) > 0
 				)
 					return false;
-				const entries = history.browsing
-					? []
-					: messageHistoryRef.current.flatMap(({ content }) => {
-							if (content._tag === "user")
-								return [{ doc: content.text, chips: [] }];
-							if (content._tag !== "user_rich") return [];
-							return [
-								composerSnapshotFromInput(
-									ComposerInput.make(content),
-									(id) => cachedAttachmentUrl(goalRef, id) ?? "",
-								),
-							];
-						});
+				const entries = history.browsing ? [] : recallEntries();
 				const snapshot = history.navigate(
 					direction,
 					{
@@ -795,6 +882,12 @@ export function ChatComposer({
 				filesDroppedRef.current(files),
 			onTextPaste: (text: string) => textPastedRef.current(text),
 			onTogglePlanMode: () => togglePlanModeRef.current(),
+			onStash: () => stashRef.current(),
+			onHelp: () => {
+				useShortcutsPanel.getState().setOpen(true);
+				return true;
+			},
+			onSearchHistory: () => searchHistoryRef.current(),
 		};
 		const view = createComposerView({
 			parent: host,
@@ -1014,12 +1107,69 @@ export function ChatComposer({
 		view.focus();
 	}, [session.providerId, session.model]);
 
+	/**
+	 * Ctrl+S: park the draft, bring the parked one back, or swap the two.
+	 * Drafts with uploads still in flight stay put.
+	 */
+	stashRef.current = () => {
+		const view = editorViewRef.current;
+		if (view === null) return false;
+		const chips = allChips(view.state);
+		if (
+			chips.some(
+				(chip) =>
+					chip.meta.kind === "image" && chip.meta.id.startsWith("pending-"),
+			)
+		)
+			return true;
+		const drafts = useComposerDraftsStore.getState();
+		const current =
+			view.state.doc.length > 0
+				? { doc: view.state.doc.toString(), chips }
+				: null;
+		if (current === null && drafts.stashesByKey[draftKey] === undefined)
+			return true;
+		const restored = drafts.swapStash(draftKey, current);
+		view.dispatch({ effects: clearChipsEffect.of() });
+		setComposerDoc(view, restored?.doc ?? "");
+		if (restored !== null) {
+			restoreComposerChips(view, restored.chips);
+			hydrateComposerImagePreviews(
+				view,
+				goalRef,
+				() => editorViewRef.current === view,
+			);
+		}
+		resetComposerHistory(view);
+		view.focus();
+		return true;
+	};
+
+	searchHistoryRef.current = () => {
+		setTrigger(null);
+		setHistorySearchEntries(recallEntries());
+		return true;
+	};
+	const pickHistoryEntry = (snapshot: ComposerDraftSnapshot): void => {
+		const view = editorViewRef.current;
+		if (view === null) return;
+		view.dispatch({ effects: clearChipsEffect.of() });
+		setComposerDoc(view, snapshot.doc);
+		restoreComposerChips(view, snapshot.chips);
+		hydrateComposerImagePreviews(
+			view,
+			goalRef,
+			() => editorViewRef.current === view,
+		);
+	};
+
 	const clearComposer = (
 		view: EditorView,
 		opts?: { readonly clearPendingAttachments?: boolean },
 	): void => {
 		setComposerDoc(view, "");
 		view.dispatch({ effects: clearChipsEffect.of() });
+		resetComposerHistory(view);
 		setHasText(false);
 		hasTextRef.current = false;
 		setTrigger(null);
@@ -1708,6 +1858,7 @@ export function ChatComposer({
 			<NoConnectionTray />
 			{!isDraft ? <SessionSecretRequests sessionRef={timeline.ref} /> : null}
 			{isDraft ? draftTray : null}
+			<StashTray draftKey={draftKey} onRestore={() => stashRef.current()} />
 			<ComposerAttachmentTray
 				draftKey={draftKey}
 				sessionId={isDraft ? null : sessionId}
@@ -1909,6 +2060,12 @@ export function ChatComposer({
 											providerId={session.providerId}
 											onClose={() => setTrigger(null)}
 										/>
+									) : trigger.kind === "emoji" ? (
+										<EmojiPopover
+											trigger={trigger}
+											view={editorViewRef.current}
+											onClose={() => setTrigger(null)}
+										/>
 									) : (
 										<FileTagPopover
 											environmentId={qualifiedEnvironmentId}
@@ -1920,6 +2077,15 @@ export function ChatComposer({
 											onClose={() => setTrigger(null)}
 										/>
 									)
+								) : null}
+								{historySearchEntries !== null &&
+								editorViewRef.current !== null ? (
+									<HistorySearchPopover
+										view={editorViewRef.current}
+										entries={historySearchEntries}
+										onPick={pickHistoryEntry}
+										onClose={() => setHistorySearchEntries(null)}
+									/>
 								) : null}
 								{/* biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: CodeMirror owns keyboard semantics; clicking host padding forwards focus to its editor. */}
 								<div
@@ -1943,7 +2109,25 @@ export function ChatComposer({
 							</CardPanel>
 
 							<div className="relative z-10 flex items-center justify-between gap-2 px-2.5 pb-2 pt-1">
-								<div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+								{clearArmed ? (
+									<div
+										role="status"
+										className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center pb-1 text-xs text-muted-foreground animate-in fade-in-0 duration-150 motion-reduce:animate-none"
+									>
+										<RichMessage
+											id="chat:chat_composer_press_esc_again_to_clear"
+											components={{
+												part0: <Kbd className="mx-1 h-4 px-1 text-[11px]" />,
+											}}
+										/>
+									</div>
+								) : null}
+								<div
+									className={cn(
+										"flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+										clearArmed && "invisible",
+									)}
+								>
 									<ComposerAddMenu
 										onAttach={() => fileInputRef.current?.click()}
 										plan={
@@ -2730,6 +2914,26 @@ function ComposerModelPicker({
 		};
 	}, [catalog, providerId, model, uiMessage]);
 
+	const [openRequest, setOpenRequest] = useState(0);
+	const controls = useRef({
+		openPicker: () => {},
+		cycleEffort: () => {},
+		toggleFastMode: () => {},
+	});
+	useEffect(() => {
+		const bridge = useComposerBridge.getState();
+		const registered = {
+			openPicker: () => controls.current.openPicker(),
+			cycleEffort: () => controls.current.cycleEffort(),
+			toggleFastMode: () => controls.current.toggleFastMode(),
+		};
+		bridge.setModelControls(registered);
+		return () => {
+			if (useComposerBridge.getState().modelControls === registered)
+				bridge.setModelControls(null);
+		};
+	}, []);
+
 	const defaultId = resolved?.defaultId ?? "medium";
 	const descriptorId = resolved?.descriptorId ?? "reasoning";
 	const storageKey = sessionModelOptionStorageKey(
@@ -2769,9 +2973,25 @@ function ComposerModelPicker({
 		onLevelChange?.(level);
 	}, [defaultId, level, onLevelChange, resolved, storageKey]);
 
+	controls.current = {
+		openPicker: () => setOpenRequest((n) => n + 1),
+		cycleEffort: () => {
+			if (resolved === null || resolved.options.length === 0) return;
+			const index = resolved.options.findIndex((o) => o.id === level);
+			const next = resolved.options[(index + 1) % resolved.options.length]?.id;
+			if (next === undefined) return;
+			setLevel(next);
+			window.sessionStorage.setItem(storageKey, next);
+		},
+		toggleFastMode: () => {
+			if (fastModeAvailable) fastMode.toggle();
+		},
+	};
+
 	const modelPickerProps = {
 		cloudProviderIds,
 		composer: true,
+		openRequest,
 		fastMode: fastModeAvailable && fastMode.enabled,
 		environmentId,
 		mode: "session" as const,

@@ -897,5 +897,18 @@
 	"tool_activity_fetching": "Récupération de la page…",
 	"tool_activity_viewing": "Affichage de l’image…",
 	"tool_activity_using": "Utilisation de {{tool}}…",
-	"tool_activity_last": "Dernière activité : {{tool}}"
+	"tool_activity_last": "Dernière activité : {{tool}}",
+	"find_in_chat_count": "{{current}} sur {{total}}",
+	"find_in_chat_no_results": "Aucun résultat",
+	"find_in_chat_previous": "Résultat précédent",
+	"find_in_chat_next": "Résultat suivant",
+	"find_in_chat_close": "Fermer la recherche",
+	"chat_composer_press_esc_again_to_clear": "Appuyez à nouveau sur <part0>Échap</part0> pour effacer",
+	"stash_tray_title": "Brouillon mis de côté",
+	"stash_tray_restore": "Restaurer",
+	"stash_tray_restore_draft": "Restaurer le brouillon mis de côté",
+	"stash_tray_discard": "Supprimer le brouillon mis de côté",
+	"history_search_placeholder": "Rechercher dans les messages envoyés",
+	"history_search_results": "Messages envoyés",
+	"history_search_no_results": "Aucun résultat"
 }

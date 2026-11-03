@@ -892,5 +892,18 @@
 	"tool_activity_fetching": "ページを取得中…",
 	"tool_activity_viewing": "画像を表示中…",
 	"tool_activity_using": "{{tool}} を使用中…",
-	"tool_activity_last": "直前のアクティビティ：{{tool}}"
+	"tool_activity_last": "直前のアクティビティ：{{tool}}",
+	"find_in_chat_count": "{{current}} / {{total}}",
+	"find_in_chat_no_results": "結果なし",
+	"find_in_chat_previous": "前の一致",
+	"find_in_chat_next": "次の一致",
+	"find_in_chat_close": "検索を閉じる",
+	"chat_composer_press_esc_again_to_clear": "もう一度 <part0>Esc</part0> を押すとクリアします",
+	"stash_tray_title": "保留中の下書き",
+	"stash_tray_restore": "復元",
+	"stash_tray_restore_draft": "保留中の下書きを復元",
+	"stash_tray_discard": "保留中の下書きを破棄",
+	"history_search_placeholder": "送信済みメッセージを検索",
+	"history_search_results": "送信済みメッセージ",
+	"history_search_no_results": "一致なし"
 }

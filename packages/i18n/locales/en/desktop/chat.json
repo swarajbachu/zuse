@@ -892,5 +892,18 @@
 	"tool_activity_fetching": "Fetching page…",
 	"tool_activity_viewing": "Viewing image…",
 	"tool_activity_using": "Using {{tool}}…",
-	"tool_activity_last": "Last activity: {{tool}}"
+	"tool_activity_last": "Last activity: {{tool}}",
+	"find_in_chat_count": "{{current}} of {{total}}",
+	"find_in_chat_no_results": "No results",
+	"find_in_chat_previous": "Previous match",
+	"find_in_chat_next": "Next match",
+	"find_in_chat_close": "Close find",
+	"chat_composer_press_esc_again_to_clear": "Press <part0>Esc</part0> again to clear",
+	"stash_tray_title": "Stashed draft",
+	"stash_tray_restore": "Restore",
+	"stash_tray_restore_draft": "Restore stashed draft",
+	"stash_tray_discard": "Discard stashed draft",
+	"history_search_placeholder": "Search sent messages",
+	"history_search_results": "Sent messages",
+	"history_search_no_results": "No matches"
 }

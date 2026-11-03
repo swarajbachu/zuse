@@ -892,5 +892,18 @@
 	"tool_activity_fetching": "正在获取页面…",
 	"tool_activity_viewing": "正在查看图片…",
 	"tool_activity_using": "正在使用 {{tool}}…",
-	"tool_activity_last": "最近活动：{{tool}}"
+	"tool_activity_last": "最近活动：{{tool}}",
+	"find_in_chat_count": "第 {{current}} 项，共 {{total}} 项",
+	"find_in_chat_no_results": "无结果",
+	"find_in_chat_previous": "上一个匹配项",
+	"find_in_chat_next": "下一个匹配项",
+	"find_in_chat_close": "关闭查找",
+	"chat_composer_press_esc_again_to_clear": "再按一次 <part0>Esc</part0> 即可清除",
+	"stash_tray_title": "已暂存的草稿",
+	"stash_tray_restore": "恢复",
+	"stash_tray_restore_draft": "恢复暂存的草稿",
+	"stash_tray_discard": "丢弃暂存的草稿",
+	"history_search_placeholder": "搜索已发送的消息",
+	"history_search_results": "已发送的消息",
+	"history_search_no_results": "无匹配项"
 }

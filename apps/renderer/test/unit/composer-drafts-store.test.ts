@@ -186,4 +186,16 @@ describe("composer drafts store", () => {
 			undefined,
 		);
 	});
+
+	it("swaps the stash and hands back the draft it replaced", () => {
+		const { swapStash } = useComposerDraftsStore.getState();
+		expect(swapStash(firstKey, { doc: "first", chips: [] })).toBeNull();
+		expect(swapStash(firstKey, { doc: "second", chips: [] })?.doc).toBe(
+			"first",
+		);
+		expect(swapStash(firstKey, null)?.doc).toBe("second");
+		expect(
+			useComposerDraftsStore.getState().stashesByKey[firstKey],
+		).toBeUndefined();
+	});
 });

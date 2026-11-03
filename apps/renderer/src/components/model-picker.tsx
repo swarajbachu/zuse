@@ -84,6 +84,8 @@ const fallbackEnvironmentCatalog = bundledResolvedModelCatalog();
 type ModelPickerProps = {
 	cloudProviderIds?: ReadonlyArray<ProviderId>;
 	fastMode?: boolean;
+	/** Opens the picker whenever this counter changes to a non-zero value. */
+	openRequest?: number;
 } & (
 	| {
 			mode: "configuration";
@@ -257,6 +259,10 @@ export function ModelPicker(props: ModelPickerProps) {
 	useEffect(() => {
 		onOpenChange?.(open);
 	}, [open, onOpenChange]);
+	const openRequest = props.openRequest ?? 0;
+	useEffect(() => {
+		if (openRequest > 0) setOpen(true);
+	}, [openRequest]);
 
 	useEffect(() => {
 		if (open && (isHostedProduct() || props.cloudProviderIds !== undefined))

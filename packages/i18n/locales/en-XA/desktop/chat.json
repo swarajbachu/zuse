@@ -892,5 +892,18 @@
 	"tool_activity_fetching": "⟦Fëëtchïïng pààgëë…⟧",
 	"tool_activity_viewing": "⟦Vïïëëwïïng ïïmààgëë…⟧",
 	"tool_activity_using": "⟦ÜÜsïïng {{tool}}…⟧",
-	"tool_activity_last": "⟦Lààst ààctïïvïïty: {{tool}}⟧"
+	"tool_activity_last": "⟦Lààst ààctïïvïïty: {{tool}}⟧",
+	"find_in_chat_count": "⟦{{current}} ôôf {{total}}⟧",
+	"find_in_chat_no_results": "⟦Nôô rëësüülts⟧",
+	"find_in_chat_previous": "⟦Prëëvïïôôüüs mààtch⟧",
+	"find_in_chat_next": "⟦Nëëxt mààtch⟧",
+	"find_in_chat_close": "⟦Clôôsëë fïïnd⟧",
+	"chat_composer_press_esc_again_to_clear": "⟦Prëëss <part0>ËËsc</part0> ààgààïïn tôô clëëààr⟧",
+	"stash_tray_title": "⟦Stààshëëd drààft⟧",
+	"stash_tray_restore": "⟦Rëëstôôrëë⟧",
+	"stash_tray_restore_draft": "⟦Rëëstôôrëë stààshëëd drààft⟧",
+	"stash_tray_discard": "⟦Dïïscààrd stààshëëd drààft⟧",
+	"history_search_placeholder": "⟦Sëëààrch sëënt mëëssààgëës⟧",
+	"history_search_results": "⟦Sëënt mëëssààgëës⟧",
+	"history_search_no_results": "⟦Nôô mààtchëës⟧"
 }

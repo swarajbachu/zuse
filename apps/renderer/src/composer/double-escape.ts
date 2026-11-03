@@ -1,6 +1,10 @@
+/** How long the "press Esc again to clear" confirmation stays armed. */
+export const CLEAR_CONFIRM_MS = 1500;
+
 /** Require two deliberate presses in the same editor state. */
 export class DoubleEscape {
 	private first: { at: number; doc: unknown } | null = null;
+	constructor(private readonly windowMs = 500) {}
 	reset(): void {
 		this.first = null;
 	}
@@ -10,7 +14,7 @@ export class DoubleEscape {
 			previous &&
 			previous.doc === doc &&
 			now - previous.at >= 0 &&
-			now - previous.at <= 500
+			now - previous.at <= this.windowMs
 		) {
 			this.reset();
 			return true;

@@ -69,6 +69,13 @@ type ComposerDraftsState = {
 	readonly draftsByKey: Record<string, ComposerDraftSnapshot>;
 	readonly save: (key: string, snapshot: ComposerDraftSnapshot) => void;
 	readonly clear: (key: string) => void;
+	/** One draft per composer set aside with Ctrl+S. */
+	readonly stashesByKey: Record<string, ComposerDraftSnapshot>;
+	/** Store `snapshot` as the stash and return the one it replaced. */
+	readonly swapStash: (
+		key: string,
+		snapshot: ComposerDraftSnapshot | null,
+	) => ComposerDraftSnapshot | null;
 };
 
 const isEmptySnapshot = (snapshot: ComposerDraftSnapshot): boolean =>
@@ -100,6 +107,18 @@ export const composerDraftKeyForRemoteLanding = composerDraftKeyForLanding;
 export const useComposerDraftsStore = create<ComposerDraftsState>((set) => ({
 	draftsByKey: {},
 	contextsByKey: {},
+	stashesByKey: {},
+	swapStash: (key, snapshot) => {
+		let previous: ComposerDraftSnapshot | null = null;
+		set((state) => {
+			previous = state.stashesByKey[key] ?? null;
+			const next = { ...state.stashesByKey };
+			if (snapshot === null || isEmptySnapshot(snapshot)) delete next[key];
+			else next[key] = { doc: snapshot.doc, chips: [...snapshot.chips] };
+			return { stashesByKey: next };
+		});
+		return previous;
+	},
 	addContext: (key, context) =>
 		set((state) => ({
 			contextsByKey: {

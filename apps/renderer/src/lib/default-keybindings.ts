@@ -1,6 +1,10 @@
 import "@zuse/i18n/english/commands";
 import type { Command, KeybindingRule } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
+import { isMacHost } from "./host-platform.ts";
+
+/** Control+letter clashes with the Ctrl-as-mod shortcuts on other platforms. */
+const IS_MAC = isMacHost();
 
 /**
  * Display metadata for each command. The label is shown in the settings
@@ -79,6 +83,102 @@ export const COMMAND_META: Record<Command, CommandMeta> = {
 			return uiMessage(
 				"commands:default_keybindings_find_and_open_a_file_in_the_current_project_or_worktree",
 			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
+	},
+	"show-shortcuts": {
+		labelKey: "commands:show_shortcuts",
+		get label() {
+			return uiMessage("commands:show_shortcuts");
+		},
+		get description() {
+			return uiMessage("commands:show_shortcuts_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
+	},
+	"find-in-chat": {
+		labelKey: "commands:find_in_chat",
+		get label() {
+			return uiMessage("commands:find_in_chat");
+		},
+		get description() {
+			return uiMessage("commands:find_in_chat_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
+	},
+	"open-model-picker": {
+		labelKey: "commands:open_model_picker",
+		get label() {
+			return uiMessage("commands:open_model_picker");
+		},
+		get description() {
+			return uiMessage("commands:open_model_picker_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
+	},
+	"cycle-reasoning-effort": {
+		labelKey: "commands:cycle_reasoning_effort",
+		get label() {
+			return uiMessage("commands:cycle_reasoning_effort");
+		},
+		get description() {
+			return uiMessage("commands:cycle_reasoning_effort_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
+	},
+	"toggle-fast-mode": {
+		labelKey: "commands:toggle_fast_mode",
+		get label() {
+			return uiMessage("commands:toggle_fast_mode");
+		},
+		get description() {
+			return uiMessage("commands:toggle_fast_mode_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
+	},
+	"toggle-tool-details": {
+		labelKey: "commands:toggle_tool_details",
+		get label() {
+			return uiMessage("commands:toggle_tool_details");
+		},
+		get description() {
+			return uiMessage("commands:toggle_tool_details_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
+	},
+	"toggle-task-list": {
+		labelKey: "commands:toggle_task_list",
+		get label() {
+			return uiMessage("commands:toggle_task_list");
+		},
+		get description() {
+			return uiMessage("commands:toggle_task_list_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
+	},
+	"stop-background-tasks": {
+		labelKey: "commands:stop_background_tasks",
+		get label() {
+			return uiMessage("commands:stop_background_tasks");
+		},
+		get description() {
+			return uiMessage("commands:stop_background_tasks_description");
 		},
 		get group() {
 			return uiMessage("commands:command_group_application");
@@ -518,6 +618,54 @@ export const COMMAND_META: Record<Command, CommandMeta> = {
 			return uiMessage("commands:command_group_composer");
 		},
 	},
+	"composer.yank": {
+		labelKey: "commands:composer_yank",
+		get label() {
+			return uiMessage("commands:composer_yank");
+		},
+		get description() {
+			return uiMessage("commands:composer_yank_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_composer");
+		},
+	},
+	"composer.yankPop": {
+		labelKey: "commands:composer_yankPop",
+		get label() {
+			return uiMessage("commands:composer_yankPop");
+		},
+		get description() {
+			return uiMessage("commands:composer_yankPop_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_composer");
+		},
+	},
+	"composer.stash": {
+		labelKey: "commands:composer_stash",
+		get label() {
+			return uiMessage("commands:composer_stash");
+		},
+		get description() {
+			return uiMessage("commands:composer_stash_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_composer");
+		},
+	},
+	"composer.searchHistory": {
+		labelKey: "commands:composer_searchHistory",
+		get label() {
+			return uiMessage("commands:composer_searchHistory");
+		},
+		get description() {
+			return uiMessage("commands:composer_searchHistory_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_composer");
+		},
+	},
 	"composer.interrupt": {
 		labelKey: "commands:composer_interrupt",
 		get label() {
@@ -627,6 +775,14 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
 	{ key: "ctrl+shift+`", command: "focus-prev-pane" },
 	{ key: "mod+k", command: "open-chat-switcher" },
 	{ key: "mod+p", command: "search-files" },
+	{ key: "mod+/", command: "show-shortcuts" },
+	{ key: "mod+f", command: "find-in-chat" },
+	{ key: "alt+p", command: "open-model-picker" },
+	{ key: "alt+t", command: "cycle-reasoning-effort" },
+	{ key: "alt+o", command: "toggle-fast-mode" },
+	{ key: IS_MAC ? "ctrl+o" : "ctrl+shift+o", command: "toggle-tool-details" },
+	{ key: IS_MAC ? "ctrl+t" : "ctrl+shift+t", command: "toggle-task-list" },
+	{ key: "mod+shift+k", command: "stop-background-tasks" },
 	{ key: "enter", command: "composer.submit" },
 	{ key: "shift+enter", command: "composer.newline" },
 	{ key: "mod+enter", command: "composer.forceSubmit" },
@@ -638,6 +794,10 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
 	{ key: "ctrl+k", command: "composer.deleteToEnd" },
 	{ key: "ctrl+backspace", command: "composer.deleteWord" },
 	{ key: "alt+backspace", command: "composer.deleteWord" },
+	{ key: "ctrl+y", command: "composer.yank" },
+	{ key: "alt+y", command: "composer.yankPop" },
+	{ key: "ctrl+s", command: "composer.stash" },
+	{ key: IS_MAC ? "ctrl+r" : "alt+r", command: "composer.searchHistory" },
 	{ key: "escape", command: "composer.interrupt" },
 	{ key: "mod+s", command: "editor.save" },
 	{ key: "mod+shift+a", command: "editor.annotate" },

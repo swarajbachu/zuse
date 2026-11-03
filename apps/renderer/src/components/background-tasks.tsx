@@ -11,6 +11,10 @@ import "@zuse/i18n/english/common";
 import { useMessages } from "@zuse/i18n/react";
 import { ComputerTerminal01Icon, StopIcon } from "@zuse/icons/solid-rounded";
 import { useMemo, useState } from "react";
+import {
+	canStopBackgroundTask,
+	isStoppingBackgroundTask,
+} from "../lib/background-task-control.ts";
 import { formatError } from "../lib/format-error.ts";
 import { stopBackgroundTask } from "../lib/session-actions.ts";
 import { cn } from "../lib/utils.ts";
@@ -68,17 +72,9 @@ export function BackgroundTaskRows({
 	const errorKey = (task: RunningBackgroundTask) =>
 		`${sessionRef.environmentId}:${sessionRef.sessionId}:${task.attemptId}:${task.id}`;
 	const isStopping = (task: RunningBackgroundTask) =>
-		view.pendingCommands.some(
-			(command) =>
-				command.kind === "messages.background.stop" &&
-				command.targetId === task.taskId,
-		);
+		isStoppingBackgroundTask(view, task);
 	const canStop = (task: RunningBackgroundTask) =>
-		providerId === "claude" &&
-		task.turnId !== null &&
-		task.attemptId !== null &&
-		view.data?.activeTurn?.id === task.turnId &&
-		view.data.activeTurn.attempt?.id === task.attemptId;
+		canStopBackgroundTask(view, providerId, task);
 	const stop = (task: RunningBackgroundTask) => {
 		const key = errorKey(task);
 		setErrors((current) => ({ ...current, [key]: null }));

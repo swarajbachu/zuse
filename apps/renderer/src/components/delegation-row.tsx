@@ -4,7 +4,6 @@ import type { AgentItemId, EnvironmentId, Message } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ClipboardIcon } from "@zuse/icons/solid-rounded";
 import { Check, ChevronDown, ChevronRight, Minus, X } from "lucide-react";
-import { useState } from "react";
 
 import {
 	type DelegationStatus,
@@ -14,6 +13,7 @@ import {
 } from "~/lib/delegation-display";
 import { useRelativeTimeTick } from "~/lib/use-relative-time";
 import { cn } from "~/lib/utils";
+import { useLocalTranscriptDisclosure } from "~/store/transcript-disclosures.ts";
 
 import { CopyButton } from "./copy-button.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
@@ -114,7 +114,7 @@ export function DelegationRow({
 }) {
 	const { message } = useUiMessages(["chat"]);
 	const statusLabel = useDelegationStatusLabel();
-	const [expanded, setExpanded] = useState(false);
+	const [expanded, toggleExpanded] = useLocalTranscriptDisclosure();
 	const failed = view.status === "failed";
 	const title = view.title || message("chat:delegation_row_starting");
 	const label = statusLabel(view.status);
@@ -173,7 +173,7 @@ export function DelegationRow({
 					aria-expanded={inline !== null ? expanded : undefined}
 					onClick={() => {
 						if (onOpen !== null) onOpen();
-						else setExpanded((value) => !value);
+						else toggleExpanded();
 					}}
 					className={cn(
 						className,
@@ -215,13 +215,13 @@ function InlineBody({ body }: { readonly body: DelegationInlineBody }) {
 function PromptRow({ text }: { text: string }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
 
-	const [expanded, setExpanded] = useState(false);
+	const [expanded, toggleExpanded] = useLocalTranscriptDisclosure();
 	const Chevron = expanded ? ChevronDown : ChevronRight;
 	return (
 		<div className="px-4 pt-1">
 			<button
 				type="button"
-				onClick={() => setExpanded((e) => !e)}
+				onClick={toggleExpanded}
 				className={cn(
 					"group flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs",
 					"hover:bg-muted/40 cursor-pointer",

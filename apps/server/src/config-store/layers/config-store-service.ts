@@ -6,7 +6,7 @@ import {
 	type AppearanceMode,
 	type BranchNamingStyle,
 	BUNDLED_MODEL_CATALOG,
-	type Command,
+	Command,
 	type CompletionSoundPreset,
 	defaultModelEnabledByProvider,
 	defaultModelFor,
@@ -30,6 +30,7 @@ import {
 	Path,
 	PubSub,
 	Ref,
+	Schema,
 	Semaphore,
 	Stream,
 } from "effect";
@@ -162,40 +163,7 @@ const isBranchNamingStyle = (v: unknown): v is BranchNamingStyle =>
 const isMergeMethod = (v: unknown): v is MergePrefs["method"] =>
 	v === "merge" || v === "squash" || v === "rebase";
 
-const isCommand = (v: unknown): v is Command =>
-	v === "new-chat" ||
-	v === "open-project" ||
-	v === "settings" ||
-	v === "close-tab" ||
-	v === "toggle-left-sidebar" ||
-	v === "toggle-right-sidebar" ||
-	v === "toggle-terminal" ||
-	v === "focus-composer" ||
-	v === "next-tab" ||
-	v === "prev-tab" ||
-	v === "select-tab-1" ||
-	v === "select-tab-2" ||
-	v === "select-tab-3" ||
-	v === "select-tab-4" ||
-	v === "select-tab-5" ||
-	v === "select-tab-6" ||
-	v === "select-tab-7" ||
-	v === "select-tab-8" ||
-	v === "select-last-tab" ||
-	v === "new-tab" ||
-	v === "next-chat" ||
-	v === "prev-chat" ||
-	v === "next-panel" ||
-	v === "prev-panel" ||
-	v === "focus-next-pane" ||
-	v === "focus-prev-pane" ||
-	v === "open-chat-switcher" ||
-	v === "composer.submit" ||
-	v === "composer.newline" ||
-	v === "composer.forceSubmit" ||
-	v === "composer.togglePlanMode" ||
-	v === "editor.save" ||
-	v === "editor.annotate";
+const isCommand = Schema.is(Command);
 
 const isDevConfigProfile = (): boolean =>
 	process.env.ZUSE_CONFIG_PROFILE?.trim() === "dev" ||

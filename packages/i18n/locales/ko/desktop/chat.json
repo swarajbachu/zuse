@@ -892,5 +892,18 @@
 	"tool_activity_fetching": "페이지 가져오는 중…",
 	"tool_activity_viewing": "이미지 보는 중…",
 	"tool_activity_using": "{{tool}} 사용 중…",
-	"tool_activity_last": "최근 활동: {{tool}}"
+	"tool_activity_last": "최근 활동: {{tool}}",
+	"find_in_chat_count": "{{current}} / {{total}}",
+	"find_in_chat_no_results": "결과 없음",
+	"find_in_chat_previous": "이전 일치 항목",
+	"find_in_chat_next": "다음 일치 항목",
+	"find_in_chat_close": "찾기 닫기",
+	"chat_composer_press_esc_again_to_clear": "지우려면 <part0>Esc</part0> 키를 한 번 더 누르세요",
+	"stash_tray_title": "보관한 초안",
+	"stash_tray_restore": "복원",
+	"stash_tray_restore_draft": "보관한 초안 복원",
+	"stash_tray_discard": "보관한 초안 삭제",
+	"history_search_placeholder": "보낸 메시지 검색",
+	"history_search_results": "보낸 메시지",
+	"history_search_no_results": "일치 항목 없음"
 }
