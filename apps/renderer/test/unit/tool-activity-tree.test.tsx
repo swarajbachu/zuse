@@ -129,7 +129,7 @@ it("stops showing running progress when the tool result arrives", () => {
 	);
 	expect(html).toContain('aria-expanded="false"');
 	expect(html).not.toContain("Reading files…");
-	expect(html).not.toContain("animate-spin");
+	expect(html).toContain("Read 1 file");
 	expect(html).not.toContain("Tool detail");
 });
 
@@ -177,5 +177,5 @@ it("does not inspect edit payloads while a group is collapsed", () => {
 	).toContain("Editing files…");
 	expect(
 		renderToStaticMarkup(<ToolActivityTree messages={[edit]} />),
-	).toContain("Last activity: MultiEdit");
+	).toContain("Made 1 edit");
 });

@@ -74,12 +74,15 @@ export async function activateLocale(locale: DesktopLocale): Promise<void> {
 const numberFormats = new Map<string, Intl.NumberFormat>();
 const dateFormats = new Map<string, Intl.DateTimeFormat>();
 const relativeFormats = new Map<string, Intl.RelativeTimeFormat>();
+const listFormats = new Map<string, Intl.ListFormat>();
+const formatLocale = (): string =>
+	i18n.language === "en-XA" ? "en" : i18n.language || "en";
 function cached<T>(
 	cache: Map<string, T>,
 	options: object,
 	create: (locale: string) => T,
 ): T {
-	const locale = i18n.language === "en-XA" ? "en" : i18n.language || "en";
+	const locale = formatLocale();
 	const key = JSON.stringify([
 		locale,
 		Object.entries(options).sort(([a], [b]) => a.localeCompare(b)),
@@ -124,3 +127,13 @@ export const formatRelativeTime = (
 		options,
 		(locale) => new Intl.RelativeTimeFormat(locale, options),
 	).format(value, unit);
+
+/** Joins lowercase clauses into one sentence: "Ran 3 commands and read 2 files". */
+export function formatSentenceList(items: readonly string[]): string {
+	const text = cached(
+		listFormats,
+		{},
+		(locale) => new Intl.ListFormat(locale, { type: "conjunction" }),
+	).format(items);
+	return text.charAt(0).toLocaleUpperCase(formatLocale()) + text.slice(1);
+}
