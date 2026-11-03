@@ -899,11 +899,17 @@
 	"find_in_chat_next": "Next match",
 	"find_in_chat_close": "Close find",
 	"chat_composer_press_esc_again_to_clear": "Press <part0>Esc</part0> again to clear",
-	"stash_tray_title": "Stashed draft",
-	"stash_tray_restore": "Restore",
-	"stash_tray_restore_draft": "Restore stashed draft",
-	"stash_tray_discard": "Discard stashed draft",
 	"history_search_placeholder": "Search sent messages",
 	"history_search_results": "Sent messages",
-	"history_search_no_results": "No matches"
+	"history_search_no_results": "No matches",
+	"stash_title": "Stash",
+	"stash_open": "Stashed prompts: {{count}}. Open stash.",
+	"stash_list": "Stashed prompts",
+	"stash_empty": "Nothing stashed yet. Press {{shortcut}} with a draft to stash it.",
+	"stash_delete": "Delete stashed prompt",
+	"history_search_empty": "No messages sent in this chat yet.",
+	"history_search_title": "Searching sent messages",
+	"history_search_use": "use",
+	"history_search_cancel": "cancel",
+	"stash_saved_notice": "Draft stashed · <part0>{{shortcut}}</part0> to view"
 }

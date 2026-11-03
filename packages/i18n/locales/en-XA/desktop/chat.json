@@ -899,11 +899,17 @@
 	"find_in_chat_next": "⟦Nëëxt mààtch⟧",
 	"find_in_chat_close": "⟦Clôôsëë fïïnd⟧",
 	"chat_composer_press_esc_again_to_clear": "⟦Prëëss <part0>ËËsc</part0> ààgààïïn tôô clëëààr⟧",
-	"stash_tray_title": "⟦Stààshëëd drààft⟧",
-	"stash_tray_restore": "⟦Rëëstôôrëë⟧",
-	"stash_tray_restore_draft": "⟦Rëëstôôrëë stààshëëd drààft⟧",
-	"stash_tray_discard": "⟦Dïïscààrd stààshëëd drààft⟧",
 	"history_search_placeholder": "⟦Sëëààrch sëënt mëëssààgëës⟧",
 	"history_search_results": "⟦Sëënt mëëssààgëës⟧",
-	"history_search_no_results": "⟦Nôô mààtchëës⟧"
+	"history_search_no_results": "⟦Nôô mààtchëës⟧",
+	"stash_title": "⟦Stààsh⟧",
+	"stash_open": "⟦Stààshëëd prôômpts: {{count}}. ÔÔpëën stààsh.⟧",
+	"stash_list": "⟦Stààshëëd prôômpts⟧",
+	"stash_empty": "⟦Nôôthïïng stààshëëd yëët. Prëëss {{shortcut}} wïïth àà drààft tôô stààsh ïït.⟧",
+	"stash_delete": "⟦Dëëlëëtëë stààshëëd prôômpt⟧",
+	"history_search_empty": "⟦Nôô mëëssààgëës sëënt ïïn thïïs chààt yëët.⟧",
+	"history_search_title": "⟦Sëëààrchïïng sëënt mëëssààgëës⟧",
+	"history_search_use": "⟦üüsëë⟧",
+	"history_search_cancel": "⟦cààncëël⟧",
+	"stash_saved_notice": "⟦Drààft stààshëëd · <part0>{{shortcut}}</part0> tôô vïïëëw⟧"
 }

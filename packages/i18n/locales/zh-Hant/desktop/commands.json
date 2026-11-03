@@ -126,7 +126,7 @@
 	"composer_yankPop": "循環已刪除的文字",
 	"composer_yankPop_description": "貼上已刪除的文字後，立即將其換成更早刪除的內容。",
 	"composer_stash": "暫存草稿",
-	"composer_stash_description": "暫存草稿；在空白輸入框中再按一次即可還原。",
+	"composer_stash_description": "將草稿放入暫存；輸入框為空時開啟暫存清單。",
 	"composer_searchHistory": "搜尋已傳送的訊息",
 	"composer_searchHistory_description": "尋找此對話中較早的訊息並重新使用。"
 }

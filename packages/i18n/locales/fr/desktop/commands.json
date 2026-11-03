@@ -126,7 +126,7 @@
 	"composer_yankPop": "Parcourir le texte supprimé",
 	"composer_yankPop_description": "Juste après avoir collé du texte supprimé, remplacez-le par une suppression plus ancienne.",
 	"composer_stash": "Mettre le brouillon de côté",
-	"composer_stash_description": "Mettez le brouillon de côté ; appuyez à nouveau dans un champ vide pour le récupérer.",
+	"composer_stash_description": "Mettez le brouillon de côté ; dans un champ vide, ouvrez la liste des messages mis de côté.",
 	"composer_searchHistory": "Rechercher dans les messages envoyés",
 	"composer_searchHistory_description": "Retrouvez un message précédent de cette conversation pour le réutiliser.",
 	"commands_stop_background_tasks_confirm_many": "Appuyez à nouveau sur {{shortcut}} pour arrêter {{count}} tâches en arrière-plan",

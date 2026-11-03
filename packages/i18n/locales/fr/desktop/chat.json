@@ -904,11 +904,17 @@
 	"find_in_chat_next": "Résultat suivant",
 	"find_in_chat_close": "Fermer la recherche",
 	"chat_composer_press_esc_again_to_clear": "Appuyez à nouveau sur <part0>Échap</part0> pour effacer",
-	"stash_tray_title": "Brouillon mis de côté",
-	"stash_tray_restore": "Restaurer",
-	"stash_tray_restore_draft": "Restaurer le brouillon mis de côté",
-	"stash_tray_discard": "Supprimer le brouillon mis de côté",
 	"history_search_placeholder": "Rechercher dans les messages envoyés",
 	"history_search_results": "Messages envoyés",
-	"history_search_no_results": "Aucun résultat"
+	"history_search_no_results": "Aucun résultat",
+	"stash_title": "Mis de côté",
+	"stash_open": "Messages mis de côté : {{count}}. Ouvrir la liste.",
+	"stash_list": "Messages mis de côté",
+	"stash_empty": "Rien de mis de côté pour l’instant. Appuyez sur {{shortcut}} avec un brouillon pour le mettre de côté.",
+	"stash_delete": "Supprimer le message mis de côté",
+	"history_search_empty": "Aucun message envoyé dans cette conversation pour l’instant.",
+	"history_search_title": "Recherche dans les messages envoyés",
+	"history_search_use": "utiliser",
+	"history_search_cancel": "annuler",
+	"stash_saved_notice": "Brouillon mis de côté · <part0>{{shortcut}}</part0> pour afficher"
 }

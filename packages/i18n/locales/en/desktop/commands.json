@@ -110,7 +110,7 @@
 	"composer_yankPop": "Cycle deleted text",
 	"composer_yankPop_description": "Right after pasting deleted text, swap it for an older deletion.",
 	"composer_stash": "Stash draft",
-	"composer_stash_description": "Set the draft aside; press again on an empty composer to bring it back.",
+	"composer_stash_description": "Set the draft aside in the stash; on an empty composer, open the stash.",
 	"composer_searchHistory": "Search sent messages",
 	"composer_searchHistory_description": "Find an earlier message from this chat and reuse it.",
 	"commands_no_background_tasks": "No background tasks to stop",

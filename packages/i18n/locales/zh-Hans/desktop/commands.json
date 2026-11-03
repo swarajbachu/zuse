@@ -126,7 +126,7 @@
 	"composer_yankPop": "循环已删除的文本",
 	"composer_yankPop_description": "粘贴已删除的文本后，立即将其换成更早删除的内容。",
 	"composer_stash": "暂存草稿",
-	"composer_stash_description": "暂存草稿；在空输入框中再按一次即可恢复。",
+	"composer_stash_description": "将草稿放入暂存；输入框为空时打开暂存列表。",
 	"composer_searchHistory": "搜索已发送的消息",
 	"composer_searchHistory_description": "查找此对话中较早的消息并重新使用。"
 }

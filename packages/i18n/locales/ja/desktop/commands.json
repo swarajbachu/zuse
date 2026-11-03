@@ -126,7 +126,7 @@
 	"composer_yankPop": "削除したテキストを切り替え",
 	"composer_yankPop_description": "削除したテキストを貼り付けた直後に、より古い削除内容と入れ替えます。",
 	"composer_stash": "下書きを保留",
-	"composer_stash_description": "下書きを保留します。空の入力欄でもう一度押すと元に戻ります。",
+	"composer_stash_description": "下書きを保留します。入力欄が空のときは保留一覧を開きます。",
 	"composer_searchHistory": "送信済みメッセージを検索",
 	"composer_searchHistory_description": "このチャットの以前のメッセージを探して再利用します。"
 }

@@ -899,11 +899,17 @@
 	"find_in_chat_next": "次の一致",
 	"find_in_chat_close": "検索を閉じる",
 	"chat_composer_press_esc_again_to_clear": "もう一度 <part0>Esc</part0> を押すとクリアします",
-	"stash_tray_title": "保留中の下書き",
-	"stash_tray_restore": "復元",
-	"stash_tray_restore_draft": "保留中の下書きを復元",
-	"stash_tray_discard": "保留中の下書きを破棄",
 	"history_search_placeholder": "送信済みメッセージを検索",
 	"history_search_results": "送信済みメッセージ",
-	"history_search_no_results": "一致なし"
+	"history_search_no_results": "一致なし",
+	"stash_title": "保留",
+	"stash_open": "保留中のプロンプト: {{count}} 件。保留一覧を開く。",
+	"stash_list": "保留中のプロンプト",
+	"stash_empty": "保留中のものはまだありません。下書きがある状態で {{shortcut}} を押すと保留できます。",
+	"stash_delete": "保留中のプロンプトを削除",
+	"history_search_empty": "このチャットではまだメッセージを送信していません。",
+	"history_search_title": "送信済みメッセージを検索中",
+	"history_search_use": "使用",
+	"history_search_cancel": "キャンセル",
+	"stash_saved_notice": "下書きを保留しました · <part0>{{shortcut}}</part0> で表示"
 }

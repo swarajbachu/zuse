@@ -126,7 +126,7 @@
 	"composer_yankPop": "Gelöschten Text durchgehen",
 	"composer_yankPop_description": "Ersetzt eingefügten gelöschten Text direkt danach durch eine ältere Löschung.",
 	"composer_stash": "Entwurf zurücklegen",
-	"composer_stash_description": "Legt den Entwurf zurück; in einem leeren Eingabefeld erneut drücken, um ihn zurückzuholen.",
+	"composer_stash_description": "Legt den Entwurf zurück; in einem leeren Eingabefeld öffnet es die zurückgelegten Prompts.",
 	"composer_searchHistory": "Gesendete Nachrichten durchsuchen",
 	"composer_searchHistory_description": "Findet eine frühere Nachricht aus diesem Chat zur Wiederverwendung."
 }
