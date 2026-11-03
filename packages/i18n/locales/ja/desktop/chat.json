@@ -921,5 +921,6 @@
 	"tool_activity_summary_images_other": "{{count}} 件の画像を表示",
 	"tool_activity_summary_tools": "{{count}} 件のツールを使用",
 	"tool_activity_summary_tools_one": "{{count}} 件のツールを使用",
-	"tool_activity_summary_tools_other": "{{count}} 件のツールを使用"
+	"tool_activity_summary_tools_other": "{{count}} 件のツールを使用",
+	"tool_activity_summary_separator": "、"
 }

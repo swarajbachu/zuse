@@ -1,4 +1,4 @@
-import { formatSentenceList, message } from "@zuse/i18n";
+import { capitalizeSentence, message } from "@zuse/i18n";
 import { describe, expect, it } from "vitest";
 import {
 	toolActivityLabel,
@@ -29,19 +29,19 @@ describe("compact tool activity", () => {
 			toolActivitySummary(
 				["Bash", "Read", "Shell", "Read", "Bash"],
 				message,
-				formatSentenceList,
+				capitalizeSentence,
 			),
-		).toBe("Ran 3 commands and read 2 files");
+		).toBe("Ran 3 commands, read 2 files");
 		expect(
 			toolActivitySummary(
 				["Edit", "custom_tool", "Grep"],
 				message,
-				formatSentenceList,
+				capitalizeSentence,
 			),
-		).toBe("Made 1 edit, used 1 tool, and ran 1 search");
+		).toBe("Made 1 edit, used 1 tool, ran 1 search");
 	});
 	it("falls back to a neutral label when there are no tool calls", () => {
-		expect(toolActivitySummary([], message, formatSentenceList)).toBe(
+		expect(toolActivitySummary([], message, capitalizeSentence)).toBe(
 			"Activity",
 		);
 	});

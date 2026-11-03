@@ -95,13 +95,13 @@ export function toolActivityLabel(tool: string, message: Translate): string {
 }
 
 /**
- * Settled summary such as "Ran 3 commands and read 2 files", grouped by
+ * Settled summary such as "Ran 5 commands, read 3 files", grouped by
  * activity in order of first appearance.
  */
 export function toolActivitySummary(
 	tools: readonly string[],
 	message: Translate,
-	formatSentenceList: (items: readonly string[]) => string,
+	capitalizeSentence: (text: string) => string,
 ): string {
 	const counts = new Map<MessageKey, number>();
 	for (const tool of tools) {
@@ -109,7 +109,9 @@ export function toolActivitySummary(
 		counts.set(key, (counts.get(key) ?? 0) + 1);
 	}
 	if (counts.size === 0) return message("chat:tool_activity_activity");
-	return formatSentenceList(
-		[...counts].map(([key, count]) => message(key, { count })),
+	return capitalizeSentence(
+		[...counts]
+			.map(([key, count]) => message(key, { count }))
+			.join(message("chat:tool_activity_summary_separator")),
 	);
 }

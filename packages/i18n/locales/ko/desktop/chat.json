@@ -921,5 +921,6 @@
 	"tool_activity_summary_images_other": "이미지 {{count}}개 확인",
 	"tool_activity_summary_tools": "도구 {{count}}개 사용",
 	"tool_activity_summary_tools_one": "도구 {{count}}개 사용",
-	"tool_activity_summary_tools_other": "도구 {{count}}개 사용"
+	"tool_activity_summary_tools_other": "도구 {{count}}개 사용",
+	"tool_activity_summary_separator": ", "
 }

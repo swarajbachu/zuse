@@ -921,5 +921,6 @@
 	"tool_activity_summary_images_other": "{{count}} Bilder angesehen",
 	"tool_activity_summary_tools": "{{count}} Tools verwendet",
 	"tool_activity_summary_tools_one": "{{count}} Tool verwendet",
-	"tool_activity_summary_tools_other": "{{count}} Tools verwendet"
+	"tool_activity_summary_tools_other": "{{count}} Tools verwendet",
+	"tool_activity_summary_separator": ", "
 }

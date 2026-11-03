@@ -179,3 +179,55 @@ it("does not inspect edit payloads while a group is collapsed", () => {
 		renderToStaticMarkup(<ToolActivityTree messages={[edit]} />),
 	).toContain("Made 1 edit");
 });
+
+const toolUse = (id: string, tool: string): Message => ({
+	id: MessageId.make(`use-${id}`),
+	sessionId: SessionId.make("disclosure-session"),
+	role: "assistant",
+	content: { _tag: "tool_use", itemId: AgentItemId.make(id), tool, input: {} },
+	createdAt: new Date(0),
+});
+const toolResult = (id: string): Message => ({
+	id: MessageId.make(`result-${id}`),
+	sessionId: SessionId.make("disclosure-session"),
+	role: "tool",
+	content: {
+		_tag: "tool_result",
+		itemId: AgentItemId.make(id),
+		output: "done",
+		isError: false,
+	},
+	createdAt: new Date(0),
+});
+
+it("summarizes every call in a collapsed group", () => {
+	const html = renderToStaticMarkup(
+		<ToolActivityTree
+			messages={[
+				toolUse("a", "Bash"),
+				toolResult("a"),
+				toolUse("b", "Read"),
+				toolResult("b"),
+				toolUse("c", "Shell"),
+				toolResult("c"),
+			]}
+		/>,
+	);
+	expect(html).toContain("Ran 2 commands, read 1 file");
+	expect(html).not.toContain("Tool detail");
+});
+
+it("keeps showing progress while an earlier parallel call is unresolved", () => {
+	const html = renderToStaticMarkup(
+		<ToolActivityTree
+			messages={[
+				toolUse("edit", "Edit"),
+				toolUse("read", "Read"),
+				toolResult("read"),
+			]}
+			live
+		/>,
+	);
+	expect(html).toContain("Editing files…");
+	expect(html).not.toContain("Made 1 edit");
+});

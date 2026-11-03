@@ -921,5 +921,6 @@
 	"tool_activity_summary_images_other": "⟦vïïëëwëëd {{count}} ïïmààgëës⟧",
 	"tool_activity_summary_tools": "⟦üüsëëd {{count}} tôôôôls⟧",
 	"tool_activity_summary_tools_one": "⟦üüsëëd {{count}} tôôôôl⟧",
-	"tool_activity_summary_tools_other": "⟦üüsëëd {{count}} tôôôôls⟧"
+	"tool_activity_summary_tools_other": "⟦üüsëëd {{count}} tôôôôls⟧",
+	"tool_activity_summary_separator": "⟦, ⟧"
 }

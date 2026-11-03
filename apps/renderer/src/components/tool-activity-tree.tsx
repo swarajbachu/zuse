@@ -1,6 +1,6 @@
 import "@zuse/i18n/english/chat";
 import type { Message } from "@zuse/contracts";
-import { formatSentenceList } from "@zuse/i18n";
+import { capitalizeSentence } from "@zuse/i18n";
 import { useMessages } from "@zuse/i18n/react";
 import { ChevronDown } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
@@ -38,50 +38,44 @@ export function ToolActivityTree({
 		false,
 	);
 	const { resultsByItemId } = useChatLookups();
-	const latest = messages.findLast(
-		(item) => item.content._tag === "tool_use",
-	)?.content;
-	const tool = latest?._tag === "tool_use" ? latest : undefined;
-	const localResult = tool
-		? messages.findLast(
-				(item) =>
-					item.content._tag === "tool_result" &&
-					item.content.itemId === tool.itemId,
-			)?.content
-		: undefined;
-	const result =
-		localResult?._tag === "tool_result"
-			? localResult
-			: tool
-				? resultsByItemId.get(tool.itemId)
-				: undefined;
-	const active = live && tool !== undefined && result === undefined;
-	const summary = useMemo(
-		() =>
-			toolActivitySummary(
-				messages.flatMap((item) =>
-					item.content._tag === "tool_use"
-						? [
-								normalizeToolCallEnvelope(
-									item.content.tool,
-									item.content.input,
-									undefined,
-								).tool,
-							]
-						: [],
-				),
-				message,
-				formatSentenceList,
+	const { pendingTool, tools } = useMemo(() => {
+		const localResults = new Set(
+			messages.flatMap((item) =>
+				item.content._tag === "tool_result" ? [item.content.itemId] : [],
 			),
-		[messages, message],
+		);
+		const calls = messages.flatMap((item) =>
+			item.content._tag === "tool_use" ? [item.content] : [],
+		);
+		return {
+			pendingTool: live
+				? calls.findLast(
+						(call) =>
+							!localResults.has(call.itemId) &&
+							!resultsByItemId.has(call.itemId),
+					)
+				: undefined,
+			tools: calls.map(
+				(call) =>
+					normalizeToolCallEnvelope(call.tool, call.input, undefined).tool,
+			),
+		};
+	}, [messages, live, resultsByItemId]);
+	const active = pendingTool !== undefined;
+	const label = useMemo(
+		() =>
+			pendingTool
+				? toolActivityLabel(
+						normalizeToolCallEnvelope(
+							pendingTool.tool,
+							pendingTool.input,
+							undefined,
+						).tool,
+						message,
+					)
+				: toolActivitySummary(tools, message, capitalizeSentence),
+		[pendingTool, tools, message],
 	);
-	const label =
-		active && tool
-			? toolActivityLabel(
-					normalizeToolCallEnvelope(tool.tool, tool.input, undefined).tool,
-					message,
-				)
-			: summary;
 	const id = useId();
 	const reduce = useReducedMotion();
 	const initialIds = useRef(new Set(messages.map((item) => item.id)));

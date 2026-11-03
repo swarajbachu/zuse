@@ -921,5 +921,6 @@
 	"tool_activity_summary_images_other": "查看了 {{count}} 张图片",
 	"tool_activity_summary_tools": "使用了 {{count}} 个工具",
 	"tool_activity_summary_tools_one": "使用了 {{count}} 个工具",
-	"tool_activity_summary_tools_other": "使用了 {{count}} 个工具"
+	"tool_activity_summary_tools_other": "使用了 {{count}} 个工具",
+	"tool_activity_summary_separator": "，"
 }

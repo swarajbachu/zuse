@@ -921,5 +921,6 @@
 	"tool_activity_summary_images_other": "viewed {{count}} images",
 	"tool_activity_summary_tools": "used {{count}} tools",
 	"tool_activity_summary_tools_one": "used {{count}} tool",
-	"tool_activity_summary_tools_other": "used {{count}} tools"
+	"tool_activity_summary_tools_other": "used {{count}} tools",
+	"tool_activity_summary_separator": ", "
 }

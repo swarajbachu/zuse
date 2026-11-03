@@ -936,5 +936,6 @@
 	"tool_activity_summary_tools": "{{count}} outils utilisés",
 	"tool_activity_summary_tools_one": "{{count}} outil utilisé",
 	"tool_activity_summary_tools_other": "{{count}} outils utilisés",
-	"tool_activity_summary_tools_many": "{{count}} outils utilisés"
+	"tool_activity_summary_tools_many": "{{count}} outils utilisés",
+	"tool_activity_summary_separator": ", "
 }

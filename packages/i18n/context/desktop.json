@@ -8730,7 +8730,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 114
+				"line": 111
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8740,7 +8740,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 66
+				"line": 63
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8750,7 +8750,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 67
+				"line": 64
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8760,7 +8760,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 68
+				"line": 65
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8770,7 +8770,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 69
+				"line": 66
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8780,7 +8780,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 70
+				"line": 67
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8790,7 +8790,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 71
+				"line": 68
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8800,7 +8800,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 72
+				"line": 69
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8810,7 +8810,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 73
+				"line": 70
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8820,7 +8820,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 74
+				"line": 71
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8830,7 +8830,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 75
+				"line": 72
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8840,7 +8840,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 96
+				"line": 93
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8850,11 +8850,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 79
+				"line": 76
 			},
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 80
+				"line": 77
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8864,11 +8864,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 79
+				"line": 76
 			},
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 80
+				"line": 77
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8878,11 +8878,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 79
+				"line": 76
 			},
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 80
+				"line": 77
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8892,7 +8892,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 81
+				"line": 78
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8902,7 +8902,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 81
+				"line": 78
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8912,7 +8912,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 81
+				"line": 78
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8922,7 +8922,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 82
+				"line": 79
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8932,7 +8932,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 82
+				"line": 79
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8942,7 +8942,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 82
+				"line": 79
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8952,7 +8952,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 83
+				"line": 80
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8962,7 +8962,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 83
+				"line": 80
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8972,7 +8972,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 83
+				"line": 80
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8982,7 +8982,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 84
+				"line": 81
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8992,7 +8992,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 84
+				"line": 81
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9002,7 +9002,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 84
+				"line": 81
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9012,7 +9012,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 85
+				"line": 82
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9022,7 +9022,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 85
+				"line": 82
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9032,7 +9032,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 85
+				"line": 82
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9042,7 +9042,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 86
+				"line": 83
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9052,7 +9052,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 86
+				"line": 83
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9062,7 +9062,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 86
+				"line": 83
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9072,7 +9072,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 87
+				"line": 84
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9082,7 +9082,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 87
+				"line": 84
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9092,7 +9092,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 87
+				"line": 84
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9102,7 +9102,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 88
+				"line": 85
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9112,7 +9112,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 88
+				"line": 85
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9122,7 +9122,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 88
+				"line": 85
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9132,7 +9132,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 89
+				"line": 86
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9142,7 +9142,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 89
+				"line": 86
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9152,7 +9152,17 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/tool-activity-label.ts",
-				"line": 89
+				"line": 86
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:tool_activity_summary_separator": {
+		"source": ", ",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/tool-activity-label.ts",
+				"line": 115
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
