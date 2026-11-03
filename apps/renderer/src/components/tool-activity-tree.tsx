@@ -1,16 +1,21 @@
 import "@zuse/i18n/english/chat";
 import type { Message } from "@zuse/contracts";
+import { capitalizeSentence } from "@zuse/i18n";
 import { useMessages } from "@zuse/i18n/react";
-import { ChevronDown, LoaderCircle } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import type { ComponentProps } from "react";
-import { useId, useRef } from "react";
+import { useId, useMemo, useRef } from "react";
 import { isToolTreeBranch } from "../lib/chat-timeline-rows.ts";
-import { toolActivityLabel } from "../lib/tool-activity-label.ts";
+import {
+	toolActivityLabel,
+	toolActivitySummary,
+} from "../lib/tool-activity-label.ts";
 import { normalizeToolCallEnvelope } from "../lib/tool-call-envelope.ts";
 import { useTranscriptDisclosure } from "../store/transcript-disclosures.ts";
 import { useChatLookups } from "./chat-lookups.tsx";
 import { MessageRow } from "./message-row.tsx";
+import { ShimmerText } from "./ui/shimmer-text.tsx";
 
 /** One disclosure owns the activity between text messages. */
 export function ToolActivityTree({
@@ -33,30 +38,44 @@ export function ToolActivityTree({
 		false,
 	);
 	const { resultsByItemId } = useChatLookups();
-	const latest = messages.findLast(
-		(item) => item.content._tag === "tool_use",
-	)?.content;
-	const tool = latest?._tag === "tool_use" ? latest : undefined;
-	const localResult = tool
-		? messages.findLast(
-				(item) =>
-					item.content._tag === "tool_result" &&
-					item.content.itemId === tool.itemId,
-			)?.content
-		: undefined;
-	const result =
-		localResult?._tag === "tool_result"
-			? localResult
-			: tool
-				? resultsByItemId.get(tool.itemId)
-				: undefined;
-	const active = live && tool !== undefined && result === undefined;
-	const normalized = tool
-		? normalizeToolCallEnvelope(tool.tool, tool.input, result)
-		: undefined;
-	const label = normalized
-		? toolActivityLabel(normalized.tool, active, message)
-		: message("chat:tool_activity_activity");
+	const { pendingTool, tools } = useMemo(() => {
+		const localResults = new Set(
+			messages.flatMap((item) =>
+				item.content._tag === "tool_result" ? [item.content.itemId] : [],
+			),
+		);
+		const calls = messages.flatMap((item) =>
+			item.content._tag === "tool_use" ? [item.content] : [],
+		);
+		return {
+			pendingTool: live
+				? calls.findLast(
+						(call) =>
+							!localResults.has(call.itemId) &&
+							!resultsByItemId.has(call.itemId),
+					)
+				: undefined,
+			tools: calls.map(
+				(call) =>
+					normalizeToolCallEnvelope(call.tool, call.input, undefined).tool,
+			),
+		};
+	}, [messages, live, resultsByItemId]);
+	const active = pendingTool !== undefined;
+	const label = useMemo(
+		() =>
+			pendingTool
+				? toolActivityLabel(
+						normalizeToolCallEnvelope(
+							pendingTool.tool,
+							pendingTool.input,
+							undefined,
+						).tool,
+						message,
+					)
+				: toolActivitySummary(tools, message, capitalizeSentence),
+		[pendingTool, tools, message],
+	);
 	const id = useId();
 	const reduce = useReducedMotion();
 	const initialIds = useRef(new Set(messages.map((item) => item.id)));
@@ -78,14 +97,8 @@ export function ToolActivityTree({
 					aria-hidden
 					className={`size-3.5 transition-transform duration-150 motion-reduce:transition-none ${open ? "" : "-rotate-90"}`}
 				/>
-				{active ? (
-					<LoaderCircle
-						aria-hidden
-						className="size-3 shrink-0 animate-spin motion-reduce:animate-none"
-					/>
-				) : null}
 				<span className="min-w-0 truncate" role="status">
-					{label}
+					{active ? <ShimmerText>{label}</ShimmerText> : label}
 				</span>
 			</button>
 			<div id={id} hidden={!open} className="tool-activity-tree">
