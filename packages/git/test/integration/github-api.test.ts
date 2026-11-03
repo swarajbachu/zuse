@@ -30,6 +30,7 @@ test.each([
 	let token = "account-a";
 	let head = "";
 	const mutations: Record<string, unknown>[] = [];
+	const discoveryQueries: string[] = [];
 	const client = new GitHubClient({
 		resolveCredential: async () => ({ token }),
 		fetch: async (_url, init) => {
@@ -42,6 +43,7 @@ test.each([
 			if (init?.method === "DELETE")
 				return Response.json({ message: "Branch protected" }, { status: 403 });
 			const { query, variables } = JSON.parse(String(init?.body));
+			if (query.includes("pullRequests(")) discoveryQueries.push(query);
 			if (query.startsWith("mutation")) {
 				mutations.push(variables.input);
 				return new Response(
@@ -121,6 +123,23 @@ test.each([
 					headSha: head,
 				});
 				expect(client.metrics.graphql).toBe(0);
+				git("config", "branch.feature.remote", "origin");
+				git("config", "branch.feature.merge", "refs/heads/fix/remote-feature");
+				expect(yield* service.githubContext(folder, null)).toMatchObject({
+					branch: "fix/remote-feature",
+					headOwner: "acme",
+				});
+				expect(
+					yield* service.prState(folder, null, { force: true }),
+				).toMatchObject({
+					state: "open",
+					stale: false,
+				});
+				expect(discoveryQueries.at(-1)).toContain(
+					'headRefName:"fix/remote-feature"',
+				);
+				git("config", "--unset", "branch.feature.remote");
+				git("config", "--unset", "branch.feature.merge");
 				git("remote", "set-url", "origin", "https://github.com/alice/app.git");
 				git("remote", "add", "upstream", "https://github.com/acme/app.git");
 				expect(yield* service.githubContext(folder, null)).toMatchObject({
