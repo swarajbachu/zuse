@@ -1,6 +1,9 @@
-import { message } from "@zuse/i18n";
+import { capitalizeSentence, message } from "@zuse/i18n";
 import { describe, expect, it } from "vitest";
-import { toolActivityLabel } from "../../src/lib/tool-activity-label.ts";
+import {
+	toolActivityLabel,
+	toolActivitySummary,
+} from "../../src/lib/tool-activity-label.ts";
 import "@zuse/i18n/english/chat";
 
 describe("compact tool activity", () => {
@@ -14,16 +17,32 @@ describe("compact tool activity", () => {
 		["Read", "Reading files…"],
 		["Grep", "Searching files…"],
 	])("labels %s without constructing a detail view", (tool, label) => {
-		expect(toolActivityLabel(tool, true, message)).toBe(label);
-	});
-	it("uses a completed label without pretending a settled call is still running", () => {
-		expect(toolActivityLabel("Edit", false, message)).toBe(
-			"Last activity: Edit",
-		);
+		expect(toolActivityLabel(tool, message)).toBe(label);
 	});
 	it("interpolates unfamiliar tool names as text", () => {
-		expect(toolActivityLabel("custom_tool", true, message)).toBe(
+		expect(toolActivityLabel("custom_tool", message)).toBe(
 			"Using custom_tool…",
+		);
+	});
+	it("summarizes settled calls by activity in order of first appearance", () => {
+		expect(
+			toolActivitySummary(
+				["Bash", "Read", "Shell", "Read", "Bash"],
+				message,
+				capitalizeSentence,
+			),
+		).toBe("Ran 3 commands, read 2 files");
+		expect(
+			toolActivitySummary(
+				["Edit", "custom_tool", "Grep"],
+				message,
+				capitalizeSentence,
+			),
+		).toBe("Made 1 edit, used 1 tool, ran 1 search");
+	});
+	it("falls back to a neutral label when there are no tool calls", () => {
+		expect(toolActivitySummary([], message, capitalizeSentence)).toBe(
+			"Activity",
 		);
 	});
 });

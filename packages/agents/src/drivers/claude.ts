@@ -47,6 +47,7 @@ import {
 } from "./claude-env.ts";
 import { claudeForkPoint, claudeResumeOptions } from "./claude-fork-point.ts";
 import { makeClaudeProcessOwner } from "./claude-process.ts";
+import { withClaudeZshShell } from "./claude-shell.ts";
 import { claudeWorkflowProgress } from "./claude-workflow-progress.ts";
 import { applyClaudeWorktreeEnv } from "./claude-worktree-prompt.ts";
 import {
@@ -1855,13 +1856,15 @@ export const startClaudeSession = (
 			),
 			managedCredential,
 		);
-		const env = input.providerAccountHome
-			? isolatedProviderAccountEnv(
-					"claude",
-					input.providerAccountHome,
-					credentialEnv,
-				)
-			: credentialEnv;
+		const env = yield* withClaudeZshShell(
+			input.providerAccountHome
+				? isolatedProviderAccountEnv(
+						"claude",
+						input.providerAccountHome,
+						credentialEnv,
+					)
+				: credentialEnv,
+		);
 
 		const agentsMap = input.agents ?? {};
 		const subagentsEffective =
