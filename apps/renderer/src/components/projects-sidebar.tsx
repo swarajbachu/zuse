@@ -1542,7 +1542,7 @@ function SidebarActions() {
 			/>
 			<SidebarActionRow
 				icon={TaskDone01Icon}
-				label="Automations"
+				label={uiMessage("projects:projects_sidebar_automations")}
 				active={automationsOpen}
 				onClick={() => {
 					const ui = useUiStore.getState();

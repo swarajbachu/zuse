@@ -3,10 +3,13 @@ import {
 	type AutomationConfig,
 	FolderId,
 } from "@zuse/contracts";
+import { i18n, message } from "@zuse/i18n";
 import { describe, expect, it } from "vitest";
 import {
 	AGENT_SOURCE_KEY,
 	AGENT_SOURCE_VALUE,
+	automationRunStatuses,
+	automationTriggerLabels,
 	describeTrigger,
 	filterAutomations,
 	fromDateTimeLocal,
@@ -128,4 +131,27 @@ describe("automation library filters", () => {
 			"paused",
 		]);
 	});
+});
+
+it("refreshes automation labels and plural messages when the interface language changes", async () => {
+	try {
+		await i18n.changeLanguage("en");
+		expect(automationTriggerLabels().schedule).toBe("Schedule");
+		expect(automationRunStatuses().running.label).toBe("Running");
+		expect(message("automations:drafts_to_review", { count: 1 })).toBe(
+			"1 draft to review",
+		);
+		expect(message("automations:drafts_to_review", { count: 2 })).toBe(
+			"2 drafts to review",
+		);
+		await i18n.changeLanguage("en-XA");
+		await i18n.loadNamespaces("automations");
+		expect(automationTriggerLabels().schedule).toContain("⟦");
+		expect(automationRunStatuses().running.label).toContain("⟦");
+		expect(
+			message("automations:opens_provider_session", { provider: "Claude" }),
+		).toContain("Claude");
+	} finally {
+		await i18n.changeLanguage("en");
+	}
 });

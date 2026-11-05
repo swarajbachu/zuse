@@ -59,8 +59,16 @@ lines.push(
 	`export type Namespace = ${namespaces.map((ns) => JSON.stringify(ns)).join(" | ")};`,
 );
 lines.push(
+	`type PluralMessageKey<Key> = Key extends \`\${infer Stem}_\${"one" | "other"}\` ? Stem : never;`,
+);
+lines.push(
 	"export type MessageKey = " +
-		namespaces.map((ns) => `\`${ns}:\${keyof typeof ${ns}}\``).join(" | ") +
+		namespaces
+			.map(
+				(ns) =>
+					`\`${ns}:\${keyof typeof ${ns} | PluralMessageKey<keyof typeof ${ns}>}\``,
+			)
+			.join(" | ") +
 		";",
 );
 lines.push(

@@ -12,7 +12,8 @@ import {
 import { automationPolicyIssues } from "@zuse/utils/automation-policy";
 import { Schema } from "effect";
 import { useId, useMemo, useRef, useState } from "react";
-import { ACTION_META } from "~/lib/automation-format.ts";
+import { automationActionMeta } from "~/lib/automation-format.ts";
+import { useAutomationMessages } from "~/lib/automation-messages.ts";
 import {
 	cloudProviderLabel,
 	orderedCloudProviders,
@@ -146,6 +147,8 @@ export function AutomationEditor({
 		requestId?: string,
 	) => Promise<void>;
 }) {
+	const automationMessage = useAutomationMessages();
+
 	const id = useId();
 	const [config, setConfig] = useState(initial);
 	// Triggers have no identity; stable keys keep per-trigger drafts in place.
@@ -264,10 +267,10 @@ export function AutomationEditor({
 		config.triggers.length > 0 &&
 		config.triggers.every((trigger) => trigger._tag === "slack");
 	const actionOptions = (
-		Object.keys(ACTION_META) as Array<AutomationConfig["action"]>
+		Object.keys(automationActionMeta()) as Array<AutomationConfig["action"]>
 	).map((action) => ({
 		value: action,
-		label: ACTION_META[action].label,
+		label: automationActionMeta()[action].label,
 		...(action === "auto_triage" && !slackOnly
 			? { description: "Slack triggers only" }
 			: {}),
@@ -394,7 +397,7 @@ export function AutomationEditor({
 	const triggerSection = (
 		<AutomationSection
 			id={`${id}-triggers`}
-			title="Triggers"
+			title={automationMessage("automations:triggers")}
 			action={
 				<AddTriggerMenu
 					onAdd={(trigger) =>
@@ -408,7 +411,9 @@ export function AutomationEditor({
 		>
 			{config.triggers.length === 0 ? (
 				<p className="rounded-lg bg-muted/30 px-3 py-3 text-muted-foreground">
-					Add a schedule, an event, or a manual trigger.
+					{automationMessage(
+						"automations:add_a_schedule_an_event_or_a_manual_trigger",
+					)}
 				</p>
 			) : (
 				<ol className="space-y-1.5">
@@ -443,7 +448,10 @@ export function AutomationEditor({
 	);
 
 	const agentSection = (
-		<AutomationSection id={`${id}-agent`} title="Instructions">
+		<AutomationSection
+			id={`${id}-agent`}
+			title={automationMessage("automations:instructions")}
+		>
 			<Textarea
 				id={`${id}-prompt`}
 				aria-labelledby={`${id}-agent`}
@@ -451,16 +459,21 @@ export function AutomationEditor({
 				className="min-h-28 text-xs"
 				value={config.prompt}
 				onChange={(event) => patch({ prompt: event.target.value })}
-				placeholder="What should the agent do each time this runs?"
+				placeholder={automationMessage(
+					"automations:what_should_the_agent_do_each_time_this_runs",
+				)}
 			/>
 			<FieldError message={shown("prompt")} />
 			<div className="grid grid-cols-2 gap-x-3 gap-y-2.5 pt-1">
 				{showMachine && (
 					<>
-						<AutomationField label="Runs on" htmlFor={`${id}-machine`}>
+						<AutomationField
+							label={automationMessage("automations:runs_on")}
+							htmlFor={`${id}-machine`}
+						>
 							<AutomationSelect
 								id={`${id}-machine`}
-								label="Runs on"
+								label={automationMessage("automations:runs_on")}
 								value={machine?.providerId ?? LOCAL_MACHINE}
 								options={machineOptions}
 								onChange={setMachine}
@@ -468,7 +481,7 @@ export function AutomationEditor({
 						</AutomationField>
 						{machine ? (
 							<AutomationField
-								label="If unavailable"
+								label={automationMessage("automations:if_unavailable")}
 								htmlFor={`${id}-fallback`}
 							>
 								<label
@@ -476,11 +489,15 @@ export function AutomationEditor({
 									className="flex h-7 items-center justify-between gap-2"
 								>
 									<span aria-hidden>
-										{machine.fallback ? "Try another provider" : "Fail the run"}
+										{machine.fallback
+											? automationMessage("automations:try_another_provider")
+											: automationMessage("automations:fail_the_run")}
 									</span>
 									<Switch
 										id={`${id}-fallback`}
-										aria-label="Fall back to another provider"
+										aria-label={automationMessage(
+											"automations:fall_back_to_another_provider",
+										)}
 										checked={machine.fallback}
 										onCheckedChange={(fallback) =>
 											patch({ cloudMachine: { ...machine, fallback } })
@@ -493,20 +510,26 @@ export function AutomationEditor({
 						)}
 					</>
 				)}
-				<AutomationField label="Action" htmlFor={`${id}-action`}>
+				<AutomationField
+					label={automationMessage("automations:action")}
+					htmlFor={`${id}-action`}
+				>
 					<AutomationSelect
 						id={`${id}-action`}
-						label="Action"
+						label={automationMessage("automations:action")}
 						value={config.action}
 						options={actionOptions}
 						onChange={setAction}
 					/>
 				</AutomationField>
 				{existingSession ? (
-					<AutomationField label="Session" htmlFor={`${id}-session`}>
+					<AutomationField
+						label={automationMessage("automations:session_f7f199")}
+						htmlFor={`${id}-session`}
+					>
 						<AutomationSelect
 							id={`${id}-session`}
-							label="Session"
+							label={automationMessage("automations:session_f7f199")}
 							value={config.sessionId ?? ""}
 							disabled={sessions.length === 0}
 							options={[
@@ -532,30 +555,39 @@ export function AutomationEditor({
 						/>
 					</AutomationField>
 				) : (
-					<AutomationField label="Agent" htmlFor={`${id}-provider`}>
+					<AutomationField
+						label={automationMessage("automations:agent")}
+						htmlFor={`${id}-provider`}
+					>
 						<AutomationSelect
 							id={`${id}-provider`}
-							label="Agent"
+							label={automationMessage("automations:agent")}
 							value={config.providerId}
 							options={providerOptions}
 							onChange={setProvider}
 						/>
 					</AutomationField>
 				)}
-				<AutomationField label="Model" htmlFor={`${id}-model`}>
+				<AutomationField
+					label={automationMessage("automations:model")}
+					htmlFor={`${id}-model`}
+				>
 					<AutomationSelect
 						id={`${id}-model`}
-						label="Model"
+						label={automationMessage("automations:model")}
 						value={config.model}
 						disabled={existingSession}
 						options={modelOptions}
 						onChange={(model) => patch({ model })}
 					/>
 				</AutomationField>
-				<AutomationField label="Permissions" htmlFor={`${id}-mode`}>
+				<AutomationField
+					label={automationMessage("automations:permissions")}
+					htmlFor={`${id}-mode`}
+				>
 					<AutomationSelect
 						id={`${id}-mode`}
-						label="Permissions"
+						label={automationMessage("automations:permissions")}
 						value={config.runtimeMode}
 						disabled={existingSession}
 						options={modeOptions}
@@ -583,16 +615,22 @@ export function AutomationEditor({
 			>
 				<SheetHeader className="border-b border-border/60 pb-3">
 					<SheetTitle className="min-w-0 flex-1 truncate">
-						{record ? "Edit automation" : "New automation"}
+						{record
+							? automationMessage("automations:edit_automation")
+							: automationMessage("automations:new_automation")}
 					</SheetTitle>
 					<label
 						htmlFor={`${id}-enabled`}
 						className="flex items-center gap-2 text-xs text-muted-foreground"
 					>
-						<span aria-hidden>{config.enabled ? "On" : "Off"}</span>
+						<span aria-hidden>
+							{config.enabled
+								? automationMessage("automations:on")
+								: automationMessage("automations:off")}
+						</span>
 						<Switch
 							id={`${id}-enabled`}
-							aria-label="Enabled"
+							aria-label={automationMessage("automations:enabled")}
 							checked={config.enabled}
 							onCheckedChange={(enabled) => patch({ enabled })}
 						/>
@@ -602,17 +640,19 @@ export function AutomationEditor({
 					<div ref={body} className="space-y-6 text-xs">
 						<div className="space-y-0.5">
 							<input
-								aria-label="Automation name"
+								aria-label={automationMessage("automations:automation_name")}
 								aria-invalid={shown("name") ? true : undefined}
-								placeholder="Untitled automation"
+								placeholder={automationMessage(
+									"automations:untitled_automation",
+								)}
 								className="h-8 w-full bg-transparent text-base font-medium outline-none placeholder:text-muted-foreground/60"
 								value={config.name}
 								ref={nameInput}
 								onChange={(event) => patch({ name: event.target.value })}
 							/>
 							<input
-								aria-label="Description"
-								placeholder="Add a description"
+								aria-label={automationMessage("automations:description")}
+								placeholder={automationMessage("automations:add_a_description")}
 								className="h-6 w-full bg-transparent text-xs text-muted-foreground outline-none placeholder:text-muted-foreground/50"
 								value={config.description}
 								onChange={(event) => patch({ description: event.target.value })}
@@ -639,17 +679,17 @@ export function AutomationEditor({
 					{confirmDiscard ? (
 						<>
 							<p className="min-w-0 flex-1 text-xs" role="alert">
-								Discard unsaved changes?
+								{automationMessage("automations:discard_unsaved_changes")}
 							</p>
 							<Button
 								className="h-7"
 								variant="ghost"
 								onClick={() => setConfirmDiscard(false)}
 							>
-								Keep editing
+								{automationMessage("automations:keep_editing")}
 							</Button>
 							<Button className="h-7" variant="destructive" onClick={onClose}>
-								Discard
+								{automationMessage("automations:discard")}
 							</Button>
 						</>
 					) : (
@@ -674,14 +714,16 @@ export function AutomationEditor({
 								disabled={saving}
 								onClick={close}
 							>
-								Cancel
+								{automationMessage("automations:cancel")}
 							</Button>
 							<Button
 								className="h-7"
 								loading={saving}
 								onClick={() => void save()}
 							>
-								{record ? "Save" : "Create"}
+								{record
+									? automationMessage("automations:save")
+									: automationMessage("automations:create")}
 							</Button>
 						</>
 					)}

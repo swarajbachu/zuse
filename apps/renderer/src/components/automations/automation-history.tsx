@@ -7,14 +7,15 @@ import {
 	openAutomationCloudRun,
 } from "~/lib/automation-client.ts";
 import {
+	automationRunStatuses,
 	describeTrigger,
 	formatAutomationTime,
-	RUN_STATUS,
 	type RunTone,
 	runDuration,
 	runIsActive,
 	runSourceLabel,
 } from "~/lib/automation-format.ts";
+import { useAutomationMessages } from "~/lib/automation-messages.ts";
 import { cloudProviderLabel } from "~/lib/cloud-provider-presentation.ts";
 import { formatError } from "~/lib/format-error.ts";
 import { cn } from "~/lib/utils";
@@ -48,6 +49,8 @@ export function AutomationHistory({
 	onRun: () => void;
 	onClose: () => void;
 }) {
+	const automationMessage = useAutomationMessages();
+
 	const [runs, setRuns] = useState<ReadonlyArray<AutomationRun> | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [cancelling, setCancelling] = useState<ReadonlySet<string>>(new Set());
@@ -142,20 +145,20 @@ export function AutomationHistory({
 						onClick={onRun}
 					>
 						<HugeiconsIcon icon={PlayIcon} aria-hidden />
-						Run now
+						{automationMessage("automations:run_now")}
 					</Button>
 				</SheetHeader>
 				<SheetBody className="text-xs">
 					{error && (
 						<AutomationNotice tone="error" className="mb-2">
-							Couldn’t load runs. {error}
+							{automationMessage("automations:couldn_t_load_runs")} {error}
 						</AutomationNotice>
 					)}
 					{runs === null && !error ? (
 						<div
 							role="status"
 							aria-busy="true"
-							aria-label="Loading runs"
+							aria-label={automationMessage("automations:loading_runs")}
 							className="space-y-1"
 						>
 							{[0, 1, 2].map((key) => (
@@ -164,12 +167,12 @@ export function AutomationHistory({
 						</div>
 					) : runs?.length === 0 ? (
 						<p className="py-10 text-center text-muted-foreground">
-							No runs yet.
+							{automationMessage("automations:no_runs_yet")}
 						</p>
 					) : (
 						<ul className="divide-y divide-border/50" aria-live="polite">
 							{(runs ?? []).map((run) => {
-								const status = RUN_STATUS[run.status];
+								const status = automationRunStatuses()[run.status];
 								const duration = runDuration(run);
 								return (
 									<li key={run.id} className="py-2.5">
@@ -185,7 +188,14 @@ export function AutomationHistory({
 											<div className="min-w-0 flex-1">
 												<p className="truncate">
 													{run.cloudProviderId && run.status === "completed"
-														? `Started on ${cloudProviderLabel(run.cloudProviderId)}`
+														? automationMessage(
+																"automations:started_on_value",
+																{
+																	value1: cloudProviderLabel(
+																		run.cloudProviderId,
+																	),
+																},
+															)
 														: status.label}
 													<span className="text-muted-foreground">
 														{" "}
@@ -205,7 +215,7 @@ export function AutomationHistory({
 													loading={cancelling.has(run.id)}
 													onClick={() => cancel(run)}
 												>
-													Cancel
+													{automationMessage("automations:cancel")}
 												</Button>
 											)}
 											{run.chatId && (
@@ -214,7 +224,7 @@ export function AutomationHistory({
 													variant="ghost"
 													onClick={() => openSession(run)}
 												>
-													Open
+													{automationMessage("automations:open")}
 												</Button>
 											)}
 										</div>

@@ -15,7 +15,8 @@ import type {
 	AutomationPolicyIssue,
 } from "@zuse/utils/automation-policy";
 import { type ReactNode, useId, useState } from "react";
-import { RATE_WINDOWS } from "~/lib/automation-format.ts";
+import { automationRateWindows } from "~/lib/automation-format.ts";
+import { useAutomationMessages } from "~/lib/automation-messages.ts";
 import { cn } from "~/lib/utils";
 import { useUiStore } from "~/store/ui.ts";
 import { SlackIcon } from "../icons/slack-icon.tsx";
@@ -110,6 +111,8 @@ export function MoreOptions({
 	folders: ReadonlyArray<{ readonly id: string; readonly name: string }>;
 	onLeave: () => void;
 }) {
+	const automationMessage = useAutomationMessages();
+
 	const id = useId();
 	const existingSession = config.action === "existing_session";
 	const attention = issuesFor(
@@ -140,7 +143,7 @@ export function MoreOptions({
 	return (
 		<Collapsible open={visible} onOpenChange={setOpen}>
 			<CollapsibleTrigger className="group flex h-7 items-center gap-1.5 rounded-md text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
-				More options
+				{automationMessage("automations:more_options")}
 				<HugeiconsIcon
 					icon={ArrowDown01Icon}
 					className="size-3.5 transition-transform group-data-panel-open:rotate-180"
@@ -150,17 +153,23 @@ export function MoreOptions({
 					<span
 						className="size-1.5 rounded-full bg-warning"
 						role="img"
-						aria-label={`${attention.length} settings need attention`}
+						aria-label={automationMessage(
+							"automations:settings_need_attention",
+							{ count: attention.length },
+						)}
 					/>
 				)}
 			</CollapsibleTrigger>
 			<CollapsiblePanel>
 				<div className="space-y-6 pt-3">
-					<Group title="General">
-						<AutomationRow label="Project" htmlFor={`${id}-project`}>
+					<Group title={automationMessage("automations:general")}>
+						<AutomationRow
+							label={automationMessage("automations:project")}
+							htmlFor={`${id}-project`}
+						>
 							<AutomationSelect
 								id={`${id}-project`}
-								label="Project"
+								label={automationMessage("automations:project")}
 								value={config.projectId}
 								options={folders.map((folder) => ({
 									value: folder.id,
@@ -187,9 +196,9 @@ export function MoreOptions({
 						onLeave={onLeave}
 					/>
 
-					<Group title="Limits">
+					<Group title={automationMessage("automations:limits")}>
 						<AutomationRow
-							label="Spend limit per session"
+							label={automationMessage("automations:spend_limit_per_session")}
 							htmlFor={`${id}-spend`}
 						>
 							{spendReason && config.spendLimitUsd === null ? (
@@ -201,7 +210,7 @@ export function MoreOptions({
 									type="number"
 									min={0}
 									step="0.5"
-									placeholder="No limit"
+									placeholder={automationMessage("automations:no_limit")}
 									aria-invalid={shown("spendLimit") ? true : undefined}
 									value={config.spendLimitUsd?.toString() ?? ""}
 									onChange={(event) =>
@@ -223,11 +232,14 @@ export function MoreOptions({
 									className="h-7"
 									onClick={() => patch({ spendLimitUsd: null })}
 								>
-									Remove
+									{automationMessage("automations:remove")}
 								</Button>
 							}
 						/>
-						<AutomationRow label="Max runs" htmlFor={`${id}-rate`}>
+						<AutomationRow
+							label={automationMessage("automations:max_runs")}
+							htmlFor={`${id}-rate`}
+						>
 							<Input
 								id={`${id}-rate`}
 								className={cn("h-7 w-16", numberInputClass)}
@@ -245,14 +257,16 @@ export function MoreOptions({
 									})
 								}
 							/>
-							<span className="text-muted-foreground">per</span>
+							<span className="text-muted-foreground">
+								{automationMessage("automations:per")}
+							</span>
 							<AutomationSelect
-								label="Rate limit window"
+								label={automationMessage("automations:rate_limit_window")}
 								className="w-24"
 								value={String(config.rateLimit.windowSeconds)}
 								options={[
-									...RATE_WINDOWS,
-									...(RATE_WINDOWS.some(
+									...automationRateWindows(),
+									...(automationRateWindows().some(
 										([seconds]) => seconds === config.rateLimit.windowSeconds,
 									)
 										? []
@@ -277,7 +291,10 @@ export function MoreOptions({
 							/>
 						</AutomationRow>
 						<FieldError message={shown("rateLimit")} />
-						<AutomationRow label="Runs at once" htmlFor={`${id}-concurrency`}>
+						<AutomationRow
+							label={automationMessage("automations:runs_at_once")}
+							htmlFor={`${id}-concurrency`}
+						>
 							<Input
 								id={`${id}-concurrency`}
 								className={cn("h-7 w-16", numberInputClass)}
@@ -298,7 +315,7 @@ export function MoreOptions({
 						</AutomationRow>
 						<FieldError message={shown("queue")} />
 						<AutomationRow
-							label="Queue events while busy"
+							label={automationMessage("automations:queue_events_while_busy")}
 							htmlFor={`${id}-queue`}
 						>
 							<Switch
@@ -312,9 +329,9 @@ export function MoreOptions({
 						<PolicyIssues issues={issuesFor(issues, "queue")} />
 					</Group>
 
-					<Group title="Execution">
+					<Group title={automationMessage("automations:execution")}>
 						<AutomationRow
-							label="Allow child sessions"
+							label={automationMessage("automations:allow_child_sessions")}
 							htmlFor={`${id}-children`}
 						>
 							<Switch
@@ -328,10 +345,13 @@ export function MoreOptions({
 						</AutomationRow>
 						<PolicyIssues issues={issuesFor(issues, "childSessions")} />
 						{capabilities?.systemIdentity && (
-							<AutomationRow label="Run as" htmlFor={`${id}-run-as`}>
+							<AutomationRow
+								label={automationMessage("automations:run_as")}
+								htmlFor={`${id}-run-as`}
+							>
 								<AutomationSelect
 									id={`${id}-run-as`}
-									label="Run as"
+									label={automationMessage("automations:run_as")}
 									value={config.runAs}
 									options={[
 										{ value: "owner", label: "You" },
@@ -342,7 +362,10 @@ export function MoreOptions({
 							</AutomationRow>
 						)}
 						{capabilities?.networkIsolation && (
-							<AutomationRow label="Network access" htmlFor={`${id}-network`}>
+							<AutomationRow
+								label={automationMessage("automations:network_access")}
+								htmlFor={`${id}-network`}
+							>
 								<Switch
 									id={`${id}-network`}
 									checked={config.network.enabled}
@@ -363,32 +386,40 @@ export function MoreOptions({
 											patch({ network: { enabled: true, allowedDomains: [] } })
 										}
 									>
-										Reset
+										{automationMessage("automations:reset")}
 									</Button>
 								) : undefined
 							}
 						/>
 						<p className="text-[11px] text-muted-foreground">
 							{config.cloudMachine
-								? "Each run starts a new cloud agent as you."
-								: `Runs as you ${
+								? automationMessage(
+										"automations:each_run_starts_a_new_cloud_agent_as_you",
+									)
+								: automationMessage(
 										config.environment === "cloud"
-											? "in this cloud workspace"
-											: "on this computer"
-									}.`}
+											? "automations:runs_cloud"
+											: "automations:runs_local",
+									)}
 							{capabilities && !capabilities.networkIsolation
-								? " Network access isn’t restricted."
+								? " " +
+									automationMessage(
+										"automations:network_access_isn_t_restricted",
+									)
 								: ""}
 						</p>
 					</Group>
 
-					<Group title="Metadata">
+					<Group title={automationMessage("automations:metadata")}>
 						{metadata.map((row, index) => (
 							<div key={row.id} className="flex items-center gap-1.5">
 								<Input
-									aria-label={`Metadata key ${index + 1}`}
+									aria-label={automationMessage(
+										"automations:metadata_key_value",
+										{ value1: index + 1 },
+									)}
 									className="h-7 w-36 shrink-0"
-									placeholder="Key"
+									placeholder={automationMessage("automations:key")}
 									value={row.key}
 									onChange={(event) =>
 										setMetadata((rows) =>
@@ -401,9 +432,12 @@ export function MoreOptions({
 									}
 								/>
 								<Input
-									aria-label={`Metadata value ${index + 1}`}
+									aria-label={automationMessage(
+										"automations:metadata_value_value",
+										{ value1: index + 1 },
+									)}
 									className="h-7 flex-1"
-									placeholder="Value"
+									placeholder={automationMessage("automations:value")}
 									value={row.value}
 									onChange={(event) =>
 										setMetadata((rows) =>
@@ -418,7 +452,10 @@ export function MoreOptions({
 								<Button
 									size="icon"
 									variant="ghost"
-									aria-label={`Remove metadata ${row.key || index + 1}`}
+									aria-label={automationMessage(
+										"automations:remove_metadata_value",
+										{ value1: row.key || index + 1 },
+									)}
 									onClick={() =>
 										setMetadata((rows) =>
 											rows.filter((item) => item.id !== row.id),
@@ -440,7 +477,7 @@ export function MoreOptions({
 							}
 						>
 							<HugeiconsIcon icon={PlusSignIcon} aria-hidden />
-							Add metadata
+							{automationMessage("automations:add_metadata")}
 						</Button>
 						<FieldError message={shown("metadata")} />
 					</Group>
@@ -463,13 +500,17 @@ function Notifications({
 	capabilities: AutomationCapabilities | null;
 	shown: (key: string) => string | undefined;
 }) {
+	const automationMessage = useAutomationMessages();
+
 	const add = (channel: "email" | "slack") =>
 		patch({
 			notifications: [...config.notifications, { channel, destination: "" }],
 		});
 	return (
 		<>
-			<AutomationRow label="Notify when a run finishes">
+			<AutomationRow
+				label={automationMessage("automations:notify_when_a_run_finishes")}
+			>
 				<Menu>
 					<MenuTrigger
 						render={
@@ -480,7 +521,7 @@ function Notifications({
 						}
 					>
 						<HugeiconsIcon icon={PlusSignIcon} aria-hidden />
-						Add
+						{automationMessage("automations:add")}
 					</MenuTrigger>
 					<MenuPopup align="end" className="w-56">
 						<MenuItem
@@ -490,10 +531,14 @@ function Notifications({
 						>
 							<HugeiconsIcon icon={Mail01Icon} aria-hidden />
 							<span>
-								<span className="block">Email</span>
+								<span className="block">
+									{automationMessage("automations:email")}
+								</span>
 								{!capabilities?.emailNotifications && (
 									<span className="block text-[11px] text-muted-foreground">
-										Email delivery isn’t set up on this server.
+										{automationMessage(
+											"automations:email_delivery_isn_t_set_up_on_this_server",
+										)}
 									</span>
 								)}
 							</span>
@@ -505,10 +550,14 @@ function Notifications({
 						>
 							<SlackIcon />
 							<span>
-								<span className="block">Slack channel</span>
+								<span className="block">
+									{automationMessage("automations:slack_channel")}
+								</span>
 								{!capabilities?.slackNotifications && (
 									<span className="block text-[11px] text-muted-foreground">
-										Cloud workspaces with Slack only.
+										{automationMessage(
+											"automations:cloud_workspaces_with_slack_only",
+										)}
 									</span>
 								)}
 							</span>
@@ -536,8 +585,12 @@ function Notifications({
 							<Input
 								aria-label={
 									email
-										? `Email address ${index + 1}`
-										: `Slack channel ID ${index + 1}`
+										? automationMessage("automations:email_address_value", {
+												value1: index + 1,
+											})
+										: automationMessage("automations:slack_channel_id_value", {
+												value1: index + 1,
+											})
 								}
 								aria-invalid={
 									shown(`notification-${index}`) || rowIssues.length > 0
@@ -545,7 +598,11 @@ function Notifications({
 										: undefined
 								}
 								className="h-7 flex-1"
-								placeholder={email ? "name@example.com" : "Slack channel ID"}
+								placeholder={
+									email
+										? automationMessage("automations:name_example_com")
+										: automationMessage("automations:slack_channel_id")
+								}
 								value={notification.destination}
 								onChange={(event) =>
 									patch({
@@ -560,7 +617,10 @@ function Notifications({
 							<Button
 								size="icon"
 								variant="ghost"
-								aria-label={`Remove notification ${index + 1}`}
+								aria-label={automationMessage(
+									"automations:remove_notification_value",
+									{ value1: index + 1 },
+								)}
 								onClick={() =>
 									patch({
 										notifications: config.notifications.filter(
@@ -593,16 +653,20 @@ function Connectors({
 	issues: ReadonlyArray<AutomationPolicyIssue>;
 	onLeave: () => void;
 }) {
+	const automationMessage = useAutomationMessages();
+
 	return (
-		<Group title="MCP servers">
+		<Group title={automationMessage("automations:mcp_servers")}>
 			<Muted>
-				Automations use this workspace’s connected plugins. Selecting native MCP
-				servers for an individual automation is no longer supported.
+				{automationMessage(
+					"automations:automations_use_this_workspace_s_connected_plugins_selecting_native_mcp_ser",
+				)}
 			</Muted>
 			{config.mcpServerIds.length > 0 && (
 				<Muted>
-					Previously selected: {config.mcpServerIds.join(", ")}. Clear this
-					selection before enabling the automation.
+					{automationMessage("automations:previously_selected_mcp", {
+						selection: config.mcpServerIds.join(", "),
+					})}
 				</Muted>
 			)}
 			<PolicyIssues
@@ -613,7 +677,7 @@ function Connectors({
 						className="h-7"
 						onClick={() => patch({ mcpServerIds: [] })}
 					>
-						Clear
+						{automationMessage("automations:clear")}
 					</Button>
 				}
 			/>
@@ -626,7 +690,7 @@ function Connectors({
 					onLeave();
 				}}
 			>
-				Manage plugins
+				{automationMessage("automations:manage_plugins")}
 			</Button>
 		</Group>
 	);

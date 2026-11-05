@@ -8,26 +8,27 @@ import {
 import { useId, useState } from "react";
 import {
 	type AutomationTriggerKind,
+	automationScheduleKinds,
+	automationTriggerLabels,
+	automationWeekdays,
 	describeTrigger,
 	formatAutomationTime,
 	fromDateTimeLocal,
-	GITHUB_EVENTS,
 	type GithubEvent,
+	githubEventOptions,
 	localTimezone,
 	newAutomationTrigger,
 	presetCron,
-	SCHEDULE_KINDS,
 	type ScheduleForm,
 	type ScheduleKind,
-	SLACK_EVENTS,
 	type SlackEvent,
 	scheduleForm,
+	slackEventOptions,
 	splitAutomationList,
-	TRIGGER_LABEL,
 	toDateTimeLocal,
 	triggerDetail,
-	WEEKDAYS,
 } from "~/lib/automation-format.ts";
+import { useAutomationMessages } from "~/lib/automation-messages.ts";
 import { CopyButton } from "../copy-button.tsx";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
@@ -101,6 +102,8 @@ export function AddTriggerMenu({
 	onAdd: (trigger: AutomationTrigger) => void;
 	variant?: "outline" | "ghost";
 }) {
+	const automationMessage = useAutomationMessages();
+
 	return (
 		<Menu>
 			<MenuTrigger
@@ -109,16 +112,16 @@ export function AddTriggerMenu({
 				}
 			>
 				<HugeiconsIcon icon={PlusSignIcon} aria-hidden />
-				Add
+				{automationMessage("automations:add")}
 			</MenuTrigger>
 			<MenuPopup align="end" className="w-52">
 				<MenuSub>
 					<MenuSubTrigger compact>
 						{menuIcon("github")}
-						GitHub
+						{automationMessage("automations:github")}
 					</MenuSubTrigger>
 					<MenuSubPopup className="w-48">
-						{GITHUB_EVENTS.map(([event, label]) => (
+						{githubEventOptions().map(([event, label]) => (
 							<MenuItem
 								key={event}
 								className="h-7"
@@ -132,10 +135,10 @@ export function AddTriggerMenu({
 				<MenuSub>
 					<MenuSubTrigger compact>
 						{menuIcon("schedule")}
-						Schedule
+						{automationMessage("automations:schedule")}
 					</MenuSubTrigger>
 					<MenuSubPopup className="w-44">
-						{SCHEDULE_KINDS.map(([kind, label]) => (
+						{automationScheduleKinds().map(([kind, label]) => (
 							<MenuItem
 								key={kind}
 								className="h-7"
@@ -149,10 +152,10 @@ export function AddTriggerMenu({
 				<MenuSub>
 					<MenuSubTrigger compact>
 						{menuIcon("slack")}
-						Slack
+						{automationMessage("automations:slack")}
 					</MenuSubTrigger>
 					<MenuSubPopup className="w-44">
-						{SLACK_EVENTS.map(([event, label]) => (
+						{slackEventOptions().map(([event, label]) => (
 							<MenuItem
 								key={event}
 								className="h-7"
@@ -172,7 +175,7 @@ export function AddTriggerMenu({
 						onClick={() => onAdd(newAutomationTrigger(kind))}
 					>
 						{menuIcon(kind)}
-						{TRIGGER_LABEL[kind]}
+						{automationTriggerLabels()[kind]}
 					</MenuItem>
 				))}
 			</MenuPopup>
@@ -198,6 +201,8 @@ export function AutomationTriggerCard({
 	onChange: (trigger: AutomationTrigger) => void;
 	onRemove: () => void;
 }) {
+	const automationMessage = useAutomationMessages();
+
 	return (
 		<div className="rounded-lg bg-muted/30 px-3 pt-1.5 pb-3">
 			<div className="flex h-8 items-center gap-2">
@@ -206,7 +211,9 @@ export function AutomationTriggerCard({
 					className="size-3.5 shrink-0 text-muted-foreground"
 				/>
 				<p className="min-w-0 flex-1 truncate">
-					<span className="font-medium">{TRIGGER_LABEL[trigger._tag]}</span>
+					<span className="font-medium">
+						{automationTriggerLabels()[trigger._tag]}
+					</span>
 					<span className="text-muted-foreground">
 						{" "}
 						· {triggerDetail(trigger)}
@@ -216,7 +223,10 @@ export function AutomationTriggerCard({
 					size="icon-sm"
 					variant="ghost"
 					className="-me-1.5 text-muted-foreground"
-					aria-label={`Remove trigger ${index + 1}: ${describeTrigger(trigger)}`}
+					aria-label={automationMessage(
+						"automations:remove_trigger_value_value",
+						{ value1: index + 1, value2: describeTrigger(trigger) },
+					)}
 					onClick={onRemove}
 				>
 					<HugeiconsIcon icon={Delete02Icon} aria-hidden />
@@ -248,6 +258,8 @@ function TriggerFields({
 	environment: "local" | "cloud" | null;
 	onChange: (trigger: AutomationTrigger) => void;
 }) {
+	const automationMessage = useAutomationMessages();
+
 	const id = useId();
 	switch (trigger._tag) {
 		case "schedule":
@@ -256,30 +268,39 @@ function TriggerFields({
 			return (
 				<div className="grid gap-2.5">
 					<div className="grid gap-2.5 sm:grid-cols-3">
-						<AutomationField label="Events" htmlFor={`${id}-events`}>
+						<AutomationField
+							label={automationMessage("automations:events")}
+							htmlFor={`${id}-events`}
+						>
 							<AutomationMultiSelect
 								id={`${id}-events`}
-								label="Events"
-								placeholder="Choose events"
-								options={GITHUB_EVENTS}
+								label={automationMessage("automations:events")}
+								placeholder={automationMessage("automations:choose_events")}
+								options={githubEventOptions()}
 								values={trigger.events}
 								onChange={(events) => onChange({ ...trigger, events })}
 							/>
 						</AutomationField>
-						<AutomationField label="Repositories" htmlFor={`${id}-repos`}>
+						<AutomationField
+							label={automationMessage("automations:repositories")}
+							htmlFor={`${id}-repos`}
+						>
 							<ListInput
 								id={`${id}-repos`}
-								placeholder="All repositories"
+								placeholder={automationMessage("automations:all_repositories")}
 								values={trigger.repositories}
 								onChange={(repositories) =>
 									onChange({ ...trigger, repositories })
 								}
 							/>
 						</AutomationField>
-						<AutomationField label="Actions" htmlFor={`${id}-actions`}>
+						<AutomationField
+							label={automationMessage("automations:actions")}
+							htmlFor={`${id}-actions`}
+						>
 							<ListInput
 								id={`${id}-actions`}
-								placeholder="All actions"
+								placeholder={automationMessage("automations:all_actions")}
 								values={trigger.actions}
 								onChange={(actions) => onChange({ ...trigger, actions })}
 							/>
@@ -287,7 +308,7 @@ function TriggerFields({
 					</div>
 					{trigger.events.length === 0 && (
 						<AutomationNotice tone="error">
-							Choose at least one event.
+							{automationMessage("automations:choose_at_least_one_event")}
 						</AutomationNotice>
 					)}
 				</div>
@@ -296,28 +317,37 @@ function TriggerFields({
 			return (
 				<div className="grid gap-2.5">
 					<div className="grid gap-2.5 sm:grid-cols-3">
-						<AutomationField label="Events" htmlFor={`${id}-events`}>
+						<AutomationField
+							label={automationMessage("automations:events")}
+							htmlFor={`${id}-events`}
+						>
 							<AutomationMultiSelect
 								id={`${id}-events`}
-								label="Events"
-								placeholder="Choose events"
-								options={SLACK_EVENTS}
+								label={automationMessage("automations:events")}
+								placeholder={automationMessage("automations:choose_events")}
+								options={slackEventOptions()}
 								values={trigger.events}
 								onChange={(events) => onChange({ ...trigger, events })}
 							/>
 						</AutomationField>
-						<AutomationField label="Channel IDs" htmlFor={`${id}-channels`}>
+						<AutomationField
+							label={automationMessage("automations:channel_ids")}
+							htmlFor={`${id}-channels`}
+						>
 							<ListInput
 								id={`${id}-channels`}
-								placeholder="All channels"
+								placeholder={automationMessage("automations:all_channels")}
 								values={trigger.channelIds}
 								onChange={(channelIds) => onChange({ ...trigger, channelIds })}
 							/>
 						</AutomationField>
-						<AutomationField label="Keywords" htmlFor={`${id}-keywords`}>
+						<AutomationField
+							label={automationMessage("automations:keywords")}
+							htmlFor={`${id}-keywords`}
+						>
 							<ListInput
 								id={`${id}-keywords`}
-								placeholder="Any message"
+								placeholder={automationMessage("automations:any_message")}
 								values={trigger.keywords}
 								onChange={(keywords) => onChange({ ...trigger, keywords })}
 							/>
@@ -325,16 +355,18 @@ function TriggerFields({
 					</div>
 					{trigger.events.length === 0 && (
 						<AutomationNotice tone="error">
-							Choose at least one event.
+							{automationMessage("automations:choose_at_least_one_event")}
 						</AutomationNotice>
 					)}
 					<div className="flex items-center justify-between gap-4">
 						<label
 							htmlFor={`${id}-bots`}
 							className="text-xs"
-							title="Messages from Zuse itself are always ignored to prevent loops."
+							title={automationMessage(
+								"automations:messages_from_zuse_itself_are_always_ignored_to_prevent_loops",
+							)}
 						>
-							Include other bots’ messages
+							{automationMessage("automations:include_other_bots_messages")}
 						</label>
 						<Switch
 							id={`${id}-bots`}
@@ -349,7 +381,9 @@ function TriggerFields({
 		case "manual":
 			return (
 				<p className="text-[11px] text-muted-foreground">
-					Runs only when you start it, or from the Zuse CLI.
+					{automationMessage(
+						"automations:runs_only_when_you_start_it_or_from_the_zuse_cli",
+					)}
 				</p>
 			);
 		default:
@@ -372,6 +406,8 @@ function EndpointFields({
 	saved: boolean;
 	environment: "local" | "cloud" | null;
 }) {
+	const automationMessage = useAutomationMessages();
+
 	const id = useId();
 	const [reveal, setReveal] = useState(false);
 	if (!webhook)
@@ -379,13 +415,23 @@ function EndpointFields({
 			<p className="text-[11px] text-muted-foreground">
 				{environment !== "cloud" ? (
 					<>
-						Send events with <code>zuse automation dispatch</code>. Hosted
-						endpoints are available in cloud workspaces.
+						{automationMessage("automations:send_events_with")}
+						<code>
+							{automationMessage("automations:zuse_automation_dispatch")}
+						</code>
+						{automationMessage(
+							"automations:hosted_endpoints_are_available_in_cloud_workspaces",
+						)}
 					</>
 				) : saved ? (
 					<>
-						Endpoint pending. You can also send events with{" "}
-						<code>zuse automation dispatch</code>.
+						{automationMessage(
+							"automations:endpoint_pending_you_can_also_send_events_with",
+						)}{" "}
+						<code>
+							{automationMessage("automations:zuse_automation_dispatch")}
+						</code>
+						.
 					</>
 				) : (
 					"The endpoint URL and token appear after you create this."
@@ -397,22 +443,22 @@ function EndpointFields({
 			<div className="flex items-center gap-1.5">
 				<Input
 					id={`${id}-url`}
-					aria-label="Endpoint URL"
+					aria-label={automationMessage("automations:endpoint_url")}
 					className="h-7 flex-1 font-mono"
 					readOnly
 					value={webhook.url}
 				/>
 				<CopyButton
 					text={webhook.url}
-					label="Copy endpoint URL"
+					label={automationMessage("automations:copy_endpoint_url")}
 					className="size-7"
 				/>
 			</div>
 			<div className="flex items-center gap-1.5">
 				<Input
 					id={`${id}-token`}
-					aria-label="Bearer token"
-					title="Keep this token private."
+					aria-label={automationMessage("automations:bearer_token")}
+					title={automationMessage("automations:keep_this_token_private")}
 					className="h-7 flex-1 font-mono"
 					type={reveal ? "text" : "password"}
 					readOnly
@@ -424,11 +470,13 @@ function EndpointFields({
 					aria-pressed={reveal}
 					onClick={() => setReveal((value) => !value)}
 				>
-					{reveal ? "Hide" : "Show"}
+					{reveal
+						? automationMessage("automations:hide")
+						: automationMessage("automations:show")}
 				</Button>
 				<CopyButton
 					text={webhook.token}
-					label="Copy bearer token"
+					label={automationMessage("automations:copy_bearer_token")}
 					className="size-7"
 				/>
 			</div>
@@ -485,6 +533,8 @@ function ScheduleFields({
 	trigger: ScheduleTrigger;
 	onChange: (trigger: AutomationTrigger) => void;
 }) {
+	const automationMessage = useAutomationMessages();
+
 	const id = useId();
 	const form = scheduleForm(trigger);
 	const error = scheduleError(trigger);
@@ -523,22 +573,31 @@ function ScheduleFields({
 	return (
 		<div className="grid gap-2">
 			<div className="grid gap-2.5 sm:grid-cols-3">
-				<AutomationField label="Frequency" htmlFor={`${id}-kind`}>
+				<AutomationField
+					label={automationMessage("automations:frequency")}
+					htmlFor={`${id}-kind`}
+				>
 					<AutomationSelect
 						id={`${id}-kind`}
-						label="Frequency"
+						label={automationMessage("automations:frequency")}
 						value={form.kind}
-						options={SCHEDULE_KINDS.map(([value, label]) => ({ value, label }))}
+						options={automationScheduleKinds().map(([value, label]) => ({
+							value,
+							label,
+						}))}
 						onChange={setKind}
 					/>
 				</AutomationField>
 				{form.kind === "weekly" && (
-					<AutomationField label="Day" htmlFor={`${id}-day`}>
+					<AutomationField
+						label={automationMessage("automations:day")}
+						htmlFor={`${id}-day`}
+					>
 						<AutomationSelect
 							id={`${id}-day`}
-							label="Day"
+							label={automationMessage("automations:day")}
 							value={String(form.weekday)}
-							options={WEEKDAYS.map((day, value) => ({
+							options={automationWeekdays().map((day, value) => ({
 								value: String(value),
 								label: day,
 							}))}
@@ -548,7 +607,7 @@ function ScheduleFields({
 				)}
 				{form.kind === "hourly" && (
 					<AutomationField
-						label="Minute past the hour"
+						label={automationMessage("automations:minute_past_the_hour")}
 						htmlFor={`${id}-minute`}
 					>
 						<Input
@@ -567,7 +626,10 @@ function ScheduleFields({
 					</AutomationField>
 				)}
 				{(form.kind === "daily" || form.kind === "weekly") && (
-					<AutomationField label="Time" htmlFor={`${id}-time`}>
+					<AutomationField
+						label={automationMessage("automations:time")}
+						htmlFor={`${id}-time`}
+					>
 						<Input
 							id={`${id}-time`}
 							className="h-7"
@@ -584,7 +646,10 @@ function ScheduleFields({
 					</AutomationField>
 				)}
 				{form.kind === "once" && (
-					<AutomationField label="Date and time" htmlFor={`${id}-once`}>
+					<AutomationField
+						label={automationMessage("automations:date_and_time")}
+						htmlFor={`${id}-once`}
+					>
 						<Input
 							id={`${id}-once`}
 							className="h-7"
@@ -598,12 +663,19 @@ function ScheduleFields({
 					</AutomationField>
 				)}
 				{form.kind === "custom" && (
-					<AutomationField label="Cron expression" htmlFor={`${id}-cron`}>
+					<AutomationField
+						label={automationMessage("automations:cron_expression")}
+						htmlFor={`${id}-cron`}
+					>
 						<Input
 							id={`${id}-cron`}
 							className="h-7 font-mono"
-							placeholder="min hour day month weekday"
-							title="Five fields: minute, hour, day of month, month, weekday"
+							placeholder={automationMessage(
+								"automations:min_hour_day_month_weekday",
+							)}
+							title={automationMessage(
+								"automations:five_fields_minute_hour_day_of_month_month_weekday",
+							)}
 							value={trigger.cron}
 							aria-invalid={error ? true : undefined}
 							onChange={(event) =>
@@ -613,7 +685,10 @@ function ScheduleFields({
 					</AutomationField>
 				)}
 				{form.kind !== "once" && (
-					<AutomationField label="Timezone" htmlFor={`${id}-zone`}>
+					<AutomationField
+						label={automationMessage("automations:timezone")}
+						htmlFor={`${id}-zone`}
+					>
 						<Input
 							id={`${id}-zone`}
 							className="h-7"
@@ -637,8 +712,15 @@ function ScheduleFields({
 			) : (
 				<p className="text-[11px] text-muted-foreground" aria-live="polite">
 					{next
-						? `Next run ${formatAutomationTime(next)}${form.kind === "once" ? " in your local time" : ""}`
-						: "This schedule has no upcoming runs."}
+						? automationMessage(
+								form.kind === "once"
+									? "automations:next_run_local"
+									: "automations:next_run",
+								{ time: formatAutomationTime(next) },
+							)
+						: automationMessage(
+								"automations:this_schedule_has_no_upcoming_runs",
+							)}
 				</p>
 			)}
 		</div>

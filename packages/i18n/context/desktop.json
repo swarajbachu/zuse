@@ -1,4 +1,2434 @@
 {
+	"automations:suggest_automations": {
+		"source": "Suggest automations",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-agent-dialog.tsx",
+				"line": 78
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 463
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:describe_an_automation": {
+		"source": "Describe an automation",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-agent-dialog.tsx",
+				"line": 79
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:an_agent_looks_at_recent_work_and_proposes_automations": {
+		"source": "An agent looks at recent work and proposes automations.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-agent-dialog.tsx",
+				"line": 84
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:an_agent_sets_it_up_and_saves_it_as_a_draft_for_you_to_review": {
+		"source": "An agent sets it up and saves it as a draft for you to review.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-agent-dialog.tsx",
+				"line": 87
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:focus": {
+		"source": "Focus",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-agent-dialog.tsx",
+				"line": 96
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:automation_request": {
+		"source": "Automation request",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-agent-dialog.tsx",
+				"line": 97
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:anything_to_focus_on_optional": {
+		"source": "Anything to focus on? (optional)",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-agent-dialog.tsx",
+				"line": 102
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:every_weekday_at_9_summarize_open_pull_requests": {
+		"source": "Every weekday at 9, summarize open pull requests…",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-agent-dialog.tsx",
+				"line": 104
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:project": {
+		"source": "Project",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-agent-dialog.tsx",
+				"line": 135
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-agent-dialog.tsx",
+				"line": 140
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 167
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 172
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:cancel": {
+		"source": "Cancel",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-agent-dialog.tsx",
+				"line": 168
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 717
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-history.tsx",
+				"line": 218
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 761
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:start": {
+		"source": "Start",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-agent-dialog.tsx",
+				"line": 176
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:more_options": {
+		"source": "More options",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 146
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:general": {
+		"source": "General",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 165
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:limits": {
+		"source": "Limits",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 199
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:spend_limit_per_session": {
+		"source": "Spend limit per session",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 201
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:no_limit": {
+		"source": "No limit",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 213
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:remove": {
+		"source": "Remove",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 235
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:max_runs": {
+		"source": "Max runs",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 240
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:per": {
+		"source": "per",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 261
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:rate_limit_window": {
+		"source": "Rate limit window",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 264
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:runs_at_once": {
+		"source": "Runs at once",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 295
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:queue_events_while_busy": {
+		"source": "Queue events while busy",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 318
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:execution": {
+		"source": "Execution",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 332
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:allow_child_sessions": {
+		"source": "Allow child sessions",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 334
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:run_as": {
+		"source": "Run as",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 349
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 354
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:network_access": {
+		"source": "Network access",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 366
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:reset": {
+		"source": "Reset",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 389
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:each_run_starts_a_new_cloud_agent_as_you": {
+		"source": "Each run starts a new cloud agent as you.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 397
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:network_access_isn_t_restricted": {
+		"source": "Network access isn’t restricted.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 407
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:metadata": {
+		"source": "Metadata",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 413
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:metadata_key_value": {
+		"source": "Metadata key {{value1}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 418
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:key": {
+		"source": "Key",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 422
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:metadata_value_value": {
+		"source": "Metadata value {{value1}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 436
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:value": {
+		"source": "Value",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 440
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:remove_metadata_value": {
+		"source": "Remove metadata {{value1}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 456
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:add_metadata": {
+		"source": "Add metadata",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 480
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:notify_when_a_run_finishes": {
+		"source": "Notify when a run finishes",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 512
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:add": {
+		"source": "Add",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 524
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 115
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:email": {
+		"source": "Email",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 535
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:email_delivery_isn_t_set_up_on_this_server": {
+		"source": "Email delivery isn’t set up on this server.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 540
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:slack_channel": {
+		"source": "Slack channel",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 554
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:cloud_workspaces_with_slack_only": {
+		"source": "Cloud workspaces with Slack only.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 559
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:email_address_value": {
+		"source": "Email address {{value1}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 588
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:slack_channel_id_value": {
+		"source": "Slack channel ID {{value1}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 591
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:name_example_com": {
+		"source": "name@example.com",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 603
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:slack_channel_id": {
+		"source": "Slack channel ID",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 604
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:remove_notification_value": {
+		"source": "Remove notification {{value1}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 621
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:mcp_servers": {
+		"source": "MCP servers",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 659
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:automations_use_this_workspace_s_connected_plugins_selecting_native_mcp_ser": {
+		"source": "Automations use this workspace’s connected plugins. Selecting native MCP servers for an individual automation is no longer supported.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 662
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:clear": {
+		"source": "Clear",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 680
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:manage_plugins": {
+		"source": "Manage plugins",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 693
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:triggers": {
+		"source": "Triggers",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 400
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:add_a_schedule_an_event_or_a_manual_trigger": {
+		"source": "Add a schedule, an event, or a manual trigger.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 415
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:instructions": {
+		"source": "Instructions",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 453
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:what_should_the_agent_do_each_time_this_runs": {
+		"source": "What should the agent do each time this runs?",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 463
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:runs_on": {
+		"source": "Runs on",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 471
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 476
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:if_unavailable": {
+		"source": "If unavailable",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 484
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:try_another_provider": {
+		"source": "Try another provider",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 493
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:fail_the_run": {
+		"source": "Fail the run",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 494
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:fall_back_to_another_provider": {
+		"source": "Fall back to another provider",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 499
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:action": {
+		"source": "Action",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 514
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 519
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:session_f7f199": {
+		"source": "Session",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 527
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 532
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:agent": {
+		"source": "Agent",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 559
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 564
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:model": {
+		"source": "Model",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 572
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 577
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:permissions": {
+		"source": "Permissions",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 585
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 590
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:edit_automation": {
+		"source": "Edit automation",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 619
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:new_automation": {
+		"source": "New automation",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 620
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:on": {
+		"source": "On",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 628
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:off": {
+		"source": "Off",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 629
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:enabled": {
+		"source": "Enabled",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 633
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:automation_name": {
+		"source": "Automation name",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 643
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:untitled_automation": {
+		"source": "Untitled automation",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 646
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:description": {
+		"source": "Description",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 654
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:add_a_description": {
+		"source": "Add a description",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 655
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:discard_unsaved_changes": {
+		"source": "Discard unsaved changes?",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 682
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:keep_editing": {
+		"source": "Keep editing",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 689
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:discard": {
+		"source": "Discard",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 692
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:save": {
+		"source": "Save",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 725
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:create": {
+		"source": "Create",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor.tsx",
+				"line": 726
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:run_now": {
+		"source": "Run now",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-history.tsx",
+				"line": 148
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 908
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:couldn_t_load_runs": {
+		"source": "Couldn’t load runs.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-history.tsx",
+				"line": 154
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:loading_runs": {
+		"source": "Loading runs",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-history.tsx",
+				"line": 161
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:no_runs_yet": {
+		"source": "No runs yet.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-history.tsx",
+				"line": 170
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:started_on_value": {
+		"source": "Started on {{value1}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-history.tsx",
+				"line": 192
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:open": {
+		"source": "Open",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-history.tsx",
+				"line": 227
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:github": {
+		"source": "GitHub",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 121
+			},
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 21
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:schedule": {
+		"source": "Schedule",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 138
+			},
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 20
+			},
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 333
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:slack": {
+		"source": "Slack",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 155
+			},
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 22
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:remove_trigger_value_value": {
+		"source": "Remove trigger {{value1}}: {{value2}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 227
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:events": {
+		"source": "Events",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 272
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 277
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 321
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 326
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:choose_events": {
+		"source": "Choose events",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 278
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 327
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:repositories": {
+		"source": "Repositories",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 285
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:all_repositories": {
+		"source": "All repositories",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 290
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:actions": {
+		"source": "Actions",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 298
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:all_actions": {
+		"source": "All actions",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 303
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:choose_at_least_one_event": {
+		"source": "Choose at least one event.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 311
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 358
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:channel_ids": {
+		"source": "Channel IDs",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 334
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:all_channels": {
+		"source": "All channels",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 339
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:keywords": {
+		"source": "Keywords",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 345
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:any_message": {
+		"source": "Any message",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 350
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:messages_from_zuse_itself_are_always_ignored_to_prevent_loops": {
+		"source": "Messages from Zuse itself are always ignored to prevent loops.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 366
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:include_other_bots_messages": {
+		"source": "Include other bots’ messages",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 369
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:runs_only_when_you_start_it_or_from_the_zuse_cli": {
+		"source": "Runs only when you start it, or from the Zuse CLI.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 385
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:send_events_with": {
+		"source": "Send events with",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 418
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:zuse_automation_dispatch": {
+		"source": "zuse automation dispatch",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 420
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 432
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:hosted_endpoints_are_available_in_cloud_workspaces": {
+		"source": ". Hosted endpoints are available in cloud workspaces.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 423
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:endpoint_pending_you_can_also_send_events_with": {
+		"source": "Endpoint pending. You can also send events with",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 429
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:endpoint_url": {
+		"source": "Endpoint URL",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 446
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:copy_endpoint_url": {
+		"source": "Copy endpoint URL",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 453
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:bearer_token": {
+		"source": "Bearer token",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 460
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:keep_this_token_private": {
+		"source": "Keep this token private.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 461
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:hide": {
+		"source": "Hide",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 474
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:show": {
+		"source": "Show",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 475
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:copy_bearer_token": {
+		"source": "Copy bearer token",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 479
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:frequency": {
+		"source": "Frequency",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 577
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 582
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:day": {
+		"source": "day",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 593
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 598
+			},
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 89
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:minute_past_the_hour": {
+		"source": "Minute past the hour",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 610
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:time": {
+		"source": "Time",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 630
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:date_and_time": {
+		"source": "Date and time",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 650
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:cron_expression": {
+		"source": "Cron expression",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 667
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:min_hour_day_month_weekday": {
+		"source": "min hour day month weekday",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 674
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:five_fields_minute_hour_day_of_month_month_weekday": {
+		"source": "Five fields: minute, hour, day of month, month, weekday",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 677
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:timezone": {
+		"source": "Timezone",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 689
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:this_schedule_has_no_upcoming_runs": {
+		"source": "This schedule has no upcoming runs.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 722
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:automations": {
+		"source": "Automations",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 422
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:run_agents_on_a_schedule_or_when_something_happens": {
+		"source": "Run agents on a schedule or when something happens.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 426
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:new": {
+		"source": "New",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 433
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:blank_automation": {
+		"source": "Blank automation",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 442
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:from_a_template": {
+		"source": "From a template",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 446
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:describe_to_an_agent": {
+		"source": "Describe to an agent",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 455
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 529
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:retry": {
+		"source": "Retry",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 486
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:couldn_t_load_automations": {
+		"source": "Couldn’t load automations.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 490
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:your_automations": {
+		"source": "Your automations",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 496
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 548
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:loading_automations": {
+		"source": "Loading automations",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 503
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:no_automations_yet": {
+		"source": "No automations yet",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 514
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:pick_a_template_below_or_describe_what_you_want_and_let_an_agent_set_it_up": {
+		"source": "Pick a template below, or describe what you want and let an agent set it up.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 518
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:suggest_for_me": {
+		"source": "Suggest for me",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 537
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:agent_drafts": {
+		"source": "Agent drafts",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 547
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:show_all": {
+		"source": "Show all",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 556
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:search_automations": {
+		"source": "Search automations",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 582
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:search": {
+		"source": "Search",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 584
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:nothing_matches": {
+		"source": "Nothing matches.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 594
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:templates": {
+		"source": "Templates",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 629
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:template_category": {
+		"source": "Template category",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 634
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:delete": {
+		"source": "Delete",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 773
+			},
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 929
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:automation": {
+		"source": "automation",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 748
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:future_triggers_stop_immediately_sessions_from_earlier_runs_are_kept": {
+		"source": "Future triggers stop immediately. Sessions from earlier runs are kept.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 753
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:edit_value": {
+		"source": "Edit {{value1}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 832
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:on_value": {
+		"source": "on {{value1}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 855
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:starting": {
+		"source": "Starting…",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 869
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:turn_off_value": {
+		"source": "Turn off {{value1}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 874
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:turn_on_value": {
+		"source": "Turn on {{value1}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 877
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:more_actions_for_value": {
+		"source": "More actions for {{value1}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 893
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:runs": {
+		"source": "Runs",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 912
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:edit": {
+		"source": "Edit",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 916
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:duplicate": {
+		"source": "Duplicate",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 920
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:opens_provider_session": {
+		"source": "Opens a {{provider}} session",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-agent-dialog.tsx",
+				"line": 157
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:runs_cloud": {
+		"source": "Runs as you in this cloud workspace.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 401
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:runs_local": {
+		"source": "Runs as you on this computer.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 402
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:next_run": {
+		"source": "Next run {{time}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 718
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:next_run_local": {
+		"source": "Next run {{time}} in your local time",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-trigger-editor.tsx",
+				"line": 717
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:delete_named_automation": {
+		"source": "Delete {{name}}?",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 745
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:previously_selected_mcp": {
+		"source": "Previously selected: {{selection}}. Clear this selection before enabling the automation.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 667
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:drafts_to_review_one": {
+		"source": "{{count}} draft to review",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 568
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:drafts_to_review_other": {
+		"source": "{{count}} drafts to review",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 568
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:settings_need_attention_one": {
+		"source": "{{count}} setting needs attention",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 157
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:settings_need_attention_other": {
+		"source": "{{count}} settings need attention",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automation-editor-sections.tsx",
+				"line": 157
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:webhook": {
+		"source": "Webhook",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 23
+			},
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 336
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:security_scan": {
+		"source": "Security scan",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 24
+			},
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 337
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:snapshot_build": {
+		"source": "Snapshot build",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 25
+			},
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 338
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:manual": {
+		"source": "Manual",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 26
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:issue_comment": {
+		"source": "Issue comment",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 32
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:issue": {
+		"source": "Issue",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 33
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:pull_request": {
+		"source": "Pull request",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 34
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:pr_review": {
+		"source": "PR review",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 35
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:pr_review_comment": {
+		"source": "PR review comment",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 38
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:check_run": {
+		"source": "Check run",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 40
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:push": {
+		"source": "Push",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 41
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:mentions": {
+		"source": "Mentions",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 47
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:channel_messages": {
+		"source": "Channel messages",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 48
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:reactions": {
+		"source": "Reactions",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 49
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:start_new_session": {
+		"source": "Start new session",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 59
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:start_a_fresh_session_for_every_trigger": {
+		"source": "Start a fresh session for every trigger.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 61
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:message_existing_session": {
+		"source": "Message existing session",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 65
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:send_each_trigger_to_one_ongoing_session": {
+		"source": "Send each trigger to one ongoing session.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 67
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:auto_triage": {
+		"source": "Auto-triage",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 71
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:triage_incoming_slack_messages_and_reply_in_thread": {
+		"source": "Triage incoming Slack messages and reply in thread.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 73
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:code_scan": {
+		"source": "Code scan",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 77
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:start_a_fresh_read_only_code_scan_for_every_trigger": {
+		"source": "Start a fresh read-only code scan for every trigger.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 79
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:minute": {
+		"source": "minute",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 87
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:hour": {
+		"source": "hour",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 88
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:every_hour": {
+		"source": "Every hour",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 126
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:every_day": {
+		"source": "Every day",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 127
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:every_week": {
+		"source": "Every week",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 128
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:run_once": {
+		"source": "Run once",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 129
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:custom_schedule": {
+		"source": "Custom schedule",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 130
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:sunday": {
+		"source": "Sunday",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 135
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:monday": {
+		"source": "Monday",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 136
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:tuesday": {
+		"source": "Tuesday",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 137
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:wednesday": {
+		"source": "Wednesday",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 138
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:thursday": {
+		"source": "Thursday",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 139
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:friday": {
+		"source": "Friday",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 140
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:saturday": {
+		"source": "Saturday",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 141
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:queued": {
+		"source": "Queued",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 309
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:running": {
+		"source": "Running",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 310
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:completed": {
+		"source": "Completed",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 312
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:failed": {
+		"source": "Failed",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 315
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:cancelled": {
+		"source": "Cancelled",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 317
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:cancelling": {
+		"source": "Cancelling",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 321
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:skipped": {
+		"source": "Skipped",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 324
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:manual_run": {
+		"source": "Manual run",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 332
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:github_event": {
+		"source": "GitHub event",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 334
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:slack_event": {
+		"source": "Slack event",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 335
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:once_on": {
+		"source": "Once on {{time}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 218
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:hourly_at": {
+		"source": "Every hour at :{{minute}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 222
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:daily_at": {
+		"source": "Every day at {{time}}{{zone}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 226
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:weekly_at": {
+		"source": "Every {{day}} at {{time}}{{zone}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 231
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:custom_cron": {
+		"source": "Cron {{cron}}{{zone}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 236
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:events_in_repositories": {
+		"source": "{{events}} in {{repositories}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 258
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:events_in_channels_one": {
+		"source": "{{events}} in {{count}} channel",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 267
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:events_in_channels_other": {
+		"source": "{{events}} in {{count}} channels",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 267
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:incoming_events": {
+		"source": "Incoming events",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 276
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:started_by_hand": {
+		"source": "Started by hand",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 278
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:webhook_events": {
+		"source": "Webhook events",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 293
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:security_scan_events": {
+		"source": "Security scan events",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 295
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:snapshot_build_events": {
+		"source": "Snapshot build events",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 297
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:manual_runs_only": {
+		"source": "Manual runs only",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 299
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:trigger_summary": {
+		"source": "{{trigger}} {{detail}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/automation-format.ts",
+				"line": 288
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"automations:or_separator": {
+		"source": " or ",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/automations/automations-page.tsx",
+				"line": 851
+			}
+		],
+		"context": "automations interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
 	"chat:question_card_multiple_choice_hint": {
 		"source": "Select one or more options.",
 		"locations": [
@@ -11178,7 +13608,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2505
+				"line": 2519
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -11196,7 +13626,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2505
+				"line": 2519
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -11335,7 +13765,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2833
+				"line": 2847
 			},
 			{
 				"path": "apps/renderer/src/components/settings/cloud-hosting-settings.tsx",
@@ -11872,6 +14302,10 @@
 			{
 				"path": "apps/renderer/src/components/ui/dialog.tsx",
 				"line": 103
+			},
+			{
+				"path": "apps/renderer/src/components/ui/sheet.tsx",
+				"line": 39
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -11949,7 +14383,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 3570
+				"line": 3584
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12118,11 +14552,11 @@
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 1569
+				"line": 1583
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 3047
+				"line": 3061
 			},
 			{
 				"path": "apps/renderer/src/components/provider-updates-toast.tsx",
@@ -17993,7 +20427,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 3071
+				"line": 3085
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18027,7 +20461,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 3532
+				"line": 3546
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18061,27 +20495,27 @@
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 1531
+				"line": 1534
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 1898
+				"line": 1912
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2187
+				"line": 2201
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2232
+				"line": 2246
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 3138
+				"line": 3152
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 3146
+				"line": 3160
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18091,7 +20525,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 1537
+				"line": 1540
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18101,7 +20535,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 1543
+				"line": 1557
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18111,7 +20545,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 3062
+				"line": 3076
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18121,7 +20555,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 1735
+				"line": 1749
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18136,7 +20570,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2020
+				"line": 2034
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18146,11 +20580,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2123
+				"line": 2137
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2643
+				"line": 2657
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18160,11 +20594,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2192
+				"line": 2206
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2220
+				"line": 2234
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18174,7 +20608,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2579
+				"line": 2593
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18184,7 +20618,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2797
+				"line": 2811
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18194,11 +20628,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2798
+				"line": 2812
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 3562
+				"line": 3576
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18208,7 +20642,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2970
+				"line": 2984
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18218,7 +20652,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 3055
+				"line": 3069
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18228,7 +20662,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 3086
+				"line": 3100
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18238,7 +20672,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 3095
+				"line": 3109
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18258,7 +20692,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 3327
+				"line": 3341
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18268,7 +20702,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 3545
+				"line": 3559
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18508,11 +20942,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2117
+				"line": 2131
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2637
+				"line": 2651
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18522,7 +20956,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2567
+				"line": 2581
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18532,7 +20966,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2774
+				"line": 2788
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18542,7 +20976,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2788
+				"line": 2802
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18552,7 +20986,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 3374
+				"line": 3388
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18936,7 +21370,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2095
+				"line": 2109
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18986,7 +21420,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2009
+				"line": 2023
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -18996,7 +21430,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2009
+				"line": 2023
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -19006,7 +21440,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2009
+				"line": 2023
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -19418,7 +21852,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2743
+				"line": 2757
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -19428,7 +21862,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 2742
+				"line": 2756
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -19541,7 +21975,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 1646
+				"line": 1660
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -19551,7 +21985,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 1666
+				"line": 1680
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -19561,7 +21995,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
-				"line": 1671
+				"line": 1685
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -21732,6 +24166,16 @@
 	"projects:masters_stopped_notice": {
 		"source": "Stopped. Your Zot can reply, but won’t start or message slaves until you resume.",
 		"locations": [],
+		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"projects:projects_sidebar_automations": {
+		"source": "Automations",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/projects-sidebar.tsx",
+				"line": 1545
+			}
+		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"providers:add_computer_dialog_your_computers": {
@@ -36545,7 +38989,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/shell/main-shell.tsx",
-				"line": 734
+				"line": 741
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -36555,7 +38999,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/shell/main-shell.tsx",
-				"line": 842
+				"line": 859
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -36565,7 +39009,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/shell/main-shell.tsx",
-				"line": 860
+				"line": 877
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

@@ -1,10 +1,11 @@
+import "@zuse/i18n/english/automations";
 import type {
 	Automation,
 	AutomationConfig,
 	AutomationRun,
 	AutomationTrigger,
 } from "@zuse/contracts";
-import { formatDate } from "@zuse/i18n";
+import { message as automationMessage, formatDate } from "@zuse/i18n";
 
 export type AutomationTriggerKind = AutomationTrigger["_tag"];
 type GithubTrigger = Extract<AutomationTrigger, { _tag: "github" }>;
@@ -13,60 +14,79 @@ type ScheduleTrigger = Extract<AutomationTrigger, { _tag: "schedule" }>;
 export type GithubEvent = GithubTrigger["events"][number];
 export type SlackEvent = SlackTrigger["events"][number];
 
-export const TRIGGER_LABEL: Readonly<Record<AutomationTriggerKind, string>> = {
-	schedule: "Schedule",
-	github: "GitHub",
-	slack: "Slack",
-	webhook: "Webhook",
-	security_scan: "Security scan",
-	snapshot_build: "Snapshot build",
-	manual: "Manual",
-};
+export const automationTriggerLabels = (): Readonly<
+	Record<AutomationTriggerKind, string>
+> => ({
+	schedule: automationMessage("automations:schedule"),
+	github: automationMessage("automations:github"),
+	slack: automationMessage("automations:slack"),
+	webhook: automationMessage("automations:webhook"),
+	security_scan: automationMessage("automations:security_scan"),
+	snapshot_build: automationMessage("automations:snapshot_build"),
+	manual: automationMessage("automations:manual"),
+});
 
-export const GITHUB_EVENTS: ReadonlyArray<readonly [GithubEvent, string]> = [
-	["issue_comment", "Issue comment"],
-	["issues", "Issue"],
-	["pull_request", "Pull request"],
-	["pull_request_review", "PR review"],
-	["pull_request_review_comment", "PR review comment"],
-	["check_run", "Check run"],
-	["push", "Push"],
+export const githubEventOptions = (): ReadonlyArray<
+	readonly [GithubEvent, string]
+> => [
+	["issue_comment", automationMessage("automations:issue_comment")],
+	["issues", automationMessage("automations:issue")],
+	["pull_request", automationMessage("automations:pull_request")],
+	["pull_request_review", automationMessage("automations:pr_review")],
+	[
+		"pull_request_review_comment",
+		automationMessage("automations:pr_review_comment"),
+	],
+	["check_run", automationMessage("automations:check_run")],
+	["push", automationMessage("automations:push")],
 ];
 
-export const SLACK_EVENTS: ReadonlyArray<readonly [SlackEvent, string]> = [
-	["mention", "Mentions"],
-	["message", "Channel messages"],
-	["reaction", "Reactions"],
+export const slackEventOptions = (): ReadonlyArray<
+	readonly [SlackEvent, string]
+> => [
+	["mention", automationMessage("automations:mentions")],
+	["message", automationMessage("automations:channel_messages")],
+	["reaction", automationMessage("automations:reactions")],
 ];
 
-export const ACTION_META: Readonly<
+export const automationActionMeta = (): Readonly<
 	Record<
 		AutomationConfig["action"],
 		{ readonly label: string; readonly description: string }
 	>
-> = {
+> => ({
 	new_session: {
-		label: "Start new session",
-		description: "Start a fresh session for every trigger.",
+		label: automationMessage("automations:start_new_session"),
+		description: automationMessage(
+			"automations:start_a_fresh_session_for_every_trigger",
+		),
 	},
 	existing_session: {
-		label: "Message existing session",
-		description: "Send each trigger to one ongoing session.",
+		label: automationMessage("automations:message_existing_session"),
+		description: automationMessage(
+			"automations:send_each_trigger_to_one_ongoing_session",
+		),
 	},
 	auto_triage: {
-		label: "Auto-triage",
-		description: "Triage incoming Slack messages and reply in thread.",
+		label: automationMessage("automations:auto_triage"),
+		description: automationMessage(
+			"automations:triage_incoming_slack_messages_and_reply_in_thread",
+		),
 	},
 	code_scan: {
-		label: "Code scan",
-		description: "Start a fresh read-only code scan for every trigger.",
+		label: automationMessage("automations:code_scan"),
+		description: automationMessage(
+			"automations:start_a_fresh_read_only_code_scan_for_every_trigger",
+		),
 	},
-};
+});
 
-export const RATE_WINDOWS: ReadonlyArray<readonly [number, string]> = [
-	[60, "minute"],
-	[3600, "hour"],
-	[86400, "day"],
+export const automationRateWindows = (): ReadonlyArray<
+	readonly [number, string]
+> => [
+	[60, automationMessage("automations:minute")],
+	[3600, automationMessage("automations:hour")],
+	[86400, automationMessage("automations:day")],
 ];
 
 export const localTimezone = (): string =>
@@ -100,23 +120,26 @@ export const splitAutomationList = (value: string): string[] =>
 
 export type ScheduleKind = "hourly" | "daily" | "weekly" | "once" | "custom";
 
-export const SCHEDULE_KINDS: ReadonlyArray<readonly [ScheduleKind, string]> = [
-	["hourly", "Every hour"],
-	["daily", "Every day"],
-	["weekly", "Every week"],
-	["once", "Run once"],
-	["custom", "Custom schedule"],
+export const automationScheduleKinds = (): ReadonlyArray<
+	readonly [ScheduleKind, string]
+> => [
+	["hourly", automationMessage("automations:every_hour")],
+	["daily", automationMessage("automations:every_day")],
+	["weekly", automationMessage("automations:every_week")],
+	["once", automationMessage("automations:run_once")],
+	["custom", automationMessage("automations:custom_schedule")],
 ];
 
-export const WEEKDAYS = [
-	"Sunday",
-	"Monday",
-	"Tuesday",
-	"Wednesday",
-	"Thursday",
-	"Friday",
-	"Saturday",
-] as const;
+export const automationWeekdays = () =>
+	[
+		automationMessage("automations:sunday"),
+		automationMessage("automations:monday"),
+		automationMessage("automations:tuesday"),
+		automationMessage("automations:wednesday"),
+		automationMessage("automations:thursday"),
+		automationMessage("automations:friday"),
+		automationMessage("automations:saturday"),
+	] as const;
 const WEEKDAY_TOKENS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
 export interface ScheduleForm {
@@ -192,13 +215,28 @@ export function describeSchedule(trigger: ScheduleTrigger): string {
 	const zone =
 		trigger.timezone === localTimezone() ? "" : ` (${trigger.timezone})`;
 	if (form.kind === "once" && trigger.onceAt)
-		return `Once on ${shortDateTime(trigger.onceAt)}`;
-	if (form.kind === "hourly") return `Every hour at :${pad(form.minute)}`;
+		return automationMessage("automations:once_on", {
+			time: shortDateTime(trigger.onceAt),
+		});
+	if (form.kind === "hourly")
+		return automationMessage("automations:hourly_at", {
+			minute: pad(form.minute),
+		});
 	if (form.kind === "daily")
-		return `Every day at ${formatClock(form.hour, form.minute)}${zone}`;
+		return automationMessage("automations:daily_at", {
+			time: formatClock(form.hour, form.minute),
+			zone,
+		});
 	if (form.kind === "weekly")
-		return `Every ${WEEKDAYS[form.weekday]} at ${formatClock(form.hour, form.minute)}${zone}`;
-	return `Cron ${trigger.cron}${zone}`;
+		return automationMessage("automations:weekly_at", {
+			day: automationWeekdays()[form.weekday] ?? "",
+			time: formatClock(form.hour, form.minute),
+			zone,
+		});
+	return automationMessage("automations:custom_cron", {
+		cron: trigger.cron,
+		zone,
+	});
 }
 
 const labelsFor = <Value extends string>(
@@ -214,24 +252,30 @@ export function triggerDetail(trigger: AutomationTrigger): string {
 	switch (trigger._tag) {
 		case "schedule":
 			return describeSchedule(trigger);
-		case "github":
-			return `${labelsFor(trigger.events, GITHUB_EVENTS)}${
-				trigger.repositories.length
-					? ` in ${trigger.repositories.join(", ")}`
-					: ""
-			}`;
-		case "slack":
-			return `${labelsFor(trigger.events, SLACK_EVENTS)}${
-				trigger.channelIds.length
-					? ` in ${trigger.channelIds.length === 1 ? "1 channel" : `${trigger.channelIds.length} channels`}`
-					: ""
-			}`;
+		case "github": {
+			const events = labelsFor(trigger.events, githubEventOptions());
+			return trigger.repositories.length
+				? automationMessage("automations:events_in_repositories", {
+						events,
+						repositories: trigger.repositories.join(", "),
+					})
+				: events;
+		}
+		case "slack": {
+			const events = labelsFor(trigger.events, slackEventOptions());
+			return trigger.channelIds.length
+				? automationMessage("automations:events_in_channels", {
+						events,
+						count: trigger.channelIds.length,
+					})
+				: events;
+		}
 		case "webhook":
 		case "security_scan":
 		case "snapshot_build":
-			return "Incoming events";
+			return automationMessage("automations:incoming_events");
 		case "manual":
-			return "Started by hand";
+			return automationMessage("automations:started_by_hand");
 	}
 }
 
@@ -241,48 +285,60 @@ export function describeTrigger(trigger: AutomationTrigger): string {
 			return describeSchedule(trigger);
 		case "github":
 		case "slack":
-			return `${TRIGGER_LABEL[trigger._tag]} ${triggerDetail(trigger).toLowerCase()}`;
+			return automationMessage("automations:trigger_summary", {
+				trigger: automationTriggerLabels()[trigger._tag],
+				detail: triggerDetail(trigger).toLowerCase(),
+			});
 		case "webhook":
-			return "Webhook events";
+			return automationMessage("automations:webhook_events");
 		case "security_scan":
-			return "Security scan events";
+			return automationMessage("automations:security_scan_events");
 		case "snapshot_build":
-			return "Snapshot build events";
+			return automationMessage("automations:snapshot_build_events");
 		case "manual":
-			return "Manual runs only";
+			return automationMessage("automations:manual_runs_only");
 	}
 }
 
 // ── Runs ─────────────────────────────────────────────────────────────────
 
 export type RunTone = "success" | "error" | "info" | "outline" | "warning";
-export const RUN_STATUS: Readonly<
+export const automationRunStatuses = (): Readonly<
 	Record<AutomationRun["status"], { readonly label: string; tone: RunTone }>
-> = {
-	queued: { label: "Queued", tone: "outline" },
-	running: { label: "Running", tone: "info" },
-	completed: { label: "Completed", tone: "success" },
-	failed: { label: "Failed", tone: "error" },
-	cancelled: { label: "Cancelled", tone: "outline" },
-	cancelling: { label: "Cancelling", tone: "warning" },
-	skipped: { label: "Skipped", tone: "outline" },
-};
+> => ({
+	queued: { label: automationMessage("automations:queued"), tone: "outline" },
+	running: { label: automationMessage("automations:running"), tone: "info" },
+	completed: {
+		label: automationMessage("automations:completed"),
+		tone: "success",
+	},
+	failed: { label: automationMessage("automations:failed"), tone: "error" },
+	cancelled: {
+		label: automationMessage("automations:cancelled"),
+		tone: "outline",
+	},
+	cancelling: {
+		label: automationMessage("automations:cancelling"),
+		tone: "warning",
+	},
+	skipped: { label: automationMessage("automations:skipped"), tone: "outline" },
+});
 export const runIsActive = (run: AutomationRun) =>
 	run.status === "queued" ||
 	run.status === "running" ||
 	run.status === "cancelling";
 
-const RUN_SOURCE: Readonly<Record<string, string>> = {
-	manual: "Manual run",
-	schedule: "Schedule",
-	github: "GitHub event",
-	slack: "Slack event",
-	webhook: "Webhook",
-	security_scan: "Security scan",
-	snapshot_build: "Snapshot build",
-};
+const automationRunSources = (): Readonly<Record<string, string>> => ({
+	manual: automationMessage("automations:manual_run"),
+	schedule: automationMessage("automations:schedule"),
+	github: automationMessage("automations:github_event"),
+	slack: automationMessage("automations:slack_event"),
+	webhook: automationMessage("automations:webhook"),
+	security_scan: automationMessage("automations:security_scan"),
+	snapshot_build: automationMessage("automations:snapshot_build"),
+});
 export const runSourceLabel = (source: string): string =>
-	RUN_SOURCE[source] ?? source.replaceAll("_", " ");
+	automationRunSources()[source] ?? source.replaceAll("_", " ");
 
 export function formatDuration(milliseconds: number): string {
 	const seconds = Math.max(0, Math.round(milliseconds / 1000));

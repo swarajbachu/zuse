@@ -520,5 +520,6 @@
 	"masters_guide_continuity_body": "When a conversation gets long, choose Fresh chat here. Repositories, running slaves, decisions and memory carry over.",
 	"masters_guide_continuity_memory": "Replay this guide from this menu at any time.",
 	"masters_paused_notice": "Paused. Your Zot can reply, but won’t start or message slaves until you resume.",
-	"masters_stopped_notice": "Stopped. Your Zot can reply, but won’t start or message slaves until you resume."
+	"masters_stopped_notice": "Stopped. Your Zot can reply, but won’t start or message slaves until you resume.",
+	"projects_sidebar_automations": "Automations"
 }

@@ -40,6 +40,7 @@ import {
 	isAgentDraft,
 	localTimezone,
 } from "~/lib/automation-format.ts";
+import { useAutomationMessages } from "~/lib/automation-messages.ts";
 import {
 	cloudProviderLabel,
 	orderedCloudProviders,
@@ -135,6 +136,8 @@ export function AutomationsPage() {
 }
 
 function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
+	const automationMessage = useAutomationMessages();
+
 	const client = useMemo(
 		() => automationClient(environmentId),
 		[environmentId],
@@ -416,16 +419,18 @@ function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
 				<header className="flex items-start justify-between gap-4 px-2">
 					<div className="min-w-0">
 						<h1 className="text-xl font-medium tracking-[-0.01em]">
-							Automations
+							{automationMessage("automations:automations")}
 						</h1>
 						<p className="mt-1 text-muted-foreground">
-							Run agents on a schedule or when something happens.
+							{automationMessage(
+								"automations:run_agents_on_a_schedule_or_when_something_happens",
+							)}
 						</p>
 					</div>
 					<Menu>
 						<MenuTrigger render={<Button className="h-7" />}>
 							<HugeiconsIcon icon={PlusSignIcon} aria-hidden />
-							New
+							{automationMessage("automations:new")}
 						</MenuTrigger>
 						<MenuPopup align="end" className="w-52">
 							<MenuItem
@@ -434,11 +439,11 @@ function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
 								onClick={() => create()}
 							>
 								<HugeiconsIcon icon={PencilEdit02Icon} aria-hidden />
-								Blank automation
+								{automationMessage("automations:blank_automation")}
 							</MenuItem>
 							<MenuItem className="h-7 gap-2" onClick={showTemplates}>
 								<HugeiconsIcon icon={DashboardSquare01Icon} aria-hidden />
-								From a template
+								{automationMessage("automations:from_a_template")}
 							</MenuItem>
 							<MenuSeparator />
 							<MenuItem
@@ -447,7 +452,7 @@ function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
 								onClick={() => setAgentIntent("generate")}
 							>
 								<HugeiconsIcon icon={AiChat02Icon} aria-hidden />
-								Describe to an agent
+								{automationMessage("automations:describe_to_an_agent")}
 							</MenuItem>
 							<MenuItem
 								className="h-7 gap-2"
@@ -455,7 +460,7 @@ function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
 								onClick={() => setAgentIntent("suggest")}
 							>
 								<HugeiconsIcon icon={SparklesIcon} aria-hidden />
-								Suggest automations
+								{automationMessage("automations:suggest_automations")}
 							</MenuItem>
 						</MenuPopup>
 					</Menu>
@@ -478,20 +483,24 @@ function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
 										.finally(() => setRetrying(false));
 								}}
 							>
-								Retry
+								{automationMessage("automations:retry")}
 							</Button>
 						}
 					>
-						Couldn’t load automations. {loadError}
+						{automationMessage("automations:couldn_t_load_automations")}
+						{loadError}
 					</AutomationNotice>
 				)}
 
-				<section aria-label="Your automations" className="flex flex-col gap-1">
+				<section
+					aria-label={automationMessage("automations:your_automations")}
+					className="flex flex-col gap-1"
+				>
 					{records === null && !loadError ? (
 						<div
 							role="status"
 							aria-busy="true"
-							aria-label="Loading automations"
+							aria-label={automationMessage("automations:loading_automations")}
 							className="space-y-1"
 						>
 							{[0, 1].map((key) => (
@@ -501,10 +510,13 @@ function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
 					) : all.length === 0 ? (
 						!loadError && (
 							<div className="flex flex-col items-center rounded-xl bg-muted/25 px-6 py-10 text-center">
-								<p className="text-[13px] font-medium">No automations yet</p>
+								<p className="text-[13px] font-medium">
+									{automationMessage("automations:no_automations_yet")}
+								</p>
 								<p className="mt-1 max-w-xs text-muted-foreground">
-									Pick a template below, or describe what you want and let an
-									agent set it up.
+									{automationMessage(
+										"automations:pick_a_template_below_or_describe_what_you_want_and_let_an_agent_set_it_up",
+									)}
 								</p>
 								<div className="mt-4 flex gap-1.5">
 									<Button
@@ -514,7 +526,7 @@ function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
 										onClick={() => setAgentIntent("generate")}
 									>
 										<HugeiconsIcon icon={AiChat02Icon} aria-hidden />
-										Describe to an agent
+										{automationMessage("automations:describe_to_an_agent")}
 									</Button>
 									<Button
 										className="h-7"
@@ -522,7 +534,7 @@ function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
 										disabled={!projectId}
 										onClick={() => setAgentIntent("suggest")}
 									>
-										Suggest for me
+										{automationMessage("automations:suggest_for_me")}
 									</Button>
 								</div>
 							</div>
@@ -532,8 +544,8 @@ function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
 							<div className="flex h-7 items-center justify-between gap-3 px-2 pb-1">
 								<h2 className="text-[13px] font-medium">
 									{statusFilter === "drafts"
-										? "Agent drafts"
-										: "Your automations"}
+										? automationMessage("automations:agent_drafts")
+										: automationMessage("automations:your_automations")}
 								</h2>
 								{statusFilter === "drafts" ? (
 									<Button
@@ -541,7 +553,7 @@ function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
 										className="h-7 text-muted-foreground"
 										onClick={() => setStatusFilter("all")}
 									>
-										Show all
+										{automationMessage("automations:show_all")}
 									</Button>
 								) : drafts.length > 0 ? (
 									<Button
@@ -553,9 +565,9 @@ function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
 											className="size-1.5 rounded-full bg-info"
 											aria-hidden
 										/>
-										{drafts.length === 1
-											? "1 draft to review"
-											: `${drafts.length} drafts to review`}
+										{automationMessage("automations:drafts_to_review", {
+											count: drafts.length,
+										})}
 									</Button>
 								) : all.length > 6 ? (
 									<label className="flex h-7 w-48 items-center gap-2 rounded-md bg-muted/55 px-2.5 focus-within:ring-2 focus-within:ring-ring/24">
@@ -566,8 +578,10 @@ function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
 										/>
 										<input
 											type="search"
-											aria-label="Search automations"
-											placeholder="Search"
+											aria-label={automationMessage(
+												"automations:search_automations",
+											)}
+											placeholder={automationMessage("automations:search")}
 											className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
 											value={search}
 											onChange={(event) => setSearch(event.target.value)}
@@ -577,7 +591,7 @@ function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
 							</div>
 							{filtered.length === 0 ? (
 								<p className="px-2 py-4 text-muted-foreground">
-									Nothing matches.
+									{automationMessage("automations:nothing_matches")}
 								</p>
 							) : (
 								<ul className="flex flex-col gap-0.5">
@@ -612,12 +626,12 @@ function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
 				>
 					<div className="flex flex-wrap items-center justify-between gap-2 px-2 pb-1">
 						<h2 id="automation-templates" className="text-[13px] font-medium">
-							Templates
+							{automationMessage("automations:templates")}
 						</h2>
 						{categories.length > 1 && (
 							<div className="w-44">
 								<AutomationSelect
-									label="Template category"
+									label={automationMessage("automations:template_category")}
 									value={category}
 									onChange={setCategory}
 									options={categories.map((value) => ({
@@ -728,18 +742,23 @@ function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
 				<AlertDialogPopup className="max-w-sm">
 					<AlertDialogHeader>
 						<AlertDialogTitle>
-							Delete {deleteRecord?.config.name ?? "automation"}?
+							{automationMessage("automations:delete_named_automation", {
+								name:
+									deleteRecord?.config.name ??
+									automationMessage("automations:automation"),
+							})}
 						</AlertDialogTitle>
 						<AlertDialogDescription>
-							Future triggers stop immediately. Sessions from earlier runs are
-							kept.
+							{automationMessage(
+								"automations:future_triggers_stop_immediately_sessions_from_earlier_runs_are_kept",
+							)}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogClose
 							render={<Button className="h-7" variant="ghost" />}
 						>
-							Cancel
+							{automationMessage("automations:cancel")}
 						</AlertDialogClose>
 						<Button
 							className="h-7"
@@ -751,7 +770,7 @@ function EnvironmentAutomations({ environmentId }: { environmentId: string }) {
 								if (deleteRecord) remove(deleteRecord);
 							}}
 						>
-							Delete
+							{automationMessage("automations:delete")}
 						</Button>
 					</AlertDialogFooter>
 				</AlertDialogPopup>
@@ -789,6 +808,8 @@ function AutomationRowItem({
 	onDuplicate: () => void;
 	onDelete: () => void;
 }) {
+	const automationMessage = useAutomationMessages();
+
 	const { config } = record;
 	const draft = isAgentDraft(config) && !config.enabled;
 	const status = !config.enabled
@@ -808,7 +829,9 @@ function AutomationRowItem({
 			<button
 				type="button"
 				className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-				aria-label={`Edit ${config.name}`}
+				aria-label={automationMessage("automations:edit_value", {
+					value1: config.name,
+				})}
 				disabled={pending === "open"}
 				onClick={onEdit}
 			>
@@ -823,10 +846,15 @@ function AutomationRowItem({
 						{config.name}
 					</span>
 					<span className="block truncate text-muted-foreground">
-						{config.triggers.map(describeTrigger).join(" or ")} ·{" "}
-						{PROVIDER_SHORT_LABEL[config.providerId]}
+						{config.triggers
+							.map(describeTrigger)
+							.join(automationMessage("automations:or_separator"))}{" "}
+						· {PROVIDER_SHORT_LABEL[config.providerId]}
 						{config.cloudMachine
-							? ` on ${cloudProviderLabel(config.cloudMachine.providerId)}`
+							? " " +
+								automationMessage("automations:on_value", {
+									value1: cloudProviderLabel(config.cloudMachine.providerId),
+								})
 							: ""}
 						{projectName ? ` · ${projectName}` : ""}
 					</span>
@@ -838,11 +866,17 @@ function AutomationRowItem({
 					draft ? "text-info" : "text-muted-foreground",
 				)}
 			>
-				{pending === "run" ? "Starting…" : status}
+				{pending === "run" ? automationMessage("automations:starting") : status}
 			</span>
 			<Switch
 				aria-label={
-					config.enabled ? `Turn off ${config.name}` : `Turn on ${config.name}`
+					config.enabled
+						? automationMessage("automations:turn_off_value", {
+								value1: config.name,
+							})
+						: automationMessage("automations:turn_on_value", {
+								value1: config.name,
+							})
 				}
 				checked={config.enabled}
 				disabled={pending !== null}
@@ -855,7 +889,10 @@ function AutomationRowItem({
 							size="icon-sm"
 							variant="ghost"
 							className="text-muted-foreground"
-							aria-label={`More actions for ${config.name}`}
+							aria-label={automationMessage(
+								"automations:more_actions_for_value",
+								{ value1: config.name },
+							)}
 						/>
 					}
 				>
@@ -868,19 +905,19 @@ function AutomationRowItem({
 						onClick={onRun}
 					>
 						<HugeiconsIcon icon={PlayIcon} aria-hidden />
-						Run now
+						{automationMessage("automations:run_now")}
 					</MenuItem>
 					<MenuItem className="h-7 gap-2" onClick={onHistory}>
 						<HugeiconsIcon icon={Time04Icon} aria-hidden />
-						Runs
+						{automationMessage("automations:runs")}
 					</MenuItem>
 					<MenuItem className="h-7 gap-2" onClick={onEdit}>
 						<HugeiconsIcon icon={PencilEdit02Icon} aria-hidden />
-						Edit
+						{automationMessage("automations:edit")}
 					</MenuItem>
 					<MenuItem className="h-7 gap-2" onClick={onDuplicate}>
 						<HugeiconsIcon icon={Copy01Icon} aria-hidden />
-						Duplicate
+						{automationMessage("automations:duplicate")}
 					</MenuItem>
 					<MenuSeparator />
 					<MenuItem
@@ -889,7 +926,7 @@ function AutomationRowItem({
 						onClick={onDelete}
 					>
 						<HugeiconsIcon icon={Delete02Icon} aria-hidden />
-						Delete
+						{automationMessage("automations:delete")}
 					</MenuItem>
 				</MenuPopup>
 			</Menu>

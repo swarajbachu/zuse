@@ -520,5 +520,6 @@
 	"masters_guide_continuity_body": "对话变长时，在这里选择“新对话”。仓库、运行中的 Slaves、已做的决定和记忆都会保留。",
 	"masters_guide_continuity_memory": "随时可以从此菜单重新打开本指南。",
 	"masters_paused_notice": "已暂停。Zot 仍可回复，但在你恢复之前不会启动 Slaves 或向其发送消息。",
-	"masters_stopped_notice": "已停止。Zot 仍可回复，但在你恢复之前不会启动 Slaves 或向其发送消息。"
+	"masters_stopped_notice": "已停止。Zot 仍可回复，但在你恢复之前不会启动 Slaves 或向其发送消息。",
+	"projects_sidebar_automations": "自动化"
 }

@@ -1,6 +1,7 @@
 import { FolderId } from "@zuse/contracts";
 import { useId, useRef, useState } from "react";
 import { launchAutomationAgent } from "~/lib/automation-agent.ts";
+import { useAutomationMessages } from "~/lib/automation-messages.ts";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { formatError } from "~/lib/format-error.ts";
 import { PROVIDER_LABEL } from "~/lib/provider-labels.ts";
@@ -41,6 +42,8 @@ export function AutomationAgentDialog({
 	projectId: FolderId | null;
 	onClose: () => void;
 }) {
+	const automationMessage = useAutomationMessages();
+
 	const id = useId();
 	const { folders } = useActiveEnvironmentEntities();
 	const providerId = useSettingsStore((state) => state.defaultProviderId);
@@ -71,23 +74,35 @@ export function AutomationAgentDialog({
 			<DialogPopup className="max-w-md">
 				<DialogHeader>
 					<DialogTitle>
-						{suggest ? "Suggest automations" : "Describe an automation"}
+						{suggest
+							? automationMessage("automations:suggest_automations")
+							: automationMessage("automations:describe_an_automation")}
 					</DialogTitle>
 					<DialogDescription>
 						{suggest
-							? "An agent looks at recent work and proposes automations."
-							: "An agent sets it up and saves it as a draft for you to review."}
+							? automationMessage(
+									"automations:an_agent_looks_at_recent_work_and_proposes_automations",
+								)
+							: automationMessage(
+									"automations:an_agent_sets_it_up_and_saves_it_as_a_draft_for_you_to_review",
+								)}
 					</DialogDescription>
 				</DialogHeader>
 				<DialogPanel className="space-y-3 text-xs">
 					<Textarea
 						id={`${id}-request`}
-						aria-label={suggest ? "Focus" : "Automation request"}
+						aria-label={
+							suggest
+								? automationMessage("automations:focus")
+								: automationMessage("automations:automation_request")
+						}
 						className="min-h-24 text-xs"
 						placeholder={
 							suggest
-								? "Anything to focus on? (optional)"
-								: "Every weekday at 9, summarize open pull requests…"
+								? automationMessage("automations:anything_to_focus_on_optional")
+								: automationMessage(
+										"automations:every_weekday_at_9_summarize_open_pull_requests",
+									)
 						}
 						value={description}
 						onChange={(event) => setDescription(event.target.value)}
@@ -116,10 +131,13 @@ export function AutomationAgentDialog({
 						</ul>
 					)}
 					{folders.length > 1 && (
-						<AutomationRow label="Project" htmlFor={`${id}-project`}>
+						<AutomationRow
+							label={automationMessage("automations:project")}
+							htmlFor={`${id}-project`}
+						>
 							<AutomationSelect
 								id={`${id}-project`}
-								label="Project"
+								label={automationMessage("automations:project")}
 								value={projectId ?? ""}
 								options={folders.map((folder) => ({
 									value: folder.id as string,
@@ -136,7 +154,9 @@ export function AutomationAgentDialog({
 				<DialogFooter className="items-center sm:justify-between">
 					<p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
 						<ProviderIcon providerId={providerId} className="size-3" />
-						Opens a {PROVIDER_LABEL[providerId]} session
+						{automationMessage("automations:opens_provider_session", {
+							provider: PROVIDER_LABEL[providerId] ?? providerId,
+						})}
 					</p>
 					<div className="flex gap-1.5">
 						<Button
@@ -145,7 +165,7 @@ export function AutomationAgentDialog({
 							disabled={starting}
 							onClick={onClose}
 						>
-							Cancel
+							{automationMessage("automations:cancel")}
 						</Button>
 						<Button
 							className="h-7"
@@ -153,7 +173,7 @@ export function AutomationAgentDialog({
 							disabled={!projectId || (!suggest && !description.trim())}
 							onClick={start}
 						>
-							Start
+							{automationMessage("automations:start")}
 						</Button>
 					</div>
 				</DialogFooter>
