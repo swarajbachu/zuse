@@ -86,7 +86,7 @@ export const cloudGatewaySocket = (socket: WebSocket): WebSocket => {
 					if (type === "message") {
 						if (messageListeners.has(listener)) return;
 						const wrapped: Handler = (event) => {
-							if (retiring || availability(event)) return;
+							if (retiring || availability(event) !== null) return;
 							if (typeof listener === "function") listener.call(target, event);
 							else listener.handleEvent(event);
 						};
@@ -127,20 +127,32 @@ export const cloudGatewaySocket = (socket: WebSocket): WebSocket => {
 		},
 	});
 	const decode = Schema.decodeUnknownSync(WorkspaceGatewayAvailability);
-	const availability = (event: Event): boolean => {
+	const classified = new WeakMap<Event, ReturnType<typeof decode> | null>();
+	const availability = (event: Event): ReturnType<typeof decode> | null => {
+		if (classified.has(event)) return classified.get(event) ?? null;
+		let state: ReturnType<typeof decode> | null = null;
 		const data = "data" in event ? event.data : undefined;
-		if (typeof data !== "string") return false;
-		try {
-			decode(JSON.parse(data));
-			return true;
-		} catch {
-			return false;
+		if (typeof data === "string") {
+			try {
+				const payload: unknown = JSON.parse(data);
+				// Ordinary RPC messages are not invalid availability frames.
+				if (
+					typeof payload === "object" &&
+					payload !== null &&
+					Reflect.get(payload, "_zuseGateway") === "availability"
+				)
+					state = decode(payload);
+			} catch {
+				// Preserve non-control frames for the RPC transport to decode.
+			}
 		}
+		classified.set(event, state);
+		return state;
 	};
 	socket.addEventListener("message", (event) => {
 		if (retiring) return;
-		if (!availability(event)) return;
-		const state = decode(JSON.parse(event.data));
+		const state = availability(event);
+		if (state === null) return;
 		available = state.state === "available";
 		if ((!available && exposed) || (available && state.reset === true)) {
 			retiring = true;

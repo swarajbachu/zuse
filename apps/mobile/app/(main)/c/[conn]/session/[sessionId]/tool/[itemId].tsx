@@ -1,4 +1,7 @@
+import "@zuse/i18n/english/common";
+import "@zuse/i18n/english/tools";
 import { useAtomValue } from "@effect/atom-react";
+import { loadDeferredSessionToolDetails } from "@zuse/client-runtime/session-message-detail";
 import type { DiffLine, FileChange } from "@zuse/client-runtime/timeline";
 import {
 	GitReviewFile,
@@ -6,9 +9,10 @@ import {
 	type MessageContent,
 	type SessionId,
 } from "@zuse/contracts";
+import { useMessages } from "@zuse/i18n/react";
 import * as Clipboard from "expo-clipboard";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
 	FlatList,
 	Pressable,
@@ -26,6 +30,10 @@ import { connectionSessionKey } from "~/lib/session-key";
 import { buildToolPresentation, toResultText } from "~/lib/tool-presentation";
 import { useToolbarIcons } from "~/lib/toolbar-icons";
 import { sessionMessagesAtom } from "~/store/messages";
+import {
+	loadMobileMessageDetail,
+	mobileHistoryRef,
+} from "~/store/mobile-client-bus";
 import { colors } from "~/theme";
 
 type ToolUse = Extract<MessageContent, { _tag: "tool_use" }>;
@@ -43,6 +51,7 @@ const rawText = (tool: ToolUse, result: ToolResult | undefined): string => {
 };
 
 export default function ToolDetailScreen() {
+	const { message: uiMessage } = useMessages(["common", "tools"]);
 	const toolbarIcon = useToolbarIcons();
 	const headerHeight = useHeaderContentInset();
 	const { conn, sessionId, itemId, filePath } = useLocalSearchParams<{
@@ -53,15 +62,74 @@ export default function ToolDetailScreen() {
 	}>();
 	const key = connectionSessionKey(conn, sessionId as SessionId);
 	const messages = useAtomValue(sessionMessagesAtom(key));
-	const tool = messages.find(
+	const toolMessage = messages.find(
 		(message) =>
 			message.content._tag === "tool_use" && message.content.itemId === itemId,
-	)?.content as ToolUse | undefined;
-	const result = messages.find(
+	);
+	const previewTool = toolMessage?.content as ToolUse | undefined;
+	const resultMessage = messages.find(
 		(message) =>
 			message.content._tag === "tool_result" &&
 			message.content.itemId === itemId,
-	)?.content as ToolResult | undefined;
+	);
+	const previewResult = resultMessage?.content as ToolResult | undefined;
+	const detailKey =
+		previewResult?.outputDeferred === undefined
+			? null
+			: JSON.stringify([
+					conn,
+					sessionId,
+					toolMessage?.id,
+					resultMessage?.id,
+					previewResult?.outputDeferred,
+				]);
+	const [loaded, setLoaded] = useState<{
+		key: string;
+		tool: ToolUse;
+		result?: ToolResult;
+	} | null>(null);
+	const [detailError, setDetailError] = useState<string | null>(null);
+	const [attempt, setAttempt] = useState(0);
+	const requestKey =
+		detailKey === null ? null : JSON.stringify([detailKey, attempt]);
+	useEffect(() => {
+		if (detailKey === null || toolMessage === undefined || requestKey === null)
+			return;
+		const ref = mobileHistoryRef(conn, sessionId as SessionId);
+		if (ref === null) {
+			setDetailError("Reconnect this conversation to load details.");
+			return;
+		}
+		const controller = new AbortController();
+		setDetailError(null);
+		void loadDeferredSessionToolDetails(
+			loadMobileMessageDetail,
+			ref,
+			toolMessage,
+			resultMessage,
+			controller.signal,
+		).then(
+			(details) => {
+				if (!controller.signal.aborted)
+					setLoaded({ key: detailKey, ...details });
+			},
+			(error) => {
+				if (!controller.signal.aborted)
+					setDetailError(
+						error instanceof Error
+							? error.message
+							: "Tool details are unavailable",
+					);
+			},
+		);
+		return () => controller.abort();
+	}, [conn, sessionId, toolMessage, resultMessage, detailKey, requestKey]);
+	const tool =
+		detailKey !== null && loaded?.key === detailKey ? loaded.tool : previewTool;
+	const result =
+		detailKey !== null && loaded?.key === detailKey
+			? loaded.result
+			: previewResult;
 	const presentation = useMemo(
 		() => (tool === undefined ? null : buildToolPresentation(tool, result)),
 		[result, tool],
@@ -120,6 +188,25 @@ export default function ToolDetailScreen() {
 	const share = () =>
 		Share.share({ message: file === undefined ? text : diffText(file.lines) });
 
+	if (detailKey !== null && loaded?.key !== detailKey)
+		return (
+			<View className="flex-1 items-center justify-center gap-3 bg-background px-6">
+				<Stack.Screen options={{ title: "Tool details" }} />
+				<Text accessibilityRole={detailError ? "alert" : "text"}>
+					{detailError
+						? uiMessage("tools:tool_row_error")
+						: uiMessage("common:loading")}
+				</Text>
+				{detailError !== null ? (
+					<Pressable
+						accessibilityRole="button"
+						onPress={() => setAttempt((value) => value + 1)}
+					>
+						<Text>{uiMessage("common:retry")}</Text>
+					</Pressable>
+				) : null}
+			</View>
+		);
 	if (tool === undefined || presentation === null) {
 		return (
 			<View className="flex-1 items-center justify-center bg-background px-6">

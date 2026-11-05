@@ -149,6 +149,10 @@ import {
 	updateQueuedMessage,
 } from "~/store/messages";
 import {
+	mobileHistoryRef,
+	requestMobileHistoryPage,
+} from "~/store/mobile-client-bus";
+import {
 	cancelOutboxMessage,
 	hydrateOutbox,
 	queuedMessagesAtom,
@@ -725,6 +729,10 @@ function ThreadScreen() {
 
 	const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
 		const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+		if (readerGestureActiveRef.current && contentOffset.y < 240) {
+			const ref = mobileHistoryRef(connKey, normalizedSessionId);
+			if (ref !== null) requestMobileHistoryPage(ref);
+		}
 		if (
 			readerGestureActiveRef.current &&
 			listRef.current?.getState().isNearEnd === false &&
@@ -1259,6 +1267,10 @@ function ThreadScreen() {
 				ListHeaderComponent={
 					<View>
 						<MessageHistoryStatus
+							restorePosition={
+								restoredViewState?.mode === "detached" &&
+								transcriptScroll.readerDetached
+							}
 							connKey={connKey}
 							sessionId={normalizedSessionId}
 						/>

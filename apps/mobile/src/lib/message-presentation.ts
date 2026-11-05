@@ -1,6 +1,9 @@
 import type { Message, MessageContent } from "@zuse/contracts";
 
-export type ToolResultRecord = Extract<MessageContent, { _tag: "tool_result" }>;
+export type ToolResultRecord = Extract<
+	MessageContent,
+	{ _tag: "tool_result" }
+> & { readonly messageId?: Message["id"] };
 
 export const buildToolResultsByItemId = (
 	messages: readonly Message[],
@@ -8,7 +11,10 @@ export const buildToolResultsByItemId = (
 	const map = new Map<string, ToolResultRecord>();
 	for (const message of messages) {
 		if (message.content._tag === "tool_result") {
-			map.set(message.content.itemId, message.content);
+			map.set(message.content.itemId, {
+				...message.content,
+				messageId: message.id,
+			});
 		}
 	}
 	return map;

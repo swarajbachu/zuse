@@ -13,6 +13,8 @@ export type SessionListInput = {
 export type MessagePageInput = {
 	readonly sessionId: string;
 	readonly beforeSequence?: number | null;
+	readonly messageId?: string;
+	readonly maxBytes?: number;
 	readonly limit: number;
 };
 

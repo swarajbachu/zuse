@@ -6,7 +6,10 @@ import {
 } from "~/lib/subagent-metadata";
 import type { SubagentWaitResult } from "~/lib/subagent-wait";
 
-export type ToolResultRecord = SubagentWaitResult;
+export type ToolResultRecord = SubagentWaitResult & {
+	readonly messageId?: Message["id"];
+	readonly outputDeferred?: string;
+};
 
 export interface ChatLookups {
 	readonly resultsByItemId: ReadonlyMap<AgentItemId, ToolResultRecord>;
@@ -79,6 +82,8 @@ export function deriveChatLookups(
 		) {
 			resultsByItemId.set(message.content.itemId, {
 				output: message.content.output,
+				messageId: message.id,
+				outputDeferred: message.content.outputDeferred,
 				isError: message.content.isError,
 				completedAt: message.createdAt,
 			});

@@ -219,3 +219,71 @@ it("preserves current model handoffs and generated UI in encrypted history", asy
 		contents,
 	);
 });
+
+it("loads deferred details from encrypted older pages without a runtime client", async () => {
+	const { Message, MessageId, CloudTranscriptMessagePagePayload } =
+		await import("@zuse/contracts");
+	const { Effect } = await import("effect");
+	const { readArchivedSessionMessage } = await import(
+		"../../src/session-message-detail.ts"
+	);
+	const head = await checkpoint(undefined, (value) => {
+		(value.projection as Record<string, unknown>).olderMessageSequence = 20;
+	});
+	const full = Message.make({
+		id: MessageId.make("archived-result"),
+		sessionId: ref.sessionId,
+		role: "assistant",
+		createdAt: new Date(0),
+		content: {
+			_tag: "tool_result",
+			itemId: "tool" as never,
+			output: "complete archived output",
+			isError: false,
+		},
+	});
+	const payload = CloudTranscriptMessagePagePayload.make({
+		schemaVersion: 1,
+		workspaceId: ref.environmentId,
+		sessionId: ref.sessionId,
+		cursor: head.metadata.cursor,
+		beforeSequence: 20,
+		olderMessageSequence: null,
+		messages: [full],
+	});
+	const ciphertext = await encryptCloudTranscript({
+		encodedKey: head.transcriptKey,
+		additionalData: cloudTranscriptAdditionalData({
+			workspaceId: ref.environmentId,
+			sessionId: ref.sessionId,
+			...head.metadata.cursor,
+			schemaVersion: 1,
+			pageBeforeSequence: 20,
+		}),
+		plaintext: new TextEncoder().encode(
+			JSON.stringify(
+				Schema.encodeSync(CloudTranscriptMessagePagePayload)(payload),
+			),
+		),
+	});
+	let pages = 0;
+	const control = {
+		"cloud.transcript.get": () => Effect.succeed({ checkpoint: head }),
+		"cloud.transcript.messages.page": (input: { beforeSequence: number }) => {
+			pages++;
+			expect(input.beforeSequence).toBe(20);
+			return Effect.succeed({
+				page: {
+					cursor: head.metadata.cursor,
+					beforeSequence: 20,
+					ciphertext,
+					transcriptKey: head.transcriptKey,
+					ciphertextSha256: awaitHash,
+				},
+			});
+		},
+	};
+	const awaitHash = await sha256Base64Url(ciphertext);
+	expect(await readArchivedSessionMessage(control, ref, full.id)).toEqual(full);
+	expect(pages).toBe(1);
+});

@@ -36,7 +36,7 @@ import {
 } from "@zuse/icons/solid-rounded";
 import { ChevronDown, ChevronRight, Laptop } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
 	pluginToolAddress,
 	useConnectedPlugin,
@@ -655,7 +655,9 @@ function ExpandableIconRow({
 	pending = false,
 	localDevice = false,
 	plugin,
+	onExpandedChange,
 }: {
+	onExpandedChange?: (expanded: boolean) => void;
 	icon: IconHandle;
 
 	plugin?: string | undefined;
@@ -670,6 +672,9 @@ function ExpandableIconRow({
 	const { message: uiMessage } = useUiMessages(["tools", "chat", "common"]);
 
 	const [expanded, toggleExpanded, viaBulk] = useLocalTranscriptDisclosure();
+	useEffect(() => {
+		onExpandedChange?.(expanded);
+	}, [expanded, onExpandedChange]);
 	const reduce = useReducedMotion();
 	const contentId = useId();
 	const Chevron = expanded ? ChevronDown : ChevronRight;
@@ -788,6 +793,7 @@ const buildToolView = (
 	input: unknown,
 	result: ToolResult | undefined,
 	presentation?: "background-task",
+	resultDeferred = false,
 ): ToolView => {
 	const normalizedTool = normalizeToolName(tool);
 	const obj =
@@ -1085,7 +1091,7 @@ const buildToolView = (
 			const type = asString(obj.type);
 			const where = path ?? glob ?? type;
 			const files =
-				result !== undefined && !result.isError
+				!resultDeferred && result !== undefined && !result.isError
 					? parseGrepGroups(toResultText(result.output)).length
 					: null;
 			const matchesHint =
@@ -1144,7 +1150,7 @@ const buildToolView = (
 		case "Glob": {
 			const pattern = asString(obj.pattern);
 			const matches =
-				result !== undefined && !result.isError
+				!resultDeferred && result !== undefined && !result.isError
 					? parseFileList(toResultText(result.output)).length
 					: null;
 			const matchesHint =
@@ -1943,10 +1949,17 @@ function answerSummaryText(
 
 export function ToolRow({
 	tool,
-	input,
-	result,
+	input: previewInput,
+	result: previewResult,
 	presentation,
+	deferredDetails,
 }: {
+	deferredDetails?: {
+		readonly key: string;
+		readonly load: (
+			signal: AbortSignal,
+		) => Promise<{ input: unknown; result?: ToolResult }>;
+	};
 	tool: string;
 	input: unknown;
 	result?: ToolResult;
@@ -1954,7 +1967,51 @@ export function ToolRow({
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "tools"]);
 
-	const view = buildToolView(tool, input, result, presentation);
+	const [expanded, setExpanded] = useState(false);
+	const loader = useRef(deferredDetails);
+	loader.current = deferredDetails;
+	const [loaded, setLoaded] = useState<{
+		key: string;
+		input: unknown;
+		result?: ToolResult;
+	} | null>(null);
+	const [failure, setFailure] = useState<{ key: string; error: string } | null>(
+		null,
+	);
+	const [attempt, setAttempt] = useState(0);
+	const detailKey = deferredDetails?.key;
+	const resolved = detailKey !== undefined && loaded?.key === detailKey;
+	useEffect(() => {
+		if (!expanded || detailKey === undefined || resolved) return;
+		const controller = new AbortController();
+		setFailure(null);
+		void loader.current?.load(controller.signal).then(
+			(details) => {
+				if (!controller.signal.aborted)
+					setLoaded({ key: detailKey, ...details });
+			},
+			(error) => {
+				if (!controller.signal.aborted)
+					setFailure({
+						key: detailKey,
+						error:
+							error instanceof Error
+								? error.message
+								: "Tool details are unavailable",
+					});
+			},
+		);
+		return () => controller.abort();
+	}, [expanded, detailKey, resolved, attempt]);
+	const input = resolved ? loaded.input : previewInput;
+	const result = resolved ? loaded.result : previewResult;
+	const view = buildToolView(
+		tool,
+		input,
+		result,
+		presentation,
+		detailKey !== undefined && !resolved,
+	);
 	const pending = result === undefined;
 
 	const sections: React.ReactNode[] = [];
@@ -2001,14 +2058,35 @@ export function ToolRow({
 
 	return (
 		<ExpandableIconRow
+			onExpandedChange={setExpanded}
 			icon={view.icon}
 			plugin={view.pluginId}
 			localDevice={normalizeToolName(tool) === "local_command_execute"}
 			label={view.label}
 			detail={detail}
 			pending={pending}
-			hasContent={sections.length > 0}
-			body={sections.length > 0 ? sections : null}
+			hasContent={detailKey !== undefined || sections.length > 0}
+			body={
+				detailKey !== undefined && !resolved ? (
+					failure?.key === detailKey ? (
+						<div role="alert">
+							<p>{uiMessage("tools:tool_row_error")}</p>
+							<Button
+								className="h-7"
+								size="sm"
+								variant="ghost"
+								onClick={() => setAttempt((value) => value + 1)}
+							>
+								{uiMessage("common:retry")}
+							</Button>
+						</div>
+					) : (
+						<p role="status">{uiMessage("common:loading")}</p>
+					)
+				) : sections.length > 0 ? (
+					sections
+				) : null
+			}
 		/>
 	);
 }

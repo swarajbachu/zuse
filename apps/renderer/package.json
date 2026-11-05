@@ -12,6 +12,7 @@
 		"test": "vp test run test",
 		"test:unit": "vp test run test/unit",
 		"test:wallpaper-browser": "node test/integration/wallpaper.browser.mjs",
+		"test:tool-details-browser": "node test/integration/deferred-tool-details.browser.mjs",
 		"test:startup-browser": "node test/integration/react-startup.browser.mjs",
 		"test:integration": "vp test run test/integration --passWithNoTests",
 		"test:cloud-repository-state-browser": "node test/integration/cloud-repository-state.browser.mjs",
