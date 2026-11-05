@@ -16,6 +16,8 @@ import { wsClientProtocolLayer } from "@zuse/client-runtime/ws-protocol";
 import {
 	AgentItemId,
 	type AttachmentRef,
+	AutomationConfig,
+	AutomationDispatchInput,
 	BUNDLED_MODEL_CATALOG,
 	type ChatId,
 	CommandId,
@@ -34,7 +36,7 @@ import {
 	type WorktreeId,
 } from "@zuse/contracts";
 import { resolveZuseDesktopUserData } from "@zuse/utils/zuse-user-data";
-import { Effect, Redacted } from "effect";
+import { Effect, Redacted, Schema } from "effect";
 
 type RpcClient = Awaited<ReturnType<typeof connect>>["client"];
 
@@ -52,6 +54,7 @@ const GROUPS = new Set([
 	"preview",
 	"plugins",
 	"master",
+	"automation",
 	"computer",
 	"project",
 	"model",
@@ -428,6 +431,19 @@ const commandManifest = () => ({
 		"master list",
 		"master state",
 		"master action",
+		"automation dispatch",
+		"automation schema",
+		"automation list",
+		"automation get",
+		"automation save",
+		"automation delete",
+		"automation run",
+		"automation runs",
+		"automation cancel",
+		"automation pause",
+		"automation enable",
+		"automation templates",
+		"automation capabilities",
 		"computer list",
 		"project list",
 		"model list",
@@ -589,6 +605,52 @@ const jsonObject = (value: string | undefined, name: string): unknown => {
 		return JSON.parse(raw);
 	} catch {
 		throw new CliError("invalid_input", `${name} must be valid JSON.`);
+	}
+};
+
+const readJsonSource = async (
+	source: string,
+	label: string,
+): Promise<unknown> => {
+	const raw =
+		source === "-"
+			? await readStdin()
+			: source.startsWith("@")
+				? await readFile(resolve(source.slice(1)), "utf8")
+				: source;
+	try {
+		return JSON.parse(raw);
+	} catch {
+		throw new CliError("invalid_input", `${label} is not valid JSON.`);
+	}
+};
+
+const automationConfig = async (
+	args: Args,
+	projectId: string,
+): Promise<AutomationConfig> => {
+	const source = required(
+		one(args, "definition"),
+		"--definition (JSON, @file, or -)",
+	);
+	const value = await readJsonSource(source, "Automation definition");
+	if (!value || typeof value !== "object" || Array.isArray(value))
+		throw new CliError(
+			"invalid_input",
+			"Automation definition must be an object.",
+		);
+	if ("projectId" in value && value.projectId !== projectId)
+		throw new CliError(
+			"project_automation_mismatch",
+			"Definition projectId differs from the selected project.",
+		);
+	try {
+		return Schema.decodeUnknownSync(AutomationConfig)({ ...value, projectId });
+	} catch (error) {
+		throw new CliError(
+			"invalid_input",
+			`Invalid automation definition: ${error instanceof Error ? error.message : String(error)}`,
+		);
 	}
 };
 
@@ -1106,6 +1168,11 @@ const execute = async (
 	if (group === "plugins") return executePluginCommand(args, env);
 	if (group === "orchestration" || group === "task" || group === "schedule")
 		return executeOrchestrationCommand(args, env);
+	if (group === "automation" && action === "schema")
+		return {
+			definition: Schema.toJsonSchemaDocument(AutomationConfig),
+			event: Schema.toJsonSchemaDocument(AutomationDispatchInput),
+		};
 	const connectionEndpoint = await endpoint(args, env);
 	let session: Awaited<ReturnType<typeof connect>>;
 	try {
@@ -1225,7 +1292,151 @@ const execute = async (
 				),
 			};
 		}
+		if (group === "automation" && action === "templates")
+			return await rpc(client["automation.templates"]({}));
+		if (group === "automation" && action === "capabilities")
+			return await rpc(client["automation.capabilities"]({}));
 		const project = await resolveProject(client, args);
+		if (group === "automation") {
+			if (action === "list")
+				return {
+					automations: await rpc(
+						client["automation.list"]({ projectId: project.id }),
+					),
+				};
+			if (action === "dispatch") {
+				let input: AutomationDispatchInput;
+				try {
+					input = Schema.decodeUnknownSync(AutomationDispatchInput)(
+						await readJsonSource(
+							required(one(args, "event"), "--event (JSON, @file, or -)"),
+							"Automation event",
+						),
+					);
+				} catch (error) {
+					if (error instanceof CliError) throw error;
+					throw new CliError(
+						"invalid_input",
+						`Invalid automation event: ${error instanceof Error ? error.message : String(error)}`,
+					);
+				}
+				const automation = await rpc(
+					client["automation.get"]({ id: input.automationId }),
+				);
+				if (automation.config.projectId !== project.id)
+					throw new CliError(
+						"project_automation_mismatch",
+						"Automation does not belong to the selected project.",
+					);
+				return { run: await rpc(client["automation.dispatch"](input)) };
+			}
+			if (action === "save") {
+				const config = await automationConfig(args, project.id);
+				const id = one(args, "automation");
+				const expectedRevision = one(args, "revision");
+				if (
+					expectedRevision !== undefined &&
+					(!/^\d+$/u.test(expectedRevision) || Number(expectedRevision) < 1)
+				)
+					throw new CliError(
+						"invalid_input",
+						"--revision must be a positive integer.",
+					);
+				if (id) {
+					const existing = await rpc(client["automation.get"]({ id }));
+					if (existing.config.projectId !== project.id)
+						throw new CliError(
+							"project_automation_mismatch",
+							"Automation does not belong to the selected project.",
+						);
+				}
+				return {
+					automation: await rpc(
+						client["automation.save"]({
+							...(id
+								? { id }
+								: { requestId: one(args, "idempotency-key") ?? randomUUID() }),
+							...(expectedRevision
+								? { expectedRevision: Number(expectedRevision) }
+								: {}),
+							config,
+						}),
+					),
+				};
+			}
+			if (action === "cancel") {
+				const id = required(one(args, "automation"), "--automation");
+				const automation = await rpc(client["automation.get"]({ id }));
+				if (automation.config.projectId !== project.id)
+					throw new CliError(
+						"project_automation_mismatch",
+						"Automation does not belong to the selected project.",
+					);
+				const runId = required(one(args, "run"), "--run");
+				const runs = await rpc(client["automation.runs"]({ id, limit: 500 }));
+				if (!runs.some((run) => run.id === runId))
+					throw new CliError(
+						"run_not_found",
+						"Run is not in this automation's recent history.",
+					);
+				return { run: await rpc(client["automation.cancel"]({ runId })) };
+			}
+			if (
+				!["get", "delete", "run", "runs", "pause", "enable"].includes(
+					action ?? "",
+				)
+			)
+				throw new CliError(
+					"invalid_input",
+					"Unknown automation command. Run zuse commands.",
+				);
+			const id = required(
+				one(args, "automation") ?? args.positionals[2],
+				"--automation",
+			);
+			const automation = await rpc(client["automation.get"]({ id }));
+			if (automation.config.projectId !== project.id)
+				throw new CliError(
+					"project_automation_mismatch",
+					"Automation does not belong to the selected project.",
+				);
+			if (action === "get") return { automation };
+			if (action === "pause" || action === "enable")
+				return {
+					automation: await rpc(
+						client["automation.save"]({
+							id,
+							expectedRevision: automation.revision,
+							config: { ...automation.config, enabled: action === "enable" },
+						}),
+					),
+				};
+			if (action === "delete") {
+				if (!bool(args, "confirm"))
+					throw new CliError(
+						"confirmation_required",
+						"automation delete requires --confirm.",
+					);
+				await rpc(client["automation.delete"]({ id }));
+				return { id, deleted: true };
+			}
+			if (action === "run")
+				return {
+					run: await rpc(
+						client["automation.run"]({
+							id,
+							requestId: one(args, "idempotency-key") ?? randomUUID(),
+						}),
+					),
+				};
+			const limit = Number(one(args, "limit") ?? 50);
+			if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+				throw new CliError(
+					"invalid_input",
+					"--limit must be an integer from 1 to 500.",
+				);
+			return { runs: await rpc(client["automation.runs"]({ id, limit })) };
+		}
 		if (group === "chat" && action === "list")
 			return {
 				chats: await rpc(
@@ -1776,6 +1987,7 @@ export const runAgentCli = async (
 };
 
 export const __testing = {
+	automationConfig,
 	parse,
 	executeSecretCommand,
 	executeCloudCommand,

@@ -7,7 +7,7 @@ description: Configure Zuse projects, orchestrate cloud agents with the CLI, sha
 
 Use this skill when helping with Zuse project setup, `.zuse/settings.toml`,
 worktree creation, setup/run/archive scripts, files to include in worktrees,
-provider skills, user settings, keybindings, orchestration tools, MCP, or
+provider skills, user settings, keybindings, orchestration tools, automations, MCP, or
 schema URLs.
 
 Zuse is a local-first macOS app for running coding agents against registered
@@ -229,3 +229,22 @@ discovers the active dev instance through its owner-readable, gitignored
 `.zuse/dev-instances/<instance>/cli-access.json` descriptor, including shifted
 ports and protected local RPC authentication. Do not read or print the
 descriptor yourself; let the CLI consume it.
+
+## Automations
+
+When asked to create scheduled work or respond to Slack, GitHub, or webhook events,
+use the native `automation_catalog` tool to read the current project's definition
+schema, capabilities, templates and existing automations. Persist the full definition
+with `automation_save`, passing `configJson` and a stable `requestId`. Reuse the ID
+with identical JSON when retrying creation. Updates require `id` and `expectedRevision`.
+These tools save to the same Automations UI and require no CLI installation.
+
+Save proposals with `enabled: false` for review; enable within the user's authorized
+request. Include `"zuse.source": "agent"` in metadata. Verify the returned persisted
+ID and inspect the catalog. Report missing integrations or unsupported policies.
+A saved definition is not proof of a completed run.
+
+Where the branch CLI is available, `zuse automation schema`, `capabilities`, `templates`,
+`list`, `save`, `get`, `enable`, `pause`, `run` and `runs` expose the same registry.
+Use `--project <id>`, `--definition @automation.json`, a stable `--idempotency-key`
+for creation/runs, and `--automation <id> --revision <revision>` for updates.

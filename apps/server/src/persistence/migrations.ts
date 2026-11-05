@@ -94,6 +94,9 @@ import { Migration0089DeviceBridgeEnrollment } from "./migrations/0089_device_br
 import { Migration0091MasterEventIndex } from "./migrations/0091_master_event_index.ts";
 import { Migration0092ReviewGuides } from "./migrations/0092_review_guides.ts";
 
+import { Migration0093ProjectAutomations } from "./migrations/0093_project_automations.ts";
+import { Migration0094AutomationCloudRuns } from "./migrations/0094_automation_cloud_runs.ts";
+
 const MigrationDefinitionsThrough0045 = {
 	"0001_initial": Migration0001Initial,
 	"0002_permissions": Migration0002Permissions,
@@ -247,6 +250,8 @@ const MigrationDefinitions = {
 	"0090_masters": Migration0065Masters,
 	"0091_master_event_index": Migration0091MasterEventIndex,
 	"0092_review_guides": Migration0092ReviewGuides,
+	"0093_project_automations": Migration0093ProjectAutomations,
+	"0094_automation_cloud_runs": Migration0094AutomationCloudRuns,
 } as const;
 
 /** Schema before projectless threads, retained for populated upgrade fixtures. */
@@ -276,6 +281,43 @@ export const MigrationsLive = Layer.effectDiscard(
 		const tables =
 			yield* sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'`;
 		if (tables.length > 0) {
+			// Automation previews occupied 63/64, then 87/88 and 89/90 before main claimed those slots.
+			// Preserve those tables and advance the missing main schema atomically before
+			// moving their ledger entries to the appended project-automation slots.
+			yield* sql.withTransaction(
+				Effect.gen(function* () {
+					const preview = yield* sql<{
+						migration_id: number;
+					}>`SELECT migration_id FROM effect_sql_migrations WHERE (migration_id=63 AND name='automations') OR (migration_id IN (87,89,90) AND name='project_automations')`;
+					const boundary = preview[0]?.migration_id;
+					if (boundary === undefined) return;
+					const rows = yield* sql<{
+						migration_id: number;
+						name: string;
+					}>`SELECT migration_id,name FROM effect_sql_migrations WHERE migration_id>=${boundary} ORDER BY migration_id`;
+					if (
+						rows.length > 2 ||
+						(rows[1] !== undefined &&
+							(rows[1].migration_id !== boundary + 1 ||
+								rows[1].name !== "automation_cloud_runs"))
+					)
+						return yield* Effect.die(
+							new Error(
+								"Unrecognized migration history after the automation preview boundary",
+							),
+						);
+					if (rows[1])
+						yield* sql`UPDATE effect_sql_migrations SET migration_id=94 WHERE migration_id=${boundary + 1}`;
+					yield* sql`UPDATE effect_sql_migrations SET migration_id=93,name='project_automations' WHERE migration_id=${boundary}`;
+					for (const [key, migration] of Object.entries(MigrationDefinitions)) {
+						const id = Number(key.slice(0, 4));
+						if (id < boundary || id > 92) continue;
+						yield* migration;
+						yield* sql`INSERT INTO effect_sql_migrations(migration_id,name) VALUES(${id},${key.slice(5)})`;
+					}
+				}),
+			);
+
 			// Relocate recognized Masters preview ledgers without touching their data.
 			// Main may already have repaired scratch folders after a slot-87 preview.
 			yield* sql.withTransaction(

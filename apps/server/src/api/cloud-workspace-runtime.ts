@@ -30,6 +30,7 @@ import {
 	AgentTurnId,
 	ApiPaths,
 	type AuthTokenId,
+	AutomationDispatchInput,
 	type Chat,
 	type ChatAccessPermission,
 	ChatId,
@@ -101,6 +102,7 @@ import {
 	Effect,
 	Layer,
 	Option,
+	Queue,
 	Redacted,
 	Schedule,
 	Schema,
@@ -109,6 +111,8 @@ import {
 } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { type CryptoKey, compactDecrypt, SignJWT } from "jose";
+import { AutomationAgentRouter } from "../automation/agent-tools.ts";
+import { AutomationRegistry } from "../automation/registry-service.ts";
 import { serializeAnnotations } from "../conversation/core/conversation-input.ts";
 import {
 	ChatService,
@@ -135,6 +139,10 @@ import {
 	WorkspaceService,
 	type WorkspaceServiceShape,
 } from "../workspace/services/workspace-service.ts";
+import {
+	deliverCloudAutomationEvents,
+	runCloudAutomationPump,
+} from "./cloud-automation-mailbox.ts";
 import { CloudCodexAuth } from "./cloud-codex-auth.ts";
 import { makeCloudGitExecution } from "./cloud-git-execution.ts";
 import { configureCloudGitIdentity } from "./cloud-git-identity.ts";
@@ -1284,6 +1292,7 @@ const requestCloudRuntimeActorAccess = Effect.fn(
 		"credential" | "generation" | "gatewayEpoch"
 	>;
 	readonly actorId: string;
+	readonly automation?: boolean;
 	readonly membershipId?: string;
 }) {
 	return yield* requestJson({
@@ -1294,12 +1303,25 @@ const requestCloudRuntimeActorAccess = Effect.fn(
 		timeoutMs: 10_000,
 		body: {
 			actorId: input.actorId,
+			purpose: input.automation ? "automation" : undefined,
 			membershipId: input.membershipId,
 			runtimeGeneration: input.credential.generation,
 			gatewayEpoch: input.credential.gatewayEpoch,
 		},
 	});
 });
+
+export const authorizeCloudRuntimeAutomations = (
+	input: Parameters<typeof requestCloudRuntimeActorAccess>[0],
+) =>
+	requestCloudRuntimeActorAccess({ ...input, automation: true }).pipe(
+		Effect.mapError(() => new RpcAccessDeniedError({ code: "access-denied" })),
+		Effect.flatMap((grant) =>
+			grant.automationAdmin === true
+				? Effect.void
+				: Effect.fail(new RpcAccessDeniedError({ code: "access-denied" })),
+		),
+	);
 
 export const authorizeCloudRuntimeActor = Effect.fn(
 	"authorizeCloudRuntimeActor",
@@ -2704,6 +2726,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const chats = yield* ChatService;
 					const transcripts = yield* TranscriptService;
 					const messages = yield* MessageService;
+					const automations = yield* Effect.serviceOption(AutomationRegistry);
 					const sessions = yield* SessionService;
 					const sql = yield* SqlClient.SqlClient;
 					const credentials = yield* CredentialsService;
@@ -2800,6 +2823,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								runtimeCredentialExpiresAt: result.expiresAt,
 							}),
 					};
+					let reconnectAutomationSocket: (() => void) | undefined;
 					const refresh = yield* makeRuntimeCredentialRefresh({
 						state: runtimeCredential,
 						pending: () => identity.pendingRenewalId !== null,
@@ -2811,6 +2835,10 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								requestId: identity.pendingRenewalId ?? randomUUID(),
 								persistence,
 							}),
+						).pipe(
+							Effect.tap(() =>
+								Effect.sync(() => reconnectAutomationSocket?.()),
+							),
 						),
 					});
 					const ensureCredential = refresh.ensure;
@@ -3378,6 +3406,30 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const organizationWorkspace =
 						bootstrap.workspaceScope?.kind === "organization" ||
 						bootstrap.zuseAccountId?.startsWith("organization:") === true;
+					const automationAgentRouter = yield* Effect.serviceOption(
+						AutomationAgentRouter,
+					);
+					if (Option.isSome(automationAgentRouter)) {
+						const unbind = automationAgentRouter.value.bindAuthorization(
+							(actor) => {
+								if (!organizationWorkspace)
+									return Promise.resolve(actor === undefined);
+								if (!actor) return Promise.resolve(false);
+								return runNetworkPromise(
+									authorizeCloudRuntimeAutomations({
+										config,
+										credential: runtimeCredential,
+										actorId: actor.subject,
+										membershipId: actor.membershipId,
+									}),
+								).then(
+									() => true,
+									() => false,
+								);
+							},
+						);
+						yield* Effect.addFinalizer(() => Effect.sync(unbind));
+					}
 					const executionPolicy = yield* WorkspaceExecutionPolicy;
 					yield* executionPolicy.bind((sessionId, actor) =>
 						Effect.gen(function* () {
@@ -3588,6 +3640,198 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							summaryPublisher.publish("activity").pipe(Effect.ignore),
 						);
 					});
+					if (Option.isSome(automations)) {
+						let registeredSnapshot = "";
+						const mailboxWake = yield* Queue.sliding<void>(1);
+						const notificationWake = yield* Queue.sliding<void>(1);
+						yield* automations.value.changes.pipe(
+							Stream.runForEach(() =>
+								Effect.gen(function* () {
+									yield* Queue.offer(mailboxWake, undefined);
+									yield* Queue.offer(notificationWake, undefined);
+								}),
+							),
+							Effect.forkScoped({ startImmediately: true }),
+						);
+						const automationMailboxUrl = `${config.apiUrl}/v1/cloud/workspaces/${encodeURIComponent(config.workspaceId)}/runtime`;
+						const automationCycle = Effect.gen(function* () {
+							const definitions = (yield* automations.value.list()).map(
+								(definition) => ({
+									id: definition.id,
+									revision: definition.revision,
+									enabled: definition.config.enabled,
+									nextRunAt: definition.nextRunAt,
+									notifications: definition.config.notifications,
+									triggers: definition.config.triggers,
+								}),
+							);
+							const snapshot = JSON.stringify(definitions);
+							if (snapshot !== registeredSnapshot) {
+								const registration = yield* requestJson({
+									schema: Schema.Struct({
+										ok: Schema.Boolean,
+										hooks: Schema.Array(
+											Schema.Struct({
+												automationId: Schema.String,
+												url: Schema.String,
+												token: Schema.String,
+											}),
+										),
+									}),
+									url: `${automationMailboxUrl}/automations`,
+									token: runtimeCredential.credential,
+									method: "POST",
+									body: { definitions },
+								});
+								for (const hook of registration.hooks)
+									yield* automations.value.setWebhook(hook.automationId, {
+										url: hook.url,
+										token: hook.token,
+									});
+								registeredSnapshot = snapshot;
+								yield* Queue.offer(notificationWake, undefined);
+							}
+							const pending = yield* requestJson({
+								schema: Schema.Struct({
+									events: Schema.Array(
+										Schema.Struct({
+											id: Schema.String,
+											...AutomationDispatchInput.fields,
+										}),
+									),
+								}),
+								url: `${automationMailboxUrl}/automation-events`,
+								token: runtimeCredential.credential,
+							});
+							let acknowledged = 0;
+							yield* deliverCloudAutomationEvents({
+								events: pending.events,
+								dispatch: automations.value.dispatchEvent,
+								ack: (id, rejection) =>
+									requestJson({
+										schema: Schema.Struct({ ok: Schema.Boolean }),
+										url: `${automationMailboxUrl}/automation-events/ack`,
+										token: runtimeCredential.credential,
+										method: "POST",
+										body: { id, rejection },
+									}).pipe(
+										Effect.tap(() =>
+											Effect.sync(() => {
+												acknowledged++;
+											}),
+										),
+									),
+							});
+							if (acknowledged > 0) yield* Queue.offer(mailboxWake, undefined);
+							return pending.events.length > acknowledged;
+						});
+						// Slow Slack delivery must not block registration or incoming triggers.
+						const notificationCycle = Effect.gen(function* () {
+							if (!registeredSnapshot) return;
+							for (const completion of yield* automations.value.completionEvents()) {
+								yield* Effect.gen(function* () {
+									const mailboxEventId = completion.context.mailboxEventId;
+									if (mailboxEventId)
+										yield* requestJson({
+											schema: Schema.Struct({ ok: Schema.Boolean }),
+											url: `${automationMailboxUrl}/automation-events/result`,
+											token: runtimeCredential.credential,
+											method: "POST",
+											body: {
+												id: mailboxEventId,
+												text: completion.text.slice(0, 60000),
+												status: completion.status,
+											},
+										});
+									yield* automations.value.ackCompletion(completion.runId);
+								}).pipe(
+									Effect.catch(() =>
+										Effect.logWarning(
+											"automation completion delivery deferred",
+											{ runId: completion.runId },
+										),
+									),
+								);
+							}
+							for (const notification of yield* automations.value.pendingSlackNotifications()) {
+								yield* Effect.gen(function* () {
+									yield* requestJson({
+										schema: Schema.Struct({ ok: Schema.Boolean }),
+										url: `${automationMailboxUrl}/automation-notifications`,
+										token: runtimeCredential.credential,
+										method: "POST",
+										body: {
+											...notification,
+											text: notification.text.slice(0, 60000),
+										},
+									});
+									yield* automations.value.ackSlackNotification(
+										notification.runId,
+										notification.destination,
+									);
+								}).pipe(
+									Effect.catch(() =>
+										Effect.logWarning(
+											"automation Slack notification deferred",
+											{ runId: notification.runId },
+										),
+									),
+								);
+							}
+						});
+						yield* runCloudAutomationPump({
+							wake: notificationWake,
+							cycle: Effect.gen(function* () {
+								yield* notificationCycle;
+								const completions = yield* automations.value.completionEvents();
+								const notifications =
+									yield* automations.value.pendingSlackNotifications();
+								return completions.length > 0 || notifications.length > 0;
+							}),
+						}).pipe(Effect.forkScoped({ startImmediately: true }));
+						yield* runCloudAutomationPump({
+							wake: mailboxWake,
+							cycle: automationCycle,
+						}).pipe(Effect.forkScoped({ startImmediately: true }));
+
+						const socketUrl = new URL(
+							`${automationMailboxUrl}/automation-events/connect`,
+						);
+						socketUrl.protocol =
+							socketUrl.protocol === "https:" ? "wss:" : "ws:";
+						yield* Effect.forever(
+							Effect.gen(function* () {
+								yield* ensureCredential;
+								yield* websocketClosed(
+									socketUrl.toString(),
+									() => [
+										"zuse-automation-events",
+										runtimeCredential.credential,
+									],
+									(socket) => {
+										Queue.offerUnsafe(mailboxWake, undefined);
+										socket.addEventListener("message", (event) => {
+											if (
+												typeof event.data !== "string" ||
+												event.data.length > 1024
+											)
+												return;
+											try {
+												if (JSON.parse(event.data).type === "available")
+													Queue.offerUnsafe(mailboxWake, undefined);
+											} catch {
+												/* Ignore unknown control frames. */
+											}
+										});
+									},
+									(reconnect) => {
+										reconnectAutomationSocket = reconnect;
+									},
+								).pipe(Effect.ignore);
+								yield* Effect.sleep("5 seconds");
+							}).pipe(Effect.catch(() => Effect.sleep("5 seconds"))),
+						).pipe(Effect.forkScoped({ startImmediately: true }));
+					}
 					const apiCommandPump = yield* makeCloudApiCommandPump({
 						fetchCommands: Effect.suspend(() =>
 							requestJson({
@@ -3856,6 +4100,12 @@ export const makeCloudWorkspaceRuntimeLayer = (
 									chatId: chat.id,
 									projectId: chat.projectId,
 									expiresAt: now + 60 * 60 * 1000,
+									authorizeAutomations: authorizeCloudRuntimeAutomations({
+										config,
+										credential: runtimeCredential,
+										actorId,
+										membershipId: access.actor.membershipId,
+									}),
 									authorize: authorizeCloudRuntimeActor({
 										config,
 										credential: runtimeCredential,

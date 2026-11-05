@@ -44,6 +44,7 @@ import {
 	type AgentSessionId,
 	AgentSessionNotFoundError,
 	AgentSessionStartError,
+	AutomationConfig,
 	CredentialValidationError,
 	DEFAULT_RUNTIME_MODE,
 	type FolderId,
@@ -64,10 +65,12 @@ import {
 	FileSystem,
 	Layer,
 	Option,
+	Schema,
 	Semaphore,
 	Stream,
 } from "effect";
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
+import { SqlClient } from "effect/unstable/sql";
 import { AnalyticsService } from "../../analytics/services/analytics-service.ts";
 import { AutomationService } from "../../automation/service.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
@@ -172,6 +175,7 @@ export const ProviderServiceLive = Layer.effect(
 		);
 		const browserBridge = yield* BrowserBridgeService;
 		const configStore = yield* ConfigStoreService;
+		const automationSql = yield* Effect.serviceOption(SqlClient.SqlClient);
 		const skillDiscovery = yield* SkillDiscoveryService;
 		const analytics = yield* AnalyticsService;
 		const runtime = yield* Effect.context<never>();
@@ -541,7 +545,7 @@ export const ProviderServiceLive = Layer.effect(
 				admit,
 				providerSessionId,
 			) => {
-				const orchestrationTools = sessionTools?.orchestration ?? null;
+				let orchestrationTools = sessionTools?.orchestration ?? null;
 				let managedPlugins: McpGatewaySession | undefined;
 				let managedPermissionMode = input.permissionMode ?? "default";
 				const startupStartedAt = Date.now();
@@ -694,10 +698,80 @@ export const ProviderServiceLive = Layer.effect(
 										),
 									)
 							: {};
+					const policyRows = Option.isSome(automationSql)
+						? yield* automationSql.value<{
+								config_json: string;
+							}>`SELECT config_json FROM automation_session_policies WHERE session_id=${sessionId}`.pipe(
+								Effect.mapError(
+									() =>
+										new AgentSessionStartError({
+											providerId: input.providerId,
+											reason:
+												"Could not load persisted automation execution policy.",
+										}),
+								),
+							)
+						: [];
+					const automationConfig = policyRows[0]
+						? yield* Schema.decodeUnknownEffect(AutomationConfig)(
+								JSON.parse(policyRows[0].config_json),
+							).pipe(
+								Effect.mapError(
+									() =>
+										new AgentSessionStartError({
+											providerId: input.providerId,
+											reason:
+												"Persisted automation execution policy is invalid.",
+										}),
+								),
+							)
+						: undefined;
+					if (automationConfig?.allowChildSessions === false)
+						orchestrationTools = null;
+					const executionPolicy = automationConfig
+						? {
+								...(automationConfig.spendLimitUsd !== null
+									? { maxBudgetUsd: automationConfig.spendLimitUsd }
+									: {}),
+								...(automationConfig.mcpServerIds.length
+									? { mcpServerNames: automationConfig.mcpServerIds }
+									: {}),
+								network: automationConfig.network,
+							}
+						: input.executionPolicy;
+					if (executionPolicy?.mcpServerNames !== undefined)
+						return yield* new AgentSessionStartError({
+							providerId: input.providerId,
+							reason:
+								"Native MCP selections are unavailable; this runtime uses the Zuse MCP gateway.",
+						});
+					if (
+						input.providerId !== "claude" &&
+						(executionPolicy?.maxBudgetUsd !== undefined ||
+							executionPolicy?.mcpServerNames !== undefined)
+					)
+						return yield* new AgentSessionStartError({
+							providerId: input.providerId,
+							reason:
+								"This provider cannot enforce the session's persisted automation spending or MCP policy.",
+						});
+					if (
+						executionPolicy?.maxBudgetUsd !== undefined &&
+						resumeCursor !== null
+					)
+						return yield* new AgentSessionStartError({
+							providerId: input.providerId,
+							reason:
+								"A spending-capped automation cannot resume because the remaining dollar budget cannot be verified. Start a new automation run.",
+						});
 					const driverInput = {
 						...input,
 						executionEnv: { ...execution?.env, ...secretEnvironment },
 						providerAccountHome: account?.home,
+
+						executionPolicy,
+						enableSubagents:
+							automationConfig?.allowChildSessions ?? input.enableSubagents,
 						...(canonicalModel !== undefined ? { model: canonicalModel } : {}),
 						...(modelDescriptor !== undefined ? { modelDescriptor } : {}),
 						workspaceInstructions:

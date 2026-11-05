@@ -3032,3 +3032,250 @@ describe("preview URL revocation authorization", () => {
 		}
 	});
 });
+
+describe("automation event socket authority", () => {
+	const credential = "workspace-runtime-test-credential";
+	const workspace = async (
+		overrides: Partial<
+			import("../../src/cloud-workspace-store.ts").CloudWorkspaceRecord
+		> = {},
+	): Promise<
+		import("../../src/cloud-workspace-store.ts").CloudWorkspaceRecord
+	> => ({
+		workspaceId: "automation-workspace",
+		accountId: "user_a",
+		projectId: "project",
+		buildId: "build",
+		provider: "fake",
+		runtimeState: "online",
+		chatId: "chat",
+		initialSessionId: "session",
+		branch: "main",
+		baseRef: "main",
+		state: "ready",
+		desiredState: "ready",
+		statusCode: "ready",
+		idempotencyKey: "automation-workspace",
+		requestConfig: { runtimeCredentialExpiresAtMs: Date.now() + 60000 },
+		runtimeCredentialHash: Array.from(
+			new Uint8Array(
+				await crypto.subtle.digest(
+					"SHA-256",
+					new TextEncoder().encode(credential),
+				),
+			),
+			(byte) => byte.toString(16).padStart(2, "0"),
+		).join(""),
+		nextActionAtMs: 0,
+		revision: 1,
+		createdAtMs: 1,
+		updatedAtMs: 1,
+		lastActivityAtMs: 1,
+		...overrides,
+	});
+	test("only authenticated current runtime credentials can reach the durable socket", async () => {
+		const { AutomationMailbox, AutomationMailboxStore } = await import(
+			"../../src/automation-mailbox.ts"
+		);
+		const mailbox = new AutomationMailboxStore(
+			{ query: async () => [] },
+			{
+				seal: async (_context, value) => value,
+				open: async (_context, value) => value,
+			},
+		);
+		const socketResponse = new Response("socket delegated");
+		const connect = vi
+			.spyOn(mailbox, "connect")
+			.mockResolvedValue(socketResponse);
+		const runtime = ManagedRuntime.make(
+			Layer.merge(await makeLayer(), Layer.succeed(AutomationMailbox, mailbox)),
+		);
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			const current = await workspace();
+			await runtime.runPromise(store.saveWorkspace(current));
+			const request = (protocol?: string, upgrade = "websocket") =>
+				new Request(
+					`${API_ISSUER}/v1/cloud/workspaces/automation-workspace/runtime/automation-events/connect`,
+					{
+						headers: {
+							upgrade,
+							...(protocol ? { "sec-websocket-protocol": protocol } : {}),
+						},
+					},
+				);
+			for (const protocol of [
+				undefined,
+				"zuse-automation-events",
+				`other,${credential}`,
+				"zuse-automation-events,bad",
+				`zuse-automation-events,${credential},extra`,
+			]) {
+				await expect(
+					runtime.runPromise(routeCloudWorkspaceRequest(request(protocol))),
+				).rejects.toMatchObject({ status: 401 });
+			}
+			await expect(
+				runtime.runPromise(
+					routeCloudWorkspaceRequest(
+						request(`zuse-automation-events,${credential}`, "http"),
+					),
+				),
+			).rejects.toMatchObject({ status: 401 });
+			expect(connect).not.toHaveBeenCalled();
+			const valid = request(`zuse-automation-events,${credential}`);
+			expect(await runtime.runPromise(routeCloudWorkspaceRequest(valid))).toBe(
+				socketResponse,
+			);
+			expect(connect).toHaveBeenCalledWith("automation-workspace", valid);
+			connect.mockClear();
+			let revision = 1;
+			for (const changed of [
+				{ requestConfig: { runtimeCredentialExpiresAtMs: Date.now() - 1 } },
+				{ runtimeCredentialHash: "rotated" },
+				{ desiredState: "deleted" as const },
+				{ state: "deleted" as const },
+			]) {
+				await runtime.runPromise(
+					store.saveWorkspace({ ...current, ...changed, revision: ++revision }),
+				);
+				await expect(
+					runtime.runPromise(
+						routeCloudWorkspaceRequest(
+							request(`zuse-automation-events,${credential}`),
+						),
+					),
+				).rejects.toMatchObject({ status: 401 });
+			}
+			expect(connect).not.toHaveBeenCalled();
+		} finally {
+			await runtime.dispose();
+		}
+	});
+	test("checks ownership, lifecycle, entitlement and billing before scheduling a resume", async () => {
+		const { wakeAutomationWorkspace } = await import(
+			"../../src/automation-scheduler.ts"
+		);
+		const { MachineStore } = await import("../../src/machine-store.ts");
+		const runtime = ManagedRuntime.make(await makeLayer());
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			const current = await workspace({
+				state: "paused",
+				desiredState: "paused",
+			});
+			const wake = (owner = "user_a") =>
+				runtime.runPromise(wakeAutomationWorkspace(current.workspaceId, owner));
+			expect(await wake()).toBe(false);
+			await runtime.runPromise(store.saveWorkspace(current));
+			expect(await wake("user_b")).toBe(false);
+			for (const state of [
+				"deleted",
+				"deleting",
+				"archived",
+				"archiving",
+			] as const) {
+				await runtime.runPromise(
+					store.saveWorkspace({
+						...current,
+						workspaceId: `blocked-${state}`,
+						idempotencyKey: `blocked-${state}`,
+						state,
+					}),
+				);
+				expect(
+					await runtime.runPromise(
+						wakeAutomationWorkspace(`blocked-${state}`, "user_a"),
+					),
+				).toBe(false);
+			}
+			for (const desiredState of ["deleted", "archived"] as const) {
+				const workspaceId = `requested-${desiredState}`;
+				await runtime.runPromise(
+					store.saveWorkspace({
+						...current,
+						workspaceId,
+						idempotencyKey: workspaceId,
+						desiredState,
+					}),
+				);
+				expect(
+					await runtime.runPromise(
+						wakeAutomationWorkspace(workspaceId, "user_a"),
+					),
+				).toBe(false);
+				expect(
+					(await runtime.runPromise(store.getWorkspace(workspaceId)))
+						?.desiredState,
+				).toBe(desiredState);
+			}
+
+			await runtime.runPromise(
+				store.saveWorkspace({
+					...current,
+					workspaceId: "unentitled-workspace",
+					idempotencyKey: "unentitled-workspace",
+					accountId: "unentitled",
+				}),
+			);
+			await expect(
+				runtime.runPromise(
+					wakeAutomationWorkspace("unentitled-workspace", "unentitled"),
+				),
+			).rejects.toMatchObject({
+				code: "cloud_entitlement_required",
+			});
+			expect(
+				(await runtime.runPromise(store.getWorkspace(current.workspaceId)))
+					?.desiredState,
+			).toBe("paused");
+			await runtime.runPromise(store.saveWorkspace(current));
+			const machines = await runtime.runPromise(MachineStore);
+			await runtime.runPromise(
+				machines.upsertEntitlement({
+					entitlementId: "held",
+					accountId: "user_a",
+					kind: "cloud-workspace",
+					offerId: CLOUD_WORKSPACE_OFFER_ID,
+					provider: "stripe",
+					status: "grace",
+					paidThroughMs: Date.now() + 86400000,
+					createdAtMs: Date.now(),
+					updatedAtMs: Date.now(),
+				}),
+			);
+			const config = await runtime.runPromise(Config.ApiConfiguration);
+			await expect(
+				runtime.runPromise(
+					wakeAutomationWorkspace(current.workspaceId, "user_a").pipe(
+						Effect.provideService(Config.ApiConfiguration, {
+							...config,
+							cloudBillingEnforcementEnabled: true,
+						}),
+					),
+				),
+			).rejects.toMatchObject({ code: "cloud_billing_hold" });
+			expect(
+				(await runtime.runPromise(store.getWorkspace(current.workspaceId)))
+					?.desiredState,
+			).toBe("paused");
+			expect(await wake()).toBe(true);
+			const resumed = await runtime.runPromise(
+				store.getWorkspace(current.workspaceId),
+			);
+			expect(resumed).toMatchObject({
+				desiredState: "ready",
+				statusCode: "resume-queued",
+				revision: 2,
+			});
+			expect(await wake()).toBe(true);
+			expect(
+				(await runtime.runPromise(store.getWorkspace(current.workspaceId)))
+					?.revision,
+			).toBe(2);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+});

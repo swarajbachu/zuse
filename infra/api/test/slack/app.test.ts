@@ -29,11 +29,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { testCipher, testDatabase } from "./test-support.ts";
 
 const databases: ReturnType<typeof testDatabase>[] = [];
-const setup = async (teamId = "T1", connected = true) => {
+const setup = async (
+	teamId = "T1",
+	connected = true,
+	automations?: AppEnv["automations"],
+) => {
 	const db = testDatabase();
 	databases.push(db);
 	const jobs: AppJob[] = [];
 	const env: AppEnv = {
+		automations,
 		store: new InstallationStore(db.binding, testCipher),
 		identity: {
 			clientId: "client_workos",
@@ -3722,5 +3727,153 @@ describe("installation-scoped automation", () => {
 				attachments: [{ image_url: "Error detected in production" }],
 			}),
 		).toBeUndefined();
+	});
+});
+
+describe("shared automation event delivery", () => {
+	it("keeps organization-selected automation events in their original owner scope", async () => {
+		const dispatch = vi.fn<NonNullable<AppEnv["automations"]>>(async () => 1);
+		const { event, consume, store, installation } = await setup(
+			"T1",
+			true,
+			dispatch,
+		);
+		const profile = await store.member(installation, installation.ownerId);
+		if (!profile.connection) throw new Error("Expected connected fixture");
+		await store.saveMember(installation, installation.ownerId, {
+			...profile,
+			connection: { ...profile.connection, organizationId: "org_original" },
+		});
+		await event({
+			type: "message",
+			channel: "C1",
+			ts: "10.2",
+			user: "UALERT",
+			bot_id: "BOTHER",
+			subtype: "bot_message",
+			text: "Build failed",
+		});
+		await consume();
+		expect(dispatch).toHaveBeenCalledWith(
+			"user_customer",
+			expect.objectContaining({ source: "slack" }),
+			"org_original",
+		);
+		dispatch.mockClear();
+		await event({
+			type: "message",
+			channel: "C1",
+			ts: "10.3",
+			user: "UALERT",
+			bot_id: "BOTHER",
+			subtype: "bot_message",
+			text: "Build failed",
+		});
+		const current = await store.member(installation, installation.ownerId);
+		if (!current.connection) throw new Error("Expected connected fixture");
+		await store.saveMember(installation, installation.ownerId, {
+			...current,
+			connection: { ...current.connection, organizationId: "org_other" },
+		});
+		await consume();
+		expect(dispatch).not.toHaveBeenCalled();
+	});
+
+	it("queues verified bot events and dispatches with the current owner identity", async () => {
+		const dispatch = vi.fn(async () => 1);
+		const { event, consume, jobs, installation } = await setup(
+			"T1",
+			true,
+			dispatch,
+		);
+		expect(
+			(
+				await event({
+					type: "message",
+					channel: "C1",
+					ts: "10.1",
+					user: "UALERT",
+					bot_id: "BOTHER",
+					subtype: "bot_message",
+					text: "Build failed",
+				})
+			).status,
+		).toBe(200);
+		expect(dispatch).not.toHaveBeenCalled();
+		expect(jobs).toHaveLength(1);
+		expect(jobs[0]?.kind).toBe("automation-event");
+		await consume();
+		expect(dispatch).toHaveBeenCalledWith(
+			"user_customer",
+			{
+				source: "slack",
+				eventId: "T1:Ev1",
+				prompt: "Build failed",
+				context: {
+					event: "message",
+					channelId: "C1",
+					threadTs: "10.1",
+					teamId: "T1",
+					generation: installation.generation,
+					connectionId: "wh_1",
+					botId: "BOTHER",
+				},
+			},
+			undefined,
+		);
+	});
+	it("bounds long event prompts without duplicating them in metadata", async () => {
+		const dispatch = vi.fn<NonNullable<AppEnv["automations"]>>(async () => 1);
+		const { event, consume } = await setup("T1", true, dispatch);
+		await event({
+			type: "message",
+			channel: "C1",
+			ts: "10.1",
+			user: "U2",
+			text: "x".repeat(65_000),
+		});
+		await consume();
+		expect(dispatch).toHaveBeenCalledTimes(1);
+		const payload = dispatch.mock.calls[0]?.[1];
+		expect(payload?.prompt).toHaveLength(60_000);
+		expect(payload?.context).not.toHaveProperty("text");
+	});
+	it("drops queued automation events after owner disconnect", async () => {
+		const dispatch = vi.fn(async () => 1);
+		const { event, consume, store, installation } = await setup(
+			"T1",
+			true,
+			dispatch,
+		);
+		await event({
+			type: "message",
+			channel: "C1",
+			ts: "10.1",
+			user: "U2",
+			text: "Investigate",
+		});
+		const member = await store.member(installation, installation.ownerId);
+		await store.saveMember(installation, installation.ownerId, {
+			...member,
+			connection: null,
+		});
+		await consume();
+		expect(dispatch).not.toHaveBeenCalled();
+	});
+	it("rejects unsigned, own-bot and external shared-channel events before dispatch", async () => {
+		const dispatch = vi.fn(async () => 1);
+		const { event, jobs } = await setup("T1", true, dispatch);
+		const message = {
+			type: "message",
+			channel: "C1",
+			ts: "10.1",
+			user: "UBOT",
+			bot_id: "B1",
+			text: "Result",
+		};
+		expect((await event(message, {}, "wrong-secret")).status).toBe(401);
+		await event(message);
+		await event({ ...message, user: "U2" }, { is_ext_shared_channel: true });
+		expect(jobs).toHaveLength(0);
 	});
 });

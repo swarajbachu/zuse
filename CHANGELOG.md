@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Create project automations from the editor, agents, or CLI, with scheduled and event triggers, durable cloud alarms, Slack replies, and run history.
 - Recall sent messages from the composer, steer or queue follow-ups with keyboard shortcuts, and enable direct steer in General settings.
 - Activate Pro with a single $200 prepaid payment, with the balance covering subscription and cloud usage invoices.
 - Start chats without a project in isolated folders under `~/.zuse/threads`, with computer selection, a dedicated sidebar section, and a keyboard shortcut.

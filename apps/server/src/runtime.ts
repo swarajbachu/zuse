@@ -39,6 +39,12 @@ import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts
 import { AuthServiceLive } from "./auth/layers/auth-service.ts";
 import { SessionStoreLive } from "./auth/layers/session-store.ts";
 import { AuthShell } from "./auth/services/auth-shell.ts";
+import {
+	AutomationAgentToolsLive,
+	makeAutomationAgentRouterLayer,
+} from "./automation/agent-tools.ts";
+import { AutomationCloudLauncherLive } from "./automation/cloud-launcher.ts";
+import { AutomationRegistryLive } from "./automation/layer.ts";
 import { AutomationService } from "./automation/service.ts";
 import { AutomationWorkerLive } from "./automation/worker.ts";
 import { ConfigStoreServiceLive } from "./config-store/layers/config-store-service.ts";
@@ -526,6 +532,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(SimulatorAgentLayer),
 		Layer.provide(ProviderAccountsLayer),
 		Layer.provide(AcpAgentLayer),
+		Layer.provide(MigratedSqlite),
 		Layer.provide(HarnessProviderLayer),
 		Layer.provide(ModelCatalogLayer),
 		Layer.provide(CredentialsLayer),
@@ -632,6 +639,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 
 	const MasterRouterLayer = MasterToolRouterLive;
+	const AutomationAgentRouterLayer = makeAutomationAgentRouterLayer(
+		deps.cloudWorkspaceRuntime !== undefined,
+	);
 	const MasterStoreLayer = MasterStoreLive.pipe(Layer.provide(MigratedSqlite));
 	const ExecutionPolicyLayer =
 		deps.cloudWorkspaceRuntime === undefined
@@ -647,7 +657,13 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 	);
 	const ConversationServicesLayer = ConversationServicesLive.pipe(
-		Layer.provide(Layer.mergeAll(ReviewGuideLayer, AutomationLayer)),
+		Layer.provide(
+			Layer.mergeAll(
+				ReviewGuideLayer,
+				AutomationLayer,
+				AutomationAgentRouterLayer,
+			),
+		),
 		Layer.provide(ExecutionPolicyLayer),
 		Layer.provide(Layer.mergeAll(MasterRouterLayer, MasterStoreLayer)),
 		Layer.provide(ConversationState.layer),
@@ -669,10 +685,28 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(NdjsonLoggerLayer),
 		Layer.provide(NodeServices.layer),
 	);
+	const AutomationCloudLauncherLayer = AutomationCloudLauncherLive.pipe(
+		Layer.provide(MachineControlLayer),
+		Layer.provide(GitLayer),
+		Layer.provide(MachineRuntimeRoleLayer),
+	);
+	const AutomationRegistryLayer = AutomationRegistryLive.pipe(
+		Layer.provide(SessionDomainLayer),
+		Layer.provide(AutomationCloudLauncherLayer),
+		Layer.provide(ConversationServicesLayer),
+		Layer.provide(MigratedSqlite),
+		Layer.provide(CredentialsLayer),
+	);
+	const AutomationAgentToolsLayer = AutomationAgentToolsLive.pipe(
+		Layer.provide(AutomationRegistryLayer),
+		Layer.provide(AutomationAgentRouterLayer),
+	);
 	const CloudWorkspaceRuntimeLayer = makeCloudWorkspaceRuntimeLayer(
 		deps.cloudWorkspaceRuntime,
 	).pipe(
+		Layer.provide(AutomationAgentRouterLayer),
 		Layer.provide(RuntimeCloudControlLayer),
+		Layer.provide(AutomationRegistryLayer),
 		Layer.provide(ExecutionPolicyLayer),
 		Layer.provide(RuntimeModelConnectionsLayer),
 		Layer.provide(CredentialsLayer),
@@ -811,6 +845,8 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		SessionQueriesLayer,
 		ConversationServicesLayer,
 		ReviewGuideLayer,
+		AutomationRegistryLayer,
+		AutomationAgentToolsLayer,
 		PermissionLayer,
 		AttachmentLayer,
 		BrowserBridgeLayer,

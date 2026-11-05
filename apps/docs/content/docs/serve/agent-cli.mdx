@@ -409,3 +409,63 @@ zuse secret dismiss --session <session-id> --request <request-id>
 ```
 
 `secret provide` reads the value only from stdin and accepts 1 to 65,536 characters; `--value` and `--arguments-json` are rejected. Add `--cloud-workspace <id>` to answer a request on another cloud computer.
+
+## Automations
+
+In a project chat, describe the recurring or event-driven work you want. Agents
+can use the native `automation_catalog` tool to discover the definition schema,
+templates and available capabilities, then `automation_save` to save the definition
+in the Automations page. Packaged apps support this without a CLI installation.
+Creation retries reuse a stable request ID; updates include the saved ID and
+expected revision. Proposals start paused for review, and organization workspaces
+require current automation administration access.
+
+Automations run instructions on a schedule or in response to events. The CLI and
+Automations screen share the same definitions and run history.
+
+```bash
+zuse automation capabilities
+zuse automation templates
+zuse automation schema
+zuse automation list --project <project-id>
+zuse automation save --project <project-id> --definition @automation.json
+```
+
+`automation schema` returns the definition and event JSON schemas. A definition
+contains the name, prompt, triggers, agent configuration, queue/rate limits and
+notifications. Supply all required fields; `--project` supplies `projectId` if
+omitted. Use `enabled: false` to save a draft while configuring integrations.
+`--definition` accepts inline JSON, `@file`, or `-` for standard input, preserving
+nested objects and booleans.
+
+To update a definition, pass `--automation <id> --revision <current-revision>`.
+A conflicting revision fails instead of overwriting another editor's changes.
+For retryable creation, pass a stable `--idempotency-key`; repeat the same definition
+with that key after a lost response to retrieve the original automation.
+
+```bash
+zuse automation get --project <project-id> --automation <id>
+zuse automation enable --project <project-id> --automation <id>
+zuse automation pause --project <project-id> --automation <id>
+zuse automation run --project <project-id> --automation <id> --idempotency-key <stable-key>
+zuse automation runs --project <project-id> --automation <id>
+zuse automation cancel --project <project-id> --automation <id> --run <run-id>
+zuse automation delete --project <project-id> --automation <id> --confirm
+```
+
+A manual run returns its accepted run record; inspect run history for completion.
+Use the same idempotency key when retrying the same intended run. Pausing stops
+scheduled/event execution; manual runs remain available for testing.
+
+Trusted scripts can deliver an event through the authenticated runtime connection:
+
+```bash
+zuse automation dispatch --project <project-id> --event @event.json
+```
+
+Use a stable event ID to prevent duplicate execution. Cloud integrations provide
+signed Slack/GitHub delivery, authenticated webhook endpoints and scheduled wake-up.
+Local schedules need a running Zuse runtime; local event delivery uses the CLI/RPC.
+Inspect capabilities before choosing execution policies: support depends on the
+provider and runtime, and unavailable restrictions are rejected when enabling or
+running an automation.

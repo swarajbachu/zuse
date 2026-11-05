@@ -18,6 +18,41 @@ const Envelope = Schema.Struct({
 const aad = (context: string): Uint8Array =>
 	new TextEncoder().encode(`zuse-cloud-api-v1\n${context}`);
 
+/** Same envelope and context binding for API effects and Durable Objects. */
+export const makeApiStringCipher = (encodedKey: string) => {
+	const key = () => importSealingKey(encoded);
+	const encoded = Redacted.make(encodedKey);
+	return {
+		seal: async (context: string, plaintext: string) =>
+			sealWithKey(await key(), context, plaintext),
+		open: async (context: string, ciphertext: string) =>
+			openWithKey(await key(), context, ciphertext),
+	};
+};
+
+const sealWithKey = (key: CryptoKey, context: string, plaintext: string) =>
+	encryptAesGcmEnvelope({
+		key,
+		additionalData: aad(context),
+		plaintext: new TextEncoder().encode(plaintext),
+	});
+const openWithKey = async (
+	key: CryptoKey,
+	context: string,
+	ciphertext: string,
+) => {
+	const envelope: AesGcmEnvelope = Schema.decodeUnknownSync(Envelope)(
+		JSON.parse(ciphertext) as unknown,
+	);
+	return new TextDecoder().decode(
+		await decryptAesGcmEnvelope({
+			key,
+			additionalData: aad(context),
+			envelope,
+		}),
+	);
+};
+
 const importedSealingKeys = new WeakMap<
 	Redacted.Redacted<string>,
 	Promise<CryptoKey>
@@ -83,12 +118,7 @@ export const sealApiString = (
 	Effect.gen(function* () {
 		const key = yield* sealingKey;
 		return yield* Effect.tryPromise({
-			try: () =>
-				encryptAesGcmEnvelope({
-					key,
-					additionalData: aad(context),
-					plaintext: new TextEncoder().encode(plaintext),
-				}),
+			try: () => sealWithKey(key, context, plaintext),
 			catch: () => serviceUnavailable("api_content_seal_failed"),
 		});
 	});
@@ -100,17 +130,7 @@ export const openApiString = (
 	Effect.gen(function* () {
 		const key = yield* sealingKey;
 		return yield* Effect.tryPromise({
-			try: async () => {
-				const envelope: AesGcmEnvelope = Schema.decodeUnknownSync(Envelope)(
-					JSON.parse(ciphertext) as unknown,
-				);
-				const plaintext = await decryptAesGcmEnvelope({
-					key,
-					additionalData: aad(context),
-					envelope,
-				});
-				return new TextDecoder().decode(plaintext);
-			},
+			try: () => openWithKey(key, context, ciphertext),
 			catch: () => serviceUnavailable("api_content_open_failed"),
 		});
 	});

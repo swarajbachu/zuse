@@ -16,6 +16,7 @@ import { workspacePtyService } from "../../pty/workspace-pty-service.ts";
 import type { WorkspaceCredentialIdentity } from "../services/connection-identity.ts";
 
 type Target =
+	| "automation"
 	| "handshake"
 	| "catalog"
 	| "chat"
@@ -30,6 +31,18 @@ const register = (
 ) => {
 	for (const tag of tags) policy.set(tag, { target, edit });
 };
+register("automation", true, [
+	"automation.list",
+	"automation.get",
+	"automation.save",
+	"automation.delete",
+	"automation.run",
+	"automation.runs",
+	"automation.cancel",
+	"automation.dispatch",
+	"automation.templates",
+	"automation.capabilities",
+]);
 register("handshake", false, ["connect.handshake", "ping.ping"]);
 
 // Aggregate resource usage only; host configuration and runtime control stay denied.
@@ -178,6 +191,12 @@ export const authorizeWorkspaceRpc = Effect.fn("authorizeWorkspaceRpc")(
 			if (identity.expiresAt <= (yield* Clock.currentTimeMillis))
 				return yield* new RpcAccessDeniedError({ code: "credential-expired" });
 			const permission = yield* identity.authorize;
+			if (rule.target === "automation") {
+				if (!identity.authorizeAutomations)
+					return yield* new RpcAccessDeniedError({ code: "access-denied" });
+				yield* identity.authorizeAutomations;
+			}
+
 			if (identity.expiresAt <= (yield* Clock.currentTimeMillis))
 				return yield* new RpcAccessDeniedError({ code: "credential-expired" });
 			if (rule.edit && permission !== "edit")

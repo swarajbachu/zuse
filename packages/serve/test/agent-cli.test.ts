@@ -349,6 +349,23 @@ describe("cloud agent commands", () => {
 		});
 		expect(connectionMocks.dispose).toHaveBeenCalledOnce();
 	});
+	test.each([
+		"capabilities",
+		"templates",
+	])("keeps RPC open until automation %s finishes", async (action) => {
+		connectionMocks.client[`automation.${action}`] = vi.fn(() =>
+			Effect.promise(async () => {
+				await new Promise((resolve) => setTimeout(resolve, 0));
+				expect(connectionMocks.dispose).not.toHaveBeenCalled();
+				return { available: true };
+			}),
+		);
+		await expect(command(["automation", action])).resolves.toEqual({
+			available: true,
+		});
+		expect(connectionMocks.dispose).toHaveBeenCalledOnce();
+	});
+
 	test("workspace deletion requires confirmation", async () => {
 		const remove = vi.fn(() => Effect.succeed({ workspaceId: "other" }));
 		connectionMocks.client["cloud.workspaces.delete"] = remove;
@@ -747,5 +764,49 @@ test("secret submission errors never expose backend input or credentials", async
 		code: "secret_request_failed",
 		message:
 			"The private secret request could not be completed. Check the session and request, then retry.",
+	});
+});
+
+describe("automation CLI", () => {
+	test("publishes discovery, creation and lifecycle commands", () => {
+		expect(isAgentCliCommand(["automation", "save"])).toBe(true);
+		for (const action of [
+			"schema",
+			"templates",
+			"capabilities",
+			"list",
+			"get",
+			"save",
+			"pause",
+			"enable",
+			"run",
+			"runs",
+			"cancel",
+			"delete",
+		]) {
+			expect(__testing.commandManifest().commands).toContain(
+				`automation ${action}`,
+			);
+		}
+	});
+	test("rejects invalid definitions before they reach the server", async () => {
+		await expect(
+			__testing.automationConfig(
+				__testing.parse(["--definition", "[1]"]),
+				"project_1",
+			),
+		).rejects.toThrow("must be an object");
+		await expect(
+			__testing.automationConfig(
+				__testing.parse(["--definition", '{"projectId":"other"}']),
+				"project_1",
+			),
+		).rejects.toThrow("differs");
+		await expect(
+			__testing.automationConfig(
+				__testing.parse(["--definition", "{}"]),
+				"project_1",
+			),
+		).rejects.toThrow("Invalid automation definition");
 	});
 });

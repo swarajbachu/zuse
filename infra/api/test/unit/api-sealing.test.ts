@@ -4,6 +4,7 @@ import {
 	apiMessageSealContext,
 	apiTurnReceiptDigestContext,
 	digestApiString,
+	makeApiStringCipher,
 	openApiMessageString,
 	openApiString,
 	sealApiString,
@@ -114,4 +115,24 @@ describe("public API content sealing", () => {
 			),
 		).not.toBe(digest);
 	});
+});
+
+test("Durable Objects preserve the API ciphertext format and context binding", async () => {
+	const cipher = makeApiStringCipher(
+		"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+	);
+	const context = "automation-event:workspace-1:event-1";
+	const legacy = await Effect.runPromise(
+		sealApiString(context, "legacy event").pipe(Effect.provide(config)),
+	);
+	expect(await cipher.open(context, legacy)).toBe("legacy event");
+	const migrated = await cipher.seal(context, "new event");
+	expect(
+		await Effect.runPromise(
+			openApiString(context, migrated).pipe(Effect.provide(config)),
+		),
+	).toBe("new event");
+	await expect(
+		cipher.open("automation-event:other:event-1", migrated),
+	).rejects.toThrow();
 });

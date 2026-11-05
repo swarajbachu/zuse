@@ -40,6 +40,7 @@ import {
 	UI_SPEC_VERSION,
 } from "@zuse/utils/generative-ui";
 import { Context, Effect, Option } from "effect";
+import { AutomationAgentRouter } from "../../automation/agent-tools.ts";
 import { masterPrompt } from "../../master/state.ts";
 import { MasterStore } from "../../master/store.ts";
 import { MasterToolRouter } from "../../master/tool-router.ts";
@@ -67,6 +68,10 @@ export interface ConversationOrchestrationDependencies {
 	readonly runtime: Context.Context<never>;
 	readonly tasks?: OrchestrationTaskRuntime;
 	readonly automationActor?: import("@zuse/contracts").WorkspaceActor;
+	readonly automationActorForCall?: () => Effect.Effect<
+		import("@zuse/contracts").WorkspaceActor | undefined,
+		unknown
+	>;
 	readonly automation?: import("../../automation/service.ts").AutomationService["Service"];
 	readonly interruptSession?: (
 		sessionId: SessionId,
@@ -300,7 +305,27 @@ export const makeConversationOrchestration = (
 		const automation = dependencies.automation;
 		const mutateAutomation = <A, E>(effect: Effect.Effect<A, E>) =>
 			run(dependencies.captureDelegation().pipe(Effect.flatMap(() => effect)));
+		const automationRouter = Context.getOption(
+			dependencies.runtime,
+			AutomationAgentRouter,
+		);
+		const projectAutomation = Option.isSome(automationRouter)
+			? (
+					input?: import("../../automation/agent-tools.ts").AutomationAgentSave,
+				) => {
+					const operation = Effect.gen(function* () {
+						const actor = dependencies.automationActorForCall
+							? yield* dependencies.automationActorForCall()
+							: dependencies.automationActor;
+						return yield* Effect.promise(() =>
+							automationRouter.value.call(context.projectId, input, actor),
+						);
+					});
+					return input ? mutateAutomation(operation) : run(operation);
+				}
+			: undefined;
 		const toolDependencies: OrchestrationToolDeps = {
+			projectAutomation,
 			master: Option.isSome(masterRouter)
 				? (commandJson, readOnly, commandId) =>
 						masterRouter.value.call(

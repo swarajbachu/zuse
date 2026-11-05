@@ -17,6 +17,8 @@ export interface WorkspaceCredentialIdentity {
 	readonly projectId: FolderId;
 	readonly expiresAt: number;
 	readonly authorize: Effect.Effect<ChatAccessPermission, RpcAccessDeniedError>;
+	/** Fresh control-plane owner/administrator check, installed by trusted transport. */
+	readonly authorizeAutomations?: Effect.Effect<void, RpcAccessDeniedError>;
 }
 
 /** Verified credential identity, not a workspace permission or client-supplied actor. */

@@ -702,6 +702,51 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["provider.opencode2.removeCustom"](payload as never),
 				);
 				break;
+			case "automation.list":
+				result = await Effect.runPromise(
+					client["automation.list"](payload as never),
+				);
+				break;
+			case "automation.get":
+				result = await Effect.runPromise(
+					client["automation.get"](payload as never),
+				);
+				break;
+			case "automation.save":
+				result = await Effect.runPromise(
+					client["automation.save"](payload as never),
+				);
+				break;
+			case "automation.delete":
+				result = await Effect.runPromise(
+					client["automation.delete"](payload as never),
+				);
+				break;
+			case "automation.run":
+				result = await Effect.runPromise(
+					client["automation.run"](payload as never),
+				);
+				break;
+			case "automation.runs":
+				result = await Effect.runPromise(
+					client["automation.runs"](payload as never),
+				);
+				break;
+			case "automation.cancel":
+				result = await Effect.runPromise(
+					client["automation.cancel"](payload as never),
+				);
+				break;
+			case "automation.templates":
+				result = await Effect.runPromise(
+					client["automation.templates"](payload as never),
+				);
+				break;
+			case "automation.capabilities":
+				result = await Effect.runPromise(
+					client["automation.capabilities"](payload as never),
+				);
+				break;
 			case "skill.listGlobal":
 				result = await Effect.runPromise(
 					client["skill.listGlobal"](payload as never),

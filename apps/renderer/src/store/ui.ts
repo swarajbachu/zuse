@@ -69,7 +69,8 @@ export type MainTab =
 	| "changes"
 	| "archives"
 	| "usage"
-	| "plugins";
+	| "plugins"
+	| "automations";
 
 /**
  * Whether the Usage dashboard shows every project's usage (`global`, opened

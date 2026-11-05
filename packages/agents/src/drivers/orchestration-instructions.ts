@@ -2,6 +2,7 @@
 export const orchestrationMcpPromptHint = (): string =>
 	[
 		"<zuse-orchestration-tools>",
+		"When asked to create a recurring or event-driven automation, use automation_catalog to discover the current project, definition schema, capabilities and existing definitions, then automation_save to persist it in the Automations page. Save proposals paused (enabled:false); enable only when authorized. Reuse the same requestId and identical JSON when retrying creation. A plan or generated file is not a saved automation; confirm its persisted ID. These native tools work without a CLI installation.",
 		"Use the available Zuse orchestration tools to delegate bounded tasks and manage chats. Discover available tools and provider/model capabilities before selecting a worker; availability and permissions depend on this session.",
 		"Provider-native subagents are suitable for same-provider work when they support the requested model and tools. Use Zuse-managed delegation for explicit provider/model selection, durable child tasks, or separate workspaces. A native child is not automatically an independent Zuse chat.",
 		"Use delegate_task for managed children, task_status to inspect their progress, and task_cancel to stop them. create_thread makes a separate worktree/chat; create_session adds a shared-checkout tab. Read each tool schema before calling it.",

@@ -1,6 +1,7 @@
 import { cloudCommandEnvelopeEligibility } from "@zuse/cloud-commands";
 import {
 	ApiPaths,
+	AutomationDispatchInput,
 	ChatSharingDefaults,
 	ChatSharingPolicy,
 	ChatSharingUpdate,
@@ -67,6 +68,14 @@ import {
 	sealApiString,
 } from "./api-sealing.ts";
 import { requireWorkos } from "./auth.ts";
+import {
+	AutomationMailbox,
+	AutomationRegistration,
+} from "./automation-mailbox.ts";
+import {
+	deliverAutomationNotification,
+	finishAutomationEvent,
+} from "./automation-results.ts";
 import {
 	cancelCloudAuthLogin,
 	cloudAuthStatus,
@@ -216,7 +225,10 @@ import {
 import { SandboxOfferConfiguration } from "./sandbox-provider-module.ts";
 import { ApiStore } from "./store.ts";
 import type { WorkosVerifier } from "./workos.ts";
-import { requireWorkspaceAccess } from "./workspace-authorization.ts";
+import {
+	requireWorkspaceAccess,
+	resolveWorkspaceActorAccess,
+} from "./workspace-authorization.ts";
 import {
 	WORKSPACE_GATEWAY_PENDING_PROTOCOL,
 	WORKSPACE_GATEWAY_PROTOCOL,
@@ -2700,6 +2712,19 @@ const routeCloudWorkspaceRequestWithAccess = (
 				body.actorId,
 				body.membershipId,
 			);
+			if (body.purpose === "automation") {
+				const administrator = yield* resolveWorkspaceActorAccess(
+					{ accountId: body.actorId, orgId: undefined },
+					workspaceScopeForOwner(workspace.accountId),
+					"administration",
+				);
+				if (
+					administrator.ownerId !== workspace.accountId ||
+					permission !== "edit"
+				)
+					return yield* forbidden("automation_administration_denied");
+				return json({ permission, actor, automationAdmin: true });
+			}
 			return json({ permission, actor });
 		}
 		if (method === "POST" && activityMatch !== null) {
@@ -2717,6 +2742,198 @@ const routeCloudWorkspaceRequestWithAccess = (
 					updatedAtMs: nowMs,
 				});
 			return json({ ok: true });
+		}
+
+		const automationHookMatch =
+			/^\/v1\/cloud\/automation-hooks\/([^/]+)\/([^/]+)$/u.exec(path);
+		if (automationHookMatch && method === "POST") {
+			const mailbox = yield* Effect.serviceOption(AutomationMailbox);
+			if (Option.isNone(mailbox))
+				return yield* Effect.fail(
+					serviceUnavailable("automation_mailbox_not_configured"),
+				);
+			const body = yield* decodeBody(
+				Schema.Struct({
+					eventId: Schema.String.check(
+						Schema.isMinLength(1),
+						Schema.isMaxLength(200),
+					),
+					source: Schema.Literals([
+						"webhook",
+						"security_scan",
+						"snapshot_build",
+					]),
+					prompt: Schema.String.check(Schema.isMaxLength(60000)),
+					context: AutomationDispatchInput.fields.context.check(
+						Schema.isMaxProperties(99),
+					),
+				}),
+				request,
+				64_000,
+			);
+			if (
+				Object.hasOwn(body.context, "mailboxEventId") ||
+				JSON.stringify(body.context).length > 59000
+			)
+				return yield* badRequest("automation_event_reserved_context");
+			const accepted = yield* Effect.tryPromise({
+				try: () =>
+					mailbox.value.webhook(
+						decodeURIComponent(automationHookMatch[1] ?? ""),
+						decodeURIComponent(automationHookMatch[2] ?? ""),
+						bearer(request) ?? "",
+						body,
+					),
+				catch: () => serviceUnavailable("automation_hook_failed"),
+			});
+			if (!accepted)
+				return yield* Effect.fail(unauthorized("automation_hook_rejected"));
+			return json({ accepted: true }, 202);
+		}
+
+		const automationMailboxMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/(automations|automation-events|automation-events\/connect|automation-events\/ack|automation-events\/result|automation-notifications)$/u.exec(
+				path,
+			);
+		if (automationMailboxMatch && (method === "POST" || method === "GET")) {
+			const operation = automationMailboxMatch[2];
+			let authenticatedRequest = request;
+			if (operation === "automation-events/connect") {
+				const protocols = request.headers
+					.get("sec-websocket-protocol")
+					?.split(",")
+					.map((value) => value.trim());
+				if (
+					method !== "GET" ||
+					request.headers.get("upgrade")?.toLowerCase() !== "websocket" ||
+					protocols?.length !== 2 ||
+					protocols[0] !== "zuse-automation-events" ||
+					!protocols[1]
+				)
+					return yield* Effect.fail(unauthorized("automation_socket_rejected"));
+				const headers = new Headers(request.headers);
+				headers.set("authorization", `Bearer ${protocols[1]}`);
+				authenticatedRequest = new Request(request, { headers });
+			}
+			const workspace = yield* requireRuntime(
+				authenticatedRequest,
+				decodeURIComponent(automationMailboxMatch[1] ?? ""),
+				nowMs,
+			);
+			const mailbox = yield* Effect.serviceOption(AutomationMailbox);
+			if (Option.isNone(mailbox))
+				return yield* Effect.fail(
+					serviceUnavailable("automation_mailbox_not_configured"),
+				);
+			if (operation === "automation-events/connect") {
+				return yield* Effect.tryPromise({
+					try: () => mailbox.value.connect(workspace.workspaceId, request),
+					catch: () => serviceUnavailable("automation_socket_unavailable"),
+				});
+			}
+			if (operation === "automations" && method === "POST") {
+				const body = yield* decodeBody(
+					Schema.Struct({
+						definitions: Schema.Array(AutomationRegistration).check(
+							Schema.isMaxLength(200),
+						),
+					}),
+					request,
+					512_000,
+				);
+				if (
+					new Set(body.definitions.map((definition) => definition.id)).size !==
+					body.definitions.length
+				)
+					return yield* Effect.fail(badRequest("duplicate_automation_id"));
+				const hooks = yield* Effect.tryPromise({
+					try: () =>
+						mailbox.value.register(
+							workspace.accountId,
+							workspace.workspaceId,
+							body.definitions,
+						),
+					catch: () => serviceUnavailable("automation_registration_failed"),
+				});
+				return json({
+					ok: true,
+					hooks: hooks.map((hook) => ({
+						...hook,
+						url: new URL(
+							`/v1/cloud/automation-hooks/${encodeURIComponent(workspace.workspaceId)}/${encodeURIComponent(hook.automationId)}`,
+							url.origin,
+						).toString(),
+					})),
+				});
+			}
+			if (operation === "automation-events" && method === "GET") {
+				const events = yield* Effect.tryPromise({
+					try: () => mailbox.value.pending(workspace.workspaceId),
+					catch: () => serviceUnavailable("automation_events_unavailable"),
+				});
+				return json({ events });
+			}
+			if (operation === "automation-notifications" && method === "POST") {
+				const body = yield* decodeBody(
+					Schema.Struct({
+						automationId: Schema.String.check(Schema.isMaxLength(200)),
+						runId: Schema.String.check(Schema.isMaxLength(200)),
+						destination: Schema.String.check(
+							Schema.isPattern(/^(?:T[A-Z0-9]+\/)?[CG][A-Z0-9]+$/u),
+						),
+						text: Schema.String.check(Schema.isMaxLength(60000)),
+					}),
+					request,
+					256_000,
+				);
+				yield* deliverAutomationNotification(
+					mailbox.value,
+					workspace.workspaceId,
+					body,
+				);
+				return json({ ok: true });
+			}
+			if (operation === "automation-events/result" && method === "POST") {
+				const body = yield* decodeBody(
+					Schema.Struct({
+						id: Schema.String.check(Schema.isMaxLength(200)),
+						text: Schema.String.check(Schema.isMaxLength(60000)),
+						status: Schema.Literals([
+							"completed",
+							"failed",
+							"cancelled",
+							"skipped",
+						]),
+					}),
+					request,
+					256_000,
+				);
+				yield* finishAutomationEvent(
+					mailbox.value,
+					workspace.workspaceId,
+					body,
+				);
+				return json({ ok: true });
+			}
+			if (operation === "automation-events/ack" && method === "POST") {
+				const body = yield* decodeBody(
+					Schema.Struct({
+						id: Schema.String.check(Schema.isMaxLength(200)),
+						rejection: Schema.optional(
+							Schema.String.check(Schema.isMaxLength(500)),
+						),
+					}),
+					request,
+					1024,
+				);
+				yield* Effect.tryPromise({
+					try: () =>
+						mailbox.value.ack(workspace.workspaceId, body.id, body.rejection),
+					catch: () => serviceUnavailable("automation_event_ack_failed"),
+				});
+				return json({ ok: true });
+			}
+			return json({ error: "method_not_allowed" }, 405);
 		}
 
 		const runtimeCommandsMatch =

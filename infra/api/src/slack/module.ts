@@ -2,6 +2,7 @@ import type { AppEnv, AppJob, QueueMessage } from "@zuse/slack/types";
 import { isSlackWebhookTarget } from "@zuse/slack/webhook-target";
 import worker from "@zuse/slack/worker";
 import { Effect, Option } from "effect";
+import { AutomationMailbox } from "../automation-mailbox.ts";
 import { ApiConfiguration } from "../config.ts";
 import type { ApiContext } from "../handler.ts";
 import {
@@ -33,6 +34,7 @@ export const makeSlackModule = (options: SlackOptions) =>
 		const config = yield* ApiConfiguration;
 		const identity = yield* WorkosVerifier;
 		const persistence = yield* Effect.serviceOption(SlackPersistence);
+		const automations = yield* Effect.serviceOption(AutomationMailbox);
 		const clientId = expectedWorkosClientId(config.workosJwksUrl);
 		if (
 			Option.isNone(persistence) ||
@@ -46,6 +48,25 @@ export const makeSlackModule = (options: SlackOptions) =>
 		) => Effect.runPromise(effect.pipe(Effect.provide(context)), { signal });
 		const env: AppEnv = {
 			store: persistence.value,
+			automations: Option.isSome(automations)
+				? (accountId, input, organizationId) =>
+						run(
+							Effect.gen(function* () {
+								const access = yield* resolveWorkspaceActorAccess(
+									{ accountId, orgId: organizationId },
+									organizationId
+										? { kind: "organization", organizationId }
+										: { kind: "personal" },
+									"administration",
+								);
+								return yield* Effect.tryPromise({
+									try: () =>
+										automations.value.dispatchAccount(access.ownerId, input),
+									catch: () => new Error("automation_dispatch_failed"),
+								});
+							}),
+						)
+				: undefined,
 			APP_ORIGIN: options.publicOrigin,
 			WORKSPACE_APP_ORIGIN: options.workspaceAppOrigin,
 			SLACK_APP_ID: options.appId,
