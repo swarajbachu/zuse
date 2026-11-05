@@ -29,7 +29,8 @@ const setup = () => {
 	let namespace = "account-a";
 	const view = {
 		generation: 1,
-		cursor: { epoch: "epoch" },
+		connection: "dormant",
+		cursor: { epoch: "epoch", version: 1 },
 		data: { messages: [message] },
 	};
 	const read = vi.fn<
@@ -109,7 +110,12 @@ test("uses archived encrypted reads without acquiring or waking an offline runti
 	h.disconnect();
 	expect(await h.load(ref, id)).toEqual(message);
 	expect(h.read).not.toHaveBeenCalled();
-	expect(h.archived).toHaveBeenCalledWith(ref, id, undefined);
+	expect(h.archived).toHaveBeenCalledWith(
+		ref,
+		id,
+		undefined,
+		expect.anything(),
+	);
 });
 
 test("rejects an incorrectly scoped detail response", async () => {
@@ -214,4 +220,53 @@ test("restarts once when a server download buffer was evicted mid-transfer", asy
 	expect(
 		h.read.mock.calls.filter(([input]) => input.detailOffset === 0),
 	).toHaveLength(2);
+});
+
+test.each([
+	"account",
+	"generation",
+	"epoch",
+	"version",
+])("never reuses archived pages after a %s change", async (change) => {
+	const h = setup();
+	h.disconnect();
+	await h.load(ref, id);
+	const previous = h.archived.mock.calls[0]?.[3];
+	if (change === "account") h.changeAccount();
+	if (change === "generation") h.view.generation++;
+	if (change === "epoch") h.view.cursor.epoch = "new";
+	if (change === "version") h.view.cursor.version++;
+	await h.load(ref, id);
+	expect(h.archived.mock.calls[1]?.[3]).not.toBe(previous);
+	expect(previous.current()).toBe(false);
+});
+test.each([
+	"revoked",
+	"blocked-auth",
+])("rejects cached archived details when access becomes %s", async (connection) => {
+	const h = setup();
+	h.disconnect();
+	await h.load(ref, id);
+	h.view.connection = connection;
+	await expect(h.load(ref, id)).rejects.toThrow("conversation changed");
+	expect(h.archived).toHaveBeenCalledOnce();
+});
+test("does not abort active archive walks when a fifth conversation opens", async () => {
+	const h = setup();
+	h.disconnect();
+	const finish: Array<() => void> = [];
+	const readers: Array<unknown> = [];
+	h.archived.mockImplementation((_ref, _id, _signal, reads) => {
+		readers.push(reads);
+		return new Promise((resolve) => finish.push(() => resolve(message)));
+	});
+	const pending = Array.from({ length: 5 }, (_, index) =>
+		h.load({ ...ref, environmentId: `environment-${index}` as never }, id),
+	);
+	expect(readers.slice(0, 4).every((reader) => reader !== undefined)).toBe(
+		true,
+	);
+	expect(readers[4]).toBeUndefined();
+	for (const complete of finish) complete();
+	await expect(Promise.all(pending)).resolves.toHaveLength(5);
 });

@@ -747,10 +747,16 @@ export const loadOlderMobileMessages = messagePager.load;
 export const loadMobileMessageDetail = makeSessionMessageDetailLoader({
 	getBus: mobileClientBus,
 	namespace: (ref) => bindings.get(ref.environmentId),
-	readArchived: async (ref, id, signal) => {
+	readArchived: async (ref, id, signal, reads) => {
 		if (bindings.get(ref.environmentId)?.options.cloudWorkspaceId === undefined)
 			return null;
-		return readArchivedSessionMessage(await getCloudControl(), ref, id, signal);
+		return readArchivedSessionMessage(
+			await getCloudControl(),
+			ref,
+			id,
+			signal,
+			reads,
+		);
 	},
 });
 

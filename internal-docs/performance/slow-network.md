@@ -41,9 +41,31 @@ Older runtimes can still return a complete single-message response.
 
 Paused Cloud detail reads use the existing authenticated encrypted checkpoint
 and older-page APIs. They do not acquire a runtime connection or wake compute.
+Checkpoint and page reads are shared across expanded tool views within the
+same account, runtime generation, epoch, and transcript version. Downloads for
+each conversation run one at a time. Closing one view releases its interest;
+closing the last interested view cancels the shared network read. Known revoked
+or authentication-blocked resources reject detail reads before cache access.
+
+Each retained conversation has a 4 MiB decoded-text cache target (estimated as
+twice the decompressed UTF-8 size), a 16-window cap, least-recently-used eviction,
+and a fixed 30-second expiry. The decoded size comes from the existing decrypt
+step, avoiding another serialization of large bodies. Ciphertext size is not a
+valid memory estimate because transcripts are compressed before encryption.
+Oversized windows can be read by an open view but are not kept in this cache.
+A separate index keeps at most 4,096 message IDs, each at most 256 characters,
+with authenticated page locations and the same expiry. A later expansion can
+jump directly to a known page even if its decoded body was evicted. These are
+cache targets and count limits, not measurements of total JavaScript heap use.
+
+Up to four conversation scopes retain caches. Active walks are not evicted to
+make room for another conversation: when all four are busy, an additional
+conversation uses the existing uncached path. Empty, expired scopes release
+their bus references. Scope changes reject late results and invalidate reuse.
+
 Checkpoint storage remains full-body for compatibility. An uncached paused
-read can therefore download a checkpoint and traverse older pages; it does not
-have the live detail chunking or transfer reduction described above.
+read can therefore download a checkpoint and traverse older pages. It still
+transfers whole encrypted objects rather than the live detail chunks.
 
 ### Observed checks
 
@@ -68,6 +90,21 @@ WebSocket throughput benchmark. Run with an available Chrome executable:
 
 ```sh
 CHROME_PATH='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' node apps/renderer/test/integration/deferred-tool-details.browser.mjs
+```
+
+A second synthetic fixture opens three results from one authenticated encrypted
+older page. Independent reads made **6 archive API calls** (3 heads + 3 pages);
+shared reads made **2** (1 head + 1 page). After evicting decoded bodies, reopening
+a known result fetched only its target page. This measures method invocations in
+a local encrypted fixture, not deployed request latency or a cellular benchmark.
+A separate highly compressible 3 MiB result verifies that compressed ciphertext
+under 50 KB does not cause the oversized decoded body to remain cached.
+
+Reproduce the archive fixture with:
+
+```sh
+cd packages/client-runtime
+ZUSE_TRANSFER_REPORT=1 bunx vitest run test/unit/cloud-transcript.test.ts --disableConsoleIntercept --reporter=verbose
 ```
 
 Regression coverage also includes byte-window cursor progression, Unicode chunk
@@ -111,7 +148,7 @@ bun run --cwd packages/client-runtime test:unit
 Local validation for this change:
 
 - Desktop unit suite: 2,241 passed; mobile unit suite: 548 passed.
-- Shared client-runtime suite: 534 passed; domain suite: 199 passed;
+- Shared client-runtime suite: 550 passed; domain suite: 199 passed;
   contracts suite: 198 passed.
 - Focused server detail/handler suites: 5 passed, including actual SQLite-backed
   RPC reads, legacy responses, and session isolation.
@@ -122,7 +159,8 @@ Local validation for this change:
   3 skipped. Failures were in unchanged Cloud shell/runtime harness tests on
   macOS, including missing `flock`/`mapfile`, GNU `date` formatting, `/dev/shm`,
   runtime-updater subprocess failures, and a toolchain reconciliation timeout.
-  The affected detail tests passed separately. These failures are not proof of
+  The affected detail tests passed separately. This was the initial server run;
+  the archive-cache follow-up does not change server source. These failures are not proof of
   successful Linux CI and must remain visible in release validation.
 - Throttled desktop disclosure browser fixture passed. Authenticated full-app
   startup, WebSocket throughput, native mobile device behavior, packaged desktop

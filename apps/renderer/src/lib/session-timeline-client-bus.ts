@@ -1506,13 +1506,13 @@ export const loadOlderSessionMessages = olderSessionMessageLoads.load;
 export const loadSessionMessageDetail = makeSessionMessageDetailLoader({
 	getBus: getRendererClientBus,
 	namespace: (ref) => rendererResourceCacheNamespace(ref.environmentId),
-	readArchived: async (ref, id, signal) => {
+	readArchived: async (ref, id, signal, reads) => {
 		const summary = cloudSummaryForEnvironment(ref.environmentId);
 		if (summary === null) return null;
 		const control = await getCloudControlClient(
 			summary.workspaceScope ?? { kind: "personal" },
 		);
-		return readArchivedSessionMessage(control, ref, id, signal);
+		return readArchivedSessionMessage(control, ref, id, signal, reads);
 	},
 });
 

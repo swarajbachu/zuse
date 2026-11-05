@@ -220,10 +220,50 @@ it("preserves current model handoffs and generated UI in encrypted history", asy
 	);
 });
 
+const archivedPage = async (
+	head: Awaited<ReturnType<typeof checkpoint>>,
+	messages: readonly import("@zuse/contracts").Message[],
+) => {
+	const { CloudTranscriptMessagePagePayload } = await import("@zuse/contracts");
+	const payload = CloudTranscriptMessagePagePayload.make({
+		schemaVersion: 1,
+		workspaceId: ref.environmentId,
+		sessionId: ref.sessionId,
+		cursor: head.metadata.cursor,
+		beforeSequence: 20,
+		olderMessageSequence: null,
+		messages,
+	});
+	const ciphertext = await encryptCloudTranscript({
+		encodedKey: head.transcriptKey,
+		additionalData: cloudTranscriptAdditionalData({
+			workspaceId: ref.environmentId,
+			sessionId: ref.sessionId,
+			...head.metadata.cursor,
+			schemaVersion: 1,
+			pageBeforeSequence: 20,
+		}),
+		plaintext: new TextEncoder().encode(
+			JSON.stringify(
+				Schema.encodeSync(CloudTranscriptMessagePagePayload)(payload),
+			),
+		),
+	});
+	return {
+		cursor: head.metadata.cursor,
+		beforeSequence: 20,
+		ciphertext,
+		transcriptKey: head.transcriptKey,
+		ciphertextSha256: await sha256Base64Url(ciphertext),
+	};
+};
+
 it("loads deferred details from encrypted older pages without a runtime client", async () => {
-	const { Message, MessageId, CloudTranscriptMessagePagePayload } =
-		await import("@zuse/contracts");
+	const { Message, MessageId } = await import("@zuse/contracts");
 	const { Effect } = await import("effect");
+	const { ArchivedTranscriptReads } = await import(
+		"../../src/archived-transcript-reads.ts"
+	);
 	const { readArchivedSessionMessage } = await import(
 		"../../src/session-message-detail.ts"
 	);
@@ -242,48 +282,127 @@ it("loads deferred details from encrypted older pages without a runtime client",
 			isError: false,
 		},
 	});
-	const payload = CloudTranscriptMessagePagePayload.make({
-		schemaVersion: 1,
-		workspaceId: ref.environmentId,
-		sessionId: ref.sessionId,
-		cursor: head.metadata.cursor,
-		beforeSequence: 20,
-		olderMessageSequence: null,
-		messages: [full],
-	});
-	const ciphertext = await encryptCloudTranscript({
-		encodedKey: head.transcriptKey,
-		additionalData: cloudTranscriptAdditionalData({
-			workspaceId: ref.environmentId,
-			sessionId: ref.sessionId,
-			...head.metadata.cursor,
-			schemaVersion: 1,
-			pageBeforeSequence: 20,
-		}),
-		plaintext: new TextEncoder().encode(
-			JSON.stringify(
-				Schema.encodeSync(CloudTranscriptMessagePagePayload)(payload),
-			),
-		),
-	});
+	const page = await archivedPage(head, [
+		full,
+		Message.make({ ...full, id: MessageId.make("archived-second") }),
+		Message.make({ ...full, id: MessageId.make("archived-third") }),
+	]);
 	let pages = 0;
+	let heads = 0;
 	const control = {
-		"cloud.transcript.get": () => Effect.succeed({ checkpoint: head }),
+		"cloud.transcript.get": () => {
+			heads++;
+			return Effect.succeed({ checkpoint: head });
+		},
 		"cloud.transcript.messages.page": (input: { beforeSequence: number }) => {
 			pages++;
 			expect(input.beforeSequence).toBe(20);
-			return Effect.succeed({
-				page: {
-					cursor: head.metadata.cursor,
-					beforeSequence: 20,
-					ciphertext,
-					transcriptKey: head.transcriptKey,
-					ciphertextSha256: awaitHash,
-				},
-			});
+			return Effect.succeed({ page });
 		},
 	};
-	const awaitHash = await sha256Base64Url(ciphertext);
-	expect(await readArchivedSessionMessage(control, ref, full.id)).toEqual(full);
+	const uncachedIds = [
+		full.id,
+		MessageId.make("archived-second"),
+		MessageId.make("archived-third"),
+	];
+	await Promise.all(
+		uncachedIds.map((id) => readArchivedSessionMessage(control, ref, id)),
+	);
+	expect({ heads, pages }).toEqual({ heads: 3, pages: 3 });
+	const beforeCalls = heads + pages;
+	heads = 0;
+	pages = 0;
+	const reads = new ArchivedTranscriptReads(() => true);
+	const ids = [
+		full.id,
+		MessageId.make("archived-second"),
+		MessageId.make("archived-third"),
+	];
+	const results = await Promise.all(
+		ids.map((id) =>
+			readArchivedSessionMessage(control, ref, id, undefined, reads),
+		),
+	);
+	expect(results.map((message) => message?.id)).toEqual(ids);
+	expect(results[0]).toEqual(full);
+	expect(heads).toBe(1);
+	if (process.env.ZUSE_TRANSFER_REPORT === "1")
+		console.log(
+			JSON.stringify({
+				archiveCallsBefore: beforeCalls,
+				archiveCallsAfter: heads + pages,
+				results: results.length,
+			}),
+		);
 	expect(pages).toBe(1);
+	// Evict decoded bodies while retaining the small authenticated page index.
+	for (let index = 0; index < 3; index++)
+		await reads.read(`pressure-${index}`, async () => ({
+			cursor: head.metadata.cursor,
+			beforeSequence: null,
+			cacheBytes: 2 * 1024 * 1024,
+			messages: [],
+			olderMessageSequence: null,
+		}));
+	expect(
+		await readArchivedSessionMessage(
+			control,
+			ref,
+			MessageId.make("archived-second"),
+			undefined,
+			reads,
+		),
+	).toMatchObject({ id: "archived-second" });
+	expect(heads).toBe(1);
+	expect(pages).toBe(2);
+	reads.clear();
+});
+
+it("sizes cached archive pages after decompression and indexes oversized bodies without retaining them", async () => {
+	const { Message, MessageId } = await import("@zuse/contracts");
+	const { Effect } = await import("effect");
+	const { ArchivedTranscriptReads } = await import(
+		"../../src/archived-transcript-reads.ts"
+	);
+	const { readArchivedSessionMessage } = await import(
+		"../../src/session-message-detail.ts"
+	);
+	const head = await checkpoint(undefined, (value) => {
+		(value.projection as Record<string, unknown>).olderMessageSequence = 20;
+	});
+	const full = Message.make({
+		id: MessageId.make("large-archived-result"),
+		sessionId: ref.sessionId,
+		role: "assistant",
+		createdAt: new Date(0),
+		content: {
+			_tag: "tool_result",
+			itemId: "tool" as never,
+			output: "x".repeat(3 * 1024 * 1024),
+			isError: false,
+		},
+	});
+	const page = await archivedPage(head, [full]);
+	expect(page.ciphertext.length).toBeLessThan(50_000);
+	let heads = 0;
+	let pages = 0;
+	const control = {
+		"cloud.transcript.get": () => {
+			heads++;
+			return Effect.succeed({ checkpoint: head });
+		},
+		"cloud.transcript.messages.page": () => {
+			pages++;
+			return Effect.succeed({ page });
+		},
+	};
+	const reads = new ArchivedTranscriptReads(() => true);
+	expect(
+		await readArchivedSessionMessage(control, ref, full.id, undefined, reads),
+	).toEqual(full);
+	expect(
+		await readArchivedSessionMessage(control, ref, full.id, undefined, reads),
+	).toEqual(full);
+	expect({ heads, pages }).toEqual({ heads: 1, pages: 2 });
+	reads.clear();
 });

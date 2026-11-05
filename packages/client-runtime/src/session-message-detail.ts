@@ -8,11 +8,15 @@ import {
 	type SessionTimelineProjection,
 } from "@zuse/contracts";
 import { Effect, Schema } from "effect";
+import {
+	ArchivedTranscriptReads,
+	type ArchivedTranscriptWindow,
+} from "./archived-transcript-reads.ts";
 import type { ClientBus } from "./client-bus.ts";
 import type { CloudControlClient } from "./cloud-control-client.ts";
 import {
-	openCloudTranscriptCheckpoint,
-	openCloudTranscriptPage,
+	openCloudTranscriptCheckpointWithSize,
+	openCloudTranscriptPageWithSize,
 } from "./cloud-transcript.ts";
 import { fnv1a } from "./fnv1a.ts";
 import { makeResourceKey, type SessionRef } from "./resource-ref.ts";
@@ -30,44 +34,88 @@ export async function readArchivedSessionMessage(
 	ref: SessionRef,
 	messageId: MessageId,
 	signal?: AbortSignal,
+	reads?: ArchivedTranscriptReads,
 ): Promise<Message | null> {
-	const result = await Effect.runPromise(
-		control["cloud.transcript.get"]({
-			workspaceId: ref.environmentId,
-			sessionId: ref.sessionId,
-		}),
-		{ signal },
-	);
-	if (result.checkpoint === null) return null;
-	const head = await openCloudTranscriptCheckpoint(ref, result.checkpoint);
-	let messages = head.projection.messages;
-	let before = head.projection.olderMessageSequence ?? null;
+	const read = (
+		key: string,
+		load: (signal?: AbortSignal) => Promise<ArchivedTranscriptWindow | null>,
+	) => (reads ? reads.read(key, load, signal) : load(signal));
+	const readHead = () =>
+		read("head", async (signal) => {
+			const result = await Effect.runPromise(
+				control["cloud.transcript.get"]({
+					workspaceId: ref.environmentId,
+					sessionId: ref.sessionId,
+				}),
+				{ signal },
+			);
+			if (result.checkpoint === null) return null;
+			const { payload: opened, decodedBytes } =
+				await openCloudTranscriptCheckpointWithSize(ref, result.checkpoint);
+			return {
+				cursor: opened.cursor,
+				beforeSequence: null,
+				cacheBytes: decodedBytes * 2,
+				messages: opened.projection.messages,
+				olderMessageSequence: opened.projection.olderMessageSequence ?? null,
+			};
+		});
+	const readPage = (
+		cursor: ArchivedTranscriptWindow["cursor"],
+		pageBefore: number,
+	) =>
+		read(
+			JSON.stringify([cursor.epoch, cursor.version, pageBefore]),
+			async (signal) => {
+				const next = await Effect.runPromise(
+					control["cloud.transcript.messages.page"]({
+						workspaceId: ref.environmentId,
+						sessionId: ref.sessionId,
+						cursor: cursor,
+						beforeSequence: pageBefore,
+					}),
+					{ signal },
+				);
+				if (next.page === null) return null;
+				const { page: opened, decodedBytes } =
+					await openCloudTranscriptPageWithSize(
+						ref,
+						cursor,
+						pageBefore,
+						next.page,
+					);
+				if (
+					opened.olderMessageSequence !== null &&
+					opened.olderMessageSequence >= pageBefore
+				)
+					throw new Error("History page did not advance");
+				return {
+					...opened,
+					cursor,
+					beforeSequence: pageBefore,
+					cacheBytes: decodedBytes * 2,
+				};
+			},
+		);
+	const known = reads?.locate(messageId);
+	if (known) {
+		const page = await (known.beforeSequence === null
+			? readHead()
+			: readPage(known.cursor, known.beforeSequence));
+		return page?.messages.find((message) => message.id === messageId) ?? null;
+	}
+	const head = await readHead();
+	if (head === null) return null;
+	let messages = head.messages;
+	let before = head.olderMessageSequence;
+
 	while (true) {
 		signal?.throwIfAborted();
 		const found = messages.find((message) => message.id === messageId);
 		if (found) return found;
 		if (before === null) return null;
-		const next = await Effect.runPromise(
-			control["cloud.transcript.messages.page"]({
-				workspaceId: ref.environmentId,
-				sessionId: ref.sessionId,
-				cursor: head.cursor,
-				beforeSequence: before,
-			}),
-			{ signal },
-		);
-		if (next.page === null) return null;
-		const page = await openCloudTranscriptPage(
-			ref,
-			head.cursor,
-			before,
-			next.page,
-		);
-		if (
-			page.olderMessageSequence !== null &&
-			page.olderMessageSequence >= before
-		)
-			throw new Error("History page did not advance");
+		const page = await readPage(head.cursor, before);
+		if (page === null) return null;
 		messages = page.messages;
 		before = page.olderMessageSequence;
 	}
@@ -93,17 +141,20 @@ type DetailClient = {
 };
 
 /** Detail stays in the expanded view, separate from canonical cursors and caches. */
-export const makeSessionMessageDetailLoader =
-	<Client extends DetailClient>(options: {
-		getBus: () => ClientBus<Client>;
-		namespace: (ref: SessionRef) => unknown;
-		readArchived: (
-			ref: SessionRef,
-			id: MessageId,
-			signal?: AbortSignal,
-		) => Promise<Message | null>;
-	}) =>
-	async (
+export const makeSessionMessageDetailLoader = <
+	Client extends DetailClient,
+>(options: {
+	getBus: () => ClientBus<Client>;
+	namespace: (ref: SessionRef) => unknown;
+	readArchived: (
+		ref: SessionRef,
+		id: MessageId,
+		signal?: AbortSignal,
+		reads?: ArchivedTranscriptReads,
+	) => Promise<Message | null>;
+}) => {
+	const archives = new Map<string, ArchivedTranscriptReads>();
+	return async (
 		ref: SessionRef,
 		id: MessageId,
 		signal?: AbortSignal,
@@ -124,6 +175,8 @@ export const makeSessionMessageDetailLoader =
 		const current = () =>
 			options.getBus() === bus &&
 			options.namespace(ref) === namespace &&
+			bus.snapshot(key).connection !== "revoked" &&
+			bus.snapshot(key).connection !== "blocked-auth" &&
 			bus.snapshot(key).generation === generation &&
 			bus.snapshot(key).cursor?.epoch === epoch &&
 			bus
@@ -132,10 +185,52 @@ export const makeSessionMessageDetailLoader =
 					(message) =>
 						message.id === id && detailRevision(message) === revision,
 				) === true;
+		if (!current())
+			throw new Error("The conversation changed while loading details");
 		const client = bus.client(ref.environmentId);
 		let message: Message | null;
-		if (client === null) message = await options.readArchived(ref, id, signal);
-		else {
+		if (client === null) {
+			for (const [key, reader] of archives)
+				if (!reader.current()) {
+					reader.clear();
+					archives.delete(key);
+				}
+			const archiveKey = JSON.stringify([ref.environmentId, ref.sessionId]);
+			let reader = archives.get(archiveKey);
+			if (!reader && archives.size >= 4) {
+				const idle = [...archives].find(([, reader]) => !reader.busy);
+				if (idle) {
+					idle[1].clear();
+					archives.delete(idle[0]);
+				}
+			}
+			if (!reader && archives.size < 4) {
+				const version = before.cursor?.version;
+				reader = new ArchivedTranscriptReads(
+					() =>
+						options.getBus() === bus &&
+						options.namespace(ref) === namespace &&
+						bus.snapshot(key).data !== null &&
+						bus.snapshot(key).connection !== "revoked" &&
+						bus.snapshot(key).connection !== "blocked-auth" &&
+						bus.snapshot(key).generation === generation &&
+						bus.snapshot(key).cursor?.epoch === epoch &&
+						bus.snapshot(key).cursor?.version === version,
+					() => {
+						if (archives.get(archiveKey) === reader)
+							archives.delete(archiveKey);
+					},
+				);
+				archives.set(archiveKey, reader);
+			}
+
+			const release = reader?.retain();
+			try {
+				message = await options.readArchived(ref, id, signal, reader);
+			} finally {
+				release?.();
+			}
+		} else {
 			let offset = 0;
 			let restarts = 0;
 			let buffer: Uint8Array | null = null;
@@ -241,6 +336,7 @@ export const makeSessionMessageDetailLoader =
 		}
 		return message;
 	};
+};
 
 /** Resolve only omitted fields; both surfaces share cancellation and validation. */
 export async function loadDeferredSessionToolDetails(
