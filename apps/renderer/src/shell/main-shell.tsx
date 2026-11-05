@@ -197,6 +197,12 @@ const UpdateBanner = lazy(() =>
 	})),
 );
 
+const AutomationsPage = lazy(() =>
+	import("../components/automations/automations-page.tsx").then((module) => ({
+		default: module.AutomationsPage,
+	})),
+);
+
 const PluginsPage = lazy(() =>
 	import("../components/plugins/plugins-page.tsx").then((module) => ({
 		default: module.PluginsPage,
@@ -587,7 +593,8 @@ export function MainShell() {
 	const fullWidthPage =
 		activeMainTab === "archives" ||
 		activeMainTab === "usage" ||
-		activeMainTab === "plugins";
+		activeMainTab === "plugins" ||
+		activeMainTab === "automations";
 	const showMainTabs = showMainChrome && !fullWidthPage;
 
 	const { defaultLayout, onLayoutChanged } = useDefaultLayout({
@@ -794,6 +801,16 @@ export function MainShell() {
 															selectedFolder?.name ?? "No repository selected"
 														}
 													/>
+												</Suspense>
+											)}
+										</div>
+										<div
+											hidden={activeMainTab !== "automations"}
+											className="flex min-h-0 flex-1 flex-col"
+										>
+											{activeMainTab === "automations" && (
+												<Suspense fallback={<SurfaceFallback />}>
+													<AutomationsPage />
 												</Suspense>
 											)}
 										</div>

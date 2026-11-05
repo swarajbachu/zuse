@@ -111,6 +111,7 @@ const withBrowserCors = (
 	request: Request,
 	allowedOrigins: ReadonlyArray<string>,
 ): Response => {
+	if (response.status === 101) return response;
 	const origin = request.headers.get("origin");
 	if (origin === null || !allowedOrigins.includes(origin)) return response;
 	const headers = new Headers(response.headers);

@@ -1596,3 +1596,95 @@ export const apiMasterOwnership = pgTable(
 	},
 	(table) => [primaryKey({ columns: [table.accountId, table.masterId] })],
 );
+
+export const apiAutomationRegistrations = pgTable(
+	"api_automation_registrations",
+	{
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => apiCloudWorkspaces.workspaceId, {
+				onDelete: "cascade",
+			}),
+		accountId: text("account_id").notNull(),
+		automationId: text("automation_id").notNull(),
+		revision: integer("revision").notNull(),
+		enabled: boolean("enabled").notNull(),
+		sealed: text("sealed").notNull(),
+		webhookTokenSealed: text("webhook_token_sealed").notNull(),
+		nextRunAt: bigint("next_run_at", { mode: "number" }),
+	},
+	(table) => [
+		primaryKey({ columns: [table.workspaceId, table.automationId] }),
+		index("api_automation_registrations_schedule_idx")
+			.on(table.nextRunAt)
+			.where(sql`${table.enabled}=true`),
+		index("api_automation_registrations_account_idx")
+			.on(table.accountId)
+			.where(sql`${table.enabled}=true`),
+	],
+);
+export const apiAutomationEvents = pgTable(
+	"api_automation_events",
+	{
+		id: text("id").primaryKey(),
+		workspaceId: text("workspace_id").notNull(),
+		automationId: text("automation_id").notNull(),
+		revision: integer("revision").notNull(),
+		eventId: text("event_id").notNull(),
+		source: text("source").notNull(),
+		sealed: text("sealed").notNull(),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+		acknowledgedAt: bigint("acknowledged_at", { mode: "number" }),
+		completedAt: bigint("completed_at", { mode: "number" }),
+		rejectedReason: text("rejected_reason"),
+	},
+	(table) => [
+		foreignKey({
+			columns: [table.workspaceId, table.automationId],
+			foreignColumns: [
+				apiAutomationRegistrations.workspaceId,
+				apiAutomationRegistrations.automationId,
+			],
+		}).onDelete("cascade"),
+		uniqueIndex("api_automation_events_delivery_idx").on(
+			table.workspaceId,
+			table.automationId,
+			table.source,
+			table.eventId,
+		),
+		index("api_automation_events_expiry_idx").on(table.expiresAt),
+		index("api_automation_events_pending_idx")
+			.on(table.workspaceId, table.createdAt)
+			.where(sql`${table.acknowledgedAt} IS NULL`),
+	],
+);
+
+export const apiAutomationNotifications = pgTable(
+	"api_automation_notifications",
+	{
+		workspaceId: text("workspace_id").notNull(),
+		automationId: text("automation_id").notNull(),
+		runId: text("run_id").notNull(),
+		destination: text("destination").notNull(),
+		deliveredAt: bigint("delivered_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		index("api_automation_notifications_expiry_idx").on(table.deliveredAt),
+		primaryKey({
+			columns: [
+				table.workspaceId,
+				table.automationId,
+				table.runId,
+				table.destination,
+			],
+		}),
+		foreignKey({
+			columns: [table.workspaceId, table.automationId],
+			foreignColumns: [
+				apiAutomationRegistrations.workspaceId,
+				apiAutomationRegistrations.automationId,
+			],
+		}).onDelete("cascade"),
+	],
+);

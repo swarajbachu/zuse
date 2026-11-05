@@ -1517,6 +1517,9 @@ function SidebarFolderRow({
 }
 
 function SidebarActions() {
+	const automationsOpen = useUiStore(
+		(state) => state.view === "chat" && state.activeMainTab === "automations",
+	);
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 	const pluginsOpen = useUiStore(
 		(state) => state.view === "chat" && state.activeMainTab === "plugins",
@@ -1536,6 +1539,17 @@ function SidebarActions() {
 				icon={FolderAddIcon}
 				label={uiMessage("projects:projects_sidebar_new_project")}
 				onClick={() => dispatchCommand("open-project")}
+			/>
+			<SidebarActionRow
+				icon={TaskDone01Icon}
+				label={uiMessage("projects:projects_sidebar_automations")}
+				active={automationsOpen}
+				onClick={() => {
+					const ui = useUiStore.getState();
+					ui.setView("chat");
+					ui.setActiveMainTab("automations");
+					useMastersStore.getState().select(null);
+				}}
 			/>
 			{isSignedIn && (
 				<SidebarActionRow

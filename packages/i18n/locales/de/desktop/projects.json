@@ -520,5 +520,6 @@
 	"masters_guide_continuity_body": "Wird eine Unterhaltung lang, wähle hier Neuer Chat. Repositorys, laufende Slaves, Entscheidungen und das Gedächtnis bleiben erhalten.",
 	"masters_guide_continuity_memory": "Diese Anleitung kannst du jederzeit über dieses Menü erneut öffnen.",
 	"masters_paused_notice": "Pausiert. Dein Zot kann antworten, startet oder benachrichtigt aber keine Slaves, bis du fortsetzt.",
-	"masters_stopped_notice": "Gestoppt. Dein Zot kann antworten, startet oder benachrichtigt aber keine Slaves, bis du fortsetzt."
+	"masters_stopped_notice": "Gestoppt. Dein Zot kann antworten, startet oder benachrichtigt aber keine Slaves, bis du fortsetzt.",
+	"projects_sidebar_automations": "Automatisierungen"
 }

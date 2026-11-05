@@ -17,12 +17,14 @@ export const CLOUD_RUNTIME_COMMAND_AUTHOR_CAPABILITY =
 export const CLOUD_RUNTIME_LAUNCH_GRANT_CAPABILITY = "launch-grant-v1" as const;
 export const CloudRuntimeAccessRequest = Schema.Struct({
 	actorId: Schema.NonEmptyString,
+	purpose: Schema.optional(Schema.Literal("automation")),
 	membershipId: Schema.optional(Schema.NonEmptyString),
 	runtimeGeneration: Schema.Number,
 	gatewayEpoch: Schema.Number,
 });
 export const CloudRuntimeAccessResponse = Schema.Struct({
 	permission: ChatAccessPermission,
+	automationAdmin: Schema.optional(Schema.Boolean),
 	actor: Schema.optional(WorkspaceActor),
 });
 

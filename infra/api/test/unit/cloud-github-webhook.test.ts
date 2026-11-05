@@ -2,6 +2,10 @@ import { createHmac, generateKeyPairSync } from "node:crypto";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
+	AutomationMailbox,
+	AutomationMailboxStore,
+} from "../../src/automation-mailbox.ts";
+import {
 	githubWebhook,
 	refreshGithubConnections,
 } from "../../src/cloud-github-app.ts";
@@ -15,10 +19,14 @@ import { ApiStore, ApiStoreMemory } from "../../src/store.ts";
 const privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 })
 	.privateKey.export({ format: "pem", type: "pkcs8" })
 	.toString();
-const makeRuntime = (secret: string | undefined = "webhook-secret") =>
+const makeRuntime = (
+	secret: string | undefined = "webhook-secret",
+	mailbox?: AutomationMailboxStore,
+) =>
 	ManagedRuntime.make(
 		Layer.mergeAll(
 			ApiStoreMemory,
+			mailbox ? Layer.succeed(AutomationMailbox, mailbox) : Layer.empty,
 			CloudWorkspaceStoreMemory,
 			configurationLayer({
 				apiIssuer: "https://api-staging.zuse.sh",
@@ -113,6 +121,50 @@ describe("GitHub installation webhooks", () => {
 			expect(
 				await runtime.runPromise(store.githubJoining.listEnrollments()),
 			).toEqual([]);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
+	test("dispatches signed repository events and never dispatches tampered payloads", async () => {
+		const mailbox = new AutomationMailboxStore(
+			{ query: async () => [] },
+			{
+				seal: async (_context, value) => value,
+				open: async (_context, value) => value,
+			},
+		);
+		const dispatch = vi.spyOn(mailbox, "dispatchGithub").mockResolvedValue(1);
+		const runtime = makeRuntime("webhook-secret", mailbox);
+		const body = JSON.stringify({
+			installation: { id: 123 },
+			repository: { full_name: "acme/project" },
+			action: "opened",
+		});
+		try {
+			const response = await runtime.runPromise(
+				githubWebhook(request("pull_request", body)),
+			);
+			expect(await response.json()).toEqual({ accepted: 1 });
+			expect(dispatch).toHaveBeenCalledWith(
+				123,
+				expect.objectContaining({
+					eventId: "same-delivery",
+					source: "github",
+					context: {
+						event: "pull_request",
+						action: "opened",
+						repository: "acme/project",
+						installationId: "123",
+					},
+				}),
+			);
+			await expect(
+				runtime.runPromise(
+					githubWebhook(request("pull_request", body, "attacker-secret")),
+				),
+			).rejects.toMatchObject({ code: "invalid_github_signature" });
+			expect(dispatch).toHaveBeenCalledTimes(1);
 		} finally {
 			await runtime.dispose();
 		}

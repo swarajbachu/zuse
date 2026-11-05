@@ -757,6 +757,21 @@ export type ModelOption = typeof ModelOption.Type;
 export const StartSessionInput = Schema.Struct({
 	/** Internal auxiliary turn: supported adapters remove all tools and hooks. */
 	outputOnly: Schema.optional(Schema.Boolean),
+	/** Server-owned immutable restrictions for automated sessions. */
+	executionPolicy: Schema.optional(
+		Schema.Struct({
+			maxBudgetUsd: Schema.optional(
+				Schema.Number.check(Schema.isGreaterThan(0)),
+			),
+			mcpServerNames: Schema.optional(Schema.Array(Schema.String)),
+			network: Schema.optional(
+				Schema.Struct({
+					enabled: Schema.Boolean,
+					allowedDomains: Schema.Array(Schema.String),
+				}),
+			),
+		}),
+	),
 	folderId: FolderId,
 	providerId: ProviderId,
 	mode: SessionMode,

@@ -14,6 +14,7 @@ describe("orchestration MCP tools", () => {
 	test.each([
 		"create_session",
 		"master_action",
+		"automation_save",
 	] as const)("denies %s in plan mode without requesting permission", async (toolName) => {
 		let requestCount = 0;
 		await expect(
@@ -43,6 +44,8 @@ describe("orchestration MCP tools", () => {
 			"trigger_scheduled_task",
 			"request_secret",
 			"list_secret_requests",
+			"automation_catalog",
+			"automation_save",
 			"orchestrator_capabilities",
 			"delegate_task",
 			"task_status",
@@ -78,6 +81,7 @@ describe("orchestration MCP tools", () => {
 
 	test("marks read-only and mutating tools explicitly", () => {
 		expect([...READ_ONLY_ORCHESTRATION_TOOLS].sort()).toEqual([
+			"automation_catalog",
 			"emit_ui",
 			"list_models",
 			"list_scheduled_tasks",
@@ -91,6 +95,7 @@ describe("orchestration MCP tools", () => {
 			"whoami",
 		]);
 		expect([...MUTATING_ORCHESTRATION_TOOLS].sort()).toEqual([
+			"automation_save",
 			"create_session",
 			"create_thread",
 			"delegate_task",
@@ -360,5 +365,33 @@ describe("orchestration MCP tools", () => {
 			[action, false, "delegate-search"],
 			[undefined, true, undefined],
 		]);
+	});
+});
+
+test("native automation tools validate saves and return persisted results", async () => {
+	const calls: unknown[] = [];
+	const deps = {
+		projectAutomation: async (input: unknown) => {
+			calls.push(input);
+			return {
+				ok: true,
+				result: input
+					? { id: "persisted-automation" }
+					: { projectId: "current" },
+			};
+		},
+	} as Parameters<typeof callOrchestrationTool>[0];
+	const invalid = await callOrchestrationTool(deps, "automation_save", {
+		configJson: "{}",
+	});
+	expect(invalid.isError).toBe(true);
+	expect(calls).toHaveLength(0);
+	await callOrchestrationTool(deps, "automation_catalog", {});
+	const input = { configJson: '{"enabled":false}', requestId: "create-1" };
+	const result = await callOrchestrationTool(deps, "automation_save", input);
+	expect(calls).toEqual([undefined, input]);
+	expect(JSON.parse(result.content[0]?.text ?? "null")).toEqual({
+		ok: true,
+		result: { id: "persisted-automation" },
 	});
 });

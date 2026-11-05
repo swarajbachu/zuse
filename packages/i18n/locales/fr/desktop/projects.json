@@ -526,5 +526,6 @@
 	"masters_guide_continuity_body": "Quand une conversation devient longue, choisissez Nouvelle conversation ici. Les dépôts, les slaves en cours, les décisions et la mémoire sont conservés.",
 	"masters_guide_continuity_memory": "Rouvrez ce guide depuis ce menu à tout moment.",
 	"masters_paused_notice": "En pause. Votre Zot peut répondre, mais ne lancera ni ne contactera de slaves tant que vous n’aurez pas repris.",
-	"masters_stopped_notice": "Arrêté. Votre Zot peut répondre, mais ne lancera ni ne contactera de slaves tant que vous n’aurez pas repris."
+	"masters_stopped_notice": "Arrêté. Votre Zot peut répondre, mais ne lancera ni ne contactera de slaves tant que vous n’aurez pas repris.",
+	"projects_sidebar_automations": "Automatisations"
 }

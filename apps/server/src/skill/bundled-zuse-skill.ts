@@ -13,7 +13,7 @@ description: Configure Zuse projects and scripts, orchestrate agents and cloud w
 
 Use this skill when helping with Zuse project setup, \`.zuse/settings.toml\`,
 worktree creation, setup/run/archive scripts, files to include in worktrees,
-provider skills, user settings, keybindings, orchestration tools, MCP, or
+provider skills, user settings, keybindings, orchestration tools, automations, MCP, or
 schema URLs.
 
 Canonical repository settings live in \`.zuse/settings.toml\`. Use
@@ -121,6 +121,21 @@ archive, unarchive, and delete actions mirror the UI; deletion requires
 The local server is the default computer. Remote targets require
 \`--computer <id> --ws-url <url>\` and, when protected, \`--token <token>\`.
 Never print or persist access tokens.
+
+## Automations
+
+For scheduled work or Slack, GitHub and webhook triggers, use the native
+\`automation_catalog\` tool for the current project's schema, capabilities,
+templates and definitions. Persist with \`automation_save\`, supplying
+\`configJson\` and a stable \`requestId\`; reuse the ID with identical JSON
+for creation retries. Updates require \`id\` and \`expectedRevision\`.
+Save proposals paused (\`enabled:false\`) for review; enable within the user's
+authorized request. Include "zuse.source": "agent" in metadata. Verify
+the persisted ID and catalog; a saved definition is not a completed run.
+These native tools require no CLI installation. Where the branch CLI is available,
+\`zuse automation schema/capabilities/templates/list/save/get/enable/pause/run/runs\`
+uses the same registry.
+
 
 In a \`bun dev\` checkout, the branch-local CLI automatically discovers the
 active protected dev RPC through its owner-readable, gitignored instance

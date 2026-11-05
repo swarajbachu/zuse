@@ -243,6 +243,12 @@ export const makeProviderSessionRuntime = (
 						tasks: runtimeOptions.tasks,
 						automation: Option.getOrUndefined(automation),
 						automationActor: author.actor,
+						automationActorForCall: () =>
+							Option.isSome(gitService)
+								? Effect.tryPromise(() =>
+										gitService.value.resolve(session.id),
+									).pipe(Effect.map((current) => current?.context.actor))
+								: Effect.succeed(undefined),
 						interruptSession: interruptSession
 							? (sessionId, commandId) => interruptSession(commandId, sessionId)
 							: undefined,

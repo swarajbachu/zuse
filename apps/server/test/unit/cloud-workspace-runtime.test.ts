@@ -33,6 +33,7 @@ import {
 	authorizeCloudMailboxActor,
 	authorizeCloudQueuedActor,
 	authorizeCloudRuntimeActor,
+	authorizeCloudRuntimeAutomations,
 	bufferWorkspaceLocalFrame,
 	CloudMailboxApplyError,
 	type CloudMailboxCommandIdentity,
@@ -2634,4 +2635,36 @@ describe("bootstrap launch grant startup identity", () => {
 		expect(initializations[0]).toMatch(/^[0-9a-f-]{36}$/u);
 		expect(initializations[1]).toBeUndefined();
 	});
+});
+
+it("requires current automation administration even when workspace editing is allowed", async () => {
+	let admin = false;
+	const fetcher = vi.fn(async (_url: string, _init?: RequestInit) =>
+		Response.json({ permission: "edit", automationAdmin: admin }),
+	);
+	vi.stubGlobal("fetch", fetcher);
+	try {
+		const request = {
+			config: { apiUrl: "https://api.test", workspaceId: "workspace" },
+			credential: { credential: "runtime", generation: 1, gatewayEpoch: 1 },
+			actorId: "editor",
+			membershipId: "member-1",
+		};
+		await expect(
+			Effect.runPromise(authorizeCloudRuntimeAutomations(request)),
+		).rejects.toThrow();
+		admin = true;
+		await Effect.runPromise(authorizeCloudRuntimeAutomations(request));
+		admin = false;
+		await expect(
+			Effect.runPromise(authorizeCloudRuntimeAutomations(request)),
+		).rejects.toThrow();
+		expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({
+			purpose: "automation",
+			actorId: "editor",
+			membershipId: "member-1",
+		});
+	} finally {
+		vi.unstubAllGlobals();
+	}
 });

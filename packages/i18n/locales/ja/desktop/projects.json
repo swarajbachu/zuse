@@ -520,5 +520,6 @@
 	"masters_guide_continuity_body": "会話が長くなったら、ここで「新しいチャット」を選んでください。リポジトリ、実行中の Slaves、決定事項、メモリは引き継がれます。",
 	"masters_guide_continuity_memory": "このガイドはいつでもこのメニューから再表示できます。",
 	"masters_paused_notice": "一時停止中です。Zot は返信できますが、再開するまで Slaves の開始やメッセージ送信は行いません。",
-	"masters_stopped_notice": "停止中です。Zot は返信できますが、再開するまで Slaves の開始やメッセージ送信は行いません。"
+	"masters_stopped_notice": "停止中です。Zot は返信できますが、再開するまで Slaves の開始やメッセージ送信は行いません。",
+	"projects_sidebar_automations": "自動化"
 }

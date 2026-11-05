@@ -801,6 +801,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@openuidev/lang-core": "0.3.0",
+        "@zuse/contracts": "*",
         "cross-spawn": "7.0.6",
         "effect": "catalog:",
         "fflate": "0.8.2",

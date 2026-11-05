@@ -2,6 +2,9 @@ import type { SlackFileMetadata } from "./slack.ts";
 
 export interface SlackMessageEvent {
 	readonly type?: string;
+	readonly user?: string;
+	readonly reaction?: string;
+	readonly item?: { readonly channel?: string; readonly ts?: string };
 	readonly channel?: string;
 	readonly ts?: string;
 	readonly thread_ts?: string;
@@ -16,7 +19,13 @@ export interface SlackMessageEvent {
 export interface AlertRule {
 	readonly id: string;
 	readonly channelId: string;
-	readonly botId: string;
+	readonly botId?: string;
+	/** Omitted for backwards-compatible Better Stack alerts. */
+	readonly trigger?: "better-stack" | "message" | "bot-message";
+	readonly keywords?: ReadonlyArray<string>;
+	readonly prompt?: string;
+	readonly agent?: string;
+	readonly model?: string;
 	readonly projectId: string;
 	readonly mode: "dry-run" | "live";
 }
@@ -37,9 +46,32 @@ export const parseAlertRules = (value?: string): ReadonlyArray<AlertRule> => {
 			!("channelId" in rule) ||
 			typeof rule.channelId !== "string" ||
 			!/^[CG][A-Z0-9]+$/u.test(rule.channelId) ||
-			!("botId" in rule) ||
-			typeof rule.botId !== "string" ||
-			!/^B[A-Z0-9]+$/u.test(rule.botId) ||
+			("botId" in rule &&
+				rule.botId !== undefined &&
+				(typeof rule.botId !== "string" ||
+					!/^B[A-Z0-9]+$/u.test(rule.botId))) ||
+			((!("trigger" in rule) || rule.trigger !== "message") &&
+				(!("botId" in rule) || typeof rule.botId !== "string")) ||
+			("trigger" in rule &&
+				!["better-stack", "message", "bot-message"].includes(
+					String(rule.trigger),
+				)) ||
+			("keywords" in rule &&
+				(!Array.isArray(rule.keywords) ||
+					rule.keywords.length > 20 ||
+					rule.keywords.some(
+						(value: unknown) =>
+							typeof value !== "string" ||
+							value.trim().length === 0 ||
+							value.length > 200,
+					))) ||
+			["prompt", "agent", "model"].some(
+				(key) =>
+					key in rule &&
+					(typeof Reflect.get(rule, key) !== "string" ||
+						Reflect.get(rule, key).trim().length === 0 ||
+						Reflect.get(rule, key).length > (key === "prompt" ? 30_000 : 200)),
+			) ||
 			!("projectId" in rule) ||
 			typeof rule.projectId !== "string" ||
 			!/^project_[\w-]+$/u.test(rule.projectId) ||
@@ -52,7 +84,14 @@ export const parseAlertRules = (value?: string): ReadonlyArray<AlertRule> => {
 		return {
 			id: rule.id,
 			channelId: rule.channelId,
-			botId: rule.botId,
+			botId: "botId" in rule ? (rule.botId as string) : undefined,
+			...("trigger" in rule
+				? { trigger: rule.trigger as AlertRule["trigger"] }
+				: {}),
+			...("keywords" in rule ? { keywords: rule.keywords as string[] } : {}),
+			...("prompt" in rule ? { prompt: rule.prompt as string } : {}),
+			...("agent" in rule ? { agent: rule.agent as string } : {}),
+			...("model" in rule ? { model: rule.model as string } : {}),
 			projectId: rule.projectId,
 			mode: rule.mode,
 		};
@@ -93,38 +132,54 @@ export const slackMessageText = (
 	return [...new Set(parts)].join("\n");
 };
 
-export const matchAlert = (
+/** Match every configured rule; one message may feed several independent workflows. */
+export const matchAlerts = (
 	rules: ReadonlyArray<AlertRule>,
 	event: SlackMessageEvent,
-): AlertRule | undefined => {
+	ownBotUserId?: string,
+): ReadonlyArray<AlertRule> => {
 	if (
 		event.type !== "message" ||
 		!event.ts ||
 		(event.thread_ts !== undefined && event.thread_ts !== event.ts) ||
-		(event.subtype !== undefined && event.subtype !== "bot_message")
+		(event.subtype !== undefined &&
+			event.subtype !== "bot_message" &&
+			event.subtype !== "file_share") ||
+		(ownBotUserId !== undefined &&
+			"user" in event &&
+			event.user === ownBotUserId)
 	)
-		return;
-	const rule = rules.find(
-		(candidate) =>
-			candidate.channelId === event.channel && candidate.botId === event.bot_id,
-	);
-	if (!rule) return;
+		return [];
 	const text = slackMessageText(event);
-
-	if (
-		!/(?:^|\n)\s*[*_:🚨\s]*(?:spike detected in error|error detected in production)\b/iu.test(
-			text,
+	return rules.filter((rule) => {
+		if (rule.channelId !== event.channel) return false;
+		if (rule.botId && rule.botId !== event.bot_id) return false;
+		if (rule.trigger === "message" && event.bot_id) return false;
+		if (rule.trigger === "bot-message" && !event.bot_id) return false;
+		if (
+			rule.keywords?.length &&
+			!rule.keywords.some((keyword) =>
+				text.toLowerCase().includes(keyword.toLowerCase()),
+			)
 		)
-	)
-		return;
-	if (
-		/(?:^|\n)\s*[*_:✅\s]*(?:resolved|recovered|incident resolved|status update|deployment)\b/iu.test(
-			text,
-		)
-	)
-		return;
-	return rule;
+			return false;
+		if (rule.trigger === "message" || rule.trigger === "bot-message")
+			return true;
+		return (
+			/(?:^|\n)\s*[*_:🚨\s]*(?:spike detected in error|error detected in production)\b/iu.test(
+				text,
+			) &&
+			!/(?:^|\n)\s*[*_:✅\s]*(?:resolved|recovered|incident resolved|status update|deployment)\b/iu.test(
+				text,
+			)
+		);
+	});
 };
+
+export const matchAlert = (
+	rules: ReadonlyArray<AlertRule>,
+	event: SlackMessageEvent,
+): AlertRule | undefined => matchAlerts(rules, event)[0];
 
 export const ALERT_INSTRUCTIONS = [
 	"Investigate this production error alert in the configured repository.",

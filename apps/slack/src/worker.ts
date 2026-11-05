@@ -1,6 +1,10 @@
 import { executionAccount } from "./access.ts";
 import { accountRoutes, notifyConnected } from "./accounts.ts";
-import { matchAlert, type SlackMessageEvent } from "./automation.ts";
+import {
+	matchAlerts,
+	type SlackMessageEvent,
+	slackMessageText,
+} from "./automation.ts";
 import {
 	isConversationEvent,
 	pollProgress,
@@ -179,23 +183,68 @@ const events = async (
 				files: event.files,
 			};
 		} else {
-			const rule = matchAlert(installation.credentials.rules, event);
-			const ownerConnection = rule
-				? (await env.store.member(installation, installation.ownerId))
-						.connection
-				: null;
-			if (rule && ownerConnection)
-				job = {
-					...identity,
-					kind: "alert",
-					connectionId: ownerConnection.webhookId,
-					id: `alert:${rule.id}:${rule.mode}:${event.channel}:${event.ts}`,
-					revision: installation.revision,
-					ruleId: rule.id,
-					channel: event.channel,
-					threadTs: event.ts,
-				};
+			const rules = matchAlerts(
+				installation.credentials.rules,
+				event,
+				installation.credentials.botUserId,
+			);
+			const ownerConnection =
+				rules.length > 0
+					? (await env.store.member(installation, installation.ownerId))
+							.connection
+					: null;
+			if (ownerConnection)
+				for (const rule of rules)
+					await env.JOBS.send({
+						...identity,
+						kind: "alert",
+						connectionId: ownerConnection.webhookId,
+						id: `alert:${rule.id}:${rule.mode}:${event.channel}:${event.ts}`,
+						revision: installation.revision,
+						ruleId: rule.id,
+						channel: event.channel,
+						threadTs: event.ts,
+					});
 		}
+	}
+	if (
+		env.automations &&
+		!payload.is_ext_shared_channel &&
+		(event.type === "message" ||
+			event.type === "app_mention" ||
+			event.type === "reaction_added") &&
+		event.user !== installation.credentials.botUserId &&
+		(!event.subtype ||
+			event.subtype === "bot_message" ||
+			event.subtype === "file_share")
+	) {
+		const channelId = event.channel ?? event.item?.channel;
+		const threadTs = event.thread_ts ?? event.ts ?? event.item?.ts;
+		const owner = (await env.store.member(installation, installation.ownerId))
+			.connection;
+		if (channelId && threadTs && owner)
+			await env.JOBS.send({
+				...identity,
+				kind: "automation-event",
+				organizationId: owner.organizationId,
+				connectionId: owner.webhookId,
+				prompt: slackMessageText(event).slice(0, 60_000),
+				context: {
+					event:
+						event.type === "app_mention"
+							? "mention"
+							: event.type === "reaction_added"
+								? "reaction"
+								: "message",
+					channelId,
+					threadTs,
+					teamId: installation.teamId,
+					generation: installation.generation,
+					connectionId: owner.webhookId,
+					...(event.bot_id ? { botId: event.bot_id } : {}),
+					...(event.reaction ? { reaction: event.reaction } : {}),
+				},
+			});
 	}
 	if (job) await env.JOBS.send(job);
 	return new Response("ok");
@@ -366,7 +415,27 @@ export default {
 					);
 				else if (job.kind === "conversation")
 					await runConversation(env, installation, job);
-				else if (job.kind === "progress") {
+				else if (job.kind === "automation-event") {
+					const owner = (
+						await env.store.member(installation, installation.ownerId)
+					).connection;
+					if (
+						owner?.webhookId === job.connectionId &&
+						owner.organizationId === job.organizationId &&
+						env.automations
+					) {
+						await env.automations(
+							owner.accountId,
+							{
+								source: "slack",
+								eventId: `${job.teamId}:${job.id}`,
+								prompt: job.prompt,
+								context: job.context,
+							},
+							owner.organizationId,
+						);
+					}
+				} else if (job.kind === "progress") {
 					const state = env.store.state(installation);
 					const key = `poll:${job.id}`;
 					if (!(await state.get(key))) {

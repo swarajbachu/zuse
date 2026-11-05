@@ -169,6 +169,12 @@ export type TaskResult =
 	| { readonly ok: false; readonly error: string };
 export type ThreadSendMode = "auto" | "queue" | "steer" | "restart";
 export interface OrchestrationToolDeps {
+	readonly projectAutomation?: (input?: {
+		readonly configJson: string;
+		readonly requestId: string;
+		readonly id?: string;
+		readonly expectedRevision?: number;
+	}) => Promise<unknown>;
 	readonly automation?: AutomationToolDependencies;
 	readonly capabilities?: () => Promise<OrchestrationCapabilitiesResult>;
 	readonly delegateTask?: (input: DelegateTaskInput) => Promise<TaskResult>;
@@ -279,6 +285,8 @@ export type OrchestrationToolName =
 	| "list_models"
 	| "whoami"
 	| "emit_ui"
+	| "automation_catalog"
+	| "automation_save"
 	| "master_state"
 	| "master_action";
 
@@ -407,7 +415,25 @@ const interruptSchema = z.object({
 	sessionId: z.string().min(1),
 	commandId: z.string().optional(),
 });
+const automationSaveSchema = z.object({
+	configJson: z.string().min(1).max(200_000),
+	requestId: z.string().min(1).max(200),
+	id: z.string().min(1).optional(),
+	expectedRevision: z.number().int().positive().optional(),
+});
 const extraTools = [
+	{
+		name: "automation_catalog",
+		description:
+			"Discover your current project's persisted automations, full definition schema, templates and runtime capabilities. Use before automation_save. These are the same definitions shown in the Automations page. No CLI installation required.",
+		schema: z.object({}),
+	},
+	{
+		name: "automation_save",
+		description:
+			"Create or update a persisted automation for the current project. Read automation_catalog first; configJson must match its definitionSchema and projectId. Save proposals with enabled:false for review; enable only within the user's authorized request. Reuse requestId and identical configJson on a creation retry. Updates require id and expectedRevision. Confirm the returned persisted ID instead of merely describing a proposal.",
+		schema: automationSaveSchema,
+	},
 	{
 		name: "orchestrator_capabilities",
 		description:
@@ -591,6 +617,7 @@ export const ORCHESTRATION_MCP_TOOLS: ReadonlyArray<OrchestrationMcpToolDef> = [
 ];
 
 export const READ_ONLY_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
+	"automation_catalog",
 	"list_scheduled_tasks",
 	"list_secret_requests",
 	"orchestrator_capabilities",
@@ -606,6 +633,7 @@ export const READ_ONLY_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
 ]);
 
 export const MUTATING_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
+	"automation_save",
 	"schedule_task",
 	"update_scheduled_task",
 	"delete_scheduled_task",
@@ -750,6 +778,34 @@ export const callOrchestrationTool = async (
 					: { ok: false, error: "Invalid or unavailable interruption." },
 			);
 		}
+		case "automation_catalog":
+		case "automation_save": {
+			const parsed =
+				name === "automation_save"
+					? automationSaveSchema.safeParse(args)
+					: null;
+			if (name === "automation_save" && !parsed?.success)
+				return settle({
+					ok: false,
+					error:
+						"Invalid automation definition input. Read automation_catalog first.",
+				});
+			if (!deps.projectAutomation)
+				return settle({
+					ok: false,
+					error: "Project automation tools are unavailable.",
+				});
+			const result = await deps.projectAutomation(
+				parsed?.success ? parsed.data : undefined,
+			);
+			const failed =
+				typeof result === "object" &&
+				result !== null &&
+				"ok" in result &&
+				result.ok === false;
+			return { ...jsonResult(result), ...(failed ? { isError: true } : {}) };
+		}
+
 		case "master_state":
 		case "master_action": {
 			const commandJson = asString(args, "commandJson");

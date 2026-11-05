@@ -1699,6 +1699,12 @@ export const startClaudeSession = (
 	AttachmentService
 > =>
 	withProviderStartup(function* (startup) {
+		if (input.executionPolicy?.mcpServerNames !== undefined)
+			return yield* new AgentSessionStartError({
+				providerId: "claude",
+				reason:
+					"Native MCP selections are unavailable; this runtime uses the Zuse MCP gateway.",
+			});
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
 		const inputChannel = new UserInputChannel();
@@ -1899,6 +1905,9 @@ export const startClaudeSession = (
 		);
 		const options: Options = {
 			spawnClaudeCodeProcess: processes.spawn,
+			...(input.executionPolicy?.maxBudgetUsd !== undefined
+				? { maxBudgetUsd: input.executionPolicy.maxBudgetUsd }
+				: {}),
 			cwd,
 			systemPrompt: {
 				type: "preset",

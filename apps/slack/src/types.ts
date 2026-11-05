@@ -11,6 +11,16 @@ export interface StateStore {
 	): Promise<void>;
 }
 export interface AppEnv {
+	readonly automations?: (
+		accountId: string,
+		input: {
+			readonly source: "slack";
+			readonly eventId: string;
+			readonly prompt: string;
+			readonly context: Record<string, string>;
+		},
+		organizationId?: string,
+	) => Promise<number>;
 	readonly store: InstallationStore;
 	readonly cloud: (
 		accountId: string,
@@ -53,6 +63,13 @@ export type AppJob = {
 			readonly value: string;
 			readonly revision: number;
 			readonly memberRevision: number;
+	  }
+	| {
+			readonly kind: "automation-event";
+			readonly organizationId?: string;
+			readonly connectionId: string;
+			readonly prompt: string;
+			readonly context: Record<string, string>;
 	  }
 	| {
 			readonly kind: "reply-mode";

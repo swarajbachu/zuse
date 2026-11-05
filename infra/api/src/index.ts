@@ -7,6 +7,8 @@ import {
 	deliverPendingApiWebhooks,
 	sweepApiCommands,
 } from "./api-webhook-dispatch.ts";
+import { AutomationMailbox } from "./automation-mailbox.ts";
+import { wakeAutomationWorkspace } from "./automation-scheduler.ts";
 import {
 	type AccountOperation,
 	CloudAccountExecution,
@@ -93,6 +95,14 @@ export const makeApi = (
 		readonly claimed: number;
 		readonly processed: number;
 	}>;
+	readonly migrateLegacyAutomationOwners: (
+		afterAccountId?: string,
+		limit?: number,
+	) => Promise<{ accountIds: readonly string[]; next: string | null }>;
+	readonly wakeAutomationWorkspace: (
+		workspaceId: string,
+		accountId: string,
+	) => Promise<boolean>;
 	readonly reconcileCloud: () => Promise<{
 		readonly builds: number;
 		readonly workspaces: number;
@@ -220,6 +230,19 @@ export const makeApi = (
 		reconcileMachine: (machineId, owner) =>
 			runtime.runPromise(reconcileMachine({ machineId, owner })),
 		reconcileCloud: () => runtime.runPromise(reconcileCloudResources()),
+		migrateLegacyAutomationOwners: (afterAccountId, limit) =>
+			runtime.runPromise(
+				Effect.gen(function* () {
+					const mailbox = yield* Effect.serviceOption(AutomationMailbox);
+					if (mailbox._tag === "None")
+						throw new Error("automation_scheduler_unavailable");
+					return yield* Effect.promise(() =>
+						mailbox.value.migrateLegacyOwners(afterAccountId, limit),
+					);
+				}),
+			),
+		wakeAutomationWorkspace: (workspaceId, accountId) =>
+			runtime.runPromise(wakeAutomationWorkspace(workspaceId, accountId)),
 		reconcileCloudBuild: (buildId) =>
 			runtime.runPromise(reconcileCloudBuild(buildId)),
 		reconcileCloudWorkspace: (workspaceId) =>

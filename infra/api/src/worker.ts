@@ -1,3 +1,4 @@
+import { WorkerEntrypoint } from "cloudflare:workers";
 import type {
 	DurableObjectLocationHint,
 	DurableObjectNamespace,
@@ -16,6 +17,12 @@ import { Pool } from "pg";
 import runtimeInstallerSource from "../../../apps/server/scripts/runtime-updater.mjs";
 import cloudInitTemplate from "../../cloud-machines/bootstrap/cloud-init.yaml.tmpl";
 import { AccountIdentityLive } from "./account-identity.ts";
+import { makeApiStringCipher } from "./api-sealing.ts";
+import { AutomationDurableObjectCore } from "./automation-durable-object.ts";
+import {
+	AutomationDurableObjects,
+	AutomationMailboxLive,
+} from "./automation-mailbox.ts";
 import {
 	type BillingEnvironment,
 	resolveBillingRuntime,
@@ -98,6 +105,7 @@ interface Env extends SlackBindings, BillingEnvironment {
 			readonly fetch: (request: Request) => Promise<Response>;
 		};
 	};
+	readonly AUTOMATION_SCHEDULER?: DurableObjectNamespace;
 	readonly WORKSPACE_MAILBOX: {
 		readonly idFromName: (name: string) => unknown;
 		readonly get: (id: unknown) => {
@@ -598,6 +606,12 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 			Layer.provide(Layer.merge(dbLayer, configLayer)),
 		),
 		SlackPersistenceLive.pipe(Layer.provide(Layer.merge(dbLayer, configLayer))),
+		AutomationMailboxLive.pipe(
+			Layer.provide(
+				Layer.succeed(AutomationDurableObjects, env.AUTOMATION_SCHEDULER),
+			),
+			Layer.provide(Layer.merge(dbLayer, configLayer)),
+		),
 		WorkosVerifierLive.pipe(Layer.provide(configLayer)),
 		AccountIdentityLive.pipe(Layer.provide(configLayer)),
 		ApiStorePg.pipe(Layer.provide(dbLayer)),
@@ -870,5 +884,49 @@ export class CloudAuthExecutor extends CloudAccountExecutorTask {
 				await api.dispose();
 			}
 		});
+	}
+}
+
+/** Account-scoped schedule cursors and delivery queues sleep until their next alarm. */
+export class AutomationScheduler extends AutomationDurableObjectCore {
+	constructor(state: DurableObjectState, env: Env) {
+		super(state, {
+			cipher: makeApiStringCipher(
+				env.CLOUD_DATA_ENCRYPTION_KEY ?? env.CLOUD_CREDENTIAL_VAULT_KEY ?? "",
+			),
+			wake: async (workspaceId, accountId) => {
+				const api = build(env);
+				try {
+					const active = await api.wakeAutomationWorkspace(
+						workspaceId,
+						accountId,
+					);
+					if (active)
+						await scheduleWorkspaceStartup(env.WORKSPACE_STARTUP, workspaceId);
+					return active;
+				} finally {
+					await api.dispose();
+				}
+			},
+		});
+	}
+}
+
+/** Operations-only service binding. No public HTTP migration endpoint. */
+export class AutomationMigration extends WorkerEntrypoint<Env> {
+	async migrate(afterAccountId = "", limit = 25) {
+		if (
+			typeof afterAccountId !== "string" ||
+			!Number.isSafeInteger(limit) ||
+			limit < 1 ||
+			limit > 100
+		)
+			throw new Error("invalid_migration_page");
+		const api = build(this.env);
+		try {
+			return await api.migrateLegacyAutomationOwners(afterAccountId, limit);
+		} finally {
+			await api.dispose();
+		}
 	}
 }

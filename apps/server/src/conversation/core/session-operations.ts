@@ -246,18 +246,18 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			const initialToolSearch = input.toolSearch ?? false;
 			const initialRuntimeMode = input.runtimeMode ?? DEFAULT_RUNTIME_MODE;
 			state.setRuntimeMode(sessionId, initialRuntimeMode);
-			if (input.agents !== undefined && Object.keys(input.agents).length > 0) {
+			if (input.agents !== undefined || input.enableSubagents !== undefined) {
 				state.setAgents(sessionId, {
-					agents: input.agents,
+					agents: input.agents ?? {},
 					enableSubagents: effectiveEnableSubagents,
 				});
 			}
 			const now = new Date();
 			const title = input.title?.trim() || "New chat";
 			const agentsJson =
-				input.agents !== undefined && Object.keys(input.agents).length > 0
+				input.agents !== undefined || input.enableSubagents !== undefined
 					? JSON.stringify({
-							agents: input.agents,
+							agents: input.agents ?? {},
 							enableSubagents: effectiveEnableSubagents,
 						})
 					: null;
