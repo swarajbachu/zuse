@@ -4,6 +4,8 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./native-tool-name": "./src/native-tool-name.ts",
+		"./fnv1a": "./src/fnv1a.ts",
 		"./usage-values": "./src/usage-values.ts",
 		"./release-version": "./src/release-version.mjs",
 		"./cloud-auth-crypto": "./src/cloud-auth-crypto.ts",

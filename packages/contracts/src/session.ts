@@ -258,6 +258,7 @@ const ToolUseContent = Schema.TaggedStruct("tool_use", {
 });
 
 const ToolResultContent = Schema.TaggedStruct("tool_result", {
+	outputDeferred: Schema.optional(Schema.String),
 	itemId: AgentItemId,
 	output: Schema.Unknown,
 	isError: Schema.Boolean,
@@ -1725,6 +1726,7 @@ export const SessionEventsRpc = Rpc.make("session.events", {
 		hasProjection: Schema.optional(Schema.Boolean),
 		includeRuntime: Schema.optional(Schema.Boolean),
 		historyMode: Schema.optional(Schema.Literal("background")),
+		deferToolDetails: Schema.optional(Schema.Boolean),
 	}),
 	success: SessionTimelineFrame,
 	error: SessionNotFoundError,
@@ -1741,15 +1743,43 @@ export const SessionEventsHeadRpc = Rpc.make("session.events.head", {
 	error: SessionNotFoundError,
 });
 
+export const SESSION_MESSAGE_DETAIL_CHUNK_BYTES = 128 * 1024;
+export const SESSION_MESSAGE_DETAIL_MAX_BYTES = 64 * 1024 * 1024;
+
+export const SessionMessageDetailChunk = Schema.Struct({
+	messageId: MessageId,
+	sessionId: SessionId,
+	role: MessageRole,
+	createdAt: Schema.String,
+	contentBase64: Schema.String,
+	offset: Schema.Number,
+	nextOffset: Schema.NullOr(Schema.Number),
+	totalBytes: Schema.Number,
+});
+export type SessionMessageDetailChunk = typeof SessionMessageDetailChunk.Type;
+
 /** Older timeline messages, newest page first on the wire then rendered ascending. */
 export const SessionMessagesPageRpc = Rpc.make("session.messages.page", {
 	payload: Schema.Struct({
 		sessionId: SessionId,
+		messageId: Schema.optional(MessageId),
+		detailOffset: Schema.optional(
+			Schema.Number.check(
+				Schema.isInt(),
+				Schema.makeFilter((value) =>
+					Number.isSafeInteger(value) && value >= 0
+						? undefined
+						: "Invalid detail offset",
+				),
+			),
+		),
+		deferToolDetails: Schema.optional(Schema.Boolean),
 		beforeSequence: Schema.optional(Schema.Number),
 		limit: Schema.optional(Schema.Number),
 	}),
 	success: Schema.Struct({
 		messages: Schema.Array(Message),
+		detailChunk: Schema.optional(Schema.NullOr(SessionMessageDetailChunk)),
 		olderMessageSequence: Schema.NullOr(Schema.Number),
 	}),
 	error: SessionNotFoundError,

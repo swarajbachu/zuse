@@ -333,6 +333,7 @@ describe("shared session timeline resource driver", () => {
 		expect(requests).toEqual([
 			{
 				sessionId,
+				deferToolDetails: true,
 				afterVersion: undefined,
 				streamEpoch: undefined,
 				includeRuntime: true,

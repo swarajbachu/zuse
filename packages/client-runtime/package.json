@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./session-message-detail": "./src/session-message-detail.ts",
 		"./github-observer": "./src/github-observer.ts",
 		"./background-agent-presentation": "./src/background-agent-presentation.ts",
 		"./native-subagent-fork": "./src/native-subagent-fork.ts",

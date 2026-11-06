@@ -1,4 +1,5 @@
 {
+	"history_load_older": "이전 메시지 불러오기",
 	"question_card_multiple_choice_hint": "하나 이상의 옵션을 선택하세요.",
 	"question_card_continue": "계속",
 	"secret_request_placeholder": "비공개 값 입력…",

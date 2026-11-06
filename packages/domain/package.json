@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./queries/session-timeline-wire": "./src/queries/session-timeline-wire.ts",
 		"./chat/commands": "./src/chat/commands.ts",
 		"./chat/decider": "./src/chat/decider.ts",
 		"./chat/events": "./src/chat/events.ts",

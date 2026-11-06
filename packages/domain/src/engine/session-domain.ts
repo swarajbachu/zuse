@@ -131,6 +131,7 @@ export interface SessionDomainApi {
 		readonly afterVersion?: number;
 		readonly streamEpoch?: string;
 		readonly hasProjection?: boolean;
+		readonly deferToolDetails?: boolean;
 		readonly historyMode?: "background";
 		readonly maxDeltaEvents?: number;
 		readonly maxDeltaBytes?: number;
@@ -340,6 +341,7 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 		streamEpoch: retainedEpoch,
 		hasProjection = false,
 		historyMode,
+		deferToolDetails,
 		maxDeltaEvents = 512,
 		maxDeltaBytes = MAX_TIMELINE_SNAPSHOT_PROJECTION_BYTES,
 	}) =>
@@ -399,6 +401,7 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 								const snapshot = yield* readSessionTimelineSnapshot(
 									sql,
 									streamId as SessionId,
+									deferToolDetails,
 								);
 								prefix.push({
 									kind: "snapshot",

@@ -5,6 +5,7 @@ import {
 	resourceKeyId,
 	type SessionRef,
 } from "./resource-ref.ts";
+import type { ResourceView } from "./resource-state.ts";
 import type { OlderSessionMessagesResult } from "./session-message-pager.ts";
 
 /** Fair, bounded history fetching. Live events never pass through this queue. */
@@ -25,6 +26,7 @@ export class BackgroundHistory {
 	>();
 	private active = 0;
 	private timer: ReturnType<typeof setTimeout> | null = null;
+	private timerAt = 0;
 	private listeners = new Set<() => void>();
 	constructor(private readonly concurrency = 2) {}
 	subscribe = (listener: () => void): (() => void) => {
@@ -74,6 +76,7 @@ export class BackgroundHistory {
 			if (--retained.refs === 0) {
 				retained.controller.abort();
 				this.jobs.delete(key);
+				this.schedule();
 				this.emit();
 			}
 		};
@@ -99,16 +102,28 @@ export class BackgroundHistory {
 		for (const listener of this.listeners) listener();
 	}
 	private schedule(): void {
-		if (
-			this.timer !== null ||
-			this.active >= this.concurrency ||
-			this.jobs.size === 0
-		)
+		let readyAt = Number.POSITIVE_INFINITY;
+		if (this.active < this.concurrency) {
+			for (const job of this.jobs.values()) {
+				if (!job.running && job.error === null)
+					readyAt = Math.min(readyAt, job.readyAt);
+			}
+		}
+		if (!Number.isFinite(readyAt)) {
+			if (this.timer !== null) clearTimeout(this.timer);
+			this.timer = null;
 			return;
+		}
+		const now = Date.now();
+		const next = Math.max(now + 16, readyAt);
+		// A newly retained foreground job must not wait for another job's backoff.
+		if (this.timer !== null && this.timerAt <= next) return;
+		if (this.timer !== null) clearTimeout(this.timer);
+		this.timerAt = next;
 		this.timer = setTimeout(() => {
 			this.timer = null;
 			this.pump();
-		}, 16);
+		}, next - now);
 	}
 	private pump(): void {
 		const candidates = [...this.jobs]
@@ -147,7 +162,7 @@ export class BackgroundHistory {
 					this.schedule();
 				});
 		}
-		if (candidates.length > 0) this.schedule();
+		this.schedule();
 	}
 }
 
@@ -213,4 +228,87 @@ export function retainSessionHistory<Client>(options: {
 		unsubscribe();
 		stop();
 	};
+}
+
+/** Legacy runtimes finish their synchronization barrier before paging. */
+export const isSessionHistoryReady = (
+	view: ResourceView<SessionTimelineProjection>,
+): boolean =>
+	view.data?.olderMessageSequence != null &&
+	(view.sync === "live" || view.connection === "dormant");
+
+/** Explicit page demand, shared across visible readers without eager prefetch. */
+export class HistoryPageDemand {
+	private readers = new Map<
+		string,
+		{
+			refs: number;
+			release: (() => void) | null;
+			unsubscribe: (() => void) | null;
+			readiness?: {
+				ready: () => boolean;
+				subscribe: (listener: () => void) => () => void;
+			};
+			pending:
+				| ((signal: AbortSignal) => Promise<OlderSessionMessagesResult>)
+				| null;
+		}
+	>();
+	constructor(private readonly scheduler: BackgroundHistory) {}
+	retain(
+		key: string,
+		readiness?: {
+			ready: () => boolean;
+			subscribe: (listener: () => void) => () => void;
+		},
+	): () => void {
+		let entry = this.readers.get(key);
+		if (!entry) {
+			entry = {
+				refs: 0,
+				release: null,
+				unsubscribe: null,
+				readiness,
+				pending: null,
+			};
+			this.readers.set(key, entry);
+			const current = entry;
+			current.unsubscribe =
+				readiness?.subscribe(() => {
+					if (current.pending && readiness.ready())
+						this.request(key, current.pending);
+				}) ?? null;
+		}
+		const retained = entry;
+		retained.refs++;
+		return () => {
+			if (this.readers.get(key) !== retained || --retained.refs > 0) return;
+			retained.unsubscribe?.();
+			retained.release?.();
+			this.readers.delete(key);
+		};
+	}
+	request(
+		key: string,
+		load: (signal: AbortSignal) => Promise<OlderSessionMessagesResult>,
+	): void {
+		const entry = this.readers.get(key);
+		if (!entry || this.scheduler.status(key) !== "idle") return;
+		if (entry.readiness && !entry.readiness.ready()) {
+			entry.pending = load;
+			return;
+		}
+		entry.pending = null;
+		entry.release?.();
+		entry.release = this.scheduler.retain(
+			key,
+			async (signal) => {
+				const result = await load(signal);
+				if (!result.applied && result.hasMore)
+					throw new Error("History page unavailable");
+				return false;
+			},
+			() => 10,
+		);
+	}
 }

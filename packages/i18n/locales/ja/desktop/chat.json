@@ -1,4 +1,5 @@
 {
+	"history_load_older": "以前のメッセージを読み込む",
 	"question_card_multiple_choice_hint": "1つ以上の選択肢を選んでください。",
 	"question_card_continue": "次へ",
 	"secret_request_placeholder": "非公開の値を入力…",

@@ -90,4 +90,23 @@ describe("session activity", () => {
 		expect(html).toContain("1 running");
 		expect(html).toContain("Child agent");
 	});
+	it("keeps an agent-history entry point when the recent window contains no agents", () => {
+		const projection = view.data;
+		if (projection === null) throw new Error("Fixture requires a projection");
+		const html = renderToStaticMarkup(
+			<SessionActivity
+				{...props}
+				sessions={[session]}
+				nativeAgents={[]}
+				view={{
+					...view,
+					data: SessionTimelineProjection.make({
+						...projection,
+						olderMessageSequence: 200,
+					}),
+				}}
+			/>,
+		);
+		expect(html).toContain("Load older messages");
+	});
 });

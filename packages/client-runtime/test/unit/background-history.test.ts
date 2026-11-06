@@ -268,3 +268,117 @@ it.each([
 	expect(load).toHaveBeenCalledTimes(1);
 	release();
 });
+
+it("does not poll while slow history requests occupy every available job", async () => {
+	vi.useFakeTimers();
+	const scheduler = new BackgroundHistory(2);
+	let finish!: (more: boolean) => void;
+	const release = scheduler.retain(
+		"slow",
+		() =>
+			new Promise<boolean>((resolve) => {
+				finish = resolve;
+			}),
+	);
+	await vi.advanceTimersByTimeAsync(16);
+	expect(vi.getTimerCount()).toBe(0);
+	await vi.advanceTimersByTimeAsync(30_000);
+	expect(vi.getTimerCount()).toBe(0);
+	finish(false);
+	await vi.runAllTimersAsync();
+	release();
+});
+
+it("sleeps until retry is due instead of waking every frame during network failures", async () => {
+	vi.useFakeTimers();
+	const wakeups = vi.spyOn(globalThis, "setTimeout");
+	const scheduler = new BackgroundHistory();
+	const run = vi.fn().mockRejectedValue(new Error("connection lost"));
+	scheduler.retain("offline", run);
+	await vi.advanceTimersByTimeAsync(16);
+	wakeups.mockClear();
+	await vi.advanceTimersByTimeAsync(499);
+	expect(run).toHaveBeenCalledTimes(1);
+	expect(wakeups).not.toHaveBeenCalled();
+	await vi.advanceTimersByTimeAsync(1);
+	expect(run).toHaveBeenCalledTimes(2);
+	scheduler.clear();
+	wakeups.mockRestore();
+});
+
+it("starts newly queued work without waiting for an unrelated network retry", async () => {
+	vi.useFakeTimers();
+	const scheduler = new BackgroundHistory();
+	const failed = vi.fn().mockRejectedValue(new Error("offline"));
+	const releaseFailed = scheduler.retain("failed", failed);
+	await vi.advanceTimersByTimeAsync(16);
+	const foreground = vi.fn().mockResolvedValue(false);
+	scheduler.retain("foreground", foreground, () => 10);
+	await vi.advanceTimersByTimeAsync(16);
+	expect(foreground).toHaveBeenCalledTimes(1);
+	expect(failed).toHaveBeenCalledTimes(1);
+	releaseFailed();
+	expect(vi.getTimerCount()).toBe(0);
+});
+
+it("fetches one older page only after demand and cancels it with the last reader", async () => {
+	vi.useFakeTimers();
+	const { HistoryPageDemand } = await import("../../src/background-history.ts");
+	const scheduler = new BackgroundHistory();
+	const demand = new HistoryPageDemand(scheduler);
+	const first = demand.retain("chat");
+	const second = demand.retain("chat");
+	const load = vi
+		.fn()
+		.mockResolvedValue({ applied: true, loaded: 10, hasMore: true });
+	await vi.runAllTimersAsync();
+	expect(load).not.toHaveBeenCalled();
+	demand.request("chat", load);
+	demand.request("chat", load);
+	await vi.runAllTimersAsync();
+	expect(load).toHaveBeenCalledTimes(1);
+	expect(scheduler.status("chat")).toBe("idle");
+	const slow = vi.fn((_signal: AbortSignal) => new Promise<never>(() => {}));
+	demand.request("chat", slow);
+	await vi.advanceTimersByTimeAsync(16);
+	first();
+	expect(slow.mock.calls[0]?.[0].aborted).toBe(false);
+	second();
+	expect(slow.mock.calls[0]?.[0].aborted).toBe(true);
+	demand.request("chat", load);
+	await vi.advanceTimersByTimeAsync(16);
+	expect(load).toHaveBeenCalledTimes(1);
+});
+
+it("holds explicit history demand through synchronization and starts once ready", async () => {
+	vi.useFakeTimers();
+	const { HistoryPageDemand } = await import("../../src/background-history.ts");
+	const scheduler = new BackgroundHistory();
+	const demand = new HistoryPageDemand(scheduler);
+	let ready = false;
+	let changed = () => {};
+	const unsubscribe = vi.fn();
+	const release = demand.retain("restoring", {
+		ready: () => ready,
+		subscribe: (listener) => {
+			changed = listener;
+			return unsubscribe;
+		},
+	});
+	const load = vi
+		.fn()
+		.mockResolvedValue({ applied: true, hasMore: true, loaded: 10 });
+	demand.request("restoring", load);
+	await vi.runAllTimersAsync();
+	expect(load).not.toHaveBeenCalled();
+	expect(scheduler.status("restoring")).toBe("idle");
+	ready = true;
+	changed();
+	await vi.runAllTimersAsync();
+	expect(load).toHaveBeenCalledTimes(1);
+	changed();
+	await vi.runAllTimersAsync();
+	expect(load).toHaveBeenCalledTimes(1);
+	release();
+	expect(unsubscribe).toHaveBeenCalledOnce();
+});

@@ -8,6 +8,7 @@ import {
 	MAX_TIMELINE_SNAPSHOT_PROJECTION_BYTES,
 	readSessionTimelineSnapshot,
 } from "../../../src/queries/session-timeline-snapshot.js";
+import { readSessionMessageContent } from "../../../src/queries/session-timeline-wire.ts";
 import {
 	makeSqlSessionQueries,
 	SessionQueryDecodeError,
@@ -354,4 +355,145 @@ describe("SqlSessionQueries", () => {
 			expect(String(exit.cause)).toContain("bounded queue byte limit");
 		}
 	});
+});
+
+test("history pages obey a byte budget and retain every message exactly once", async () => {
+	await run(
+		Effect.gen(function* () {
+			yield* createDomainTestSchema();
+			const sql = yield* SqlClient.SqlClient;
+			yield* sql`INSERT INTO sessions (id,project_id,title,provider_id,model,status,runtime_mode,chat_id,permission_mode,tool_search,created_at,updated_at) VALUES ('budget','project','Budget','claude','model','idle','approval-required','chat','default',0,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')`;
+			for (let sequence = 1; sequence <= 6; sequence++) {
+				const content = JSON.stringify({
+					_tag: "assistant",
+					text: "界".repeat(sequence === 3 ? 200_000 : 15_000),
+				});
+				yield* sql`INSERT INTO messages (id,session_id,role,kind,content_json,created_at,sequence) VALUES (${`budget-${sequence}`},'budget','assistant','assistant',${content},'2026-01-01T00:00:00.000Z',${sequence})`;
+			}
+			const queries = makeSqlSessionQueries(sql);
+			const seen: string[] = [];
+			let before: number | null | undefined;
+			do {
+				const page = yield* queries.messagePage({
+					sessionId: "budget",
+					beforeSequence: before,
+					limit: 100,
+				});
+				const bytes = page.items.reduce(
+					(sum, row) =>
+						sum + new TextEncoder().encode(row.contentJson).byteLength,
+					0,
+				);
+				expect(bytes <= 256 * 1024 || page.items.length === 1).toBe(true);
+				seen.unshift(...page.items.map((row) => row.messageId));
+				if (page.olderSequence !== null)
+					expect(page.olderSequence).toBeLessThan(
+						before ?? Number.MAX_SAFE_INTEGER,
+					);
+				before = page.olderSequence;
+			} while (before !== null);
+			expect(seen).toEqual(
+				Array.from({ length: 6 }, (_, index) => `budget-${index + 1}`),
+			);
+		}),
+	);
+});
+
+test("opt-in snapshots defer heavy display bodies while detail queries retain originals and session isolation", async () => {
+	await run(
+		Effect.gen(function* () {
+			yield* createDomainTestSchema();
+			const sql = yield* SqlClient.SqlClient;
+			for (const id of ["details", "other"])
+				yield* sql`INSERT INTO sessions (id,project_id,title,provider_id,model,status,runtime_mode,chat_id,permission_mode,tool_search,created_at,updated_at) VALUES (${id},'project','Details','claude','model','idle','approval-required','chat','default',0,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')`;
+			const contents = [
+				{
+					_tag: "tool_use",
+					itemId: "shell",
+					tool: "Bash",
+					input: { command: "build" },
+				},
+				{
+					_tag: "tool_result",
+					itemId: "shell",
+					output: "界".repeat(100_000),
+					isError: true,
+				},
+				{
+					_tag: "tool_use",
+					itemId: "edit",
+					tool: "Edit",
+					input: {
+						file_path: "file.ts",
+						old_string: "old",
+						new_string: "new".repeat(40_000),
+					},
+				},
+				{ _tag: "tool_result", itemId: "edit", output: "done", isError: false },
+			];
+			for (const [index, content] of contents.entries())
+				yield* sql`INSERT INTO messages (id,session_id,role,kind,content_json,created_at,sequence) VALUES (${`detail-${index}`},'details','assistant',${content._tag},${JSON.stringify(content)},'2026-01-01T00:00:00.000Z',${index + 1})`;
+			const legacy = yield* readSessionTimelineSnapshot(
+				sql,
+				SessionId.make("details"),
+			);
+			const compact = yield* readSessionTimelineSnapshot(
+				sql,
+				SessionId.make("details"),
+				true,
+			);
+			if (process.env.ZUSE_TRANSFER_REPORT === "1")
+				console.log(
+					JSON.stringify({
+						legacyBytes: new TextEncoder().encode(
+							JSON.stringify(legacy.projection),
+						).byteLength,
+						compactBytes: new TextEncoder().encode(
+							JSON.stringify(compact.projection),
+						).byteLength,
+						messages: compact.projection.messages.length,
+					}),
+				);
+			expect(legacy.projection.messages).toHaveLength(4);
+			expect(compact.projection.messages).toHaveLength(4);
+			expect(
+				new TextEncoder().encode(JSON.stringify(legacy.projection)).byteLength,
+			).toBeGreaterThan(400_000);
+			expect(
+				new TextEncoder().encode(JSON.stringify(compact.projection)).byteLength,
+			).toBeLessThan(125_000);
+			expect(compact.projection.messages[1]?.content).toMatchObject({
+				isError: true,
+				outputDeferred: expect.any(String),
+			});
+			expect(compact.projection.messages[2]?.content).toMatchObject({
+				input: contents[2]?.input,
+			});
+
+			const raw = yield* readSessionMessageContent(sql, "details", "detail-1");
+			expect(raw).not.toBeNull();
+			expect(new TextDecoder().decode(raw?.content)).toBe(
+				JSON.stringify(contents[1]),
+			);
+			expect(
+				yield* readSessionMessageContent(sql, "other", "detail-1"),
+			).toBeNull();
+			const queries = makeSqlSessionQueries(sql);
+			const full = yield* queries.messagePage({
+				sessionId: "details",
+				messageId: "detail-1",
+				limit: 1,
+			});
+			expect(JSON.parse(full.items[0]?.contentJson ?? "null")).toEqual(
+				contents[1],
+			);
+			const wrongSession = yield* queries.messagePage({
+				sessionId: "other",
+				messageId: "detail-1",
+				limit: 1,
+			});
+			expect(wrongSession.items).toEqual([]);
+			expect(legacy.projection.messages[2]?.content).toEqual(contents[2]);
+		}),
+	);
 });

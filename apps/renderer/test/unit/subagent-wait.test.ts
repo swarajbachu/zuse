@@ -339,3 +339,36 @@ describe("subagent waiting", () => {
 		});
 	});
 });
+
+it("retains a named wait when its spawn message is outside the loaded window", () => {
+	const lookups = deriveChatLookups(
+		[],
+		[
+			{
+				checkpointCapability: "unsupported",
+				id: "old-step",
+				turnId: "turn",
+				attemptId: "attempt",
+				itemId: "old-spawn",
+				parentItemId: null,
+				kind: "subagent",
+				label: "Review API design",
+				status: "running",
+				childSessionId: null,
+				nativeChildId: "older-agent",
+				rootCompletedAt: null,
+				createdAt: 1,
+				updatedAt: 1,
+			},
+		],
+	);
+	expect(
+		deriveSubagentWaitView({
+			input: { block: true, task_id: "older-agent" },
+			result: undefined,
+			startedAt: new Date(0),
+			now: new Date(1),
+			subagentsByTaskId: lookups.subagentsByTaskId,
+		}),
+	).toMatchObject({ agentName: "Review API design", status: "waiting" });
+});

@@ -43,6 +43,7 @@ export function SessionActivity({
 					session={session}
 					sessions={sessions}
 					nativeAgents={nativeAgents}
+					historyIncomplete={view.data?.olderMessageSequence != null}
 				/>
 			) : null}
 		</SummaryActivity>

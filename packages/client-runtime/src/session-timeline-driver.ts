@@ -25,6 +25,7 @@ export type SessionTimelineDriverClient = Readonly<{
 			hasProjection?: boolean;
 			includeRuntime?: boolean;
 			historyMode?: "background";
+			deferToolDetails?: boolean;
 		}>,
 	) => Stream.Stream<SessionTimelineFrame, unknown>;
 }>;
@@ -197,6 +198,7 @@ export const makeSessionTimelineResourceDriver = <
 				waitForSessionRegistration(() =>
 					context.client["session.events"]({
 						sessionId: ref.sessionId,
+						deferToolDetails: true,
 						...(backgroundHistory
 							? { historyMode: "background" as const }
 							: {}),

@@ -1,4 +1,14 @@
 {
+	"chat:history_load_older": {
+		"source": "Load older messages",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/chat-view.tsx",
+				"line": 983
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
 	"chat:question_card_multiple_choice_hint": {
 		"source": "Select one or more options.",
 		"locations": [
