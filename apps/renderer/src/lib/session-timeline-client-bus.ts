@@ -1522,8 +1522,8 @@ export const stopCloudHistory = (): void => backgroundHistory.clear();
 const historyKey = (ref: SessionRef) =>
 	resourceKeyId(sessionTimelineResourceKey(ref));
 
-export const useCloudHistoryStatus = (ref: SessionRef) => {
-	const key = historyKey(ref);
+export const useCloudHistoryStatus = (ref: SessionRef | null) => {
+	const key = ref === null ? "" : historyKey(ref);
 	const snapshot = useCallback(() => backgroundHistory.status(key), [key]);
 	return useSyncExternalStore(backgroundHistory.subscribe, snapshot, snapshot);
 };

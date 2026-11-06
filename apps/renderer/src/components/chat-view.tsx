@@ -811,8 +811,8 @@ export function ChatView({
 	}, [scrollSnapshot.mode]);
 
 	const chatLookups = useMemo(
-		() => deriveChatLookups(messages),
-		[messages, uiMessage],
+		() => deriveChatLookups(messages, timeline.projection?.executionSteps),
+		[messages, timeline.projection?.executionSteps, uiMessage],
 	);
 	const renderTimelineRow = useCallback(
 		({ item }: { item: ChatTimelineRow }) => (

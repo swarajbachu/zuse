@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Reduce chat transfer traffic by loading older history on demand and large tool results when opened, while preserving full stored conversations and file-change summaries.
+- Reuse encrypted transcript pages when opening tool details in paused cloud workspaces, with cancellable reads and bounded caches that keep compute asleep.
+- Avoid repeated event decoding and unnecessary history retry timers on slow or unreliable connections.
+
 ### Added
 - Recall sent messages from the composer, steer or queue follow-ups with keyboard shortcuts, and enable direct steer in General settings.
 - Activate Pro with a single $200 prepaid payment, with the balance covering subscription and cloud usage invoices.

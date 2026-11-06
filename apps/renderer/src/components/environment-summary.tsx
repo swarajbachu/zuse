@@ -549,7 +549,7 @@ export function EnvironmentSummary() {
 					</PreviewCard>
 				</div>
 			) : null}
-			{planAvailable ? (
+			{planAvailable || timeline.projection?.olderMessageSequence != null ? (
 				<button
 					type="button"
 					className={`${rowClass} hover:bg-muted/60`}

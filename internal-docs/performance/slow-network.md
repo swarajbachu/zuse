@@ -8,6 +8,10 @@ but does not request it. Scrolling near the beginning, pressing Load older,
 restoring a saved reading position, or searching older prose requests the next
 page. Explicit demand waits for the synchronization barrier; local live-tail
 updates do not invalidate an otherwise correctly scoped durable history page.
+Opening the Subagents pane explicitly completes its older history, and opening
+Plan searches only until the newest plan is found. Hidden panes do not request
+new pages. Summary entries expose incomplete history and durable execution
+metadata keeps subagent wait labels available before older spawns load.
 The shared scheduler bounds concurrent history reads and cancels them after the
 last reader releases the chat.
 
@@ -147,7 +151,7 @@ bun run --cwd packages/client-runtime test:unit
 
 Local validation for this change:
 
-- Desktop unit suite: 2,241 passed; mobile unit suite: 548 passed.
+- Desktop unit suite: 2,245 passed; mobile unit suite: 548 passed.
 - Shared client-runtime suite: 550 passed; domain suite: 199 passed;
   contracts suite: 198 passed.
 - Focused server detail/handler suites: 5 passed, including actual SQLite-backed
