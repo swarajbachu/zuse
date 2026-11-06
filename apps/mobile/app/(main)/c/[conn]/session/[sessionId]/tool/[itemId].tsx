@@ -85,15 +85,19 @@ export default function ToolDetailScreen() {
 				]);
 	const [loaded, setLoaded] = useState<{
 		key: string;
-		tool: ToolUse;
-		result?: ToolResult;
+		output: ToolResult["output"];
 	} | null>(null);
 	const [detailError, setDetailError] = useState<string | null>(null);
 	const [attempt, setAttempt] = useState(0);
 	const requestKey =
 		detailKey === null ? null : JSON.stringify([detailKey, attempt]);
 	useEffect(() => {
-		if (detailKey === null || toolMessage === undefined || requestKey === null)
+		if (
+			detailKey === null ||
+			toolMessage === undefined ||
+			requestKey === null ||
+			loaded?.key === detailKey
+		)
 			return;
 		const ref = mobileHistoryRef(conn, sessionId as SessionId);
 		if (ref === null) {
@@ -111,7 +115,7 @@ export default function ToolDetailScreen() {
 		).then(
 			(details) => {
 				if (!controller.signal.aborted)
-					setLoaded({ key: detailKey, ...details });
+					setLoaded({ key: detailKey, output: details.result?.output });
 			},
 			(error) => {
 				if (!controller.signal.aborted)
@@ -123,13 +127,25 @@ export default function ToolDetailScreen() {
 			},
 		);
 		return () => controller.abort();
-	}, [conn, sessionId, toolMessage, resultMessage, detailKey, requestKey]);
-	const tool =
-		detailKey !== null && loaded?.key === detailKey ? loaded.tool : previewTool;
-	const result =
-		detailKey !== null && loaded?.key === detailKey
-			? loaded.result
-			: previewResult;
+	}, [
+		conn,
+		sessionId,
+		toolMessage,
+		resultMessage,
+		detailKey,
+		requestKey,
+		loaded?.key,
+	]);
+	const tool = previewTool;
+	const result = useMemo(
+		() =>
+			detailKey !== null &&
+			loaded?.key === detailKey &&
+			previewResult !== undefined
+				? { ...previewResult, output: loaded.output, outputDeferred: undefined }
+				: previewResult,
+		[detailKey, loaded, previewResult],
+	);
 	const presentation = useMemo(
 		() => (tool === undefined ? null : buildToolPresentation(tool, result)),
 		[result, tool],
