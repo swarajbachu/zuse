@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import * as fsPromises from "node:fs/promises";
 import {
 	link,
 	mkdir,
@@ -12,13 +13,18 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	captureGitCheckpoint,
 	readGitCheckpoint,
 	recoverGitCheckpointRef,
 	restoreGitCheckpoint,
 } from "../../src/checkpoints.ts";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs/promises")>();
+	return { ...actual, copyFile: vi.fn(actual.copyFile) };
+});
 
 const execute = promisify(execFile);
 const roots: string[] = [];
@@ -36,11 +42,39 @@ const repo = async () => {
 	return cwd;
 };
 afterEach(async () => {
+	vi.restoreAllMocks();
 	await Promise.all(
 		roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
 	);
 });
 describe("Git turn checkpoints", () => {
+	it("rejects an in-flight capture when recovery quarantines its old checkpoint", async () => {
+		const cwd = await repo();
+		const id = "capture-race";
+		const ref = `refs/zuse/checkpoints/${createHash("sha256").update(id).digest("hex")}`;
+		await mkdir(path.dirname(path.join(cwd, ".git", ref)), { recursive: true });
+		await writeFile(path.join(cwd, ".git", ref), "");
+		await writeFile(path.join(cwd, "file.txt"), "newer files\n");
+		const { copyFile: copy } =
+			await vi.importActual<typeof import("node:fs/promises")>(
+				"node:fs/promises",
+			);
+		vi.mocked(fsPromises.copyFile).mockImplementationOnce(async (...args) => {
+			expect(
+				await recoverGitCheckpointRef(cwd, `fatal: bad object ${ref}`),
+			).toBe(true);
+			await copy(...args);
+		});
+		await expect(captureGitCheckpoint(cwd, id)).rejects.toThrow(
+			"unavailable after repository corruption",
+		);
+		await expect(readGitCheckpoint(cwd, id)).rejects.toThrow(
+			"unavailable after repository corruption",
+		);
+		expect(await readFile(path.join(cwd, "file.txt"), "utf8")).toBe(
+			"newer files\n",
+		);
+	});
 	it("keeps a quarantined checkpoint unavailable instead of recapturing current files", async () => {
 		const cwd = await repo();
 		const checkpoint = await captureGitCheckpoint(cwd, "damaged");
