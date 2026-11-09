@@ -13,10 +13,19 @@ export async function redeemPluginReturn(value: PluginReturn) {
 	const name = value.plugin ?? message("plugins:plugins_title");
 	if (value.ticket === null) {
 		toastManager.add({
-			title: message("plugins:plugins_return_cancelled", { name }),
-			description: message("plugins:plugins_return_cancelled_detail"),
+			title: message(
+				value.error === "cancelled"
+					? "plugins:plugins_return_cancelled"
+					: "plugins:plugins_connect_failed",
+				{ name },
+			),
+			description:
+				value.error === "cancelled"
+					? message("plugins:plugins_return_cancelled_detail")
+					: (value.error ?? message("plugins:plugins_return_failed_detail")),
 			type: "error",
 		});
+		notifyPluginsChanged(value.tenantId);
 		return;
 	}
 	try {

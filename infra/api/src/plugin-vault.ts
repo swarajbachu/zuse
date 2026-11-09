@@ -728,8 +728,17 @@ export class PluginVault {
 		if (a?.state !== "pending" || a.ticket || a.expiresAt <= Date.now())
 			throw new Error("Expired OAuth state");
 		if (url.searchParams.has("error")) {
-			await this.fail(a, "cancelled");
-			return this.redirectBack(a, { plugin_error: "cancelled" });
+			const error =
+				url.searchParams.get("error")?.trim() || "plugin_sign_in_failed";
+			const description = url.searchParams.get("error_description")?.trim();
+			await this.fail(a, "failed", "plugin_sign_in_failed");
+			return this.redirectBack(a, {
+				// Match the desktop and renderer return parameter limit.
+				plugin_error: (description ? `${error}: ${description}` : error).slice(
+					0,
+					512,
+				),
+			});
 		}
 		const code = url.searchParams.get("code");
 		if (!code || code.length > 8192 || url.search.length > 16_384)
@@ -750,7 +759,6 @@ export class PluginVault {
 		);
 		return this.redirectBack(a, {
 			plugin_ticket: ticket,
-			plugin_tenant: a.tenant,
 		});
 	}
 	/** Desktop loopback for registered ports only; otherwise the hosted app. */
@@ -766,6 +774,7 @@ export class PluginVault {
 	}
 	private redirectBack(a: Attempt, params: Record<string, string>) {
 		const target = this.returnTarget(a.returnTo);
+		target.searchParams.set("plugin_tenant", a.tenant);
 		for (const [key, value] of Object.entries(params))
 			target.searchParams.set(key, value);
 		target.searchParams.set(
