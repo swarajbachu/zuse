@@ -15,6 +15,7 @@ import { useOptionalRendererSessionTimeline } from "~/lib/session-timeline-hooks
 import { rightPaneKey, useUiStore } from "~/store/ui";
 import { StatusGlyph } from "./delegation-row.tsx";
 import { ForkButton } from "./fork-menu.tsx";
+import { SessionHistoryBackfill } from "./session-history-backfill.tsx";
 import { SubagentTranscript } from "./subagent-transcript.tsx";
 
 const formatAge = (date: Date): string => {
@@ -28,9 +29,11 @@ const formatAge = (date: Date): string => {
 export function SubagentsPane({
 	chatRef,
 	sessionId,
+	active: paneActive = true,
 }: {
 	readonly chatRef: ChatRef | null;
 	readonly sessionId: SessionId | null;
+	readonly active?: boolean;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
 
@@ -39,6 +42,7 @@ export function SubagentsPane({
 		"connect",
 		chatRef?.environmentId ?? null,
 	);
+	const hasOlder = timeline.projection?.olderMessageSequence != null;
 	const messages = timeline.messages;
 	const executionSteps = timeline.projection?.executionSteps;
 	const chatKey = chatRef === null ? null : rightPaneKey(chatRef);
@@ -63,6 +67,7 @@ export function SubagentsPane({
 		});
 		return (
 			<div className="flex min-h-0 flex-1 flex-col">
+				<SessionHistoryBackfill timeline={timeline} enabled={paneActive} />
 				<div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-border/60 px-2">
 					<button
 						type="button"
@@ -104,6 +109,7 @@ export function SubagentsPane({
 	const done = groups.filter((group) => group.summary !== null);
 	return (
 		<div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+			<SessionHistoryBackfill timeline={timeline} enabled={paneActive} />
 			<AgentSection
 				title={uiMessage("chat:subagents_pane_active")}
 				groups={active}
@@ -116,7 +122,7 @@ export function SubagentsPane({
 				groups={done}
 				onSelect={handleSelect}
 			/>
-			{groups.length === 0 ? (
+			{groups.length === 0 && !hasOlder ? (
 				<p className="px-2 py-8 text-center text-xs text-muted-foreground">
 					{uiMessage("chat:subagents_pane_detached_subagents_will_appear_here")}
 				</p>

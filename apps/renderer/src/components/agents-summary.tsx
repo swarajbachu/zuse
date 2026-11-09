@@ -41,10 +41,12 @@ export function AgentsSummary({
 	session,
 	sessions,
 	nativeAgents,
+	historyIncomplete = false,
 }: {
 	readonly chatRef: ChatRef;
 	readonly session: Session;
 	readonly sessions: ReadonlyArray<Session>;
+	readonly historyIncomplete?: boolean;
 	readonly nativeAgents: ReadonlyArray<DetachedSubagentGroup>;
 }) {
 	const { message } = useMessages(["chat", "common"]);
@@ -99,7 +101,8 @@ export function AgentsSummary({
 			};
 		}),
 	];
-	if (entries.length === 0 && !session.parentSessionId) return null;
+	if (entries.length === 0 && !session.parentSessionId && !historyIncomplete)
+		return null;
 	const active = entries.filter((entry) => entry.status === "working");
 	const settled = entries.filter((entry) => entry.status !== "working");
 	const visibleSettled = showAllSettled
@@ -175,6 +178,17 @@ export function AgentsSummary({
 					{message("common:show_more_count", {
 						count: String(hiddenSettled),
 					})}
+				</button>
+			) : null}
+			{historyIncomplete ? (
+				<button
+					type="button"
+					className={`${summaryRowClass} h-7 ps-[34px] text-[11px] text-muted-foreground hover:text-foreground`}
+					onClick={() =>
+						useUiStore.getState().revealPanelForChat(chatRef, "subagents")
+					}
+				>
+					{message("chat:history_load_older")}
 				</button>
 			) : null}
 			{navigationFailed ? (

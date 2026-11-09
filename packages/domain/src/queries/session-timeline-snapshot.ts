@@ -25,6 +25,7 @@ import {
 } from "@zuse/contracts";
 import { Effect, Result, Schema } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
+import { loadDeferredToolDetailProjector } from "./session-timeline-wire.ts";
 
 import type { SqlSessionQueryError } from "./sql-session-queries.js";
 import { makeSqlSessionQueries } from "./sql-session-queries.js";
@@ -200,11 +201,13 @@ export const readSessionTimelineMessagePage = Effect.fn(
 	sessionId: SessionId,
 	beforeSequence?: number,
 	limit = LATEST_TIMELINE_MESSAGE_LIMIT,
+	maxBytes?: number,
 ): Effect.fn.Return<SessionTimelineMessagePage, SqlSessionQueryError> {
 	const page = yield* makeSqlSessionQueries(sql).messagePage({
 		sessionId,
 		beforeSequence,
 		limit,
+		maxBytes,
 	});
 	const items: Array<{
 		readonly message: Message;
@@ -269,6 +272,7 @@ export const readSessionTimelineSnapshot = Effect.fn(
 )(function* (
 	sql: SqlClient.SqlClient,
 	sessionId: SessionId,
+	deferToolDetails = false,
 ): Effect.fn.Return<SessionTimelineSnapshot, SqlSessionQueryError> {
 	const queries = makeSqlSessionQueries(sql);
 	const headRows = yield* sql<TimelineHeadRow>`
@@ -291,12 +295,25 @@ export const readSessionTimelineSnapshot = Effect.fn(
 		yield* queries.get(sessionId);
 		return yield* Effect.die("Session query existed without a timeline head");
 	}
-	const messagePage = yield* readSessionTimelineMessagePage(sql, sessionId);
+	const messagePage = yield* readSessionTimelineMessagePage(
+		sql,
+		sessionId,
+		undefined,
+		LATEST_TIMELINE_MESSAGE_LIMIT,
+		Number.MAX_SAFE_INTEGER,
+	);
 	const messageCountRows = yield* sql<{ readonly count: number }>`
 		SELECT COUNT(*) AS count FROM messages WHERE session_id = ${sessionId}
 	`;
 	const totalMessageCount = messageCountRows[0]?.count ?? 0;
-	const messages = [...messagePage.items];
+	const projector = deferToolDetails
+		? yield* loadDeferredToolDetailProjector(sql, sessionId)
+		: null;
+	const messages = messagePage.items.map((item) =>
+		projector === null
+			? item
+			: { ...item, message: projector.message(item.message) },
+	);
 	const queueRows = yield* sql<QueueRow>`
 		SELECT id, input_json, queue_order, created_at, updated_at, ready
 		FROM queued_messages WHERE session_id = ${sessionId}

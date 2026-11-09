@@ -34,12 +34,14 @@ export function ChatTurnNavigator({
 	hasOutOfViewUpdates,
 	onReaderIntent,
 	onNavigate,
+	history,
 }: {
 	readonly turns: ReadonlyArray<ChatTurnNavigationEntry>;
 	readonly activeMessageId: string | null;
 	readonly hasOutOfViewUpdates: boolean;
 	readonly onReaderIntent: () => void;
 	readonly onNavigate: (entry: ChatTurnNavigationEntry) => void;
+	readonly history?: { pending: boolean; load: () => void };
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
 
@@ -59,7 +61,7 @@ export function ChatTurnNavigator({
 	const listboxId = useId();
 	const coarsePointer = useMediaQuery({ pointer: "coarse" });
 	const rowHeight = coarsePointer ? 44 : 32;
-	const canNavigate = turns.length >= 2;
+	const canNavigate = turns.length >= 2 || history !== undefined;
 	const railTurns = useMemo(
 		() => deriveChatTurnRailEntries(turns, 18, activeMessageId),
 		[activeMessageId, turns, uiMessage],
@@ -292,6 +294,20 @@ export function ChatTurnNavigator({
 					onPointerLeave={scheduleClose}
 					onKeyDown={handleKeyDown}
 				>
+					{history !== undefined ? (
+						<button
+							type="button"
+							className="h-7 w-full px-2 text-left text-xs text-muted-foreground hover:text-foreground"
+							disabled={history.pending}
+							onClick={history.load}
+						>
+							{uiMessage(
+								history.pending
+									? "chat:cloud_history_loading"
+									: "chat:history_load_older",
+							)}
+						</button>
+					) : null}
 					<LegendList<ChatTurnNavigationEntry>
 						ref={turnListRef}
 						data={turns}

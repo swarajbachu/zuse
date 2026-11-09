@@ -194,3 +194,54 @@ describe("pending cloud gateway transport", () => {
 		expect(persistent).toHaveBeenCalledTimes(1);
 	});
 });
+
+test("classifies each gateway event once while delivering unchanged RPC frames to all readers", () => {
+	const native = new TestSocket();
+	const socket = cloudGatewaySocket(native as unknown as WebSocket);
+	const first = vi.fn();
+	const second = vi.fn();
+	socket.addEventListener("message", first);
+	socket.addEventListener("message", second);
+	native.open();
+	const parse = vi.spyOn(JSON, "parse");
+	try {
+		native.availability("available");
+		expect(parse).toHaveBeenCalledTimes(1);
+		expect(first).not.toHaveBeenCalled();
+		parse.mockClear();
+		const data = JSON.stringify({
+			_tag: "Chunk",
+			values: ["streamed text".repeat(1000)],
+		});
+		native.message(data);
+		expect(parse).toHaveBeenCalledTimes(1);
+		expect(first).toHaveBeenCalledTimes(1);
+		expect(second).toHaveBeenCalledTimes(1);
+		expect(first.mock.calls[0]?.[0]).toBe(second.mock.calls[0]?.[0]);
+		expect(first.mock.calls[0]?.[0].data).toBe(data);
+	} finally {
+		parse.mockRestore();
+	}
+});
+
+test.each([
+	"not-json",
+	"null",
+	JSON.stringify({ _zuseGateway: "availability", state: "invalid" }),
+	JSON.stringify({
+		_zuseGateway: "availability",
+		state: "available",
+		reset: "invalid",
+	}),
+	new Uint8Array([1, 2, 3]).buffer,
+])("preserves malformed and binary RPC frames without opening the gateway: %j", (data) => {
+	const native = new TestSocket();
+	const socket = cloudGatewaySocket(native as unknown as WebSocket);
+	const received = vi.fn();
+	socket.addEventListener("message", received);
+	native.open();
+	native.message(data);
+	expect(socket.readyState).toBe(0);
+	expect(received).toHaveBeenCalledTimes(1);
+	expect(received.mock.calls[0]?.[0].data).toBe(data);
+});

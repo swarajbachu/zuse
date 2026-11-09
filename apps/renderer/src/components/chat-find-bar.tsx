@@ -80,11 +80,13 @@ export function ChatFindBar({
 	rows,
 	listRef,
 	onNavigate,
+	historyStatus,
 }: {
 	readonly sessionId: SessionId;
 	readonly rows: ReadonlyArray<ChatTimelineRow>;
 	readonly listRef: RefObject<LegendListRef | null>;
 	readonly onNavigate: () => void;
+	readonly historyStatus?: "loading" | "failed";
 }) {
 	const { message: uiMessage } = useUiMessages(["chat", "commands"]);
 	const open = useChatFindStore((state) => state.open);
@@ -295,14 +297,20 @@ export function ChatFindBar({
 	if (!open) return null;
 	const label = uiMessage("commands:find_in_chat");
 	const status =
-		normalizeChatFindQuery(tracked.query).length === 0
-			? ""
-			: total === 0
-				? uiMessage("chat:find_in_chat_no_results")
-				: uiMessage("chat:find_in_chat_count", {
-						current: formatNumber(tracked.index + 1),
-						total: formatNumber(total),
-					});
+		historyStatus !== undefined
+			? uiMessage(
+					historyStatus === "failed"
+						? "chat:cloud_history_retry"
+						: "chat:cloud_history_loading",
+				)
+			: normalizeChatFindQuery(tracked.query).length === 0
+				? ""
+				: total === 0
+					? uiMessage("chat:find_in_chat_no_results")
+					: uiMessage("chat:find_in_chat_count", {
+							current: formatNumber(tracked.index + 1),
+							total: formatNumber(total),
+						});
 	return (
 		<search
 			aria-label={label}

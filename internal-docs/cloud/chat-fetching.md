@@ -4,9 +4,11 @@ Boat and E2B share the same transcript fetch path. An unopened chat has no local
 
 ## Recent content and history
 
-Cloud clients opt into `session.events.historyMode = background`. New runtimes acknowledge it on the snapshot, send the bounded recent projection and synchronization barrier, then stream live events immediately. Clients only relax full-history synchronization checks after that acknowledgement. Local sessions and older runtimes retain the original stream behavior.
+See [slow-network performance](../performance/slow-network.md) for deferred tool details, byte targets, paused-read caches, and current verification limits.
 
-A shared scheduler fetches older pages separately, with two requests across the app and one per resource. Selection sets priority; disposal and logout abort work. Page merges check generation, epoch, and continuation position, while allowing live version advancement. Existing messages win over overlapping older rows. Failures retain the conversation and offer an inline retry. Older pages are persisted separately, fenced by the authoritative checkpoint epoch and version. Local disk persistence remains before checkpoint publication to the UI.
+Desktop and mobile clients opt into `session.events.historyMode = background`. New runtimes acknowledge it on the snapshot, send the bounded recent projection and synchronization barrier, then stream live events immediately. Clients only relax full-history synchronization checks after that acknowledgement. Older runtimes retain the original stream behavior.
+
+A shared scheduler fetches older pages separately, with two requests across the app and one per resource. Older pages load on explicit demand (scrolling, search, reading-position restoration, or a whole-history pane); disposal and logout abort work. Page merges check generation, epoch, and continuation position, while allowing live version advancement. Existing messages win over overlapping older rows. Failures retain the conversation and offer an inline retry. Older pages are persisted separately, fenced by the authoritative checkpoint epoch and version. Local disk persistence remains before checkpoint publication to the UI.
 
 ## Catalog
 
