@@ -146,7 +146,11 @@ export const interactions = async (
 	}
 	if (payload.type !== "block_actions" || !action)
 		return new Response("invalid action", { status: 400 });
-	if (action.action_id === "connect_account") return new Response("ok");
+	if (
+		action.action_id === "connect_account" ||
+		action.action_id === "view_workspace"
+	)
+		return new Response("ok");
 	if (action.action_id === "open_repository") {
 		const token = action.value ?? "";
 		if (

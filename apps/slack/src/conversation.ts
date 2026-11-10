@@ -10,12 +10,13 @@ import {
 	startProgress,
 	updateProgress,
 } from "./progress.ts";
+import { workspaceProgressPhase } from "./progress-card.ts";
 import { setMessageReaction } from "./reactions.ts";
 import { pendingRepository, promptRepository } from "./repositories.ts";
 import {
 	runnerEnv,
 	saveThreadMapping,
-	slackThreadPrompt,
+	slackThreadContext,
 	uploadSlackFiles,
 } from "./runner.ts";
 import {
@@ -25,7 +26,6 @@ import {
 	readSlackThread,
 	slackApi,
 } from "./slack.ts";
-import { setThreadStatus } from "./thread-status.ts";
 import {
 	turnFailureText,
 	turnResultText,
@@ -203,16 +203,33 @@ export const runConversation = async (
 			}),
 		},
 	};
-	await setThreadStatus(
-		env,
-		installation,
-		job.channel,
-		job.threadTs,
-		"Zusing…",
-	);
 	let workspaceId = await scoped.THREADS.get(
 		`thread:${job.channel}:${job.threadTs}`,
 	);
+	const previousKey = workspaceId
+		? await scoped.THREADS.get(`workspace-turn:${workspaceId}`)
+		: null;
+	const previous = previousKey ? await readProgress(scoped, previousKey) : null;
+	const progress = await startProgress(scoped, {
+		key,
+		channel: job.channel,
+		threadTs: job.threadTs,
+		messageTs: job.messageTs,
+		details: {
+			...(workspaceId ? previous?.details : config.workspaceDefaults),
+			task: text,
+			historyMessages: undefined,
+			attachments: undefined,
+			contextLimited: undefined,
+			followUp: Boolean(workspaceId),
+		},
+	});
+	if (progress.completed) {
+		await refreshStatus(scoped, key, "");
+		await state.put(dedupe, "1", { expirationTtl: TTL });
+		return;
+	}
+	let repository: string | undefined;
 	const projectId =
 		job.projectId ??
 		profile.defaults.channels[job.channel] ??
@@ -223,20 +240,18 @@ export const runConversation = async (
 		const ready = projects.filter((p) => p.state === "ready");
 		if (!projectId || !ready.some((p) => p.projectId === projectId)) {
 			await promptRepository(env, installation, job, connection.webhookId);
+			await updateProgress(
+				scoped,
+				key,
+				"Choose a repository using Configure request",
+				{
+					waitingForUser: true,
+				},
+			);
 			await state.put(dedupe, "waiting", { expirationTtl: 3600 });
 			return;
 		}
-	}
-	const progress = await startProgress(scoped, {
-		key,
-		channel: job.channel,
-		threadTs: job.threadTs,
-		messageTs: job.messageTs,
-	});
-	if (progress.completed) {
-		await refreshStatus(scoped, key, "");
-		await state.put(dedupe, "1", { expirationTtl: TTL });
-		return;
+		repository = ready.find((p) => p.projectId === projectId)?.displayName;
 	}
 	await scoped.THREADS.put(activeKey, key, { expirationTtl: TTL });
 	const imported = await scoped.THREADS.get(`submitted:${key}`);
@@ -276,6 +291,8 @@ export const runConversation = async (
 			(m) =>
 				m.ts !== job.messageTs && m.user !== installation.credentials.botUserId,
 		);
+		const context = slackThreadContext(history, 63_000 - text.length);
+		let branch: string | undefined;
 		await updateProgress(
 			scoped,
 			key,
@@ -310,6 +327,7 @@ export const runConversation = async (
 					scoped,
 					key,
 					"Waiting for you to choose an agent in the private Slack picker",
+					{ waitingForUser: true },
 				);
 				await env.JOBS.send({
 					kind: "agent-required",
@@ -324,11 +342,24 @@ export const runConversation = async (
 			}
 			workspaceId = created.workspace.workspaceId;
 			await saveThreadMapping(scoped, workspaceId, job.channel, job.threadTs);
+			branch = created.workspace.branch;
 		}
 		await scoped.THREADS.put(`workspace-turn:${workspaceId}`, key, {
 			expirationTtl: TTL,
 		});
-		await attachWorkspace(scoped, key, workspaceId);
+		await attachWorkspace(
+			scoped,
+			key,
+			workspaceId,
+			branch
+				? {
+						repository,
+						branch,
+						agent: config.workspaceDefaults.agent,
+						model: config.workspaceDefaults.model,
+					}
+				: undefined,
+		);
 		const files = [
 			...new Map(
 				[...history.flatMap((m) => m.files), ...parseSlackFiles(job.files)].map(
@@ -342,6 +373,16 @@ export const runConversation = async (
 			files,
 			`${scoped.NAMESPACE}:conversation:${key}`,
 		);
+		await updateProgress(scoped, key, "Sending your request to the workspace", {
+			details: {
+				historyMessages: history.length,
+				attachments: attachments.length,
+				contextLimited:
+					context.limited ||
+					files.length > attachments.length ||
+					thread.some((message) => message.contextLimited),
+			},
+		});
 		// Retries must resend an identical request, so resolve names only once.
 		const cachedSource = await scoped.THREADS.get(`source:${key}`);
 		const source: MessageSource = cachedSource
@@ -360,12 +401,11 @@ export const runConversation = async (
 				expirationTtl: 86400,
 			});
 
-		await updateProgress(scoped, key, "Working on your request");
 		const message = await sendMessage(config, {
 			workspaceId,
 			text: [
 				`Request from Slack (thread ${job.threadTs}):\n${text}`,
-				history.length ? slackThreadPrompt(history, 63_000 - text.length) : "",
+				history.length ? context.text : "",
 			]
 				.filter(Boolean)
 				.join("\n\n"),
@@ -381,6 +421,13 @@ export const runConversation = async (
 		await scoped.THREADS.put(`submitted:${key}`, message.messageId, {
 			expirationTtl: TTL,
 		});
+		await refreshStatus(
+			scoped,
+			key,
+			message.status === "queued"
+				? "Request queued in your workspace"
+				: "Waiting for the agent’s result",
+		);
 	}
 	if (!workspaceId) throw new Error("slack_workspace_mapping_missing");
 	await env.JOBS.send(
@@ -397,7 +444,7 @@ export const runConversation = async (
 			startedAt: progress.startedAt,
 			userId: job.userId,
 		},
-		{ delaySeconds: 30 },
+		{ delaySeconds: 3 },
 	);
 	await state.put(dedupe, "1", { expirationTtl: TTL });
 };
@@ -427,6 +474,7 @@ export const pollProgress = async (
 	}
 	const { workspace } = await getWorkspace(scoped.CLOUD, job.workspaceId);
 	const messageId = await scoped.THREADS.get(`submitted:${job.turnKey}`);
+	let queued = false;
 	if (messageId) {
 		const { result, requestStatus, turnFailure } = await readTurn(
 			scoped.CLOUD,
@@ -461,6 +509,7 @@ export const pollProgress = async (
 			);
 			return;
 		}
+		queued = requestStatus === "queued";
 	}
 	if (["failed", "deleted", "archived"].includes(workspace.state)) {
 		await finishProgress(
@@ -473,13 +522,8 @@ export const pollProgress = async (
 	}
 
 	const delaySeconds = Date.now() - job.startedAt > 60 * 60 * 1000 ? 300 : 30;
-	const phase =
-		workspace.agentStatus === "working"
-			? "Working on your request"
-			: workspace.state === "ready"
-				? "Waiting for the agent’s result"
-				: "Starting the cloud workspace";
-	await refreshStatus(scoped, job.turnKey, phase);
+	const phase = workspaceProgressPhase(workspace, queued);
+	await refreshStatus(scoped, job.turnKey, phase, { checkedAt: Date.now() });
 	await env.JOBS.send(
 		{ ...job, id: `progress:${job.turnKey}:${Math.floor(Date.now() / 30000)}` },
 		{ delaySeconds },

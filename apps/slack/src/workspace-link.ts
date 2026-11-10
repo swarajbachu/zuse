@@ -3,7 +3,7 @@ import { HOSTED_APP_URL } from "@zuse/contracts/deployment";
 import type { RunnerEnv } from "./runner.ts";
 
 /** An authenticated locator, never a sharing grant or credential. */
-export const workspaceLink = (
+export const workspaceUrl = (
 	env: Pick<RunnerEnv, "WORKSPACE_APP_ORIGIN" | "WORKSPACE_SCOPE">,
 	workspaceId: string,
 ): string => {
@@ -14,5 +14,10 @@ export const workspaceLink = (
 		}),
 		env.WORKSPACE_APP_ORIGIN ?? HOSTED_APP_URL,
 	);
-	return `<${url.href}|View in Zuse>`;
+	return url.href;
 };
+
+export const workspaceLink = (
+	env: Pick<RunnerEnv, "WORKSPACE_APP_ORIGIN" | "WORKSPACE_SCOPE">,
+	workspaceId: string,
+): string => `<${workspaceUrl(env, workspaceId)}|View in Zuse>`;
