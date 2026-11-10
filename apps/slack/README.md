@@ -18,15 +18,22 @@ deployed Worker yet**. HTTP callbacks remain under `api[-staging].zuse.sh/slack/
 - `interactions.ts` / `repositories.ts`: signed native modals and saved repository defaults.
 - `agent-choice.ts`: supported cloud agent/model options from the shared curated catalog.
 - `conversation.ts`: mentions, DMs, thread continuation, context/images and workspace tasks.
-- `progress.ts`: native-first loading, a durable text fallback when unavailable, and one final result reply. Existing fallback cards are removed when native status takes over during preparation.
+- `progress.ts` / `progress-card.ts`: one persistent task card, best-effort native loading, and a separate final result reply. Cards remain visible with or without native status support.
 - `thread-status.ts`: shared loading-state updates and independent, version-fenced cleanup retries.
 - `automation.ts` / `runner.ts`: alert matching, shared uploads/thread mappings, signed results.
 - `installations.ts`: encrypted tenant/generation state and optimistic settings revisions.
 
 Progress reports actual lifecycle activity, not private model reasoning or invented
 tool output. Signed completion webhooks and a polling fallback correlate results
-to the submitted turn before replacing its progress message. Token-by-token model
-streaming and cancellation are not implemented.
+to the submitted turn. Live activity never edits the final answer. The card shows
+the request, known repository/branch and agent/model, imported context and uploaded
+attachment counts, context-limit notices, elapsed time, and an authenticated View
+in Zuse button as soon as the workspace exists. Polling displays actual startup
+phases and queued/delivered request state; its timestamp means status checked, not
+proof of new agent activity. Rapid preparation edits are coalesced. Setup waits
+clear native loading and the working reaction; terminal outcomes settle the card.
+Token-by-token model streaming, detailed tool activity, and cancellation are not
+implemented.
 
 New requests and workspace follow-ups use a short Slack attribution plus the user's
 message and current attachments. Earlier thread messages and images are imported
@@ -93,5 +100,5 @@ any disconnect (including Slack Home), fresh AuthKit authorization requests
 upstream provider account selection still needs live verification. Existing
 requests are not transferred to the replacement account; start a new Slack task.
 
-There is no authenticated one-click workspace landing route yet; replies include
-the workspace ID. See the operator guide for rollout checks and scaling limits.
+Workspace links use the existing authenticated personal/organization chat route;
+they do not grant access. See the operator guide for rollout checks and scaling limits.

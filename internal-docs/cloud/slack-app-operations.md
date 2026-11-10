@@ -110,20 +110,34 @@ the older `stuff.md` token issuer. Do not change token issuers for Slack setup.
   cross an account reconnect or workspace policy change.
 - Requests receive an eyes acknowledgment reaction on the original message.
   While work runs, a custom `one_sec_cooking` reaction accompanies native Slack
-  loading (standard hourglass fallback when the custom emoji is absent). New
-  tasks post only actual results/errors, with no intermediate working card.
+  loading (standard hourglass fallback when the custom emoji is absent). Each
+  request keeps one threaded task card showing its request, known execution
+  context, imported-message/upload counts, omitted-context notice, elapsed time,
+  and View in Zuse link as soon as a workspace exists, before task submission.
+  Imported-context counts appear on the next card refresh after upload. The card
+  works without native loading.
+  Ordinary preparation edits are coalesced over three seconds; workspace links,
+  setup waits and completion can update immediately. Polling refreshes the same
+  card with actual startup/request state and a status-check timestamp, not invented
+  tool progress or an agent heartbeat. Setup waits clear loading and the working
+  reaction until the user resumes. Final answers are separate replies; late
+  activity cannot overwrite them, and an in-flight card edit rechecks settlement.
+  Card delivery errors do not prevent task submission or final-result delivery.
+  Transient terminal-card cleanup failures retry without reposting the answer;
+  Slack rate-limit delays are respected by card updates.
   Cooking cleanup retries independently with generation/version checks.
   Native Slack loading is best effort, refreshed while work runs.
   Clearing the indicator is retryable: transient failures enqueue an independent
   `status-clear` job, honoring Slack rate limits without restarting the agent or
   reposting the result. A later status supersedes queued cleanup for that thread;
   reinstall generations also invalidate old jobs. Unavailable native-status
-  features or revoked permissions are logged while reactions remain the activity fallback.
+  features or revoked permissions are logged while the task card remains available.
   If cleanup cannot be queued, failure notification is retried rather than silently
   acknowledged. This follows Slack's [explicit empty-status cleanup](https://docs.slack.dev/reference/methods/assistant.threads.setStatus/).
   It is not raw model reasoning or token/tool streaming. Webhooks are correlated
   to the submitted user turn; delayed results cannot finalize a different turn.
-  Polling recovers missed completion deliveries (30s, reducing to 5min after an hour).
+  Polling first checks after 3s, then recovers missed completion deliveries every
+  30s, reducing to 5min after an hour.
 - Every member can link a Zuse account through a private, one-use connection URL.
   Channel connection prompts/success notices use `chat.postEphemeral` for that user;
   App Home is private per user. New installs use individual accounts; legacy installs

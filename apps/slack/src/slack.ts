@@ -60,6 +60,7 @@ export interface SlackThreadMessage {
 	readonly user?: string;
 	readonly text: string;
 	readonly files: ReadonlyArray<SlackFile>;
+	readonly contextLimited?: boolean;
 }
 
 export interface SlackFileMetadata {
@@ -345,14 +346,21 @@ export const readSlackThread = async (input: {
 			);
 		for (const message of body.messages ?? []) {
 			if (typeof message.ts !== "string") continue;
+			const files = parseSlackFiles(message.files);
 			messages.push({
 				ts: message.ts,
 				...(message.user === undefined ? {} : { user: message.user }),
 				text: slackMessageText(message),
-				files: parseSlackFiles(message.files),
+				files,
+				...(files.length < (message.files?.length ?? 0)
+					? { contextLimited: true }
+					: {}),
 			});
-			if (messages.length > SLACK_THREAD_MAX_MESSAGES)
+			if (messages.length > SLACK_THREAD_MAX_MESSAGES) {
 				messages.splice(0, messages.length - SLACK_THREAD_MAX_MESSAGES);
+				const first = messages[0];
+				if (first) messages[0] = { ...first, contextLimited: true };
+			}
 		}
 		const next = body.response_metadata?.next_cursor?.trim();
 		cursor = next === undefined || next.length === 0 ? undefined : next;
@@ -371,7 +379,15 @@ export const readSlackThread = async (input: {
 			const files = fileBudget > 0 ? message.files.slice(-fileBudget) : [];
 			textBudget -= text.length;
 			fileBudget -= files.length;
-			messages[index] = { ...message, text, files };
+			messages[index] = {
+				...message,
+				text,
+				files,
+				...(text.length < message.text.length ||
+				files.length < message.files.length
+					? { contextLimited: true }
+					: {}),
+			};
 		}
 		await input.checkpoint?.save(
 			JSON.stringify({

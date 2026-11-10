@@ -263,6 +263,7 @@ describe("conversational Slack app", () => {
 			nativeStatus: "",
 			clearStatusFailures: 0,
 			workspaceError: "",
+			workspaceReadError: false,
 			workspaceErrorStatus: 400,
 			messageError: "",
 			workspaceStatusCode: "",
@@ -340,6 +341,11 @@ describe("conversational Slack app", () => {
 					return Response.json({
 						workspace: { workspaceId: "w1", branch: "slack-fix" },
 					});
+				if (url.endsWith("/workspaces/w1") && result.workspaceReadError)
+					return Response.json(
+						{ code: "temporarily_unavailable" },
+						{ status: 503 },
+					);
 				if (url.endsWith("/workspaces/w1"))
 					return Response.json({
 						workspace: {
@@ -407,7 +413,10 @@ describe("conversational Slack app", () => {
 						: Response.json({ ok: true, channel: { name: "eng-alerts" } });
 				}
 				if (url.endsWith("chat.postMessage"))
-					return Response.json({ ok: true, ts: "201.001" });
+					return Response.json({
+						ok: true,
+						ts: body.blocks ? "201.001" : "201.002",
+					});
 				if (url.endsWith("chat.postEphemeral"))
 					return Response.json({ ok: true });
 				if (url.endsWith("views.open"))
@@ -433,13 +442,23 @@ describe("conversational Slack app", () => {
 			reactions,
 			result,
 			posts: () =>
-				calls.filter((call) => call.url.endsWith("chat.postMessage")),
+				calls.filter(
+					(call) => call.url.endsWith("chat.postMessage") && !call.body.blocks,
+				),
+			cards: () =>
+				calls.filter(
+					(call) =>
+						call.body.blocks &&
+						(call.url.endsWith("chat.postMessage") ||
+							call.url.endsWith("chat.update")),
+				),
 			updates: () => calls.filter((call) => call.url.endsWith("chat.update")),
 			replies: () =>
 				calls.filter(
 					(call) =>
-						call.url.endsWith("chat.update") ||
-						call.url.endsWith("chat.postMessage"),
+						(call.url.endsWith("chat.update") ||
+							call.url.endsWith("chat.postMessage")) &&
+						!call.body.blocks,
 				),
 			ephemerals: () =>
 				calls.filter((call) => call.url.endsWith("chat.postEphemeral")),
@@ -448,13 +467,18 @@ describe("conversational Slack app", () => {
 	it.each([
 		true,
 		false,
-	])("reacts to the source message without posting a working card (native status: %s)", async (nativeSupported) => {
+	])("keeps a task card alongside source reactions (native status: %s)", async (nativeSupported) => {
 		const app = await setup();
 		const http = mockServices();
 		http.result.nativeSupported = nativeSupported;
 		await app.event({ ...mention, thread_ts: "100.001" });
 		await consumeNext(app);
 		expect(http.posts()).toHaveLength(0);
+		expect(
+			http.cards().filter((call) => call.url.endsWith("chat.postMessage")),
+		).toHaveLength(1);
+		expect(http.cards().at(-1)?.body.text).toContain("View in Zuse");
+		expect(http.cards().at(-1)?.body.text).toContain("Repository one");
 		for (const name of ["eyes", "one_sec_cooking"])
 			expect(http.reactions).toContainEqual({
 				url: "https://slack.com/api/reactions.add",
@@ -473,6 +497,96 @@ describe("conversational Slack app", () => {
 					call.url.endsWith("reactions.remove") && call.body.name === "eyes",
 			),
 		).toBe(false);
+	});
+	it("keeps a twenty-minute run visible with context, status checks, and a separate final reply", async () => {
+		vi.useFakeTimers();
+		const app = await setup();
+		const http = mockServices();
+		await app.event({ ...mention, thread_ts: "100.001" });
+		await consumeNext(app);
+		const submission = http.calls.findIndex((call) =>
+			call.url.endsWith("/messages"),
+		);
+		expect(
+			http.calls
+				.slice(0, submission)
+				.some(
+					(call) =>
+						call.body.blocks && String(call.body.text).includes("View in Zuse"),
+				),
+		).toBe(true);
+		http.result.requestStatus = "queued";
+		vi.setSystemTime(Date.now() + 20 * 60_000);
+		await consumeNext(app);
+		const card = http.cards().at(-1);
+		expect(card?.body.text).toContain("Elapsed: 20m");
+		expect(card?.body.text).toContain("Status checked at");
+		expect(card?.body.text).toContain("Request queued");
+		expect(card?.body.text).toContain("0 attachments uploaded");
+		expect(
+			http.cards().filter((call) => call.url.endsWith("chat.postMessage")),
+		).toHaveLength(1);
+		expect(http.posts()).toHaveLength(0);
+		http.result.finished = true;
+		vi.setSystemTime(Date.now() + 30_000);
+		await consumeNext(app);
+		expect(http.posts()).toHaveLength(1);
+		expect(http.posts()[0]?.body.text).toContain("Fixed parser.ts");
+		expect(http.cards().at(-1)?.body.text).toContain("Done");
+		expect(http.cards().at(-1)?.body.ts).not.toBe(
+			(await readProgress(runnerEnv(app.env, app.installation), "C1:200.001"))
+				?.statusTs,
+		);
+	});
+	it("shows context omissions to the user instead of silently truncating an earlier thread", async () => {
+		vi.useFakeTimers();
+		const app = await setup();
+		const http = mockServices();
+		http.result.threadMessages = [
+			{
+				ts: "100.001",
+				user: "U1",
+				text: "x".repeat(61_000),
+				files: [{ id: "unavailable" }],
+			},
+		];
+		await app.event({ ...mention, thread_ts: "100.001" });
+		await consumeNext(app);
+		vi.setSystemTime(Date.now() + 30_000);
+		await consumeNext(app);
+		expect(http.cards().at(-1)?.body.text).toContain(
+			"Included 1 earlier thread message",
+		);
+		expect(http.cards().at(-1)?.body.text).toContain(
+			"Some earlier text or attachments were omitted",
+		);
+	});
+	it("distinguishes a status outage from agent failure and recovers the original result", async () => {
+		const app = await setup();
+		const http = mockServices();
+		await app.event(mention);
+		await consumeNext(app);
+		http.result.workspaceReadError = true;
+		const retrying = await consumeNext(app, 6);
+		expect(retrying.retry).toHaveBeenCalled();
+		expect(http.replies().at(-1)?.body.text).toContain(
+			"agent may still be running",
+		);
+		expect(http.replies().at(-1)?.body.text).not.toContain("Slack permissions");
+		expect(
+			(await readProgress(runnerEnv(app.env, app.installation), "C1:200.001"))
+				?.completed,
+		).toBe(false);
+		http.result.workspaceReadError = false;
+		http.result.finished = true;
+		app.jobs.push(retrying.body);
+		await consumeNext(app);
+		expect(http.replies().at(-1)?.body.text).toContain("Fixed parser.ts");
+		expect(http.posts()).toHaveLength(1);
+		expect(
+			(await readProgress(runnerEnv(app.env, app.installation), "C1:200.001"))
+				?.completed,
+		).toBe(true);
 	});
 	it("uses a standard reaction when the custom cooking emoji is missing", async () => {
 		const app = await setup();
@@ -573,7 +687,7 @@ describe("conversational Slack app", () => {
 			http.calls.filter((call) => call.url.endsWith("/messages")),
 		).toHaveLength(1);
 	});
-	it("uses only native status while preparing a request", async () => {
+	it("keeps one persistent task card while native status is available", async () => {
 		const app = await setup();
 		const http = mockServices();
 		await app.event(mention);
@@ -587,7 +701,7 @@ describe("conversational Slack app", () => {
 		expect(http.posts()[0]?.body.text).toContain("Fixed parser.ts");
 		expect(http.result.nativeStatus).toBe("");
 	});
-	it("removes an old loading card when native status becomes available", async () => {
+	it("keeps its task card when native status becomes available", async () => {
 		const app = await setup();
 		const http = mockServices();
 		const scoped = runnerEnv(app.env, app.installation);
@@ -602,7 +716,7 @@ describe("conversational Slack app", () => {
 		if (!progress) throw new Error("Missing progress");
 		await scoped.THREADS.put(
 			"progress:resume",
-			JSON.stringify({ ...progress, statusTs: "201.001" }),
+			JSON.stringify({ ...progress, activityTs: "201.001" }),
 		);
 		http.result.nativeSupported = true;
 		await updateProgress(
@@ -612,8 +726,8 @@ describe("conversational Slack app", () => {
 		);
 		expect(
 			http.calls.filter((c) => c.url.endsWith("chat.delete")),
-		).toHaveLength(1);
-		expect((await readProgress(scoped, "resume"))?.statusTs).toBeUndefined();
+		).toHaveLength(0);
+		expect((await readProgress(scoped, "resume"))?.activityTs).toBe("201.001");
 		expect(http.result.nativeStatus).toBe(
 			"Preparing your repository and workspace",
 		);
@@ -1203,7 +1317,7 @@ describe("conversational Slack app", () => {
 		).toMatchObject(expectedAgent);
 		expect(
 			http.calls.find((c) => c.url.includes("threads.setStatus"))?.body.status,
-		).toBe("Zusing…");
+		).toBe("Preparing your request");
 	});
 	it("refuses a forged repository outside the connected account", async () => {
 		const app = await setup();
