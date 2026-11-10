@@ -2,7 +2,7 @@ import "@zuse/i18n/english/chat";
 import { useAtomValue } from "@effect/atom-react";
 import type { SessionId } from "@zuse/contracts";
 import { useMessages } from "@zuse/i18n/react";
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { Text, View } from "react-native";
 import { Button } from "~/components/ui/button";
 import { connectionSessionKey } from "~/lib/session-key";
@@ -11,15 +11,18 @@ import {
 	mobileHistory,
 	mobileHistoryKey,
 	mobileHistoryRef,
+	requestMobileHistoryPage,
 } from "~/store/mobile-client-bus";
 
 /** History progress is shared by cloud and desktop-hosted mobile chats. */
 export function MessageHistoryStatus({
 	connKey,
 	sessionId,
+	restorePosition = false,
 }: {
 	connKey: string;
 	sessionId: SessionId;
+	restorePosition?: boolean;
 }) {
 	const { message } = useMessages(["chat"]);
 	const ref = mobileHistoryRef(connKey, sessionId);
@@ -33,7 +36,11 @@ export function MessageHistoryStatus({
 	const hasOlder = useAtomValue(
 		hasOlderMessagesAtom(connectionSessionKey(connKey, sessionId)),
 	);
-	if (!hasOlder || status === "idle") return null;
+	useEffect(() => {
+		if (restorePosition && hasOlder && status === "idle" && ref !== null)
+			requestMobileHistoryPage(ref);
+	}, [restorePosition, hasOlder, status, ref]);
+	if (!hasOlder) return null;
 	return (
 		<View role="status" aria-live="polite" className="px-4 py-1">
 			{status === "loading" ? (
@@ -44,9 +51,17 @@ export function MessageHistoryStatus({
 				<Button
 					variant="ghost"
 					size="sm"
-					onPress={() => mobileHistory.retry(key)}
+					onPress={() =>
+						status === "failed"
+							? mobileHistory.retry(key)
+							: ref !== null && requestMobileHistoryPage(ref)
+					}
 				>
-					{message("chat:cloud_history_retry")}
+					{message(
+						status === "failed"
+							? "chat:cloud_history_retry"
+							: "chat:history_load_older",
+					)}
 				</Button>
 			)}
 		</View>

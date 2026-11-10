@@ -56,7 +56,6 @@ const WorktreeArchiveOutcomeSchema = Schema.Struct({
 	branchProvenance: Schema.optional(
 		Schema.Literals(["pending", "automatic", "manual"]),
 	),
-	pokemonNumber: Schema.optional(Schema.NullOr(Schema.Number)),
 });
 const WorktreeCheckpointJournalDetailSchema = Schema.Struct({
 	...WorktreeArchiveSnapshot.fields,
@@ -1042,6 +1041,12 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					}
 				}
 				if (worktree !== null && !force) yield* scheduleArchiveCleanup(chatId);
+				else
+					for (const { id } of liveSessions) {
+						const sessionId = SessionId.make(id);
+						yield* closeProvider(sessionId);
+						yield* interruptProviderFiber(sessionId);
+					}
 				yield* reactorEffects.complete(commandId);
 				return {
 					chat: yield* lookupChat(chatId),

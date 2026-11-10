@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 import Animated, {
-  cancelAnimation,
-  Easing,
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withRepeat,
-  withTiming,
+	cancelAnimation,
+	Easing,
+	useAnimatedStyle,
+	useReducedMotion,
+	useSharedValue,
+	withRepeat,
+	withTiming,
 } from "react-native-reanimated";
 
 /**
@@ -16,38 +16,38 @@ import Animated, {
  * `active` is false it settles to full opacity (plain static label).
  */
 export function ShimmerText({
-  children,
-  className,
-  active = true,
+	children,
+	className,
+	active = true,
 }: {
-  children: string;
-  className?: string;
-  active?: boolean;
+	children: string;
+	className?: string;
+	active?: boolean;
 }) {
-  const reducedMotion = useReducedMotion();
-  const animating = active && !reducedMotion;
-  const progress = useSharedValue(1);
+	const reducedMotion = useReducedMotion();
+	const animating = active && !reducedMotion;
+	const progress = useSharedValue(1);
 
-  useEffect(() => {
-    if (animating) {
-      progress.value = withRepeat(
-        withTiming(0.45, { duration: 1100, easing: Easing.inOut(Easing.quad) }),
-        -1,
-        true,
-      );
-      return;
-    }
-    cancelAnimation(progress);
-    progress.value = withTiming(reducedMotion && active ? 0.7 : 1, {
-      duration: 180,
-    });
-  }, [animating, active, reducedMotion, progress]);
+	useEffect(() => {
+		if (animating) {
+			progress.value = withRepeat(
+				withTiming(0.45, { duration: 1100, easing: Easing.inOut(Easing.quad) }),
+				-1,
+				true,
+			);
+			return;
+		}
+		cancelAnimation(progress);
+		progress.value = withTiming(reducedMotion && active ? 0.7 : 1, {
+			duration: 180,
+		});
+	}, [animating, active, reducedMotion, progress]);
 
-  const style = useAnimatedStyle(() => ({ opacity: progress.value }));
+	const style = useAnimatedStyle(() => ({ opacity: progress.value }));
 
-  return (
-    <Animated.Text style={style} className={className} numberOfLines={1}>
-      {children}
-    </Animated.Text>
-  );
+	return (
+		<Animated.Text style={style} className={className} numberOfLines={1}>
+			{children}
+		</Animated.Text>
+	);
 }

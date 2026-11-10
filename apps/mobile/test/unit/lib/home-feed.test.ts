@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildHomeFeed, type HomeFeedItem } from "../../../src/lib/home-feed";
-import type {
-	InboxChatRow,
-	InboxProjectGroup,
-} from "../../../src/lib/inbox";
+import type { InboxChatRow, InboxProjectGroup } from "../../../src/lib/inbox";
 import { DEFAULT_INBOX_GROUP_DISPLAY } from "../../../src/lib/inbox";
 
 const makeRow = (overrides: Partial<InboxChatRow>): InboxChatRow => ({

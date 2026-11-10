@@ -399,7 +399,7 @@ export default function SettingsScreen({
 							<ListRow
 								analyticsId="connections.nearby.open"
 								symbol="qrcode.viewfinder"
-								title="Connect to a nearby Mac"
+								title="Connect to a nearby computer"
 								subtitle="Find it automatically over Wi-Fi"
 								onPress={() => router.push("/connect/nearby")}
 							/>

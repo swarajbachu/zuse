@@ -7,10 +7,15 @@ import {
 } from "@zuse/client-runtime/composer-trigger";
 
 import { allChips } from "./composer-chips.ts";
+import { detectEmojiTrigger, type EmojiTrigger } from "./composer-emoji.ts";
 
-export type TriggerKind = ComposerTriggerKind;
+export type TriggerKind = ComposerTriggerKind | EmojiTrigger["kind"];
 
-export type ActiveTrigger = ComposerTrigger;
+/**
+ * Shared sigil triggers plus the renderer-only `:shortcode` emoji trigger,
+ * which has its own prefix, length and code-markup rules.
+ */
+export type ActiveTrigger = ComposerTrigger | EmojiTrigger;
 
 export type TriggerListener = (trigger: ActiveTrigger | null) => void;
 
@@ -22,7 +27,8 @@ const detectTrigger = (
 		if (pos > c.from && pos < c.to) return null;
 	}
 
-	return detectComposerTrigger(state.doc.toString(), pos);
+	const text = state.doc.toString();
+	return detectComposerTrigger(text, pos) ?? detectEmojiTrigger(text, pos);
 };
 
 class TriggerPluginValue {

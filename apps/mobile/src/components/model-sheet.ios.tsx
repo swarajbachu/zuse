@@ -87,7 +87,12 @@ export function ModelSheet({
 										title={`\u00a0\u00a0${provider.label}`}
 										icon={
 											<Image
-												assetName={PROVIDER_NATIVE_ASSET_NAMES[provider.value]}
+												{...(PROVIDER_NATIVE_ASSET_NAMES[provider.value]
+													? {
+															assetName:
+																PROVIDER_NATIVE_ASSET_NAMES[provider.value],
+														}
+													: { systemName: sf("sparkles") })}
 												size={17}
 												color={colors.fg}
 												modifiers={[padding({ trailing: 6 })]}
@@ -119,9 +124,12 @@ export function ModelSheet({
 										title={`\u00a0\u00a0${model.label}`}
 										icon={
 											<Image
-												assetName={
-													PROVIDER_NATIVE_ASSET_NAMES[value.providerId]
-												}
+												{...(PROVIDER_NATIVE_ASSET_NAMES[value.providerId]
+													? {
+															assetName:
+																PROVIDER_NATIVE_ASSET_NAMES[value.providerId],
+														}
+													: { systemName: sf("sparkles") })}
 												size={17}
 												color={colors.fg}
 												modifiers={[padding({ trailing: 6 })]}

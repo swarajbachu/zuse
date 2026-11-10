@@ -21,14 +21,13 @@ export const isTabletSize = (size: {
 }): boolean => Math.min(size.width, size.height) >= TABLET_MIN_SIDE;
 
 /**
- * Phone-sized screens, including a folded iPhone Duo, keep the portrait-first
- * layout; iPads and other large screens rotate freely.
+ * iOS windows rotate with the device, including the folded Duo outer display.
+ * Compact Android screens retain their portrait-first layout.
  */
 export const shouldLockPortrait = (screen: {
 	readonly width: number;
 	readonly height: number;
-}): boolean =>
-	!(Platform.OS === "ios" && Platform.isPad) && !isTabletSize(screen);
+}): boolean => Platform.OS !== "ios" && !isTabletSize(screen);
 
 /**
  * Width the split view's sidebar currently takes from the content area; 0 when

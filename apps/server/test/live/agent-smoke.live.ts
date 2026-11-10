@@ -44,6 +44,12 @@ type LiveProvider = {
 
 const providers: ReadonlyArray<LiveProvider> = [
 	{
+		providerId: "muse",
+		binary: "muse",
+		envToggle: "ZUSE_LIVE_MUSE",
+		expectsCursor: true,
+	},
+	{
 		providerId: "claude",
 		binary: "claude",
 		envToggle: "ZUSE_LIVE_CLAUDE",
@@ -223,6 +229,17 @@ const startProvider = async (
 			return startOpencodeSession(input, cwd, [], binaryPath, sessionId);
 		case "opencode2":
 			return startOpencode2Session(input, cwd, [], binaryPath, sessionId);
+		case "muse": {
+			const { startMuseSession } = await import("@zuse/agents/drivers/muse");
+			return startMuseSession(
+				input,
+				cwd,
+				binaryPath,
+				sessionId,
+				requestPermission,
+				() => DEFAULT_RUNTIME_MODE,
+			);
+		}
 		case "pi":
 			return startPiSession(input, cwd, binaryPath, sessionId);
 		case "kiro":
@@ -242,6 +259,7 @@ const startProvider = async (
 const isTurnTerminal = (event: AgentEvent): boolean =>
 	event._tag === "Error" ||
 	event._tag === "Interrupted" ||
+	event._tag === "Completed" ||
 	(event._tag === "Status" && event.status === "idle");
 
 type SmokeResult =

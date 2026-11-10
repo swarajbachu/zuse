@@ -28,8 +28,8 @@ import type { ModelCatalog } from "./schema.ts";
  */
 export const BUNDLED_MODEL_CATALOG = {
 	schemaVersion: 1,
-	revision: 2026092901,
-	generatedAt: "2026-09-29T00:00:00.000Z",
+	revision: 2026102401,
+	generatedAt: "2026-10-24T00:00:00.000Z",
 	providers: {
 		claude: {
 			models: [
@@ -182,6 +182,7 @@ export const BUNDLED_MODEL_CATALOG = {
 				"gemini-3.1-pro-preview": "gemini-3-pro-preview",
 			},
 		},
+		muse: { models: [], aliases: {} },
 		pi: {
 			models: [
 				{

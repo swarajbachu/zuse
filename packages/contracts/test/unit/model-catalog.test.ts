@@ -43,6 +43,40 @@ const reasoningOptions = (
 };
 
 describe("bundled model catalog", () => {
+	it("discovers Muse models and reasoning controls without a speculative bundled model", () => {
+		expect(modelsForProvider(catalog, "muse")).toEqual([]);
+		const resolved = resolveModelCatalog(catalog, {
+			muse: {
+				status: "ok",
+				authoritative: true,
+				fetchedAt: 1,
+				error: null,
+				models: [
+					{
+						id: "muse-test",
+						label: "Muse Test",
+						isDefault: true,
+						liveMeta: { reasoningEfforts: ["high", "max"] },
+					},
+				],
+			},
+		});
+		expect(resolved.providers.muse.defaultModelId).toBe("muse-test");
+		expect(resolved.providers.muse.models[0]).toMatchObject({
+			id: "muse-test",
+			supportsPlanMode: false,
+			available: true,
+			optionDescriptors: [
+				{
+					id: "reasoning",
+					options: [
+						{ id: "high", label: "High" },
+						{ id: "max", label: "Max" },
+					],
+				},
+			],
+		});
+	});
 	it("round-trips through the wire schema", () => {
 		const encoded = Schema.encodeSync(ModelCatalog)(catalog);
 		const decoded = Schema.decodeUnknownSync(ModelCatalog)(
@@ -60,7 +94,10 @@ describe("bundled model catalog", () => {
 		expect(catalogProviderIds(catalog)).toEqual(bundledProviders);
 		expect(modelsForProvider(catalog, "zuse")).toEqual([]);
 		for (const providerId of bundledProviders) {
-			expect(modelsForProvider(catalog, providerId).length).toBeGreaterThan(0);
+			if (providerId !== "muse")
+				expect(modelsForProvider(catalog, providerId).length).toBeGreaterThan(
+					0,
+				);
 		}
 	});
 

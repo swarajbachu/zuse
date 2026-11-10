@@ -103,7 +103,6 @@ import { HostedDevicesPane } from "./settings/hosted-devices-pane.tsx";
 import { KeybindingsPane } from "./settings/keybindings-editor.tsx";
 import { OrganizationSharingPane } from "./settings/organization-sharing-pane.tsx";
 import { OrganizationsPane } from "./settings/organizations-pane.tsx";
-import { PokedexPane } from "./settings/pokedex-pane.tsx";
 import { SimulatorSettingsPane } from "./settings/simulator-settings-pane.tsx";
 import { UpdateChannelSettings } from "./settings/update-channel-settings.tsx";
 import { RepositorySettings } from "./settings-repository.tsx";
@@ -232,9 +231,7 @@ export function SettingsPage() {
 							visibleSection.kind === "diagnostics" ||
 								visibleSection.kind === "shortcuts"
 								? "max-w-6xl"
-								: visibleSection.kind === "pokedex"
-									? "max-w-5xl"
-									: "max-w-3xl",
+								: "max-w-3xl",
 						)}
 					>
 						<SectionTitle section={visibleSection} folders={folders} />
@@ -452,12 +449,6 @@ function SectionTitle({
 				subtitle: uiMessage("simulators:settings_subtitle"),
 			};
 		}
-		if (section.kind === "pokedex") {
-			return {
-				title: uiMessage("settings:settings_page_pokedex"),
-				subtitle: "Unlocked Pokémon from all worktrees.",
-			};
-		}
 		if (section.kind === "diagnostics") {
 			return {
 				title: uiMessage("settings:settings_page_diagnostics"),
@@ -556,7 +547,6 @@ function Pane({ section }: { section: SettingsSection }) {
 	}
 	if (section.kind === "browser") return <BrowserSettingsPagePane />;
 	if (section.kind === "simulator") return <SimulatorSettingsPane />;
-	if (section.kind === "pokedex") return <PokedexPane />;
 	if (section.kind === "diagnostics") return <FullDiagnosticsPane />;
 	if (section.kind === "shortcuts") return <KeybindingsPane />;
 	if (section.kind === "experimental") return <ExperimentalPane />;
@@ -1304,6 +1294,10 @@ function ComputerAwakeSettings() {
 }
 
 function GeneralPane() {
+	const directSteerEnabled = useSettingsStore((s) => s.directSteerEnabled);
+	const setDirectSteerEnabled = useSettingsStore(
+		(s) => s.setDirectSteerEnabled,
+	);
 	useOrganizationWorkspaces();
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 
@@ -1371,6 +1365,19 @@ function GeneralPane() {
 
 	return (
 		<div className="flex flex-col gap-4">
+			<SettingsGroup title={uiMessage("settings:composer_title")}>
+				<SettingsRow
+					title={uiMessage("settings:direct_steer_title")}
+					description={uiMessage("settings:direct_steer_description")}
+					action={
+						<Switch
+							checked={directSteerEnabled}
+							onCheckedChange={setDirectSteerEnabled}
+							aria-label={uiMessage("settings:direct_steer_title")}
+						/>
+					}
+				/>
+			</SettingsGroup>
 			<SettingsGroup
 				title={uiMessage("settings:settings_page_account")}
 				description={uiMessage(

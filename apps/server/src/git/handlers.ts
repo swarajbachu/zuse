@@ -93,20 +93,17 @@ const ContinueBranch = MemoizeRpcs.toLayerHandler(
 								: [branch.name, branch.remote],
 						),
 					);
-					const allocation = yield* allocator.allocate({
-						unavailableNames,
-						usedPokemonNumbers: new Set(),
-					});
+					const allocation = yield* allocator.allocate({ unavailableNames });
 					if (allocation === null)
 						return yield* Effect.fail(
 							new GitCommandError({
 								folderId,
-								reason: "Could not allocate a Pokémon branch name.",
+								reason: "Could not allocate a branch name.",
 							}),
 						);
 					return yield* git.switchBranch(
 						folderId,
-						allocation.name,
+						allocation.branch,
 						null,
 						worktreeId ?? null,
 						"origin/main",

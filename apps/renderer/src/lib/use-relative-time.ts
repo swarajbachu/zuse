@@ -1,3 +1,4 @@
+import { formatRelativeTime as formatLocaleRelativeTime } from "@zuse/i18n";
 import { useEffect, useState } from "react";
 import { startVisibleInterval } from "./visible-interval.ts";
 
@@ -42,4 +43,18 @@ export function formatRelativeTime(
 	if (diff < HOUR) return `${Math.floor(diff / MINUTE)}m ago`;
 	if (diff < DAY) return `${Math.floor(diff / HOUR)}h ago`;
 	return `${Math.floor(diff / DAY)}d ago`;
+}
+
+/** Localized "5 minutes ago" for a past timestamp, in the coarsest fitting unit. */
+export function formatTimeAgo(
+	timestamp: number,
+	now: number = Date.now(),
+): string {
+	const diff = Math.max(0, now - timestamp);
+	if (diff < MINUTE) return formatLocaleRelativeTime(0, "second");
+	if (diff < HOUR)
+		return formatLocaleRelativeTime(-Math.floor(diff / MINUTE), "minute");
+	if (diff < DAY)
+		return formatLocaleRelativeTime(-Math.floor(diff / HOUR), "hour");
+	return formatLocaleRelativeTime(-Math.floor(diff / DAY), "day");
 }

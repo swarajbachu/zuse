@@ -23,6 +23,7 @@ export const BuiltinProviderId = Schema.Literals([
 	"opencode2",
 	"kiro",
 	"pi",
+	"muse",
 	"zuse",
 ]);
 export type BuiltinProviderId = typeof BuiltinProviderId.Type;
@@ -288,6 +289,8 @@ export const AgentAvailability = Schema.Struct({
 
 	cliUpgradeCommand: Schema.optional(Schema.String),
 
+	cliInstallCommand: Schema.optional(Schema.String),
+
 	latestVersion: Schema.optional(Schema.String),
 
 	latestVersionStatus: Schema.optional(LatestVersionStatus),
@@ -386,11 +389,20 @@ const ToolUseEvent = Schema.TaggedStruct("ToolUse", {
 	),
 });
 
+/** How a background process ended; `stopped` covers user and parent stops. */
+export const BackgroundTaskOutcome = Schema.Literals([
+	"completed",
+	"failed",
+	"stopped",
+]);
+export type BackgroundTaskOutcome = typeof BackgroundTaskOutcome.Type;
+
 const ToolResultEvent = Schema.TaggedStruct("ToolResult", {
 	itemId: AgentItemId,
 	output: Schema.Unknown,
 	isError: Schema.Boolean,
 	parentItemId: Schema.optional(AgentItemId),
+	backgroundOutcome: Schema.optional(BackgroundTaskOutcome),
 });
 
 const PermissionRequestEvent = Schema.TaggedStruct("PermissionRequest", {
@@ -515,6 +527,7 @@ export const ProviderResumeStrategy = Schema.Literals([
 	"opencode2-session-id",
 	"kiro-session-id",
 	"pi-session-file",
+	"muse-session-id",
 	"zuse-execution-id",
 ]);
 export type ProviderResumeStrategy = typeof ProviderResumeStrategy.Type;

@@ -1,11 +1,13 @@
 import { startClaudeSession } from "@zuse/agents/drivers/claude";
 import { startCodexSession } from "@zuse/agents/drivers/codex";
+import { closeCodexControlClients } from "@zuse/agents/drivers/codex-control-client";
 import { startCursorSession } from "@zuse/agents/drivers/cursor";
 import { startGeminiSession } from "@zuse/agents/drivers/gemini";
 import { startGenericAcpSession } from "@zuse/agents/drivers/generic-acp";
 import { startGrokSession } from "@zuse/agents/drivers/grok";
 import { HtmlTools } from "@zuse/agents/drivers/html-tools";
 import { startKiroSession } from "@zuse/agents/drivers/kiro";
+import { startMuseSession } from "@zuse/agents/drivers/muse";
 import { startOpencodeSession } from "@zuse/agents/drivers/opencode";
 import { startOpencode2Session } from "@zuse/agents/drivers/opencode2";
 import { startPiSession } from "@zuse/agents/drivers/pi";
@@ -149,6 +151,7 @@ const nextSessionId = (): AgentSessionId =>
 export const ProviderServiceLive = Layer.effect(
 	ProviderService,
 	Effect.gen(function* () {
+		yield* Effect.addFinalizer(() => Effect.promise(closeCodexControlClients));
 		const acpAgents = yield* AcpAgentService;
 		const executor = yield* CommandExecutor.ChildProcessSpawner;
 		const fs = yield* FileSystem.FileSystem;
@@ -742,7 +745,9 @@ export const ProviderServiceLive = Layer.effect(
 							: null;
 					let managedMcp: McpGatewayHttpServer | undefined;
 					if (
-						["cursor", "opencode", "opencode2", "pi"].includes(input.providerId)
+						["cursor", "opencode", "opencode2", "pi", "muse"].includes(
+							input.providerId,
+						)
 					) {
 						managedPlugins = yield* Effect.tryPromise({
 							try: async (signal) => {
@@ -926,6 +931,31 @@ export const ProviderServiceLive = Layer.effect(
 									geminiMcpCommand,
 									sessionTools,
 									resumeCursor,
+								).pipe(
+									Effect.provideService(AttachmentService, attachmentService),
+								);
+							} else if (input.providerId === "muse") {
+								const binary = yield* resolveCliPath("muse", binaryPaths).pipe(
+									Effect.provideService(
+										CommandExecutor.ChildProcessSpawner,
+										executor,
+									),
+								);
+								if (!binary)
+									return yield* new AgentSessionStartError({
+										providerId: "muse",
+										reason:
+											"Muse Code CLI not found. Install it from Settings → Providers, then run muse login to sign in.",
+									});
+								providerHandle = yield* startMuseSession(
+									driverInput,
+									cwd,
+									binary,
+									sessionId,
+									requestPermission,
+									runtimeModeGetter,
+									resumeCursor,
+									managedMcp,
 								).pipe(
 									Effect.provideService(AttachmentService, attachmentService),
 								);

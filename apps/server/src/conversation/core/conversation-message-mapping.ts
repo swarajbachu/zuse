@@ -218,6 +218,7 @@ export const eventToContent = (event: AgentEvent): MessageContent | null => {
 				output: event.output,
 				isError: event.isError,
 				parentItemId: event.parentItemId,
+				backgroundOutcome: event.backgroundOutcome,
 			};
 		case "SubagentSummary":
 			return {

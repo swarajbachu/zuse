@@ -15,6 +15,7 @@ export type LocalPathEvent = {
 	readonly usesWifi: boolean;
 	readonly usesCellular: boolean;
 	readonly generation: number;
+	readonly networkId?: string;
 };
 
 export type LocalDiscoveryState = {

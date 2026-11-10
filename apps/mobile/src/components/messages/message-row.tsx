@@ -518,7 +518,8 @@ const ToolUseRow = ({
 					{view.resultBody}
 				</Text>
 			) : null}
-			{view.kind === "read" ||
+			{result?.outputDeferred !== undefined ||
+			view.kind === "read" ||
 			(view.kind === "shell" &&
 				(view.body.length > 600 || (view.resultBody?.length ?? 0) > 1_200)) ? (
 				<DetailButton onPress={openDetails} />

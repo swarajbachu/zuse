@@ -16,7 +16,10 @@ describe("mobile release feature boundaries", () => {
 			"developer-tools.tsx",
 			"c/[conn]/session/[sessionId]/terminal.tsx",
 		]) {
-			const source = readFileSync(`${process.cwd()}/app/(main)/${path}`, "utf8");
+			const source = readFileSync(
+				`${process.cwd()}/app/(main)/${path}`,
+				"utf8",
+			);
 			expect(source).toContain("mobileReleaseFeatures.");
 			expect(source).toContain('<Redirect href="/"');
 		}

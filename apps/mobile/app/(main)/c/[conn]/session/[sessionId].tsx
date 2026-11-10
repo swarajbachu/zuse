@@ -74,12 +74,14 @@ import {
 import { cloudLifecycle } from "~/lib/cloud-lifecycle";
 import { isFreshChat, summarizeComposerActivity } from "~/lib/composer-state";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
+import { connectionNotice } from "~/lib/connection-notice";
 import {
 	normalizeConnParam,
 	optionsForConnection,
 } from "~/lib/connection-params";
 import { connectionSupports } from "~/lib/connection-records";
 import { captureMobileError } from "~/lib/crash-reporting";
+import { visibleConnectionLabel } from "~/lib/display-names";
 import { useReadableInset } from "~/lib/form-factor";
 import { scrollListToLatest } from "~/lib/legend-list-scroll";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
@@ -92,6 +94,7 @@ import { transcriptEndRunwayHeight } from "~/lib/thread-runway";
 import { shouldRestoreThreadPosition } from "~/lib/thread-switching";
 import {
 	readThreadViewState,
+	restoredThreadTurnIndex,
 	writeThreadViewState,
 } from "~/lib/thread-view-state";
 import {
@@ -146,6 +149,10 @@ import {
 	sessionTranscriptReadyAtom,
 	updateQueuedMessage,
 } from "~/store/messages";
+import {
+	mobileHistoryRef,
+	requestMobileHistoryPage,
+} from "~/store/mobile-client-bus";
 import {
 	cancelOutboxMessage,
 	hydrateOutbox,
@@ -258,6 +265,14 @@ function ThreadScreen() {
 	const [restoredViewState] = useState(() =>
 		restoreThreadPosition ? readThreadViewState(stateKey) : null,
 	);
+	const [restoringPosition, setRestoringPosition] = useState(
+		() =>
+			restoredViewState?.mode === "detached" &&
+			restoredViewState.anchorTurnId !== undefined,
+	);
+	const visibleTurnIdRef = useRef<string | undefined>(
+		restoredViewState?.anchorTurnId,
+	);
 	const connectionSnapshot = useAtomValue(connectionSnapshotAtom(connKey));
 	const bundles = useAtomValue(connectionBundlesAtom(connKey));
 	const rawMessages = useAtomValue(sessionMessagesAtom(stateKey));
@@ -282,6 +297,24 @@ function ThreadScreen() {
 	const serverQueuePaused = useAtomValue(sessionQueuePausedAtom(stateKey));
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
+
+	useEffect(() => {
+		if (!restoringPosition) return;
+		const index = restoredThreadTurnIndex(restoredViewState, turns);
+		if (index < 0 || listRef.current === null) return;
+		let cancelled = false;
+		void listRef.current.scrollToIndex({ index, animated: false }).then(
+			() => {
+				if (!cancelled) setRestoringPosition(false);
+			},
+			() => {
+				if (!cancelled) setRestoringPosition(false);
+			},
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, [turns, restoredViewState, restoringPosition]);
 
 	const anchoredFirstTurnFor = useRef<string | null>(null);
 
@@ -438,21 +471,13 @@ function ThreadScreen() {
 
 	const error = messagesError;
 	const transportOnline = connectionSnapshot?.status === "connected";
-	const connectionProblem =
-		connectionSnapshot?.status === "blockedAuth" ||
-		connectionSnapshot?.status === "error"
-			? connectionSnapshot.error
-				? connectionErrorMessage(connectionSnapshot.error)
-				: "Connection unavailable. Retry from the status above."
-			: null;
-	const connectionRecovering =
-		connectionSnapshot?.status === "connecting" ||
-		connectionSnapshot?.status === "reconnecting";
-	const connectionNotice =
+	const transportNotice =
 		options?.cloudWorkspaceId !== undefined
 			? null
-			: (connectionProblem ??
-				(connectionRecovering ? "Trying to reach your computer…" : null));
+			: connectionNotice(
+					connectionSnapshot,
+					visibleConnectionLabel(connectionRecord?.label),
+				);
 
 	useEffect(() => {
 		if (
@@ -706,6 +731,7 @@ function ThreadScreen() {
 			writeThreadViewState(stateKey, {
 				mode: readReaderDetached() ? "detached" : "following",
 				offsetY: scrollOffsetRef.current,
+				anchorTurnId: visibleTurnIdRef.current,
 				distanceFromBottom: distanceFromBottomRef.current,
 			});
 		};
@@ -731,6 +757,10 @@ function ThreadScreen() {
 
 	const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
 		const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+		if (readerGestureActiveRef.current && contentOffset.y < 240) {
+			const ref = mobileHistoryRef(connKey, normalizedSessionId);
+			if (ref !== null) requestMobileHistoryPage(ref);
+		}
 		if (
 			readerGestureActiveRef.current &&
 			listRef.current?.getState().isNearEnd === false &&
@@ -746,6 +776,7 @@ function ThreadScreen() {
 		writeThreadViewState(stateKey, {
 			mode: readReaderDetached() ? "detached" : "following",
 			offsetY: scrollOffsetRef.current,
+			anchorTurnId: visibleTurnIdRef.current,
 			distanceFromBottom: distanceFromBottomRef.current,
 		});
 	};
@@ -754,6 +785,7 @@ function ThreadScreen() {
 		transcriptScroll.onReaderDetached();
 	};
 	const startReaderGesture = () => {
+		setRestoringPosition(false);
 		readerGestureActiveRef.current = true;
 	};
 	const finishReaderGesture = () => {
@@ -775,6 +807,7 @@ function ThreadScreen() {
 	};
 
 	const jumpToLatest = () => {
+		setRestoringPosition(false);
 		if (turns.length === 0) return;
 		preAppendUiRef.current = null;
 		hasUnseenContentRef.current = false;
@@ -1265,6 +1298,11 @@ function ThreadScreen() {
 				ListHeaderComponent={
 					<View>
 						<MessageHistoryStatus
+							restorePosition={
+								restoringPosition &&
+								restoredThreadTurnIndex(restoredViewState, turns) < 0 &&
+								transcriptScroll.readerDetached
+							}
 							connKey={connKey}
 							sessionId={normalizedSessionId}
 						/>
@@ -1276,7 +1314,7 @@ function ThreadScreen() {
 								messages={messages}
 								error={error}
 							/>
-						) : error && connectionNotice === null ? (
+						) : error && transportNotice === null ? (
 							<InlineErrorNotice
 								message={connectionErrorMessage(error)}
 								compact
@@ -1302,6 +1340,10 @@ function ThreadScreen() {
 						) : null}
 					</View>
 				}
+				onViewableItemsChanged={({ viewableItems }) => {
+					if (!restoringPosition)
+						visibleTurnIdRef.current = viewableItems[0]?.item.id;
+				}}
 				onScroll={onScroll}
 				onScrollBeginDrag={startReaderGesture}
 				onScrollEndDrag={finishReaderGesture}
@@ -1446,15 +1488,12 @@ function ThreadScreen() {
 					pointerEvents="box-none"
 					style={{ marginHorizontal: readableInset }}
 				>
-					{executionHealth === "stalled" ||
-					executionHealth === "unavailable" ? (
+					{executionHealth === "unavailable" ? (
 						<Text
 							accessibilityRole="alert"
 							className="px-3 py-2 text-xs text-muted-foreground"
 						>
-							{executionHealth === "stalled"
-								? "No recent provider activity. You can wait or stop this turn."
-								: "Execution ownership could not be confirmed. Waiting for recovery."}
+							Execution ownership could not be confirmed. Waiting for recovery.
 						</Text>
 					) : null}
 					{options === null ? null : bottomState.blocking?.kind ===
@@ -1500,16 +1539,13 @@ function ThreadScreen() {
 							{options.cloudWorkspaceId === undefined ? null : (
 								<CloudLifecycleBar workspaceId={options.cloudWorkspaceId} />
 							)}
-							{connectionNotice === null ||
-							cloudLifecycleState !== null ? null : (
-								<View className="px-3 pt-2">
-									<ConnectionRecoveryBanner
-										message={connectionNotice}
-										onRetry={() => retryConnection(connKey, options)}
-										onPairAgain={() => router.push("/connect/scan")}
-										recovering={connectionRecovering}
-									/>
-								</View>
+							{cloudLifecycleState !== null ? null : (
+								<ConnectionRecoveryBanner
+									notice={transportNotice}
+									onRetry={() => retryConnection(connKey, options)}
+									onPairAgain={() => router.push("/connect/scan")}
+									className="mx-3 mt-2"
+								/>
 							)}
 							<ChatManagementBars
 								runningThreads={runningThreadCount}

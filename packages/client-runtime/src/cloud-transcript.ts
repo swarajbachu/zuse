@@ -15,7 +15,7 @@ import { Schema } from "effect";
 import type { SessionRef } from "./resource-ref.ts";
 
 /** Shared authenticated decoding for desktop and mobile cold transcript reads. */
-export const openCloudTranscriptCheckpoint = async (
+export const openCloudTranscriptCheckpointWithSize = async (
 	ref: SessionRef,
 	checkpoint: CloudTranscriptCheckpointAccess,
 ) => {
@@ -58,10 +58,10 @@ export const openCloudTranscriptCheckpoint = async (
 		)
 			throw new Error("Cloud transcript checkpoint context mismatch");
 	}
-	return payload;
+	return { payload, decodedBytes: plaintext.byteLength };
 };
 
-export const openCloudTranscriptPage = async (
+export const openCloudTranscriptPageWithSize = async (
 	ref: SessionRef,
 	cursor: SessionStreamCursor,
 	beforeSequence: number,
@@ -98,7 +98,18 @@ export const openCloudTranscriptPage = async (
 	)
 		throw new Error("Cloud transcript page belongs to another resource");
 	return {
-		messages: page.messages,
-		olderMessageSequence: page.olderMessageSequence,
+		page: {
+			messages: page.messages,
+			olderMessageSequence: page.olderMessageSequence,
+		},
+		decodedBytes: plaintext.byteLength,
 	};
 };
+
+export const openCloudTranscriptCheckpoint = async (
+	...args: Parameters<typeof openCloudTranscriptCheckpointWithSize>
+) => (await openCloudTranscriptCheckpointWithSize(...args)).payload;
+
+export const openCloudTranscriptPage = async (
+	...args: Parameters<typeof openCloudTranscriptPageWithSize>
+) => (await openCloudTranscriptPageWithSize(...args)).page;

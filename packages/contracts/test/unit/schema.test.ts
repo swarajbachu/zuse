@@ -15,7 +15,6 @@ import {
 	GitBranchInfo,
 	GitReviewSummary,
 	Message,
-	PokemonPokedexEntry,
 	RepositorySettingsFile,
 	Session,
 	SessionTimelineFrame,
@@ -528,67 +527,39 @@ describe("Message round-trip", () => {
 	});
 });
 
-describe("Pokemon and Worktree round-trips", () => {
-	it("round-trips an unlocked Pokedex entry", () => {
-		roundTrip(PokemonPokedexEntry, {
-			number: 25,
-			slug: "pikachu",
-			name: "Pikachu",
-			generation: 1,
-			rarity: "rare" as const,
-			points: 75,
-			unlocked: true,
-			unlockedAt: "2026-06-18T00:00:00.000Z",
-			worktreeId: "wt1",
-			spriteUrl: "zuse://pokemon/25",
-			silhouetteUrl:
-				"https://img.pokemondb.net/sprites/scarlet-violet/icon/pikachu.png",
-			variants: [
-				{
-					id: "home",
-					label: "Home",
-					spriteUrl: "zuse://pokemon/25-home",
-				},
-			],
-			evolutionLine: [
-				{
-					number: 25,
-					slug: "pikachu",
-					name: "Pikachu",
-					rarity: "rare" as const,
-					unlocked: true,
-					spriteUrl: "zuse://pokemon/25",
-					silhouetteUrl:
-						"https://img.pokemondb.net/sprites/scarlet-violet/icon/pikachu.png",
-				},
-			],
+describe("Worktree wire compatibility", () => {
+	const worktree = {
+		id: "wt1",
+		projectId: "proj1",
+		path: "/tmp/fix-terminal-reconnect",
+		name: "work-k3f9xq",
+		branch: "fix-terminal-reconnect",
+		branchProvenance: "automatic" as const,
+		baseBranch: "main",
+		createdAt: "2026-06-18T00:00:00.000Z",
+		setupStatus: "skipped" as const,
+		setupOutput: "",
+		setupStartedAt: null,
+		setupFinishedAt: null,
+	};
+
+	it("still sends the retired badge key as null for older clients", () => {
+		const { pokemon: _, ...fields } = Schema.decodeUnknownSync(Worktree)({
+			...worktree,
+			pokemon: null,
 		});
+		const made = Worktree.make(fields);
+		expect(made.pokemon).toBeNull();
+		expect(Schema.encodeSync(Worktree)(made)).toHaveProperty("pokemon", null);
 	});
 
-	it("round-trips a worktree with Pokémon metadata", () => {
-		roundTrip(Worktree, {
-			id: "wt1",
-			projectId: "proj1",
-			path: "/tmp/pikachu",
-			name: "pikachu",
-			branch: "pikachu",
-			branchProvenance: "manual" as const,
-			baseBranch: "main",
-			createdAt: "2026-06-18T00:00:00.000Z",
-			setupStatus: "skipped" as const,
-			setupOutput: "",
-			setupStartedAt: null,
-			setupFinishedAt: null,
-			pokemon: {
-				number: 25,
-				slug: "pikachu",
-				name: "Pikachu",
-				generation: 1,
-				rarity: "rare" as const,
-				points: 75,
-				spriteUrl: "zuse://pokemon/25",
-			},
-		});
+	it("accepts worktrees from runtimes that still send a badge", () => {
+		expect(() =>
+			Schema.decodeUnknownSync(Worktree)({
+				...worktree,
+				pokemon: { number: 25, slug: "pikachu" },
+			}),
+		).not.toThrow();
 	});
 });
 
@@ -722,6 +693,7 @@ const SETTINGS_FIXTURE: typeof SettingsFile.Encoded = {
 		opencode: "sonnet",
 		opencode2: "opencode/claude-sonnet-5",
 		kiro: "auto",
+		muse: "",
 		pi: "auto",
 
 		zuse: "",
@@ -742,6 +714,7 @@ const SETTINGS_FIXTURE: typeof SettingsFile.Encoded = {
 		opencode: true,
 		opencode2: true,
 		kiro: true,
+		muse: true,
 		pi: true,
 
 		zuse: true,
@@ -758,6 +731,7 @@ const SETTINGS_FIXTURE: typeof SettingsFile.Encoded = {
 		opencode: [],
 		opencode2: [],
 		kiro: [],
+		muse: [],
 		pi: [],
 
 		zuse: [],
@@ -853,6 +827,7 @@ describe("SettingsFile round-trip", () => {
 					opencode: "sonnet",
 					opencode2: "opencode/claude-sonnet-5",
 					kiro: "auto",
+					muse: "",
 					pi: "auto",
 
 					zuse: "",
@@ -872,6 +847,7 @@ describe("SettingsFile round-trip", () => {
 					opencode: true,
 					opencode2: true,
 					kiro: true,
+					muse: true,
 					pi: true,
 
 					zuse: true,
@@ -901,6 +877,7 @@ describe("SettingsFile round-trip", () => {
 					opencode: "sonnet",
 					opencode2: "opencode/claude-sonnet-5",
 					kiro: "auto",
+					muse: "",
 					pi: "auto",
 
 					zuse: "",
@@ -920,6 +897,7 @@ describe("SettingsFile round-trip", () => {
 					opencode: true,
 					opencode2: true,
 					kiro: true,
+					muse: true,
 					pi: true,
 
 					zuse: true,

@@ -16,6 +16,7 @@ import {
 } from "~/lib/file-preview";
 import { requestCloudSettingsLeave } from "../lib/cloud-settings-guard.ts";
 import { requestReviewLeave } from "../lib/review-edit-guard.ts";
+import { currentReviewTabScope } from "../lib/review-tab-scope.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 
 export { isPreviewableFileName } from "~/lib/file-preview";
@@ -50,7 +51,6 @@ export type SettingsSection =
 	  }
 	| { readonly kind: "browser" }
 	| { readonly kind: "simulator" }
-	| { readonly kind: "pokedex" }
 	| { readonly kind: "diagnostics" }
 	| { readonly kind: "shortcuts" }
 	| { readonly kind: "experimental" }
@@ -221,6 +221,7 @@ type UiState = {
 	readonly usageScope: UsageScope;
 	readonly openFile: OpenFile | null;
 	readonly changesTabOpen: boolean;
+	readonly reviewTabScope: string | null;
 	readonly reviewNavigation: ReviewNavigation | null;
 	readonly fileDirty: boolean;
 
@@ -584,6 +585,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 	usageScope: "global",
 	openFile: null,
 	changesTabOpen: false,
+	reviewTabScope: null,
 	reviewNavigation: null,
 	fileDirty: false,
 	autosave: false,
@@ -648,6 +650,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 		set((state) => ({
 			view: "chat",
 			changesTabOpen: true,
+			reviewTabScope: currentReviewTabScope(),
 			activeMainTab: "changes",
 			reviewNavigation: {
 				path,
@@ -660,6 +663,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 		requestReviewLeave(() =>
 			set({
 				changesTabOpen: false,
+				reviewTabScope: null,
 				activeMainTab: "chat",
 				reviewNavigation: null,
 			}),

@@ -38,7 +38,7 @@ describe("conversation reactor definitions", () => {
 		]);
 	});
 
-	test("does not request naming before provider output settles", async () => {
+	test("does not name from a stored message alone", async () => {
 		const commands = await Effect.runPromise(
 			autoNameReactorDefinition.react(
 				record({
@@ -79,9 +79,54 @@ describe("conversation reactor definitions", () => {
 				command: {
 					_tag: "AutoNameChat",
 					turnId: "turn-1",
+					trigger: "turn-completed",
 				},
 			},
 		]);
+	});
+
+	test("names as soon as a turn starts unless startup is still held", async () => {
+		const commands = await Effect.runPromise(
+			autoNameReactorDefinition.react(
+				record({ _tag: "TurnStarted", turnId: "turn-1", startedAt: 1 }),
+			),
+		);
+
+		expect(commands).toEqual([
+			{
+				streamId: "session-1",
+				command: {
+					_tag: "AutoNameChat",
+					turnId: "turn-1",
+					trigger: "turn-started",
+				},
+			},
+		]);
+	});
+
+	test("names the first turn when a held startup is released", async () => {
+		const released = await Effect.runPromise(
+			autoNameReactorDefinition.react(
+				record({ _tag: "SessionQueuePausedSet", paused: false, updatedAt: 2 }),
+			),
+		);
+		const paused = await Effect.runPromise(
+			autoNameReactorDefinition.react(
+				record({ _tag: "SessionQueuePausedSet", paused: true, updatedAt: 2 }),
+			),
+		);
+
+		expect(released).toEqual([
+			{
+				streamId: "session-1",
+				command: {
+					_tag: "AutoNameChat",
+					turnId: null,
+					trigger: "startup-released",
+				},
+			},
+		]);
+		expect(paused).toEqual([]);
 	});
 
 	test("does not request naming after an errored turn", async () => {

@@ -86,6 +86,16 @@ export const PROVIDER_CAPABILITIES = {
 		authoritativeModels: true,
 		skillFolders: [],
 	},
+	muse: {
+		planMode: false,
+		appTools: true,
+		cliBacked: true,
+		enabledByDefault: true,
+		credentialSource: "provider",
+		nativeSubagentsByDefault: false,
+		authoritativeModels: true,
+		skillFolders: [],
+	},
 	pi: {
 		planMode: false,
 		appTools: false,

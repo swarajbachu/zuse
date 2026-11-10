@@ -1,13 +1,21 @@
 import "@zuse/i18n/english/chat";
 import type { Message } from "@zuse/contracts";
+import { capitalizeSentence } from "@zuse/i18n";
 import { useMessages } from "@zuse/i18n/react";
 import { ChevronDown } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import type { ComponentProps } from "react";
-import { useId, useRef } from "react";
+import { useId, useMemo, useRef } from "react";
 import { isToolTreeBranch } from "../lib/chat-timeline-rows.ts";
+import {
+	toolActivityLabel,
+	toolActivitySummary,
+} from "../lib/tool-activity-label.ts";
+import { normalizeToolCallEnvelope } from "../lib/tool-call-envelope.ts";
 import { useTranscriptDisclosure } from "../store/transcript-disclosures.ts";
+import { useChatLookups } from "./chat-lookups.tsx";
 import { MessageRow } from "./message-row.tsx";
+import { ShimmerText } from "./ui/shimmer-text.tsx";
 
 /** One disclosure owns the activity between text messages. */
 export function ToolActivityTree({
@@ -27,35 +35,70 @@ export function ToolActivityTree({
 			"tools",
 			live ? "live" : "settled",
 		]),
-		live,
+		false,
+	);
+	const { resultsByItemId } = useChatLookups();
+	const { pendingTool, tools } = useMemo(() => {
+		const localResults = new Set(
+			messages.flatMap((item) =>
+				item.content._tag === "tool_result" ? [item.content.itemId] : [],
+			),
+		);
+		const calls = messages.flatMap((item) =>
+			item.content._tag === "tool_use" ? [item.content] : [],
+		);
+		return {
+			pendingTool: live
+				? calls.findLast(
+						(call) =>
+							!localResults.has(call.itemId) &&
+							!resultsByItemId.has(call.itemId),
+					)
+				: undefined,
+			tools: calls.map(
+				(call) =>
+					normalizeToolCallEnvelope(call.tool, call.input, undefined).tool,
+			),
+		};
+	}, [messages, live, resultsByItemId]);
+	const active = pendingTool !== undefined;
+	const label = useMemo(
+		() =>
+			pendingTool
+				? toolActivityLabel(
+						normalizeToolCallEnvelope(
+							pendingTool.tool,
+							pendingTool.input,
+							undefined,
+						).tool,
+						message,
+					)
+				: toolActivitySummary(tools, message, capitalizeSentence),
+		[pendingTool, tools, message],
 	);
 	const id = useId();
 	const reduce = useReducedMotion();
 	const initialIds = useRef(new Set(messages.map((item) => item.id)));
 	const lastBranchId = messages.findLast(isToolTreeBranch)?.id;
-	const count = messages.filter((m) => m.content._tag === "tool_use").length;
 	return (
 		<div className="py-1">
 			<button
 				type="button"
+				aria-label={label}
 				aria-expanded={open}
 				aria-controls={id}
 				onClick={() => {
 					initialIds.current = new Set(messages.map((item) => item.id));
 					toggleOpen();
 				}}
-				className="flex h-7 items-center gap-2 rounded ps-3 pe-4 text-xs text-muted-foreground hover:text-foreground"
+				className="flex h-7 max-w-full items-center gap-2 rounded ps-3 pe-4 text-xs text-muted-foreground hover:text-foreground"
 			>
 				<ChevronDown
 					aria-hidden
 					className={`size-3.5 transition-transform duration-150 motion-reduce:transition-none ${open ? "" : "-rotate-90"}`}
 				/>
-				<span className="tabular-nums">{count}</span>
-				<span>
-					{message("chat:turn_summary_tool")}
-					{count === 1
-						? message("chat:turn_summary_call")
-						: message("chat:turn_summary_calls")}
+				<span className="min-w-0 truncate" role="status">
+					{active ? <ShimmerText>{label}</ShimmerText> : label}
 				</span>
 			</button>
 			<div id={id} hidden={!open} className="tool-activity-tree">

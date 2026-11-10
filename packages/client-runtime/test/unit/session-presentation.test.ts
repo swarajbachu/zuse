@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
 	countRunningBackgroundAgents,
 	runningBackgroundAgents,
+	runningBackgroundProcesses,
 	runningBackgroundTasks,
 } from "../../src/background-agent-presentation.ts";
 import { clientCommandTargetId } from "../../src/client-command-target.ts";
@@ -578,6 +579,7 @@ it("classifies a durable background shell as a process, separate from the agent 
 			taskId: "native-shell",
 			kind: "process",
 			description: "Watch build",
+			command: "",
 			startedAtMs: 0,
 			turnId: "turn-presentation",
 			attemptId: "attempt-presentation",
@@ -595,4 +597,52 @@ it("classifies a durable background shell as a process, separate from the agent 
 			}),
 		),
 	).toEqual([]);
+});
+
+it("needs a running execution step to show a background process", () => {
+	const shell = Message.make({
+		id: MessageId.make("shell-launch"),
+		sessionId: AgentSessionId.make("presentation-session"),
+		role: "assistant",
+		createdAt: new Date(1),
+		content: {
+			_tag: "tool_use",
+			itemId: AgentItemId.make("shell"),
+			tool: "Bash",
+			input: { description: "Start dev server" },
+			backgroundTask: { taskId: "native-shell" },
+		},
+	});
+	const historical = projection("idle", false, [shell]);
+	expect(runningBackgroundProcesses(view(historical))).toEqual([]);
+	expect(
+		runningBackgroundProcesses(
+			view({ ...historical, executionStepsTruncated: true }),
+		).map((task) => task.description),
+	).toEqual(["Start dev server"]);
+	expect(
+		runningBackgroundProcesses(
+			view({
+				...projection("running", true, [shell]),
+				executionSteps: [
+					{
+						id: "shell",
+						turnId: "turn-presentation",
+						attemptId: "attempt-presentation",
+						itemId: "shell",
+						parentItemId: null,
+						kind: "background",
+						label: "Bash",
+						status: "running",
+						childSessionId: null,
+						nativeChildId: "native-shell",
+						rootCompletedAt: null,
+						createdAt: 1,
+						updatedAt: 1,
+						checkpointCapability: "unsupported",
+					},
+				],
+			}),
+		).map((task) => task.description),
+	).toEqual(["Start dev server"]);
 });

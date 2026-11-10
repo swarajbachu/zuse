@@ -118,6 +118,7 @@ export function parseKey(input: string): KeybindingShortcut | null {
 
 export interface KeyEventLike {
   readonly key: string;
+  readonly code?: string;
   readonly metaKey: boolean;
   readonly ctrlKey: boolean;
   readonly altKey: boolean;
@@ -150,7 +151,19 @@ export function matchesShortcut(
   if (event.altKey !== shortcut.altKey) return false;
   if (event.shiftKey !== shortcut.shiftKey) return false;
 
-  return normalizeEventKey(event.key) === shortcut.key;
+  return eventBaseKey(event) === shortcut.key;
+}
+
+/**
+ * Base key for matching and recording. On macOS, Option turns letters into
+ * symbols (`Option+P` reports `π`), so with Alt held the physical key wins.
+ */
+export function eventBaseKey(event: KeyEventLike): string {
+  if (event.altKey && event.code !== undefined) {
+    const physical = /^(?:Key([A-Z])|Digit(\d))$/.exec(event.code);
+    if (physical !== null) return (physical[1] ?? physical[2] ?? "").toLowerCase();
+  }
+  return normalizeEventKey(event.key);
 }
 
 /** Map DOM `KeyboardEvent.key` values onto the same vocabulary as `parseKey`. */
@@ -193,7 +206,7 @@ export function keyStringFromEvent(
   event: KeyEventLike,
   isMac: boolean,
 ): string | null {
-  const base = normalizeEventKey(event.key);
+  const base = eventBaseKey(event);
 
   if (
     base === "shift" ||

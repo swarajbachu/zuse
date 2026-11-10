@@ -7,7 +7,6 @@ import {
 	type WorktreeId,
 } from "@zuse/contracts";
 import { scriptCommandForPlatform } from "@zuse/utils/shell-command";
-import { toastManager } from "../components/ui/toast.tsx";
 import { activeChatsByProject } from "../lib/environment-entities.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 import { formatError } from "../lib/format-error.ts";
@@ -24,12 +23,6 @@ import {
 	repositorySettingsKey,
 	useRepositorySettingsStore,
 } from "./repository-settings.ts";
-
-const NOTABLE_RARITIES: ReadonlySet<string> = new Set([
-	"rare",
-	"epic",
-	"legendary",
-]);
 
 type WorktreesByProject = Readonly<Record<string, ReadonlyArray<Worktree>>>;
 
@@ -221,17 +214,6 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
 					error: null,
 				};
 			});
-			if (wt.pokemon !== null && NOTABLE_RARITIES.has(wt.pokemon.rarity)) {
-				const rarity =
-					wt.pokemon.rarity.charAt(0).toUpperCase() +
-					wt.pokemon.rarity.slice(1);
-				toastManager.add({
-					title: `${rarity} unlock!`,
-					description: `${wt.pokemon.name} joined your Pokédex`,
-					type: "success",
-				});
-			}
-
 			get().subscribeSetup(projectId, wt.id);
 			return wt;
 		} catch (err) {

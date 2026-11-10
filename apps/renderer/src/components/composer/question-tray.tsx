@@ -210,7 +210,7 @@ export function useQuestionAnswer(
 			});
 		},
 		dismiss: () => {
-			if (expired || busy || submittingRef.current) return;
+			if (busy || submittingRef.current) return;
 			submittingRef.current = true;
 			setSubmitting(true);
 			void cancelQuestion(
@@ -236,6 +236,22 @@ export function useQuestionAnswer(
 		},
 	};
 }
+
+/**
+ * The question the composer's send action answers. An expired question can
+ * only be dismissed, so it leaves the composer free for ordinary messages.
+ */
+export const selectAnswerableQuestion = (
+	answer: QuestionAnswerController | null,
+): QuestionAnswerController | null =>
+	answer === null || answer.expired ? null : answer;
+
+/** Sending a new message moves past an expired question. */
+export const dismissExpiredQuestion = (
+	answer: QuestionAnswerController | null,
+): void => {
+	if (answer?.expired === true) answer.dismiss();
+};
 
 /** The pending question, attached to the top of the composer. */
 export function QuestionTray({
@@ -348,10 +364,10 @@ export function QuestionTray({
 					type="button"
 					className={cn(
 						"grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground",
-						(answer.expired || answer.busy) && "opacity-40",
+						answer.busy && "opacity-40",
 					)}
 					aria-label={uiMessage("chat:question_card_dismiss")}
-					disabled={answer.expired || answer.busy}
+					disabled={answer.busy}
 					onClick={answer.dismiss}
 				>
 					<X size={14} />

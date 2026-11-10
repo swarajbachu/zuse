@@ -1,7 +1,5 @@
-import { runningBackgroundTasks } from "@zuse/client-runtime/background-agent-presentation";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import { useGitPrState } from "../lib/use-git-pr-state.ts";
-import { BackgroundTasks } from "./background-tasks.tsx";
 import { GitStackMenu } from "./git-stack-menu.tsx";
 import { GitHubStatusNotice } from "./github-status-notice.tsx";
 import { PrActionsMenu } from "./pr-actions-menu.tsx";
@@ -17,7 +15,6 @@ import {
 	Alert01Icon,
 	CheckListIcon,
 	ComputerPhoneSyncIcon,
-	ComputerTerminal01Icon,
 	GitCompareIcon,
 	GitMergeIcon,
 	GitPullRequestIcon,
@@ -54,13 +51,13 @@ import { useGitStack } from "../store/git-stack.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
-import { AgentsSummary } from "./agents-summary.tsx";
 import { ChatPullRequestList } from "./chat-pull-request-list.tsx";
 import {
 	CloudWorkspaceInfo,
 	summaryRowClass as rowClass,
 	summaryMetaClass,
 } from "./cloud-workspace-info.tsx";
+import { SessionActivity } from "./session-activity.tsx";
 import { SummarySection } from "./summary-section.tsx";
 import { BranchMenuButton } from "./top-bar.tsx";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu.tsx";
@@ -184,26 +181,10 @@ export function EnvironmentSummary() {
 			uiMessage,
 		],
 	);
-	const backgroundTasks = useMemo(
-		() => runningBackgroundTasks(timeline.view),
-		[timeline.view],
+	const subagents = useMemo(
+		() => detachedSubagentGroups(messages, timeline.projection?.executionSteps),
+		[messages, timeline.projection?.executionSteps, uiMessage],
 	);
-	const subagents = useMemo(() => {
-		const backgroundIds = new Set(backgroundTasks.map((task) => task.id));
-		return detachedSubagentGroups(
-			messages,
-			timeline.projection?.executionSteps,
-		).filter(
-			(group) =>
-				group.parent.content._tag !== "tool_use" ||
-				!backgroundIds.has(group.parent.content.itemId),
-		);
-	}, [
-		messages,
-		backgroundTasks,
-		timeline.projection?.executionSteps,
-		uiMessage,
-	]);
 	const worktree = useWorktreesStore((s) => {
 		if (ctx.status !== "ready" || ctx.worktreeId === null) return null;
 		return (
@@ -568,7 +549,7 @@ export function EnvironmentSummary() {
 					</PreviewCard>
 				</div>
 			) : null}
-			{planAvailable ? (
+			{planAvailable || timeline.projection?.olderMessageSequence != null ? (
 				<button
 					type="button"
 					className={`${rowClass} hover:bg-muted/60`}
@@ -583,32 +564,14 @@ export function EnvironmentSummary() {
 					</span>
 				</button>
 			) : null}
-			{timeline.ref !== null &&
-			session !== null &&
-			backgroundTasks.length > 0 ? (
-				<SummarySection
-					key={`${timeline.ref.environmentId}:${timeline.ref.sessionId}`}
-					icon={ComputerTerminal01Icon}
-					label={uiMessage("chat:background_tasks_title")}
-					meta={backgroundTasks.length}
-					defaultOpen={false}
-				>
-					<BackgroundTasks
-						view={timeline.view}
-						sessionRef={timeline.ref}
-						providerId={session.providerId}
-					/>
-				</SummarySection>
-			) : null}
-			{chatRef !== null && session !== null ? (
-				<AgentsSummary
-					key={`${chatRef.environmentId}:${session.id}`}
-					chatRef={chatRef}
-					session={session}
-					sessions={Object.values(sessionsByProject).flat()}
-					nativeAgents={subagents}
-				/>
-			) : null}
+			<SessionActivity
+				session={session}
+				sessionRef={timeline.ref}
+				view={timeline.view}
+				chatRef={chatRef}
+				sessions={Object.values(sessionsByProject).flat()}
+				nativeAgents={subagents}
+			/>
 		</aside>
 	);
 }

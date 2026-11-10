@@ -2,8 +2,10 @@ import {
 	isHtmlRenderTool,
 	readHtmlRenderResult,
 } from "@zuse/client-runtime/html-render";
+import { loadDeferredSessionToolDetails } from "@zuse/client-runtime/session-message-detail";
 import { isGenerateImageTool } from "@zuse/client-runtime/tool-image-result";
 import { providerDisplayName } from "~/lib/provider-labels";
+import { loadSessionMessageDetail } from "~/lib/session-timeline-client-bus.ts";
 import { useStreamingText } from "../hooks/use-streaming-text.ts";
 import { useMastersStore } from "../store/masters.ts";
 import { ContextPill, contextPillClass } from "./context-pill.tsx";
@@ -74,6 +76,7 @@ import { normalizeToolCallEnvelope } from "~/lib/tool-call-envelope";
 import { cn } from "~/lib/utils";
 import { useEnvironmentCatalogStore } from "~/store/environment-catalog";
 import { useModelCatalogStore } from "~/store/model-catalog";
+import { useLocalTranscriptDisclosure } from "~/store/transcript-disclosures.ts";
 import { useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
@@ -266,6 +269,7 @@ function MessageRowImpl({
 		case "tool_use":
 			return (
 				<ToolUseMessageRow
+					messageId={message.id}
 					sessionRef={
 						environmentId
 							? { environmentId, sessionId: message.sessionId }
@@ -460,11 +464,13 @@ function ThinkingMessageRow({
 }
 
 function ToolUseMessageRow({
+	messageId,
 	sessionRef,
 	content,
 	createdAt,
 }: {
 	sessionRef?: SessionRef;
+	messageId: Message["id"];
 	content: MessageContent<"tool_use">;
 	createdAt: Date;
 }) {
@@ -538,6 +544,40 @@ function ToolUseMessageRow({
 	}
 	return (
 		<ToolRow
+			deferredDetails={
+				sessionRef && result?.outputDeferred !== undefined
+					? {
+							key: JSON.stringify([
+								sessionRef.environmentId,
+								sessionRef.sessionId,
+								messageId,
+								result?.messageId,
+								result?.outputDeferred,
+							]),
+							load: async (signal) => {
+								const details = await loadDeferredSessionToolDetails(
+									loadSessionMessageDetail,
+									sessionRef,
+									{ id: messageId, content },
+									result?.messageId === undefined
+										? undefined
+										: {
+												id: result.messageId,
+												content: {
+													_tag: "tool_result",
+													itemId: content.itemId,
+													output: result.output,
+													isError: result.isError,
+													outputDeferred: result.outputDeferred,
+												},
+											},
+									signal,
+								);
+								return { input: details.tool.input, result: details.result };
+							},
+						}
+					: undefined
+			}
 			tool={orch ?? normalized.tool}
 			input={normalized.input}
 			result={normalized.result}
@@ -917,7 +957,7 @@ function AssistantBubble({
 function ToolErrorRow({ output }: { output: unknown }) {
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 
-	const [expanded, setExpanded] = useState(false);
+	const [expanded, toggleExpanded] = useLocalTranscriptDisclosure();
 	const Chevron = expanded ? ChevronDown : ChevronRight;
 	const text = typeof output === "string" ? output : stringifyJson(output);
 	const firstLine = text.split("\n", 1)[0] ?? "";
@@ -925,7 +965,7 @@ function ToolErrorRow({ output }: { output: unknown }) {
 		<div className="px-4">
 			<button
 				type="button"
-				onClick={() => setExpanded((e) => !e)}
+				onClick={toggleExpanded}
 				className="group flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs hover:bg-accent"
 			>
 				<div className="relative grid size-4 shrink-0 place-items-center">
@@ -972,7 +1012,7 @@ function ProviderErrorRow({
 	environmentId?: EnvironmentId;
 }) {
 	const describe = useProviderErrorCopy(environmentId);
-	const [open, setOpen] = useState(false);
+	const [open, toggleOpen] = useLocalTranscriptDisclosure();
 	const notice = describeProviderError(error, providerId, environmentId);
 	const copy = describe(notice, error);
 	const fullText = error.message.trim();
@@ -1016,7 +1056,13 @@ function ProviderErrorRow({
 		);
 
 	return (
-		<Collapsible open={open} onOpenChange={setOpen} className="px-4 py-0.5">
+		<Collapsible
+			open={open}
+			onOpenChange={(next) => {
+				if (next !== open) toggleOpen();
+			}}
+			className="px-4 py-0.5"
+		>
 			<CollapsibleTrigger className="group flex w-fit min-w-0 max-w-full items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring">
 				<span className="grid size-4 shrink-0 place-items-center">
 					<span

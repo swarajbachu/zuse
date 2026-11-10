@@ -16,7 +16,6 @@ const shared = {
 			"@zuse/git",
 			"@zuse/git/**",
 			"@zuse/index",
-			"@zuse/pokemon-data",
 			"@zusehq/server",
 			"@zuse/sqlite",
 			"@zuse/utils",

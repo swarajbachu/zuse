@@ -43,6 +43,7 @@ const isProviderId = (v: unknown): v is ProviderId =>
 	v === "gemini" ||
 	v === "opencode" ||
 	v === "opencode2" ||
+	v === "muse" ||
 	v === "kiro";
 
 const isRuntimeMode = (v: unknown): v is RuntimeMode =>

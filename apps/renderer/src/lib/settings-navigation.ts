@@ -95,14 +95,6 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 		section: { kind: "simulator" },
 	},
 	{
-		id: "pokedex",
-		get label() {
-			return uiMessage("settings:settings_navigation_pokedex");
-		},
-		Icon: TaskDone01Icon,
-		section: { kind: "pokedex" },
-	},
-	{
 		id: "shortcuts",
 		get label() {
 			return uiMessage("settings:settings_navigation_keyboard_shortcuts");

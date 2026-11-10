@@ -5,6 +5,7 @@ import type { ChatId, Command, Session } from "@zuse/contracts";
 import { defaultModelFor, EnvironmentId, PROVIDER_IDS } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
 import { toastManager } from "../components/ui/toast.tsx";
+import { useChatFindStore } from "../store/chat-find.ts";
 import { useChatsStore } from "../store/chats";
 import { useComposerBridge } from "../store/composer-bridge";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
@@ -12,6 +13,9 @@ import { currentModelCatalog } from "../store/model-catalog.ts";
 import { usePaneFocus } from "../store/pane-focus";
 import { useProvidersStore } from "../store/providers";
 import { useSessionsStore } from "../store/sessions";
+import { useShortcutsPanel } from "../store/shortcuts-panel.ts";
+import { useTaskListToggle } from "../store/task-list-toggle.ts";
+import { useTranscriptDisclosures } from "../store/transcript-disclosures.ts";
 import { rightPaneKey, useUiStore } from "../store/ui";
 import { useWorkspaceStore } from "../store/workspace";
 import { captureAnalytics } from "./analytics";
@@ -30,6 +34,7 @@ import { openNewChatLanding } from "./open-new-chat-landing.ts";
 import { openProjectSetupDialog } from "./project-setup-dialog-state.ts";
 import { getLocalEnvironmentId } from "./rpc-client.ts";
 import { useSettingsStore } from "./settings-client-bus.ts";
+import { formatShortcut } from "./shortcuts.ts";
 import { switchToEnvironment } from "./switch-environment.ts";
 import { activeChatId, orderedChatTabs } from "./tab-order";
 
@@ -158,8 +163,59 @@ function stepPanel(delta: 1 | -1): void {
 	if (target !== undefined) ui.setActiveRightPanel(ref, target.id);
 }
 
+const STOP_CONFIRM_MS = 3000;
+let stopBackgroundArmedAt = 0;
+
+/** First press says how many tasks would stop; a second press stops them. */
+function stopBackgroundTasks(): void {
+	const tasks = useComposerBridge.getState().backgroundTasks;
+	const count = tasks?.count() ?? 0;
+	const now = Date.now();
+	if (tasks === null || count === 0) {
+		stopBackgroundArmedAt = 0;
+		toastManager.add({
+			type: "info",
+			title: uiMessage("commands:commands_no_background_tasks"),
+		});
+		return;
+	}
+	if (now - stopBackgroundArmedAt > STOP_CONFIRM_MS) {
+		stopBackgroundArmedAt = now;
+		toastManager.add({
+			type: "info",
+			title: uiMessage("commands:commands_stop_background_tasks_confirm", {
+				count,
+				shortcut: formatShortcut("stop-background-tasks"),
+			}),
+		});
+		return;
+	}
+	stopBackgroundArmedAt = 0;
+	const stopped = tasks.stopAll();
+	toastManager.add({
+		type: "info",
+		title: uiMessage("commands:commands_stopping_background_tasks", {
+			count: stopped,
+		}),
+	});
+}
+
 const HANDLERS: Record<Command, () => void> = {
 	"search-files": () => useUiStore.getState().setFileSearchOpen(true),
+	"show-shortcuts": () => {
+		const panel = useShortcutsPanel.getState();
+		panel.setOpen(!panel.open);
+	},
+	"find-in-chat": () => useChatFindStore.getState().reveal(),
+	"open-model-picker": () =>
+		useComposerBridge.getState().modelControls?.openPicker(),
+	"cycle-reasoning-effort": () =>
+		useComposerBridge.getState().modelControls?.cycleEffort(),
+	"toggle-fast-mode": () =>
+		useComposerBridge.getState().modelControls?.toggleFastMode(),
+	"toggle-tool-details": () => useTranscriptDisclosures.getState().toggleAll(),
+	"toggle-task-list": () => useTaskListToggle.getState().toggle(),
+	"stop-background-tasks": stopBackgroundTasks,
 	"new-chat-without-project": () => {
 		if (!isHostedProduct()) openNewChatLanding(null);
 	},
@@ -246,6 +302,17 @@ const HANDLERS: Record<Command, () => void> = {
 	"composer.submit": () => {},
 	"composer.newline": () => {},
 	"composer.forceSubmit": () => {},
+	"composer.previousMessage": () => {},
+	"composer.nextMessage": () => {},
+	"composer.queueSubmit": () => {},
+	"composer.deleteToStart": () => {},
+	"composer.deleteToEnd": () => {},
+	"composer.deleteWord": () => {},
+	"composer.yank": () => {},
+	"composer.yankPop": () => {},
+	"composer.stash": () => {},
+	"composer.searchHistory": () => {},
+	"composer.interrupt": () => {},
 	"composer.togglePlanMode": () => {},
 	"editor.save": () => {},
 	"editor.annotate": () => {},

@@ -449,10 +449,41 @@ describe("Claude background agents", () => {
 				_tag: "ToolResult",
 				itemId: "background_task_failed-task",
 				isError: true,
+				backgroundOutcome: "failed",
 			}),
 		);
 		expect(events.some((event) => event._tag === "SubagentSummary")).toBe(
 			false,
+		);
+	});
+
+	it("keeps a stopped local background task distinct from a failure", () => {
+		const events = translateClaudeSdkMessages([
+			sdk({
+				type: "system",
+				subtype: "task_started",
+				task_id: "stopped-task",
+				description: "Start dev server",
+				task_type: "local_bash",
+			}),
+			sdk({
+				type: "system",
+				subtype: "task_notification",
+				task_id: "stopped-task",
+				status: "stopped",
+				output_file: "/private/internal/output.txt",
+				summary: "Stopped",
+				usage: { total_tokens: 0, tool_uses: 0, duration_ms: 50 },
+			}),
+		]);
+
+		expect(events).toContainEqual(
+			expect.objectContaining({
+				_tag: "ToolResult",
+				itemId: "background_task_stopped-task",
+				isError: true,
+				backgroundOutcome: "stopped",
+			}),
 		);
 	});
 

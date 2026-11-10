@@ -3,6 +3,7 @@ const SECRET_FIELD_PATTERN =
 
 /** Removes secret-shaped fields before any value enters diagnostic JSON. */
 export const redactDiagnosticValue = (value: unknown): unknown => {
+	if (value instanceof Date) return value.toJSON();
 	if (Array.isArray(value)) return value.map(redactDiagnosticValue);
 	if (value === null || typeof value !== "object") return value;
 	return Object.fromEntries(

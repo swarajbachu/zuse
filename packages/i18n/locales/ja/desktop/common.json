@@ -26,6 +26,7 @@
 	"notAvailable": "該当なし",
 	"cancel": "キャンセル",
 	"save": "保存",
+	"rename_failed": "名前を変更できませんでした。もう一度お試しください。",
 	"close": "閉じる",
 	"copy": "コピー",
 	"copied": "コピーしました",

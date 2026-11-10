@@ -11,7 +11,7 @@ import { ApiKeyRow } from "~/components/api-key-row";
 import { ProviderIcon } from "~/components/provider-icons";
 import { Button } from "~/components/ui/button";
 import { providerDisplayName } from "~/lib/provider-labels";
-import { INSTALL_HINT } from "~/lib/provider-setup";
+import { INSTALL_HINT, installCommand } from "~/lib/provider-setup";
 import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 import { cn } from "~/lib/utils";
 import { useSettingsStore } from "../../../lib/settings-client-bus.ts";
@@ -40,6 +40,7 @@ const openExternal = (url: string): void => {
 };
 
 const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
+	muse: "muse login",
 	claude: "claude /login",
 	codex: "codex login",
 	grok: "grok",
@@ -51,7 +52,7 @@ const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
 
 type ProviderState =
 	| { readonly kind: "loading" }
-	| { readonly kind: "missing" }
+	| { readonly kind: "missing"; readonly command: string | null }
 	| {
 			readonly kind: "outdated";
 			readonly current: string;
@@ -70,7 +71,9 @@ function deriveState(
 ): ProviderState {
 	const a = availability.find((x) => x.providerId === providerId);
 	if (a === undefined) {
-		return loading ? { kind: "loading" } : { kind: "missing" };
+		return loading
+			? { kind: "loading" }
+			: { kind: "missing", command: installCommand(providerId, undefined) };
 	}
 	if (providerId === "cursor") {
 		if (!a.hasApiKey) return { kind: "signed-out" };
@@ -80,7 +83,8 @@ function deriveState(
 			invalid: a.apiKeyStatus === "invalid",
 		};
 	}
-	if (!a.cliInstalled) return { kind: "missing" };
+	if (!a.cliInstalled)
+		return { kind: "missing", command: installCommand(providerId, a) };
 
 	if (a.cliVersionStatus === "outdated") {
 		return {
@@ -91,7 +95,9 @@ function deriveState(
 		};
 	}
 
-	if (providerId === "pi") return { kind: "ready", via: "native" };
+	// Pi and Muse keep their own credentials and do not report sign-in state.
+	if (providerId === "pi" || providerId === "muse")
+		return { kind: "ready", via: "native" };
 
 	if (a.cliLoggedIn) {
 		const subInfo = SUBSCRIPTION_INFO[providerId];
@@ -292,7 +298,11 @@ function ProviderStatus({
 		return (
 			<p className="rounded-md bg-muted/60 px-3 py-2 text-[12px] text-muted-foreground">
 				<RichMessage
-					id="providers:pi_setup_hint"
+					id={
+						providerId === "muse"
+							? "providers:muse_sign_in_hint"
+							: "providers:pi_setup_hint"
+					}
 					components={{ part0: <code />, part1: <code /> }}
 				/>
 			</p>
@@ -365,7 +375,7 @@ function ProviderStatus({
 				: state.kind === "outdated"
 					? (state.command ?? INSTALL_HINT[providerId] ?? null)
 					: state.kind === "missing"
-						? (INSTALL_HINT[providerId] ?? null)
+						? state.command
 						: null;
 
 	return (
@@ -398,7 +408,8 @@ function ProviderStatus({
 			(state.kind === "signed-out" || state.kind === "key-attention") ? (
 				<ApiKeyRow providerId={providerId} required />
 			) : (
-				providerId !== "pi" && (
+				providerId !== "pi" &&
+				providerId !== "muse" && (
 					<details className="group/keys">
 						<summary className="cursor-pointer select-none list-none text-[11px] text-muted-foreground hover:text-foreground">
 							{uiMessage("onboarding:provider_or_paste_an_api_key_instead")}

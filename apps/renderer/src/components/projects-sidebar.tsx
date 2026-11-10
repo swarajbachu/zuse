@@ -79,6 +79,10 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { createPortal } from "react-dom";
+import {
+	InlineRenameInput,
+	isRenameDoubleClick,
+} from "~/components/inline-rename-input.tsx";
 import { TypewriterText } from "~/components/typewriter-text.tsx";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { CompactEmptyState } from "~/components/ui/compact-empty-state";
@@ -520,15 +524,58 @@ export function ProjectsSidebar() {
 		],
 	);
 
-	const projectKeys = useMemo(
-		() =>
-			desktopCatalogEnabled
-				? logicalGroups.map((group) => group.key)
-				: folders
-						.filter((folder) => folder.kind !== "scratch")
-						.map((folder) => folder.id),
-		[desktopCatalogEnabled, folders, logicalGroups, uiMessage],
+	const hiddenArchivedChatIds = useChatsStore(
+		(state) => state.hiddenArchivedChatIds,
 	);
+	const projectKeys = useMemo(() => {
+		const hasChats = (
+			projectFolders: typeof folders,
+			origin: GitOriginInfo | null,
+			remoteChats: ReturnType<typeof remoteChatRows> = [],
+		) =>
+			buildThreadList({
+				folders: projectFolders,
+				chatsByProject,
+				remoteChats: remoteChats.map((row) => ({
+					...row,
+					repositoryName: "",
+				})),
+				cloudChats: cloudChats.filter(
+					(chat) =>
+						chat.repositoryIdentity === repositoryIdentityForOrigin(origin),
+				),
+				hiddenChatIds: hiddenArchivedChatIds,
+			}).length > 0;
+		return desktopCatalogEnabled
+			? logicalGroups
+					.filter((group) =>
+						hasChats(
+							folders.filter((folder) =>
+								group.members.some(
+									(member) => member.isActive && member.folderId === folder.id,
+								),
+							),
+							group.origin,
+							remoteChatRows(group),
+						),
+					)
+					.map((group) => group.key)
+			: folders
+					.filter(
+						(folder) =>
+							folder.kind !== "scratch" &&
+							hasChats([folder], origins[folder.id] ?? null),
+					)
+					.map((folder) => folder.id);
+	}, [
+		desktopCatalogEnabled,
+		folders,
+		logicalGroups,
+		chatsByProject,
+		cloudChats,
+		origins,
+		hiddenArchivedChatIds,
+	]);
 	const ungroupedCloudChats = useMemo(() => {
 		const representedChats = new Set([
 			...Object.values(chatsByProject)
@@ -554,11 +601,17 @@ export function ProjectsSidebar() {
 				!repositories.has(chat.repositoryIdentity),
 		);
 	}, [cloudChats, logicalGroups, origins, chatsByProject]);
-	const organize = useSidebarOrganize(projectKeys);
-	const threadListSidebar = useThreadListSidebarEnabled();
-	const hiddenArchivedChatIds = useChatsStore(
-		(state) => state.hiddenArchivedChatIds,
+	const allProjectKeys = useMemo(
+		() =>
+			desktopCatalogEnabled
+				? logicalGroups.map((group) => group.key)
+				: folders
+						.filter((folder) => folder.kind !== "scratch")
+						.map((folder) => folder.id),
+		[desktopCatalogEnabled, logicalGroups, folders],
 	);
+	const organize = useSidebarOrganize(projectKeys, allProjectKeys);
+	const threadListSidebar = useThreadListSidebarEnabled();
 
 	const threadListEntries = useMemo(
 		() =>
@@ -615,7 +668,7 @@ export function ProjectsSidebar() {
 		initialized: catalogInitialized,
 		initializing: catalogInitializing,
 		initializationError: catalogInitializationError,
-		projectCount: logicalGroups.length + ungroupedCloudChats.length,
+		projectCount: projectKeys.length + ungroupedCloudChats.length,
 		projectsLoading: loading,
 	});
 
@@ -3263,12 +3316,20 @@ function ChatRow({
 	const stats = diffStatsFor(diffStat, prInfo);
 	const showDiff = stats !== null;
 
-	const [renameOpen, setRenameOpen] = useState(false);
-	const onRename = () => {
+	const [renaming, setRenaming] = useState(false);
+	const startRename = () => {
 		setMenuOpen(false);
-		void loadRenameDialog();
-		setRenameOpen(true);
+		setRenaming(true);
 	};
+	const renameInput = renaming ? (
+		<InlineRenameInput
+			value={chat.title}
+			label={uiMessage("projects:projects_sidebar_chat_name")}
+			onRename={(title) => renameChat(chat.id, title)}
+			onDone={() => setRenaming(false)}
+			className="flex-1 leading-4"
+		/>
+	) : null;
 
 	const onDelete = () => {
 		if (!window.confirm(`Delete "${chat.title}"? This can't be undone.`))
@@ -3337,23 +3398,8 @@ function ChatRow({
 
 	return (
 		<>
-			{renameOpen ? (
-				<Suspense fallback={null}>
-					<RenameDialog
-						title={uiMessage("projects:projects_sidebar_rename_chat")}
-						description={uiMessage(
-							"projects:projects_sidebar_change_the_name_shown_in_the_projects_sidebar",
-						)}
-						label={uiMessage("projects:projects_sidebar_chat_name")}
-						value={chat.title}
-						open
-						onOpenChange={setRenameOpen}
-						onRename={(title) => renameChat(chat.id, title)}
-					/>
-				</Suspense>
-			) : null}
 			<li>
-				<Tooltip onOpenChange={discoverStack}>
+				<Tooltip onOpenChange={discoverStack} disabled={renaming}>
 					<TooltipTrigger
 						render={
 							<div
@@ -3380,6 +3426,9 @@ function ChatRow({
 								<button
 									type="button"
 									onClick={() => selectChat(chat.id)}
+									onDoubleClick={(event) => {
+										if (isRenameDoubleClick(event)) startRename();
+									}}
 									onContextMenu={onContextMenu}
 									className="absolute inset-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
 								>
@@ -3388,6 +3437,7 @@ function ChatRow({
 								{threadList ? (
 									<ThreadListRowBody
 										title={chat.title}
+										renameInput={renameInput}
 										attentionState={attentionState}
 										creationPending={creationPending}
 										statusLabel={hoverStatus}
@@ -3413,10 +3463,12 @@ function ChatRow({
 												<BranchIcon state={branchState} selected={isSelected} />
 											)}
 										</span>
-										<TypewriterText
-											text={chat.title}
-											className="pointer-events-none min-w-0 flex-1 truncate"
-										/>
+										{renameInput ?? (
+											<TypewriterText
+												text={chat.title}
+												className="pointer-events-none min-w-0 flex-1 truncate"
+											/>
+										)}
 										<div className="pointer-events-none relative flex h-4 min-w-16 shrink-0 items-center justify-end gap-1.5">
 											{remoteIndicator}
 											{pullRequests.length > 1 ? (
@@ -3467,12 +3519,13 @@ function ChatRow({
 			<Menu open={menuOpen} onOpenChange={setMenuOpen}>
 				<MenuPopup
 					anchor={anchorRef.current ?? undefined}
+					finalFocus={false}
 					align="start"
 					side="bottom"
 					className="min-w-40"
 				>
 					<MenuItem
-						onClick={onRename}
+						onClick={startRename}
 						className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
 					>
 						<HugeiconsIcon icon={PencilIcon} className="size-3.5" />
@@ -3525,6 +3578,7 @@ function ChatRow({
 function ThreadListRowBody({
 	loading = false,
 	title,
+	renameInput = null,
 	attentionState,
 	creationPending,
 	statusLabel,
@@ -3537,6 +3591,7 @@ function ThreadListRowBody({
 	action,
 }: {
 	title: string;
+	renameInput?: ReactNode;
 	attentionState: ChatAttentionState;
 	loading?: boolean;
 	creationPending: boolean;
@@ -3585,10 +3640,12 @@ function ThreadListRowBody({
 			</span>
 			<div className="pointer-events-none flex min-w-0 flex-1 flex-col gap-[3px]">
 				<div className="flex min-w-0 items-center gap-2">
-					<TypewriterText
-						text={title}
-						className="min-w-0 flex-1 truncate leading-4"
-					/>
+					{renameInput ?? (
+						<TypewriterText
+							text={title}
+							className="min-w-0 flex-1 truncate leading-4"
+						/>
+					)}
 					<div className="relative flex h-4 shrink-0 items-center">
 						{remoteIndicator}
 						<span className="text-[11px] font-normal tabular-nums text-muted-foreground/60 group-hover:hidden">

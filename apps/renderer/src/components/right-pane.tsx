@@ -60,7 +60,10 @@ import {
 } from "../lib/right-terminal-controller.ts";
 import { getLocalEnvironmentId } from "../lib/rpc-client.ts";
 import { isSessionTurnActive } from "../lib/session-runtime-state.ts";
-import { useOptionalRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
+import {
+	type OptionalRendererSessionTimeline,
+	useOptionalRendererSessionTimeline,
+} from "../lib/session-timeline-hooks.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import {
 	hydrateRightTerminalCatalog,
@@ -95,6 +98,7 @@ import { DiffPane } from "./diff-pane.tsx";
 import { FileTree } from "./file-tree.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
 import { PrPane } from "./pr-pane.tsx";
+import { SessionHistoryBackfill } from "./session-history-backfill.tsx";
 import { SubagentsPane } from "./subagents-pane.tsx";
 import { TerminalSlotPane, TerminalTabControls } from "./terminal-pane.tsx";
 import { CompactEmptyState } from "./ui/compact-empty-state.tsx";
@@ -720,7 +724,9 @@ export function RightPane({
 			(!isHostedProduct() ||
 				panel.kind !== "terminal" ||
 				termList[panel.slot]?.environmentId !== localTerminalEnvironmentId) &&
-			(panel.kind !== "plan" || planMarkdown !== null) &&
+			(panel.kind !== "plan" ||
+				planMarkdown !== null ||
+				timeline.projection?.olderMessageSequence != null) &&
 			(panel.kind !== "browser" ||
 				rendererPlatformCapabilities().integratedBrowser),
 	);
@@ -961,6 +967,7 @@ export function RightPane({
 									}
 									sessionId={sessionId}
 									planMarkdown={planMarkdown}
+									timeline={timeline}
 									directoryUnavailable={directoryUnavailable}
 								/>
 							</div>
@@ -1013,6 +1020,7 @@ function PanelBody({
 	worktreeId,
 	sessionId,
 	planMarkdown,
+	timeline,
 	directoryUnavailable,
 	cloudUnavailable,
 	localTerminal,
@@ -1028,6 +1036,7 @@ function PanelBody({
 	worktreeId: WorktreeId | null;
 	sessionId: import("@zuse/contracts").SessionId | null;
 	planMarkdown: string | null;
+	timeline: OptionalRendererSessionTimeline;
 	directoryUnavailable: boolean;
 	cloudUnavailable: boolean;
 	localTerminal: boolean;
@@ -1096,7 +1105,9 @@ function PanelBody({
 				/>
 			);
 		case "plan":
-			return <PlanPane markdown={planMarkdown} />;
+			return (
+				<PlanPane markdown={planMarkdown} timeline={timeline} active={active} />
+			);
 		case "device":
 			if (!executionReady)
 				return (
@@ -1120,15 +1131,33 @@ function PanelBody({
 		case "browser":
 			return null;
 		case "subagents":
-			return <SubagentsPane chatRef={chatRef} sessionId={sessionId} />;
+			return (
+				<SubagentsPane
+					chatRef={chatRef}
+					sessionId={sessionId}
+					active={active}
+				/>
+			);
 	}
 }
 
-function PlanPane({ markdown }: { readonly markdown: string | null }) {
-	if (markdown === null) return null;
+function PlanPane({
+	markdown,
+	timeline,
+	active,
+}: {
+	readonly markdown: string | null;
+	timeline: OptionalRendererSessionTimeline;
+	active: boolean;
+}) {
 	return (
 		<div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-			<MarkdownBody className="mx-auto max-w-3xl">{markdown}</MarkdownBody>
+			{latestProposedPlanMarkdown(timeline.messages) === null ? (
+				<SessionHistoryBackfill timeline={timeline} enabled={active} />
+			) : null}
+			{markdown !== null ? (
+				<MarkdownBody className="mx-auto max-w-3xl">{markdown}</MarkdownBody>
+			) : null}
 		</div>
 	);
 }

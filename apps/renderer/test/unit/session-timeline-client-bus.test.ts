@@ -35,7 +35,6 @@ import { observeRendererAccount } from "../../src/lib/renderer-account.ts";
 import { sessionMessageCommandReflected } from "../../src/lib/session-message-intent.ts";
 import {
 	addOptimisticSessionMessage,
-	completeOlderSessionMessages,
 	environmentFaultFor,
 	getRendererClientBus,
 	loadOlderSessionMessages,
@@ -46,9 +45,11 @@ import {
 	registerSessionTimelineOlderPageSynchronizer,
 	rehydrateRendererCommandPayload,
 	rendererResourceCacheNamespace,
+	requestSessionHistoryPage,
 	resetSessionTimelineClientBus,
 	resetSessionTimelineClientBusForTest,
 	restartProvisionalSessionTimeline,
+	retainSessionHistoryDemand,
 	retainSessionTimeline,
 	sessionTimelineResourceKey,
 	setSessionTimelineRpcClientForTest,
@@ -1017,12 +1018,18 @@ describe("renderer session timeline ClientBus adapter", () => {
 				getRendererClientBus().snapshot(retained.key).origin === "checkpoint",
 		);
 
-		await expect(
-			completeOlderSessionMessages(ref, {
-				retryDelay: async () => undefined,
-			}),
-		).resolves.toBeUndefined();
+		const releaseHistory = retainSessionHistoryDemand(ref);
+		requestSessionHistoryPage(ref);
+		await vi.waitFor(
+			() =>
+				expect(
+					getRendererClientBus().snapshot(retained.key).data
+						?.olderMessageSequence,
+				).toBeNull(),
+			{ timeout: 2000 },
+		);
 		expect(pageCalls).toBe(2);
+		releaseHistory();
 		expect(getRendererClientBus().snapshot(retained.key)).toMatchObject({
 			connection: "dormant",
 			data: { messages: [older], olderMessageSequence: null },

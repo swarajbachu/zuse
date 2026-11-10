@@ -1,4 +1,12 @@
+import type {
+	AgentEvent,
+	AgentItemId,
+	FolderId,
+	ProviderId,
+} from "@zuse/contracts";
+import { Effect, Layer, Stream } from "effect";
 import { describe, expect, it } from "vitest";
+import { HiddenAgentRunner } from "../../src/provider/hidden-agent-run.ts";
 import {
 	buildNamingPrompt,
 	cleanTitle,
@@ -6,6 +14,8 @@ import {
 	limitNamingMessage,
 	MAX_GENERATED_TITLE_LENGTH,
 	parseNamingReply,
+	TitleGenerator,
+	TitleGeneratorLive,
 } from "../../src/provider/title-generator.ts";
 
 describe("generated title length", () => {
@@ -58,9 +68,9 @@ describe("parseNamingReply", () => {
 		).toEqual({ title: "Redesign Setup Card", branch: "redesign-setup-card" });
 	});
 
-	it("treats a bare line as the title", () => {
-		expect(parseNamingReply("Fix Login Redirect")).toEqual({
-			title: "Fix Login Redirect",
+	it("never names from a plain-text reply such as a provider error", () => {
+		expect(parseNamingReply("Limit reached")).toEqual({
+			title: "",
 			branch: "",
 		});
 	});
@@ -89,5 +99,93 @@ describe("buildNamingPrompt", () => {
 		expect(limited.startsWith("start")).toBe(true);
 		expect(limited.endsWith("end")).toBe(true);
 		expect(limited).toContain("[Content truncated]");
+	});
+});
+
+describe("TitleGeneratorLive", () => {
+	const generateFrom = (
+		events: ReadonlyArray<AgentEvent>,
+		fallback = false,
+	) => {
+		const runner = {
+			run: (_input: unknown, consume: (events: never) => never) =>
+				consume(Stream.fromIterable(events) as never),
+		};
+		return Effect.runPromise(
+			Effect.gen(function* () {
+				const titles = yield* TitleGenerator;
+				return yield* titles.generate({
+					folderId: "folder" as FolderId,
+					providerId: "claude" as ProviderId,
+					model: "claude-opus-5-5",
+					userText: "for some reason the app is not updating, fix it",
+					title: true,
+					branch: true,
+					fallback,
+				});
+			}).pipe(
+				Effect.provide(
+					TitleGeneratorLive.pipe(
+						Layer.provide(Layer.succeed(HiddenAgentRunner, runner as never)),
+					),
+				),
+			),
+		);
+	};
+
+	it("names the chat from the finished reply, not its first streamed fragment", async () => {
+		const reply =
+			'{"title": "Fix App Update Check", "branch": "fix-app-update"}';
+		const itemId = "msg:text:0" as AgentItemId;
+		const names = await generateFrom([
+			{
+				_tag: "AssistantMessage",
+				itemId,
+				text: reply.slice(0, 4),
+				checkpoint: { revision: 1, final: false },
+			},
+			{
+				_tag: "AssistantMessage",
+				itemId,
+				text: reply.slice(0, 30),
+				checkpoint: { revision: 2, final: false },
+			},
+			{
+				_tag: "AssistantMessage",
+				itemId,
+				text: reply,
+				checkpoint: { revision: 3, final: true },
+			},
+		]);
+		expect(names).toEqual({
+			title: "Fix App Update Check",
+			branch: "fix-app-update",
+		});
+	});
+
+	it("reads a reply that arrives as one unstreamed message", async () => {
+		const names = await generateFrom([
+			{
+				_tag: "AssistantMessage",
+				itemId: "msg" as AgentItemId,
+				text: '{"title": "Fix App Update Check", "branch": "fix-app-update"}',
+			},
+		]);
+		expect(names.title).toBe("Fix App Update Check");
+	});
+
+	it("leaves names unset when a failing provider answers in plain text", async () => {
+		const reply: ReadonlyArray<AgentEvent> = [
+			{
+				_tag: "AssistantMessage",
+				itemId: "msg" as AgentItemId,
+				text: "Limit reached",
+			},
+		];
+		expect(await generateFrom(reply)).toEqual({ title: null, branch: null });
+		expect(await generateFrom(reply, true)).toEqual({
+			title: "for some reason the app is not updating, fix it",
+			branch: "for-some-reason-the-app-is-not-updating",
+		});
 	});
 });

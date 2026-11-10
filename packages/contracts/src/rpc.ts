@@ -315,7 +315,6 @@ import {
 } from "./permission.ts";
 import { PingRpc } from "./ping.ts";
 import { LocalPluginsRequestRpc, PluginsRequestRpc } from "./plugins.ts";
-import { PokemonEnsureSpriteCachedRpc, PokemonPokedexRpc } from "./pokemon.ts";
 import { PreviewsListServersRpc } from "./previews.ts";
 import {
 	ProviderAccountsListRpc,
@@ -852,8 +851,6 @@ export const MemoizeRpcs = RpcGroup.make(
 	PermissionListPendingRpc,
 	PermissionListDecisionsRpc,
 	PermissionRevokeDecisionRpc,
-	PokemonPokedexRpc,
-	PokemonEnsureSpriteCachedRpc,
 	BrowserCommandsRpc,
 	BrowserRespondRpc,
 	BrowserSetCredentialRpc,

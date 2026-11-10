@@ -1,9 +1,8 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
 import { FolderId, WorktreeId } from "./ids.ts";
 import { NameProvenanceField } from "./naming.ts";
-import { PokemonSummary } from "./pokemon.ts";
 
 export const WorktreeSetupStatus = Schema.Literals([
 	"pending",
@@ -34,7 +33,13 @@ export class Worktree extends Schema.Class<Worktree>("Worktree")({
 	setupOutput: Schema.String,
 	setupStartedAt: Schema.NullOr(Schema.DateFromString),
 	setupFinishedAt: Schema.NullOr(Schema.DateFromString),
-	pokemon: Schema.NullOr(PokemonSummary),
+	/**
+	 * Retired worktree badge. Always null: clients released before it was
+	 * removed still require the key, and older runtimes may still send a value.
+	 */
+	pokemon: Schema.Unknown.pipe(
+		Schema.withConstructorDefault(Effect.succeed(null)),
+	),
 }) {}
 
 export class WorktreeNotFoundError extends Schema.TaggedErrorClass<WorktreeNotFoundError>()(
@@ -96,7 +101,6 @@ export const WorktreeArchiveSnapshot = Schema.Struct({
 	archivedContextPath: Schema.optional(Schema.NullOr(Schema.String)),
 	detachedHead: Schema.optional(Schema.Boolean),
 	branchProvenance: Schema.optional(NameProvenanceField),
-	pokemonNumber: Schema.optional(Schema.NullOr(Schema.Number)),
 });
 export type WorktreeArchiveSnapshot = typeof WorktreeArchiveSnapshot.Type;
 
@@ -141,13 +145,13 @@ const WorktreeErrors = Schema.Union([
 
 /**
  * Optional source for a worktree checkout. When omitted, `worktree.create`
- * behaves as before: allocate a fresh Pokémon branch off `origin/<default>`.
+ * behaves as before: allocate a fresh placeholder branch off `origin/<default>`.
  * When present, the worktree checks out an EXISTING ref instead:
  *   - `branch` → check out that branch (tracking `origin/<branch>` when it's a
  *     remote branch), used by the "Create from → Branches" picker.
  *   - `pr` → `gh pr checkout <number>` inside the new worktree, used by
  *     "Create from → PRs" (handles fork PRs + tracking).
- * The directory still gets a Pokémon name/mascot; only the checked-out branch
+ * The directory still gets a placeholder name; only the checked-out branch
  * differs.
  */
 export const WorktreeCreateSource = Schema.Union([

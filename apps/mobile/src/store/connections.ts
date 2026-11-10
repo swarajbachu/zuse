@@ -6,7 +6,7 @@ import {
 import { Effect } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import * as SecureStore from "expo-secure-store";
-
+import { connectionErrorMessage } from "~/lib/connection-error-message";
 import {
 	type ConnectionRecord,
 	type ConnectionSource,
@@ -21,7 +21,7 @@ import { deviceLabel, getOrCreateDeviceId } from "~/lib/device-identity";
 import { visibleConnectionLabel } from "~/lib/display-names";
 import { clearMediaCache } from "~/lib/media-cache";
 import { serverKeyPin as serverKeyPinForPublicKey } from "~/lib/nearby-pairing";
-import { getConnectionClient } from "~/rpc/connection";
+import { getConnectionClient, getConnectionSnapshot } from "~/rpc/connection";
 import { redeemPairingCode } from "~/rpc/pairing-client";
 import { connectionKey, type WsProtocolOptions } from "~/rpc/ws-protocol";
 import { cloudConnectionsAtom } from "./cloud-catalog";
@@ -75,9 +75,25 @@ const loadConnections = Effect.tryPromise({
 	),
 );
 
+let pendingConnectionWrite: Promise<void> = Promise.resolve();
+
+/** Order mutations of the shared storage entry without poisoning later writes on failure. */
+const serializeConnectionWrite = (
+	write: () => Promise<void>,
+): Promise<void> => {
+	const result = pendingConnectionWrite.then(write);
+	pendingConnectionWrite = result.catch(() => undefined);
+	return result;
+};
+
 const saveConnections = (connections: ConnectionRecord[]) =>
 	Effect.tryPromise({
-		try: () => SecureStore.setItemAsync(STORE_KEY, JSON.stringify(connections)),
+		try: () => {
+			const snapshot = JSON.stringify(connections);
+			return serializeConnectionWrite(() =>
+				SecureStore.setItemAsync(STORE_KEY, snapshot),
+			);
+		},
 		catch: (cause) => cause,
 	});
 
@@ -98,6 +114,10 @@ export const hydrateConnections = async (): Promise<void> => {
 	}
 };
 
+/**
+ * Save a computer after validating RPC access, or retain an already-approved
+ * nearby identity so its credential survives a failed initial connection.
+ */
 export const addConnection = async ({
 	host,
 	port,
@@ -111,6 +131,7 @@ export const addConnection = async ({
 	refreshAccountGrant,
 	wsBaseUrl,
 	httpBaseUrl,
+	approvedNearbyEnvironment,
 }: {
 	host: string;
 	port: number;
@@ -124,6 +145,11 @@ export const addConnection = async ({
 	refreshAccountGrant?: boolean;
 	wsBaseUrl?: string;
 	httpBaseUrl?: string;
+	/** Identity received over the pinned nearby pairing transport after approval. */
+	approvedNearbyEnvironment?: {
+		readonly environmentId: string;
+		readonly label: string;
+	};
 }): Promise<ConnectionRecord> => {
 	const trimmedHost = host.trim();
 	const redeemed = await redeemPairingCodeIfNeeded({
@@ -132,20 +158,30 @@ export const addConnection = async ({
 		token,
 		httpBaseUrl,
 	});
-	const descriptor = await describeEnvironment({
-		host: trimmedHost,
-		port,
-		token: redeemed.token,
-		wsBaseUrl,
-	});
 	if (
-		descriptor === null &&
-		(source === "manual" || (source === "paired" && redeemed.token !== null))
-	) {
+		approvedNearbyEnvironment !== undefined &&
+		(source !== "paired" ||
+			!redeemed.token ||
+			!serverPublicKey ||
+			!serverKeyPin ||
+			serverKeyPinForPublicKey(serverPublicKey) !== serverKeyPin ||
+			!transportCertificatePin ||
+			!nearbyServiceName ||
+			!approvedNearbyEnvironment.environmentId)
+	)
 		throw new Error(
-			"Could not reach that desktop. Check the address, token, and network, then try again.",
+			"The approved nearby identity is incomplete. Pair with the Mac again.",
 		);
-	}
+	// Pairing already authenticated this Mac. Persist its trust before opening RPC;
+	// a failed disposable route must not discard an approved device credential.
+	const descriptor =
+		approvedNearbyEnvironment === undefined
+			? await describeEnvironment(
+					{ host: trimmedHost, port, token: redeemed.token, wsBaseUrl },
+					source === "manual" ||
+						(source === "paired" && redeemed.token !== null),
+				)
+			: { ...approvedNearbyEnvironment, capabilities: undefined };
 	const identity =
 		descriptor?.environmentId ??
 		redeemed.environmentId ??
@@ -240,33 +276,58 @@ export const updateConnectionLabel = async (
 	await Effect.runPromise(saveConnections(next));
 };
 
+const descriptorRefreshes = new Map<string, symbol>();
+
 /**
- * Re-describe an already-paired environment and adopt its human label if the
- * server now reports a nicer one (e.g. after the Phase 1 machine-naming
- * change lands on desktop). No-op when the label is unchanged.
+ * Refresh saved metadata only while the request and optional connected generation
+ * remain current. Failed or superseded reads leave the saved descriptor intact.
  */
 export const refreshConnectionLabel = async (
 	key: string,
 	options: WsProtocolOptions,
+	generation?: number,
 ): Promise<void> => {
 	if (options.cloudWorkspaceId !== undefined) return;
-	const descriptor = await describeEnvironment(options);
-	if (descriptor === null) return;
-	const nextLabel = visibleConnectionLabel(descriptor.label, key);
-	const connections = currentConnections();
-	const current = connections.find((c) => c.key === key);
-	if (current === undefined) return;
-	const next = refreshConnectionDescriptor(
-		connections,
-		key,
-		nextLabel,
-		descriptor.capabilities,
-		Date.now(),
-		descriptor.environmentId,
+	const original = currentConnections().find(
+		(connection) => connection.key === key,
 	);
-	if (next === connections) return;
-	appAtomRegistry.set(connectionsAtom, next);
-	await Effect.runPromise(saveConnections(next));
+	if (original === undefined) return;
+	const request = Symbol();
+	descriptorRefreshes.set(key, request);
+	try {
+		const descriptor = await describeEnvironment(options);
+		if (descriptor === null || descriptorRefreshes.get(key) !== request) return;
+		const connections = currentConnections();
+		const current = connections.find((connection) => connection.key === key);
+		if (
+			current === undefined ||
+			current.token !== original.token ||
+			current.host !== original.host ||
+			current.port !== original.port ||
+			current.wsBaseUrl !== original.wsBaseUrl ||
+			current.routeGeneration !== original.routeGeneration
+		)
+			return;
+		if (generation !== undefined) {
+			const snapshot = getConnectionSnapshot(options);
+			if (snapshot.status !== "connected" || snapshot.generation !== generation)
+				return;
+		}
+		const next = refreshConnectionDescriptor(
+			connections,
+			key,
+			visibleConnectionLabel(descriptor.label, key),
+			descriptor.capabilities,
+			Date.now(),
+			descriptor.environmentId,
+		);
+		if (next === connections) return;
+		appAtomRegistry.set(connectionsAtom, next);
+		await Effect.runPromise(saveConnections(next));
+	} finally {
+		if (descriptorRefreshes.get(key) === request)
+			descriptorRefreshes.delete(key);
+	}
 };
 
 /** Replace only the disposable network route for a stable paired Mac. */
@@ -319,6 +380,7 @@ export const restorePairedConnectionRoutes = async (
 };
 
 export const removeConnection = async (key: string): Promise<void> => {
+	descriptorRefreshes.delete(key);
 	const next = currentConnections().filter((c) => c.key !== key);
 	appAtomRegistry.set(connectionsAtom, next);
 	await Effect.runPromise(saveConnections(next));
@@ -326,11 +388,12 @@ export const removeConnection = async (key: string): Promise<void> => {
 };
 
 export const clearConnections = async (): Promise<void> => {
+	descriptorRefreshes.clear();
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(connectionsAtom, []);
 		appAtomRegistry.set(connectionsHydratedAtom, true);
 	});
-	await SecureStore.deleteItemAsync(STORE_KEY);
+	await serializeConnectionWrite(() => SecureStore.deleteItemAsync(STORE_KEY));
 	await clearMediaCache();
 };
 
@@ -366,11 +429,20 @@ const redeemPairingCodeIfNeeded = async ({
 	});
 };
 
-const describeEnvironment = async (options: WsProtocolOptions) => {
+/** Read the live descriptor, preserving connection failures when access is required. */
+const describeEnvironment = async (
+	options: WsProtocolOptions,
+	required = false,
+) => {
 	try {
 		const client = await Effect.runPromise(getConnectionClient(options));
 		return await Effect.runPromise(client["connect.describe"]());
-	} catch {
+	} catch (cause) {
+		if (required)
+			throw new Error(
+				`Could not reach that desktop. ${connectionErrorMessage(cause)}`,
+				{ cause },
+			);
 		return null;
 	}
 };

@@ -319,21 +319,64 @@ export const makeSqlSessionQueries = (
 	) {
 		yield* get(input.sessionId);
 		const before = input.beforeSequence ?? Number.MAX_SAFE_INTEGER;
-		const rows = yield* sql<MessageRow>`
-			SELECT ${sql.literal(MESSAGE_ROW_COLUMNS)}
-			FROM messages
-			WHERE session_id = ${input.sessionId} AND sequence < ${before}
-			ORDER BY sequence DESC
-			LIMIT ${input.limit + 1}
+		if (input.messageId !== undefined) {
+			const rows =
+				yield* sql<MessageRow>`SELECT ${sql.literal(MESSAGE_ROW_COLUMNS)} FROM messages WHERE session_id=${input.sessionId} AND id=${input.messageId} LIMIT 1`;
+			return {
+				items: yield* Effect.forEach(rows, messageRecord),
+				olderSequence: null,
+			};
+		}
+		// Select the window before loading bodies into JavaScript. One oversized
+		// message is retained so pagination always advances without losing content.
+		const candidates = yield* sql<{
+			sequence: number;
+			bytes: number;
+			id: string;
+			role: string;
+			created_at: string;
+		}>`
+			SELECT sequence, length(CAST(content_json AS BLOB)) AS bytes, id, role, created_at
+			FROM messages WHERE session_id=${input.sessionId} AND sequence<${before}
+			ORDER BY sequence DESC LIMIT ${input.limit + 1}
 		`;
-		const records = yield* Effect.forEach(rows, messageRecord);
-		const items = records.slice(0, input.limit).reverse();
+		const selected: (typeof candidates)[number][] = [];
+		let bytes = 2;
+		for (const row of candidates.slice(0, input.limit)) {
+			const overhead =
+				new TextEncoder().encode(
+					JSON.stringify({
+						id: row.id,
+						sessionId: input.sessionId,
+						role: row.role,
+						content: null,
+						createdAt: row.created_at,
+					}),
+				).byteLength -
+				4 +
+				1;
+			if (
+				selected.length > 0 &&
+				bytes + row.bytes + overhead > (input.maxBytes ?? 256 * 1024)
+			)
+				break;
+			selected.push(row);
+			bytes += row.bytes + overhead;
+		}
+		const oldest = selected.at(-1)?.sequence;
+		const newest = selected[0]?.sequence;
+		if (oldest === undefined || newest === undefined)
+			return { items: [], olderSequence: null };
+		const rows = yield* sql<MessageRow>`
+			SELECT ${sql.literal(MESSAGE_ROW_COLUMNS)} FROM messages
+			WHERE session_id=${input.sessionId} AND sequence>=${oldest} AND sequence<=${newest} AND sequence<${before}
+			ORDER BY sequence ASC
+		`;
 		return {
-			items,
-			olderSequence:
-				records.length > input.limit ? (items[0]?.sequence ?? null) : null,
+			items: yield* Effect.forEach(rows, messageRecord),
+			olderSequence: candidates.length > selected.length ? oldest : null,
 		};
-	});
+	}, sql.withTransaction);
 
 	const transcript = Effect.fn("SqlSessionQueries.transcript")(function* (
 		sessionId: string,
@@ -346,7 +389,8 @@ export const makeSqlSessionQueries = (
 		...messageQueries,
 		activeTurnCount: sql<{
 			count: number;
-		}>`SELECT COUNT(*) AS count FROM session_turns WHERE status IN ${sql.in([...ACTIVE_SESSION_TURN_STATUSES])}`.pipe(
+		}>`SELECT COUNT(*) AS count FROM session_turns t JOIN sessions s ON s.id = t.session_id
+			WHERE t.status IN ${sql.in([...ACTIVE_SESSION_TURN_STATUSES])} AND s.archived_at IS NULL`.pipe(
 			Effect.map((rows) => rows[0]?.count ?? 0),
 		),
 		list,

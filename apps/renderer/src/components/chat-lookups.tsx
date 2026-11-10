@@ -1,4 +1,9 @@
-import type { AgentItemId, Message, UserQuestionAnswer } from "@zuse/contracts";
+import type {
+	AgentItemId,
+	Message,
+	SessionExecutionStep,
+	UserQuestionAnswer,
+} from "@zuse/contracts";
 import { createContext, useContext } from "react";
 import {
 	type SubagentReference,
@@ -6,7 +11,10 @@ import {
 } from "~/lib/subagent-metadata";
 import type { SubagentWaitResult } from "~/lib/subagent-wait";
 
-export type ToolResultRecord = SubagentWaitResult;
+export type ToolResultRecord = SubagentWaitResult & {
+	readonly messageId?: Message["id"];
+	readonly outputDeferred?: string;
+};
 
 export interface ChatLookups {
 	readonly resultsByItemId: ReadonlyMap<AgentItemId, ToolResultRecord>;
@@ -45,6 +53,7 @@ export const useChatLookups = () => useContext(ChatLookupsContext);
 
 export function deriveChatLookups(
 	messages: ReadonlyArray<Message>,
+	steps: readonly SessionExecutionStep[] = [],
 ): ChatLookups {
 	const seenUseIds = new Set<AgentItemId>();
 	const resultsByItemId = new Map<AgentItemId, ToolResultRecord>();
@@ -54,6 +63,18 @@ export function deriveChatLookups(
 		ReadonlyArray<UserQuestionAnswer>
 	>();
 	const subagentsByTaskId = new Map<string, SubagentReference>();
+
+	for (const step of steps) {
+		const child = step.nativeChildId ?? step.childSessionId;
+		if (
+			step.kind === "subagent" &&
+			child !== null &&
+			!subagentsByTaskId.has(child)
+		)
+			subagentsByTaskId.set(child, {
+				agentName: step.label || subagentDisplayName(null),
+			});
+	}
 
 	for (const message of messages) {
 		if (message.content._tag === "tool_use") {
@@ -79,6 +100,8 @@ export function deriveChatLookups(
 		) {
 			resultsByItemId.set(message.content.itemId, {
 				output: message.content.output,
+				messageId: message.id,
+				outputDeferred: message.content.outputDeferred,
 				isError: message.content.isError,
 				completedAt: message.createdAt,
 			});

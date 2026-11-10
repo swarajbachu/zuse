@@ -45,7 +45,7 @@ function ConnectivityRuntimeBridge() {
 	useEffect(() => {
 		void width;
 		void height;
-		// Large screens keep the system's rotation; phone-sized screens pin portrait.
+		// iOS follows system rotation; compact Android screens keep portrait.
 		const lock = shouldLockPortrait(Dimensions.get("screen"))
 			? ScreenOrientation.lockAsync(
 					pathname.endsWith("/terminal")
@@ -61,10 +61,10 @@ function ConnectivityRuntimeBridge() {
 export default function RootLayout() {
 	const { theme } = useUniwind();
 	const isDark = theme === "dark";
-	const [fontsLoaded] = useFonts({
+	const [fontsLoaded, fontError] = useFonts({
 		GeistMono_400Regular,
 	});
-	const incomingUrl = Linking.useURL();
+	const incomingUrl = Linking.useLinkingURL();
 
 	useEffect(() => {
 		installCrashReporting();
@@ -79,6 +79,10 @@ export default function RootLayout() {
 			});
 		}
 	}, [incomingUrl]);
+
+	if (fontError) {
+		throw fontError;
+	}
 
 	if (!fontsLoaded) {
 		return <View className="flex-1 bg-background" />;

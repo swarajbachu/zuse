@@ -16,8 +16,14 @@ import {
 	chipResolverFacet,
 	isChipEffect,
 } from "./composer-chips.ts";
-import { buildComposerKeymap, composerKeymap } from "./composer-keymap.ts";
+import { composerEmojiShortcodes } from "./composer-emoji.ts";
+import {
+	buildComposerKeymap,
+	composerKeymap,
+	resetComposerInterrupt,
+} from "./composer-keymap.ts";
 import { composerLinks } from "./composer-links.ts";
+import { composerDoubleSpacePeriod } from "./composer-period.ts";
 import { composerTheme } from "./composer-theme.ts";
 import {
 	type ActiveTrigger,
@@ -26,6 +32,7 @@ import {
 
 const composerKeymapCompartment = new WeakMap<EditorView, Compartment>();
 const composerPlaceholderCompartment = new WeakMap<EditorView, Compartment>();
+const composerHistoryCompartment = new WeakMap<EditorView, Compartment>();
 
 export type ComposerCallbacks = {
 	/**
@@ -34,7 +41,20 @@ export type ComposerCallbacks = {
 	 * newline) take over. Useful for guards like "popover is open" where the
 	 * Enter should be swallowed by the popover instead of submitting.
 	 */
-	readonly onSubmit: () => boolean;
+	readonly onSubmit: (mode?: "steer" | "queue") => boolean;
+	readonly canInterrupt?: () => boolean;
+	readonly onInterrupt?: () => boolean;
+	/** Clear the draft after a confirmed double Escape while idle. */
+	readonly onClearDraft?: () => void;
+	/** Show or hide the "press Esc again to clear" hint. */
+	readonly onClearArmed?: (armed: boolean) => void;
+	/** Swap the draft with the stashed one (Ctrl+S). */
+	readonly onStash?: () => boolean;
+	/** Open the sent-message search (Ctrl+R). */
+	readonly onSearchHistory?: () => boolean;
+	/** `?` typed into an empty composer; return true to swallow it. */
+	readonly onHelp?: () => boolean;
+	readonly onHistory?: (direction: -1 | 1) => boolean;
 	readonly onChange: (doc: string) => void;
 	readonly onSnapshotChange?: (state: EditorState) => void;
 	readonly onTrigger: (trigger: ActiveTrigger | null) => void;
@@ -93,17 +113,20 @@ export const createComposerView = ({
 }: ComposerCreateParams): EditorView => {
 	const userKeymapCompartment = new Compartment();
 	const placeholderCompartment = new Compartment();
+	const historyCompartment = new Compartment();
 	const buildUserKeymap = (): readonly KeyBinding[] =>
 		composerKeymap(callbacks);
 
 	const extensions: Extension[] = [
-		history(),
+		historyCompartment.of(history()),
 		placeholderCompartment.of(placeholder(placeholderText)),
 		EditorView.contentAttributes.of({ "aria-label": "Message composer" }),
 		EditorView.lineWrapping,
 		composerTheme,
 		...chipExtensions,
 		composerLinks,
+		composerDoubleSpacePeriod,
+		composerEmojiShortcodes,
 		...(resolveChipToken !== undefined
 			? [chipResolverFacet.of(resolveChipToken)]
 			: []),
@@ -126,6 +149,25 @@ export const createComposerView = ({
 			}
 		}),
 
+		EditorView.inputHandler.of((view, from, to, text) => {
+			if (
+				text !== "?" ||
+				view.composing ||
+				view.state.doc.length !== 0 ||
+				from !== 0 ||
+				to !== 0
+			)
+				return false;
+			return callbacks.onHelp?.() ?? false;
+		}),
+
+		EditorView.domEventObservers({
+			keydown: (event, view) => {
+				if (event.key !== "Escape" || event.repeat)
+					resetComposerInterrupt(view);
+			},
+			blur: (_event, view) => resetComposerInterrupt(view),
+		}),
 		EditorView.domEventHandlers({
 			dragover: (event) => {
 				if (event.dataTransfer?.types.includes("Files") === true) {
@@ -170,6 +212,7 @@ export const createComposerView = ({
 
 	composerKeymapCompartment.set(view, userKeymapCompartment);
 	composerPlaceholderCompartment.set(view, placeholderCompartment);
+	composerHistoryCompartment.set(view, historyCompartment);
 	return view;
 };
 
@@ -202,6 +245,17 @@ export const reconfigureComposerKeymap = (
 			keymap.of([...buildComposerKeymap(callbacks)]),
 		),
 	});
+};
+
+/**
+ * Drop the undo stack, e.g. once a draft has been sent, so Cmd+Z cannot pull
+ * a message that already left back into the composer.
+ */
+export const resetComposerHistory = (view: EditorView): void => {
+	const compartment = composerHistoryCompartment.get(view);
+	if (compartment === undefined) return;
+	view.dispatch({ effects: compartment.reconfigure([]) });
+	view.dispatch({ effects: compartment.reconfigure(history()) });
 };
 
 /** Replace the entire document — used by submit + `/clear`. */

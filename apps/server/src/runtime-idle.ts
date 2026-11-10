@@ -44,5 +44,14 @@ export const isEngineIdle = (options: {
 				))
 			)
 				return false;
+		// Archived turns cannot settle at runtime, so only a live provider keeps them busy.
+		const archivedTurns = yield* options.sql<{ id: string }>`
+		SELECT DISTINCT s.id FROM sessions s
+		JOIN session_turns t ON t.session_id = s.id
+		WHERE s.archived_at IS NOT NULL AND t.status IN ('starting', 'running', 'finalizing')
+	`;
+		for (const session of archivedTurns)
+			if (yield* options.hasSession(AgentSessionId.make(session.id)))
+				return false;
 		return true;
 	});

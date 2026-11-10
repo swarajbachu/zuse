@@ -3,7 +3,7 @@ import { Platform } from "react-native";
 import { SafeAreaView } from "react-native-screens/experimental";
 
 import { useSplitExpanded } from "~/components/root-navigator";
-import { useReadableContentStyle } from "~/lib/form-factor";
+import { useIsWideLayout, useReadableContentStyle } from "~/lib/form-factor";
 import { SHEET_PRESENTATION, TRANSPARENT_HEADER } from "~/lib/native-header";
 import { colors } from "~/theme";
 
@@ -14,7 +14,10 @@ export default function MainLayout() {
 	// iOS form sheets show system glass through a clear background.
 	const sheetBackground = Platform.OS === "ios" ? "transparent" : colors.bg;
 	const fullBleedContent = { backgroundColor: colors.bg };
+	// Sheets have their own bounded width; window-derived padding squeezes them on iPad.
+	const sheetContent = { backgroundColor: sheetBackground };
 	const expanded = useSplitExpanded();
+	const wideLayout = useIsWideLayout();
 	const baseScreenOptions: NativeStackNavigationOptions = {
 		headerLargeTitle: true,
 		headerTransparent: TRANSPARENT_HEADER,
@@ -41,6 +44,18 @@ export default function MainLayout() {
 	};
 	const stack = (
 		<Stack
+			screenLayout={
+				Platform.OS === "ios"
+					? ({ children }) => (
+							<SafeAreaView
+								edges={{ left: true, right: true }}
+								style={{ flex: 1 }}
+							>
+								{children}
+							</SafeAreaView>
+						)
+					: undefined
+			}
 			screenOptions={({ navigation, route }) => {
 				const routes: readonly { key: string; name: string }[] =
 					navigation.getState().routes;
@@ -113,6 +128,7 @@ export default function MainLayout() {
 				options={{
 					title: "Plan",
 					presentation: "modal",
+					contentStyle: fullBleedContent,
 					headerLargeTitle: false,
 				}}
 			/>
@@ -128,7 +144,7 @@ export default function MainLayout() {
 			<Stack.Screen
 				name="connect/nearby"
 				options={{
-					title: "Nearby Macs",
+					title: "Nearby computers",
 					headerLargeTitle: false,
 					presentation: "card",
 				}}
@@ -179,10 +195,7 @@ export default function MainLayout() {
 					sheetAllowedDetents: [0.42, 0.92],
 					sheetInitialDetentIndex: 0,
 					sheetGrabberVisible: true,
-					contentStyle: {
-						...readableContent,
-						backgroundColor: sheetBackground,
-					},
+					contentStyle: sheetContent,
 				}}
 			/>
 			<Stack.Screen
@@ -216,14 +229,15 @@ export default function MainLayout() {
 				options={{
 					title: "Review changes",
 					headerLargeTitle: false,
-					presentation: SHEET_PRESENTATION,
+					// Diffs need width; iPad form sheets are too small to read code in.
+					presentation:
+						Platform.OS === "ios" && wideLayout
+							? "pageSheet"
+							: SHEET_PRESENTATION,
 					sheetAllowedDetents: [0.72, 1],
 					sheetInitialDetentIndex: 0,
 					sheetGrabberVisible: true,
-					contentStyle: {
-						...readableContent,
-						backgroundColor: sheetBackground,
-					},
+					contentStyle: sheetContent,
 				}}
 			/>
 			<Stack.Screen
@@ -240,6 +254,7 @@ export default function MainLayout() {
 					title: "Tool details",
 					headerLargeTitle: false,
 					presentation: "modal",
+					contentStyle: fullBleedContent,
 				}}
 			/>
 			<Stack.Screen
@@ -248,12 +263,6 @@ export default function MainLayout() {
 			/>
 		</Stack>
 	);
-	if (Platform.OS !== "ios") return stack;
-	// On iOS 26 the split view's sidebar floats over this column and is reported
-	// as a horizontal safe-area inset, which native headers honor but content does not.
-	return (
-		<SafeAreaView edges={{ left: true, right: true }} style={{ flex: 1 }}>
-			{stack}
-		</SafeAreaView>
-	);
+	// Apply native safe areas inside each screen, where its rail and sheet insets live.
+	return stack;
 }

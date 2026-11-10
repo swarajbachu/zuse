@@ -10,13 +10,31 @@ import {
 } from "../../src/api/cloudflared-install.ts";
 
 describe("cloudflared installer", () => {
-	test("pins supported platform assets and checksums", () => {
-		expect(cloudflaredAsset("darwin", "arm64")).toMatchObject({
-			version: "2026.7.2",
+	test.each([
+		{
+			architecture: "x64",
+			name: "cloudflared-darwin-amd64.tgz",
+			sha256:
+				"4ee0d3b48a990a2f9b5faec5838f73ec1f400aa8e0a4864be576adfafec406cb",
+		},
+		{
+			architecture: "arm64",
 			name: "cloudflared-darwin-arm64.tgz",
 			sha256:
-				"0588df58494a6cadd38b9deb6078908a5054063c80784d92fdb8d4a5f3de1c67",
+				"2086e51c61d6565781d84117a5007d0c826d03ffdc74acb91c08c167f9f8cd7c",
+		},
+	])("pins the published macOS $architecture archive digest", (asset) => {
+		// GitHub release asset digests hash the .tgz, unlike the release notes,
+		// which list the extracted macOS executable digests for this release.
+		expect(cloudflaredAsset("darwin", asset.architecture)).toMatchObject({
+			version: "2026.7.2",
+			name: asset.name,
+			sha256: asset.sha256,
+			archive: true,
 		});
+	});
+
+	test("pins the Linux binary checksum", () => {
 		expect(cloudflaredAsset("linux", "x64")).toMatchObject({
 			name: "cloudflared-linux-amd64",
 			sha256:

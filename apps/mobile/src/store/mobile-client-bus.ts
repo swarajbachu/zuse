@@ -1,6 +1,7 @@
 import {
 	BackgroundHistory,
-	retainSessionHistory,
+	HistoryPageDemand,
+	isSessionHistoryReady,
 } from "@zuse/client-runtime/background-history";
 import {
 	ClientBus,
@@ -36,6 +37,10 @@ import {
 	type SessionRef,
 	type TerminalRef,
 } from "@zuse/client-runtime/resource-ref";
+import {
+	makeSessionMessageDetailLoader,
+	readArchivedSessionMessage,
+} from "@zuse/client-runtime/session-message-detail";
 import {
 	durableOptimisticSessionMessage,
 	sessionMessageCommandReflected,
@@ -74,7 +79,6 @@ import {
 } from "~/offline/cache";
 import {
 	getConnectionClient,
-	isConnectionOnline,
 	type MemoizeClient,
 	reportConnectionFailure,
 } from "~/rpc/connection";
@@ -697,7 +701,7 @@ const makeBus = () =>
 		},
 		commandFaultFor: (cause) =>
 			isRetryableClientError(cause) ? environmentFault("failed", cause) : null,
-		runtime: { isOnline: isConnectionOnline },
+		runtime: { isOnline: () => true },
 		driverFor,
 	});
 
@@ -715,6 +719,7 @@ const messagePager = makeSessionMessagePager({
 					sessionId: ref.sessionId,
 					beforeSequence,
 					limit: 100,
+					deferToolDetails: true,
 				}),
 				{ signal },
 			);
@@ -739,17 +744,44 @@ const messagePager = makeSessionMessagePager({
 	},
 });
 export const loadOlderMobileMessages = messagePager.load;
+export const loadMobileMessageDetail = makeSessionMessageDetailLoader({
+	getBus: mobileClientBus,
+	namespace: (ref) => bindings.get(ref.environmentId),
+	readArchived: async (ref, id, signal, reads) => {
+		if (bindings.get(ref.environmentId)?.options.cloudWorkspaceId === undefined)
+			return null;
+		return readArchivedSessionMessage(
+			await getCloudControl(),
+			ref,
+			id,
+			signal,
+			reads,
+		);
+	},
+});
+
 export const mobileHistory = new BackgroundHistory(2);
+const mobileHistoryDemand = new HistoryPageDemand(mobileHistory);
 export const mobileHistoryKey = (ref: SessionRef) =>
 	resourceKeyId(sessionTimelineKey(ref.environmentId, ref.sessionId));
 export const retainMobileHistory = (ref: SessionRef): (() => void) =>
-	retainSessionHistory({
-		bus: mobileClientBus(),
-		ref,
-		scheduler: mobileHistory,
-		load: (signal) => messagePager.load(ref, signal),
-		priority: () => 10,
+	mobileHistoryDemand.retain(mobileHistoryKey(ref), {
+		ready: () =>
+			isSessionHistoryReady(
+				mobileClientBus().snapshot(
+					sessionTimelineKey(ref.environmentId, ref.sessionId),
+				),
+			),
+		subscribe: (listener) =>
+			mobileClientBus().subscribe(
+				sessionTimelineKey(ref.environmentId, ref.sessionId),
+				listener,
+			),
 	});
+export const requestMobileHistoryPage = (ref: SessionRef): void =>
+	mobileHistoryDemand.request(mobileHistoryKey(ref), (signal) =>
+		messagePager.load(ref, signal),
+	);
 export const mobileHistoryRef = (
 	connKey: string,
 	sessionId: SessionId,
@@ -760,8 +792,8 @@ export const mobileHistoryRef = (
 	return entry ? { environmentId: entry[0], sessionId } : null;
 };
 
-/** Resume retained resources immediately when the native connectivity owner
- * reports an online/app-active edge. */
+/** Rebind retained resources at once after the supervisor replaces a socket
+ * (new local route, failed resume probe, or a manual retry). */
 export const retryMobileClientBusConnections = (connKey?: string): void => {
 	const clientBus = mobileClientBus();
 	for (const [environmentId, binding] of bindings) {
@@ -770,16 +802,12 @@ export const retryMobileClientBusConnections = (connKey?: string): void => {
 
 		clientBus.reportConnectionFault(
 			environmentId,
-			environmentFault("offline", "Connection resumed"),
+			environmentFault("offline", "Connection replaced"),
 			snapshot.generation,
 		);
 		clientBus.retryConnection(environmentId);
 	}
 };
-
-/** Forward native app/connectivity edges to the shared ClientBus owner. */
-export const setMobileClientBusOnline = (online: boolean): void =>
-	mobileClientBus().setOnline(online);
 
 export const registerMobileEnvironment = (
 	connKey: string,

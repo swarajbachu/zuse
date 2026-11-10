@@ -130,6 +130,7 @@ const stoppedChildren = (
 						itemId: child.itemId,
 						output: "Background task stopped when its parent execution ended.",
 						isError: true,
+						backgroundOutcome: "stopped",
 					}
 				: {
 						_tag: "SubagentSummary",

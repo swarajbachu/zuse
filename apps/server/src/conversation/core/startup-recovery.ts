@@ -91,7 +91,6 @@ export const reconcileSessionRuntime = (
 						detachedAt: now,
 					});
 				}
-				if (row.turn_status === "finalizing") continue;
 				if (row.archived_at !== null) {
 					if (row.turn_id !== null)
 						yield* dispatch("archived-turn", {
@@ -102,6 +101,7 @@ export const reconcileSessionRuntime = (
 						});
 					continue;
 				}
+				if (row.turn_status === "finalizing") continue;
 				if (row.turn_id !== null && row.attempt_id !== null) {
 					const attempt = { turnId: row.turn_id, attemptId: row.attempt_id };
 					if (row.queue_paused === 1 && row.phase === "running") {

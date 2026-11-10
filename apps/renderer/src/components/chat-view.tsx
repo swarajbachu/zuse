@@ -7,6 +7,7 @@ import {
 	findPresentedPermissions,
 } from "../lib/question-actionability.ts";
 import {
+	requestSessionHistoryPage,
 	retryCloudHistory,
 	useCloudHistoryStatus,
 } from "../lib/session-timeline-client-bus.ts";
@@ -102,6 +103,7 @@ import {
 	TranscriptScrollCoordinator,
 	type TranscriptScrollSnapshot,
 } from "../lib/transcript-scroll-coordinator.ts";
+import { useChatFindStore } from "../store/chat-find.ts";
 import {
 	chatStartupUsesQueue,
 	type PendingChatCreation,
@@ -109,6 +111,7 @@ import {
 } from "../store/chats.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
+import { ChatFindBar } from "./chat-find-bar.tsx";
 import { ChatLookupsProvider, deriveChatLookups } from "./chat-lookups.tsx";
 import { ChatTurnNavigator } from "./chat-turn-navigator.tsx";
 import { DelegationGroup } from "./delegation-group.tsx";
@@ -511,6 +514,13 @@ export function ChatView({
 
 	const handleScroll = useCallback(() => {
 		const list = listRef.current;
+		const node = list?.getScrollableNode();
+		if (
+			node instanceof HTMLElement &&
+			node.scrollTop < 240 &&
+			coordinator.getSnapshot().mode === "detached"
+		)
+			requestSessionHistoryPage(sessionRef);
 		const stateAtEnd = resolveTimelineIsAtEnd(list?.getState());
 		const nodeAtEnd = resolveScrollableNodeIsAtEnd(list?.getScrollableNode());
 		const isAtEnd = nodeAtEnd ?? stateAtEnd;
@@ -524,7 +534,7 @@ export function ChatView({
 			}
 			scheduleReadingPositionSave();
 		});
-	}, [coordinator, scheduleReadingPositionSave]);
+	}, [coordinator, scheduleReadingPositionSave, sessionRef]);
 	const markAnchoredContentOutOfView = useCallback(() => {
 		if (scrollSnapshotRef.current.mode !== "anchoring-turn") return;
 		if (
@@ -667,6 +677,23 @@ export function ChatView({
 					timeline.view.sync !== "hydrating-cache" &&
 					timeline.view.sync !== "empty",
 			}));
+	useEffect(() => {
+		if (
+			!readingReady &&
+			effectiveReadingPosition != null &&
+			timeline.projection?.olderMessageSequence != null &&
+			historyStatus === "idle"
+		)
+			requestSessionHistoryPage(sessionRef);
+	}, [
+		readingReady,
+		effectiveReadingPosition,
+		timeline.projection?.olderMessageSequence,
+		timeline.view.sync,
+		timeline.view.connection,
+		historyStatus,
+		sessionRef,
+	]);
 	const initialTarget = resolveInitialTimelineTarget({
 		rows,
 		position: effectiveReadingPosition,
@@ -784,8 +811,8 @@ export function ChatView({
 	}, [scrollSnapshot.mode]);
 
 	const chatLookups = useMemo(
-		() => deriveChatLookups(messages),
-		[messages, uiMessage],
+		() => deriveChatLookups(messages, timeline.projection?.executionSteps),
+		[messages, timeline.projection?.executionSteps, uiMessage],
 	);
 	const renderTimelineRow = useCallback(
 		({ item }: { item: ChatTimelineRow }) => (
@@ -812,6 +839,27 @@ export function ChatView({
 			timeline.view.pendingCommands,
 		],
 	);
+	const findOpen = useChatFindStore((state) => state.open);
+	const findQuery = useChatFindStore((state) => state.query);
+	const findingHistory =
+		findOpen &&
+		findQuery.trim().length > 0 &&
+		timeline.projection?.olderMessageSequence != null;
+	useEffect(() => {
+		if (findingHistory && historyStatus === "idle")
+			requestSessionHistoryPage(sessionRef);
+	}, [
+		findingHistory,
+		timeline.projection?.olderMessageSequence,
+		timeline.view.sync,
+		timeline.view.connection,
+		historyStatus,
+		sessionRef,
+	]);
+	const onFindNavigate = useCallback(() => {
+		setTimelineAnchorMessageId(null);
+		coordinator.readerTookControl();
+	}, [coordinator]);
 	const showPill =
 		(scrollSnapshot.mode === "detached" ||
 			scrollSnapshot.mode === "navigating" ||
@@ -909,24 +957,6 @@ export function ChatView({
 							</div>
 						) : (
 							<ChatLookupsProvider value={chatLookups}>
-								{cloudSummary !== null && historyStatus !== "idle" && (
-									<div
-										className="flex h-7 shrink-0 items-center justify-center gap-2 text-xs text-muted-foreground"
-										role="status"
-									>
-										{historyStatus === "loading" ? (
-											uiMessage("chat:cloud_history_loading")
-										) : (
-											<button
-												type="button"
-												className="h-7 hover:text-foreground"
-												onClick={() => retryCloudHistory(sessionRef)}
-											>
-												{uiMessage("chat:cloud_history_retry")}
-											</button>
-										)}
-									</div>
-								)}
 								<LegendList<ChatTimelineRow>
 									key={sessionId}
 									ref={listRef}
@@ -967,25 +997,73 @@ export function ChatView({
 									className="h-full min-h-0 w-full flex-1 overflow-x-hidden pr-4 outline-none [overflow-anchor:none]"
 									data-pane="chat"
 									tabIndex={-1}
+									ListHeaderComponent={
+										timeline.projection?.olderMessageSequence == null ? null : (
+											<button
+												type="button"
+												className="h-7 w-full text-xs text-muted-foreground hover:text-foreground"
+												disabled={historyStatus === "loading"}
+												onClick={() =>
+													historyStatus === "failed"
+														? retryCloudHistory(sessionRef)
+														: requestSessionHistoryPage(sessionRef)
+												}
+											>
+												{uiMessage(
+													historyStatus === "loading"
+														? "chat:cloud_history_loading"
+														: historyStatus === "failed"
+															? "chat:cloud_history_retry"
+															: "chat:history_load_older",
+												)}
+											</button>
+										)
+									}
 									ListFooterComponent={timelineFooter}
 								/>
 							</ChatLookupsProvider>
 						)}
-						<ChatTurnNavigator
-							turns={turns}
-							activeMessageId={activeTurnMessageId}
-							hasOutOfViewUpdates={hasOutOfViewUpdates}
-							onReaderIntent={() => {
-								coordinator.readerTookControl();
-							}}
-							onNavigate={(turn) => {
-								setTimelineAnchorMessageId(null);
-								coordinator.jumpToTurn(turn.rowIndex, {
-									viewportOffset: TRANSCRIPT_TURN_INSET_PX,
-									animated: !prefersReducedMotion,
-								});
-							}}
+						<ChatFindBar
+							historyStatus={
+								findingHistory
+									? historyStatus === "failed"
+										? "failed"
+										: "loading"
+									: undefined
+							}
+							sessionId={sessionId}
+							rows={rows}
+							listRef={listRef}
+							onNavigate={onFindNavigate}
 						/>
+						{findOpen ? null : (
+							<ChatTurnNavigator
+								history={
+									timeline.projection?.olderMessageSequence == null
+										? undefined
+										: {
+												pending: historyStatus === "loading",
+												load: () =>
+													historyStatus === "failed"
+														? retryCloudHistory(sessionRef)
+														: requestSessionHistoryPage(sessionRef),
+											}
+								}
+								turns={turns}
+								activeMessageId={activeTurnMessageId}
+								hasOutOfViewUpdates={hasOutOfViewUpdates}
+								onReaderIntent={() => {
+									coordinator.readerTookControl();
+								}}
+								onNavigate={(turn) => {
+									setTimelineAnchorMessageId(null);
+									coordinator.jumpToTurn(turn.rowIndex, {
+										viewportOffset: TRANSCRIPT_TURN_INSET_PX,
+										animated: !prefersReducedMotion,
+									});
+								}}
+							/>
+						)}
 						<div
 							className="pointer-events-none absolute inset-x-0 z-30 px-[var(--chat-row-gutter,0.75rem)]"
 							style={{ bottom: Math.max(0, endInset - 8) }}

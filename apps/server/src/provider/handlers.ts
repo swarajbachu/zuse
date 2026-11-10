@@ -22,6 +22,7 @@ import {
 	FolderId,
 	MemoizeRpcs,
 	MessageId,
+	MessageRole,
 	ProviderAccountError,
 	type ProviderId,
 	SessionAlreadyStartedError,
@@ -34,12 +35,16 @@ import {
 } from "@zuse/contracts";
 import { composerInputStartsDirectTurn } from "@zuse/domain/conversation/startup-input";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import {
+	loadDeferredToolDetailProjector,
+	makeDeferredToolDetailProjector,
+} from "@zuse/domain/queries/session-timeline-wire";
 import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
 import { canonicalJson } from "@zuse/utils/canonical-json";
 import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
-import { Effect, Layer, Result, Schedule, Stream } from "effect";
+import { Effect, Layer, Result, Schedule, Schema, Stream } from "effect";
 import type { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { SqlClient } from "effect/unstable/sql";
 import { AnalyticsService } from "../analytics/services/analytics-service.ts";
@@ -84,6 +89,7 @@ import { PermissionService } from "./services/permission-service.ts";
 import { ProviderAccounts } from "./services/provider-accounts.ts";
 import { ProviderService } from "./services/provider-service.ts";
 import { startProviderUpdate } from "./services/update-service.ts";
+import { sessionMessageDetailReader } from "./session-message-details.ts";
 import { sessionSummaryEvents } from "./session-summary-events.ts";
 
 const Availability = MemoizeRpcs.toLayerHandler(
@@ -1895,6 +1901,7 @@ const SessionEvents = MemoizeRpcs.toLayerHandler(
 		streamEpoch,
 		hasProjection,
 		historyMode,
+		deferToolDetails,
 		includeRuntime,
 	}) =>
 		Stream.unwrap(
@@ -1902,6 +1909,12 @@ const SessionEvents = MemoizeRpcs.toLayerHandler(
 				const sessions = yield* SessionService;
 				yield* sessions.getSession(sessionId);
 				const domain = yield* SessionDomain;
+				const wire = deferToolDetails
+					? yield* loadDeferredToolDetailProjector(
+							yield* SqlClient.SqlClient,
+							sessionId,
+						).pipe(Effect.orDie)
+					: makeDeferredToolDetailProjector();
 				const events = domain
 					.synchronizedEvents({
 						streamId: sessionId,
@@ -1909,6 +1922,7 @@ const SessionEvents = MemoizeRpcs.toLayerHandler(
 						streamEpoch,
 						hasProjection,
 						historyMode,
+						deferToolDetails,
 					})
 					.pipe(
 						Stream.map((frame): SessionTimelineFrame => {
@@ -1977,6 +1991,9 @@ const SessionEvents = MemoizeRpcs.toLayerHandler(
 								},
 							};
 						}),
+						Stream.map((frame) =>
+							deferToolDetails ? wire.frame(frame) : frame,
+						),
 						Stream.orDie,
 					);
 				if (!includeRuntime) return events;
@@ -2022,20 +2039,72 @@ const SessionEventsHead = MemoizeRpcs.toLayerHandler(
 		}),
 );
 
-const SessionMessagesPage = MemoizeRpcs.toLayerHandler(
+export const SessionMessagesPage = MemoizeRpcs.toLayerHandler(
 	"session.messages.page",
-	({ sessionId, beforeSequence, limit }) =>
+	({
+		sessionId,
+		beforeSequence,
+		limit,
+		messageId,
+		detailOffset,
+		deferToolDetails,
+	}) =>
 		Effect.gen(function* () {
 			const queries = yield* SqlSessionQueries;
+			if (messageId !== undefined && detailOffset !== undefined) {
+				yield* queries
+					.get(sessionId)
+					.pipe(Effect.mapError(() => new SessionNotFoundError({ sessionId })));
+				const row = yield* sessionMessageDetailReader(
+					yield* SqlClient.SqlClient,
+				)(sessionId, messageId, detailOffset).pipe(
+					Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+				);
+				return {
+					messages: [],
+					olderMessageSequence: null,
+					detailChunk:
+						row === null
+							? null
+							: {
+									messageId,
+									sessionId,
+									role: yield* Schema.decodeUnknownEffect(MessageRole)(
+										row.role,
+									).pipe(
+										Effect.mapError(
+											() => new SessionNotFoundError({ sessionId }),
+										),
+									),
+									createdAt: row.created_at,
+									contentBase64: Buffer.from(row.content).toString("base64"),
+									offset: detailOffset,
+									nextOffset: row.nextOffset,
+									totalBytes: row.total,
+								},
+				};
+			}
 			const page = yield* queries
 				.messagePage({
 					sessionId,
 					beforeSequence,
+					messageId,
 					limit: Math.max(1, Math.min(200, Math.trunc(limit ?? 100))),
 				})
 				.pipe(Effect.mapError(() => new SessionNotFoundError({ sessionId })));
+			const wire =
+				deferToolDetails && messageId === undefined
+					? yield* loadDeferredToolDetailProjector(
+							yield* SqlClient.SqlClient,
+							sessionId,
+							beforeSequence,
+						).pipe(Effect.orDie)
+					: null;
 			return {
-				messages: page.items.map(messageFromRecord),
+				messages:
+					wire !== null
+						? wire.messages(page.items.map(messageFromRecord))
+						: page.items.map(messageFromRecord),
 				olderMessageSequence: page.olderSequence,
 			};
 		}),

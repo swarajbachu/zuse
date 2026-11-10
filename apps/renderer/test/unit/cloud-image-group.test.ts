@@ -20,8 +20,12 @@ const image = (
 });
 
 it("does not replace a queued rebuild with an older ready image", () => {
-	const ready = image("box", "ready");
-	const queued = { ...image("box", "building"), updatedAt: 20 };
+	const ready = {
+		...image("box", "ready"),
+		source: "managed" as const,
+		runtimeVersion: "runtime",
+	};
+	const queued = { ...ready, state: "building" as const, updatedAt: 20 };
 	expect(reconcileCloudImages([queued], [ready])).toEqual([queued]);
 	const completed = { ...ready, updatedAt: 30 };
 	expect(reconcileCloudImages([queued], [completed])).toEqual([completed]);
@@ -30,6 +34,39 @@ it("does not replace a queued rebuild with an older ready image", () => {
 	expect(reconcileCloudImages([queued], [image("e2b", "ready")])).toEqual([
 		image("e2b", "ready"),
 	]);
+});
+
+it.each([
+	"ready",
+	"failed",
+	"building",
+] as const)("restores the older Zuse image after disconnecting a %s custom snapshot", (state) => {
+	const snapshot = {
+		...image("boxd", state),
+		source: "custom-snapshot" as const,
+		updatedAt: 200,
+	};
+	const managed = {
+		...image("boxd", "ready"),
+		source: "managed" as const,
+		updatedAt: 100,
+	};
+	expect(reconcileCloudImages([snapshot], [managed])).toEqual([managed]);
+	expect(reconcileCloudImages([snapshot], [managed], false)).toEqual([managed]);
+});
+
+it("accepts an unbuilt Zuse image after disconnecting provider hosting", () => {
+	const connected = {
+		...image("boxd", "ready"),
+		runtimeVersion: "runtime:connection:own-key",
+		updatedAt: 200,
+	};
+	const managed = {
+		...image("boxd", "not-built"),
+		runtimeVersion: "runtime",
+		updatedAt: 0,
+	};
+	expect(reconcileCloudImages([connected], [managed])).toEqual([managed]);
 });
 
 it("only offers built images that contain the selected repository for new chats", () => {

@@ -12,6 +12,8 @@
 			"!!**/dist",
 			"!!**/dist-electron",
 			"!!**/node_modules",
+			"!!**/Pods",
+			"!!apps/mobile/ios/build",
 			"!!packages/executor-v2/vendor/runtime.mjs",
 			"!!apps/ios/DerivedData",
 			"!!apps/ios/.build",
