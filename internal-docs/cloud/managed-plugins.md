@@ -154,8 +154,12 @@ stores the full provider response encrypted, then redirects an opaque one-use
 ticket with `plugin_ticket`, `plugin_tenant` and `plugin` (display name) to
 `http://127.0.0.1:<port>/plugins/callback` for desktop returns (ports from
 `PLUGIN_CALLBACK_PORTS` only, checked again when redirecting) or to
-`PLUGIN_APP_ORIGIN` otherwise. A provider `error` cancels the attempt and
-redirects to the same target with `plugin_error=cancelled`.
+`PLUGIN_APP_ORIGIN` otherwise. A provider `error` fails the attempt with `plugin_sign_in_failed` and
+redirects to the same target with `plugin_tenant`, `plugin`, and `plugin_error`.
+The latter preserves the provider error code and optional `error_description`,
+limited to 512 characters to match the desktop and renderer validators. The app
+displays this reason as an authorization failure; it does not infer cancellation
+from a provider error.
 
 The app completes the ticket automatically. The ticket only reaches the browser
 that finished consent, and completion requires the subject that started the

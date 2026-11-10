@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { build } from "esbuild";
 import { Miniflare } from "miniflare";
 import { afterAll, beforeAll, expect, test } from "vitest";
+import { pluginReturnOf } from "../../../../apps/desktop/src/deep-link.ts";
 import { PLUGIN_CATALOG } from "../../src/plugin-catalog.ts";
 
 let script: string;
@@ -919,19 +920,52 @@ test("rejects unregistered desktop ports and redirects provider errors", async (
 	});
 	const location = await callbackLocation(
 		a,
-		`state=${encodeURIComponent(state)}&error=access_denied`,
+		`state=${encodeURIComponent(state)}&error=invalid_scope&error_description=Requested%20scope%20is%20not%20allowed`,
 	);
 	expect(`${location.origin}${location.pathname}`).toBe(
 		"http://127.0.0.1:8976/plugins/callback",
 	);
-	expect(location.searchParams.get("plugin_error")).toBe("cancelled");
+	expect(location.searchParams.get("plugin_error")).toBe(
+		"invalid_scope: Requested scope is not allowed",
+	);
+	expect(pluginReturnOf(location)).toMatchObject({
+		tenantId: "personal:alice",
+		error: "invalid_scope: Requested scope is not allowed",
+	});
 	expect(location.searchParams.get("plugin")).toBe("Linear");
 	expect(location.searchParams.has("plugin_ticket")).toBe(false);
 	expect(
 		(await a.request({ action: "poll", attemptId: started.body.id })).body
 			.state,
-	).toBe("cancelled");
+	).toBe("failed");
 	expect((await a.request({ action: "list" })).body.connections).toEqual([]);
+}, 60_000);
+
+test("preserves provider failures for hosted returns within client limits", async () => {
+	const a = await client(create());
+	for (const error of ["access_denied", "server_error", "", "x".repeat(600)]) {
+		const { started, state } = await startOAuth(a, { kind: "web" });
+		const location = await callbackLocation(
+			a,
+			new URLSearchParams({ state, error }).toString(),
+		);
+		expect(location.origin).toBe("https://code.zuse.test");
+		expect(pluginReturnOf(location)).toMatchObject({
+			tenantId: "personal:alice",
+			ticket: null,
+			error: (error || "plugin_sign_in_failed").slice(0, 512),
+		});
+		expect(
+			(await a.request({ action: "poll", attemptId: started.body.id })).body,
+		).toMatchObject({
+			state: "failed",
+			error: "plugin_sign_in_failed",
+		});
+		const replay = await a.vault.fetch(
+			`https://internal/callback?state=${encodeURIComponent(state)}&error=server_error`,
+		);
+		expect(replay.status).toBe(400);
+	}
 }, 60_000);
 
 test("organization connections are shared with organization machines and members, never Personal or another organization", async () => {
