@@ -9,6 +9,7 @@
 	"schema_environments": "本地和云端执行环境",
 	"schema_subscriptions": "继续使用你现有的模型订阅",
 	"schema_worktrees": "用独立的 Git worktree 隔离并行任务",
-	"cloud_coding_agents_open_source": "开源云端编程智能体，<part0>尽在你的工作区。</part0>",
+	"cloud_coding_agents_open_source": "开源云端编程智能体。",
+	"hero_subtitle": "在隔离的云工作区或本机上运行 Claude Code、Codex 和其他智能体，并审阅每一处更改。",
 	"schema_tools": "内置代码改动审查、终端、浏览器和合并请求审查"
 }

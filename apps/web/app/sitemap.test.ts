@@ -32,4 +32,10 @@ describe("public sitemap", () => {
 		expect(dated[0].url).toContain("/blog/new-article");
 		expect(dated[0].lastModified).toEqual(new Date("2026-09-24"));
 	});
+
+	it("lists every URL on the canonical www host", () => {
+		for (const entry of sitemap()) {
+			expect(entry.url.startsWith("https://www.zuse.sh")).toBe(true);
+		}
+	});
 });
