@@ -2,6 +2,7 @@ import { ArrowUpRight } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { getSEO } from "@/lib/seo";
+import { GITHUB_URL } from "@/lib/site";
 import { blog } from "@/lib/source";
 
 export const metadata = getSEO({
@@ -153,7 +154,7 @@ export default function BlogIndexPage() {
 					<div className="journal-side-footer">
 						<p className="editorial-label">Open by design</p>
 						<Link
-							href="https://github.com/swarajbachu/zuse"
+							href={GITHUB_URL}
 							className="mt-4 inline-flex items-center gap-2 text-sm hover:text-primary"
 						>
 							Explore the source <ArrowUpRight size={14} />

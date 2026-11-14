@@ -7,28 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Reduce chat transfer traffic by loading older history on demand and large tool results when opened, while preserving full stored conversations and file-change summaries.
-- Reuse encrypted transcript pages when opening tool details in paused cloud workspaces, with cancellable reads and bounded caches that keep compute asleep.
-- Avoid repeated event decoding and unnecessary history retry timers on slow or unreliable connections.
+## [0.25.1]
 
 ### Added
-- Keep Slack tasks visible with persistent progress cards, early workspace links, context summaries, and actionable recovery messages.
-- Recall sent messages from the composer, steer or queue follow-ups with keyboard shortcuts, and enable direct steer in General settings.
-- Activate Pro with a single $200 prepaid payment, with the balance covering subscription and cloud usage invoices.
-- Start chats without a project in isolated folders under `~/.zuse/threads`, with computer selection, a dedicated sidebar section, and a keyboard shortcut.
-- Use Stripe for new cloud subscriptions while preserving existing Polar subscriptions, with verified usage charging after the included allowance and enforcement of spending caps.
-- Enable organization beta access for selected users and their teams, with automatic access for approved creators' members and optional access for existing teams.
+- Keep Slack tasks visible with persistent progress cards, early workspace links, context summaries, and actionable recovery messages
+
+### Changed
+- This version of Zuse will be discontinued soon. Install the new Zuse from [opcodehq/zuse](https://github.com/opcodehq/zuse#install) to continue receiving updates
+- Website downloads, GitHub links, and star counts now point to opcodehq/zuse. Update the Discord community invite
+- Reduce chat transfer traffic by loading older history on demand and large tool results when opened, while preserving stored conversations and file-change summaries. Reuse cached transcript pages in paused cloud workspaces and avoid redundant history work on slow connections
 
 ### Fixed
-- Preserve approved nearby Mac pairings when the first desktop connection fails, so reconnect can recover without another approval.
-- Keep new-chat text, image files, and pasted context when changing projects; preserve drafts while sending, and require double Escape to stop a response.
-- Prevent overlapping normal and prepaid Pro checkouts from creating duplicate subscriptions, and retain billing ownership while paid access remains.
-- Keep cloud billing recovery polls compatible with Cloudflare Workers while rejecting redirects that could expose provider credentials.
-- Preserve organization access when deploying the production API.
-- Restore reliable provider usage limits with CLI-backed Claude readings, isolated provider failures, automatic retries, accurate percentages, and visible stale readings.
-- Connect cloud workspaces to GitHub with repository-scoped user credentials so commits, pushes, and pull requests use the connected account.
-- Let idle cloud workspaces pause even when connected clients send RPC heartbeats, poll status, or receive subscription updates, while preserving activity from user actions and active agent turns.
+- Preserve plugin OAuth error details and finish organization connection handoffs in the correct workspace
 
 ## [0.22.1]
 
