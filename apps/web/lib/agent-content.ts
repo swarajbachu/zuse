@@ -1,4 +1,5 @@
 import { siteConfig } from "@/lib/seo";
+import { GITHUB_URL } from "@/lib/site";
 
 export const HOME_MARKDOWN = `# Zuse — Open source cloud agents for coding
 
@@ -35,7 +36,7 @@ The macOS desktop application is available now. Cloud Workspaces are an optional
 - [Download Zuse](${siteConfig.url}/download)
 - [Developer resources](${siteConfig.url}/developers)
 - [Documentation](https://docs.zuse.sh)
-- [Source code](https://github.com/swarajbachu/zuse)
+- [Source code](${GITHUB_URL})
 - [Changelog](${siteConfig.url}/changelog)
 - [Machine-readable site guide](${siteConfig.url}/llms.txt)
 - [OpenAPI specification](${siteConfig.url}/openapi.json)
@@ -73,7 +74,7 @@ Use Zuse when a developer needs to run multiple coding-agent tasks in parallel, 
 - OpenAPI: ${siteConfig.url}/openapi.json
 - Sitemap: ${siteConfig.url}/sitemap.xml
 - Documentation: https://docs.zuse.sh
-- Source code: https://github.com/swarajbachu/zuse
+- Source code: ${GITHUB_URL}
 - Changelog: ${siteConfig.url}/changelog
 - Download: ${siteConfig.url}/download
 

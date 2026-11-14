@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - This version of Zuse will be discontinued soon. Install the new Zuse from [opcodehq/zuse](https://github.com/opcodehq/zuse#install) to continue receiving updates
+- Website downloads, GitHub links, and star counts now point to opcodehq/zuse. Update the Discord community invite
 - Reduce chat transfer traffic by loading older history on demand and large tool results when opened, while preserving stored conversations and file-change summaries. Reuse cached transcript pages in paused cloud workspaces and avoid redundant history work on slow connections
 
 ### Fixed

@@ -41,7 +41,7 @@ export async function captureDownloadResolution({
 	key: string;
 	host: string;
 	target: string;
-	outcome: "installer" | "releases_fallback";
+	outcome: "installer" | "releases_fallback" | "releases_page";
 }): Promise<void> {
 	const distinctId = downloadAnalyticsIdentity(request, key);
 	if (!distinctId) return;
