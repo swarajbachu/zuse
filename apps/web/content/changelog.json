@@ -1,5 +1,29 @@
 [
   {
+    "version": "0.25.1",
+    "sections": [
+      {
+        "title": "Added",
+        "items": [
+          "Keep Slack tasks visible with persistent progress cards, early workspace links, context summaries, and actionable recovery messages"
+        ]
+      },
+      {
+        "title": "Changed",
+        "items": [
+          "This version of Zuse will be discontinued soon. Install the new Zuse from [opcodehq/zuse](https://github.com/opcodehq/zuse#install) to continue receiving updates",
+          "Reduce chat transfer traffic by loading older history on demand and large tool results when opened, while preserving stored conversations and file-change summaries. Reuse cached transcript pages in paused cloud workspaces and avoid redundant history work on slow connections"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "items": [
+          "Preserve plugin OAuth error details and finish organization connection handoffs in the correct workspace"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.22.1",
     "sections": [
       {
