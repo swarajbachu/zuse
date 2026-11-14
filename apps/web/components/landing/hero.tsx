@@ -1,8 +1,5 @@
 "use client";
-import {
-	useWebsiteMessages,
-	WebsiteRichMessage,
-} from "@zuse/i18n/website/react";
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import Link from "next/link";
 import { Button as DownloadButton } from "@/components/button";
 import { ZuseInteractiveDemo } from "@/components/demo/zuse-interactive-demo";
@@ -15,14 +12,11 @@ export const Hero = () => {
 		<section data-landing-hero className="overflow-hidden pt-32 md:pt-40">
 			<div className="relative flex flex-col items-center px-4 text-center md:px-8">
 				<h1 className="text-heading mt-5 w-full max-w-[24ch] break-words hyphens-auto font-display text-[2.5rem] font-light leading-[1.04] tracking-tight text-balance md:text-[4rem] lg:text-[5rem]">
-					<WebsiteRichMessage
-						id="landing:cloud_coding_agents_open_source"
-						values={{}}
-						components={{
-							part0: <span className="heading-accent text-primary block" />,
-						}}
-					/>
+					{t("landing:cloud_coding_agents_open_source")}
 				</h1>
+				<p className="heading-accent text-primary mt-5 max-w-[32ch] text-[1.35rem] leading-snug tracking-tight text-balance md:text-[1.75rem] lg:text-[2rem]">
+					{t("landing:hero_subtitle")}
+				</p>
 				<p className="landing-prose text-muted-foreground mt-6 max-w-[58ch] text-base leading-7 text-pretty md:text-lg">
 					{t("landing:open_source_devin_alternative")}
 				</p>
