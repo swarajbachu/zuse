@@ -126,7 +126,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             platform: mac
           - os: ubuntu-24.04
             platform: linux
