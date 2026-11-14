@@ -1,3 +1,4 @@
+import { ChangelogText } from "@/components/changelog-text";
 import { Container } from "@/components/container";
 import { PageMasthead } from "@/components/page-masthead";
 import changelogData from "@/content/changelog.json";
@@ -53,7 +54,7 @@ export default async function ChangelogPage() {
 														className="text-muted-foreground flex gap-3 text-sm leading-6"
 													>
 														<span className="bg-primary mt-2 size-1.5 shrink-0 rounded-full" />
-														<span>{item}</span>
+														<ChangelogText text={item} />
 													</li>
 												))}
 											</ul>
