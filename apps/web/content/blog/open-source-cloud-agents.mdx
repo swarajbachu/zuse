@@ -1,127 +1,243 @@
 ---
-title: "Open source cloud agents: a practical guide for coding"
-description: "Learn how open source cloud agents work, what to check before running one, and how Zuse connects isolated workspaces, existing agents, and code review."
+title: "Open source cloud agents for coding: a complete guide"
+description: "What open source cloud agents are, how they differ from local coding agents, how Zuse runs Claude Code and Codex in isolated cloud workspaces, and an FAQ."
 date: "2026-09-24"
-updated: "2026-09-25"
+updated: "2026-11-15"
 category: "Guide"
-timeToRead: "8 min read"
+timeToRead: "15 min read"
 authorName: "Zuse team"
 authorRole: "Product and engineering"
 authorAvatar: "/app-icon.png"
 previewImage: "/brand/observatory-dither.webp"
 ---
 
-Open source cloud agents are software agents whose available source code lets you inspect how they coordinate work in remote compute environments. For coding, that work typically includes reading a repository, editing files, running commands, and preparing changes for review. The cloud supplies the checkout and compute; a model supplies reasoning; the agent connects reasoning to tools.
+A cloud agent is a coding agent that runs on a remote machine instead of your laptop. It gets its own checkout of your repository, its own terminal and dependencies, and it keeps working after you close the lid. When it finishes, you review a branch or a pull request. An **open source cloud agent** is one where the software coordinating that work (the workspace, the sandbox orchestration, the credential handling) is published under an open source license, so you can read it, run it yourself, and change it.
 
-Those are separate choices. An open-source workspace does not require an open-weight model. A cloud environment does not automatically include model access. A tool that can produce a pull request still needs permissions, a working development environment, and a clear definition of success.
+That definition hides three separate choices. The workspace can be open source while the model is proprietary. A cloud machine does not come with model access. And an agent that can open a pull request still needs repository permissions, a working build, and a clear definition of done.
 
-[Zuse](/) is an open-source coding workspace with local execution and optional Cloud Workspaces in public beta. This guide explains the decisions behind that setup and gives you a repeatable way to evaluate a first cloud task.
+[Zuse](/) is an open source workspace for coding agents, built cloud agents first. It runs Claude Code, Codex, and other agents in isolated cloud workspaces or on your own machine, and every change comes back to you for review. This guide explains how cloud coding agents work, where local agents are still the better fit, why open source matters more for cloud agents than for most developer tools, and how Zuse is put together under the hood.
 
-## What actually runs in the cloud?
+## What is a cloud agent?
 
-Think of a cloud coding task as four connected parts:
+A cloud coding task has four parts. Evaluating any tool gets easier once you can point at each one.
 
-- **The repository:** a particular checkout, branch, and set of uncommitted changes.
-- **The runtime:** compute, dependencies, environment variables, and services used to build or test the project.
-- **The agent:** the program that reads instructions, calls a model, and uses tools under configured permissions.
-- **The workspace:** the interface for following the conversation, inspecting files, reading terminal output, and reviewing the result.
+- **The repository:** a specific checkout and branch. In the cloud this is usually a fresh clone from your Git host, not the files on your laptop.
+- **The runtime:** the machine, its CPU and memory, installed toolchains, environment variables, and any services the tests need.
+- **The agent:** the program that reads your instructions, calls a model, and uses tools (shell, file edits, browser) under a permission policy. Claude Code and Codex are agents. So is OpenHands' agent, or Cursor's.
+- **The workspace:** the interface where you start tasks, follow the conversation, read terminal output, and review the diff.
 
-A useful evaluation starts by identifying each part. Where do files live? Which account pays for inference? What survives when compute pauses? Can you inspect the exact commands behind a claim that tests passed? These questions tell you more than a screenshot of an agent answering a prompt.
+"Cloud agents" is now a product category. Cursor renamed its background agents to [Cloud Agents](https://cursor.com/docs/cloud-agent), GitHub documents the [Copilot cloud agent](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent), Anthropic runs [Claude Code cloud sessions](https://code.claude.com/docs/en/claude-code-on-the-web), and OpenAI has [Codex Cloud](https://learn.chatgpt.com/docs/cloud). They share a shape: each task gets an isolated machine, works on a branch, and hands back a pull request. They differ on who owns each of the four parts above.
 
-In Zuse, the workspace brings conversations, terminal output, files, diffs, and pull-request context together. You choose the coding agent and execution environment. Read [where to run your agents](/blog/choose-where-agents-run) for the practical local-versus-cloud decision.
+## Cloud agents vs local agents
 
-## What does open source mean here?
+A local agent runs on your computer, in your checkout, with your installed tools and your logged-in CLIs. A cloud agent runs on a machine provisioned for the task. Neither is strictly better.
 
-Inspect the repository and its license before choosing an agent workspace. Zuse publishes its [source code](https://github.com/swarajbachu/zuse) under the [AGPL-3.0 license](https://github.com/swarajbachu/zuse/blob/main/LICENSE). The license is the reference for the permissions and obligations that apply to that code.
+| | Local agent | Cloud agent |
+| --- | --- | --- |
+| Where code runs | Your machine | A remote VM or sandbox per task |
+| Needs your laptop awake | Yes | No |
+| Starting state | Your checkout, including uncommitted files | A fresh clone of a pushed branch |
+| Isolation between tasks | Separate Git worktrees on one machine | Separate machines |
+| Parallelism limit | Your CPU, RAM, and disk | Your compute budget |
+| Credentials | Whatever your CLIs are already logged into | Must be provisioned for the remote machine |
+| Access to local devices and services | Yes | Only what you expose to it |
+| Good for | Device testing, local data, quick iterations | Long tasks, many parallel tasks, work that should continue while you're away |
 
-Source availability lets you examine implementation choices: how credentials reach the runtime, how a task becomes a process, and how state is stored. It also lets you report a reproducible issue against the implementation instead of relying only on a product description.
+The tradeoffs that bite in practice:
 
-Keep the scope of that openness clear. A repository license does not grant access to a model provider, make a managed cloud service free, or imply that every hosted feature is a turnkey self-hosting package. Verify the installation instructions for the component you intend to operate and check the provider's requirements separately.
+- **Setup.** A cloud machine starts from an image. If your repository doesn't install and build from a clean clone, a cloud agent will spend its first hour fighting your environment. Fix that first; it pays off for CI too.
+- **Uncommitted work.** Cloud agents clone from your Git host. If the fix depends on local changes you haven't pushed, the cloud agent can't see them.
+- **Hardware.** A native app change that needs a simulator or a phone on USB is a local task. A cloud machine can run the unit tests, but it can't prove the app launches on a device.
+- **Concurrency.** Running six agents on a laptop means six dependency installs, six dev servers, and a hot machine. Six cloud machines is a billing question, not a thermal one.
 
-For a team evaluation, record the source revision and application version alongside your results. An observation about one build should not silently become a promise about every future release. Link to the relevant release notes when you share the evaluation.
+Most teams end up using both. The useful question for each task is: *where can this task produce the evidence I need to merge it?* Our [local vs cloud guide](/blog/choose-where-agents-run) turns that into a short checklist.
 
-## When should a task run remotely?
+## Why open source matters for cloud agents
 
-Cloud workspaces are useful when you want a separate compute environment for repository work. A task can use that environment's checkout and tools without relying on the same working directory as another task on your laptop. This is particularly useful when several changes need independent setup and review.
+For a local tool, open source is nice. For a cloud agent it carries more weight, because a cloud agent holds three sensitive things at once: your source code, your repository write access, and your model credentials. When the coordinating software is closed, you trust a description of how those are handled. When it's open, you can check.
 
-Local execution remains useful when a task depends on tools, devices, services, or data already available on your machine. For example, a native application change may need device verification even if a cloud environment can run its unit tests. Choose the environment that can produce the evidence the task requires.
+### You can inspect how credentials and code are handled
 
-Ask these questions before starting:
+Questions worth answering before you connect a repository to any cloud agent:
 
-1. Can the repository install and build in a fresh environment?
-2. Which services and credentials are required for the chosen checks?
-3. Does the task require hardware or local state that remote compute cannot access?
-4. Should this change use an isolated branch and checkout?
-5. Who will review the result, and what evidence will they need?
+- Where do model credentials live, and does the machine running untrusted code ever see a long-lived refresh token?
+- What can the agent do without asking? Is "full access" an OS sandbox or just a permission flag?
+- How is the repository cloned and pushed, and with whose identity?
+- What is stored after the task ends, and where?
 
-The answer can vary within a single project. A documentation correction and a native startup failure do not need the same environment. Avoid moving work remotely just because the agent supports it; move it when the environment fits the job.
+With Zuse you can answer those from the [source](https://github.com/swarajbachu/zuse). The workspace is licensed under [AGPL-3.0](https://github.com/swarajbachu/zuse/blob/main/LICENSE). The native Rust rewrite, [opcodehq/zuse](https://github.com/opcodehq/zuse), is public under the same license and documents its cloud design, acceptance status, and open gaps in the repository.
 
-## Prepare one bounded task
+### You can run it on infrastructure you control
 
-Start with a change whose outcome you can verify. A focused bug with a reproducible trigger is a better evaluation than asking an agent to improve an entire application. Give it the affected behavior, constraints, and the checks that would demonstrate a fix.
+Open source makes self-hosting possible, but it doesn't make every hosted feature a one-command install. Be specific about what you can run yourself today:
 
-A task brief might say:
+- **The agent loop on your own machine.** [Zuse Serve](https://docs.zuse.sh/serve) turns a Mac or Linux computer, including a VM you rent, into a durable environment you open from the hosted web app or Zuse for iPhone. The repositories, agent CLIs, credentials, and session state stay on that computer. Run `npx @zusehq/serve`, finish sign-in in a browser, and the machine shows up in your sidebar.
+- **Your own sandbox account.** For Zuse's managed cloud chats, you can [connect your own boxd, Boat, or E2B API key](https://docs.zuse.sh/how-to/choose-cloud-provider). Compute is then billed by that provider to your account, and a Zuse subscription isn't required for it.
+- **Any computer over SSH.** The desktop app can [add another computer over SSH](https://docs.zuse.sh/remote/other-computers). It installs a private Zuse runtime there, bound to loopback, and uses your existing SSH setup.
 
-> Fix the duplicate notification after reconnecting. Reproduce it by disconnecting during delivery and then reconnecting. Preserve the existing notification settings. Run the focused delivery tests and explain any checks you could not run. Prepare the diff for review.
+The hosted control plane for cloud chats (accounts, image builds, sandbox lifecycle) is in the same open source repository, but it is not packaged as a turnkey self-hosted product. If running the entire control plane on your own infrastructure is a hard requirement, check the current repository state rather than assuming it.
 
-That brief identifies a trigger, an expected result, and a boundary. It also makes the agent's final answer easier to evaluate: you can compare its changes and evidence against the original task instead of judging the confidence of its prose.
+### You avoid lock-in at three layers
 
-Before editing begins, confirm the repository and branch in the workspace. Run setup and a small baseline check. If dependencies cannot install, resolve that environment failure before interpreting the next test failure as a defect introduced by the agent.
+- **Agent.** Zuse wraps the agents you already use instead of shipping its own model. Locally it supports [Claude Code](https://docs.zuse.sh/providers/claude-code), [Codex](https://docs.zuse.sh/providers/codex), [Cursor](https://docs.zuse.sh/providers/cursor), [Grok](https://docs.zuse.sh/providers/grok), [OpenCode](https://docs.zuse.sh/providers/opencode), [Kiro](https://docs.zuse.sh/providers/kiro), [Pi](https://docs.zuse.sh/providers/pi), and other agents that speak the [Agent Client Protocol](https://docs.zuse.sh/providers/acp). Cloud chats support Claude Code, Codex, Cursor, and Grok. You can switch agents per chat.
+- **Compute.** Cloud chats run on boxd, Boat, or E2B, picked per chat. Changing provider doesn't change how you work.
+- **Data.** Work lands as commits on branches in your Git host. Local chat state is a SQLite file (`zuse.sqlite`) in the app's data directory, and settings are JSON under `~/.zuse/`. Nothing about your repository is stored in a proprietary format you need Zuse to read.
 
-## Configure access deliberately
+### You bring your own keys and plans
 
-A cloud workspace needs access to the repository and to the agent or model provider you select. Credentials that work on your laptop are not necessarily available in a separate runtime. Treat repository access and model access as separate setup steps.
+Zuse doesn't resell model tokens. You connect your own Claude or ChatGPT plan, an API key, or a compatible endpoint, and the provider bills you directly at its own rates. That keeps the provider's dashboard as the source of truth for spend and rate limits, and it means Zuse has no margin riding on how many tokens your agents burn. We explain the reasoning in [bring your own keys](/blog/bring-your-own-keys), and walk through the exact setup in [how to run cloud coding agents on your existing Claude or ChatGPT plan](/blog/run-cloud-coding-agents-on-your-claude-chatgpt-plan), including what each provider's terms say.
 
-Grant the access required by the task. A code-reading investigation and a workflow that pushes a branch have different needs. Keep credentials in the supported configuration path rather than placing them in prompts or committing them to the repository.
+## How Zuse runs agents in isolated workspaces
 
-After setup, verify a small operation for each dependency. Can the checkout fetch? Can the agent start a turn? Can the test command connect to its required service? Distinguish authentication rejection from a network problem so that retries do not hide the actual failure.
+This section describes the current implementation in [swarajbachu/zuse](https://github.com/swarajbachu/zuse). Where something is a design target rather than shipped behavior, it says so.
 
-The [cloud provider guide](https://docs.zuse.sh/how-to/choose-cloud-provider) describes the available execution choices. For model credentials and subscription choices, read [bring your own keys](/blog/bring-your-own-keys).
+### Local: one Git worktree per chat
 
-## Isolate parallel work
+On your machine, each chat can get its own [Git worktree](https://docs.zuse.sh/projects/worktrees): a separate checkout on its own branch, created with `git worktree` rather than a second clone. Every session in that chat (including sessions using different agents) shares that checkout, and the file tree, terminal, dev servers, diff view, and pull-request actions are all scoped to it. Your main checkout keeps its branch and uncommitted changes.
 
-Parallel agents need clear ownership of files and a plan for integration. Separate Git worktrees can keep one task's working directory from colliding with another. They do not make two incompatible changes to the same API compatible.
+Worktrees share the repository's object database, so history isn't copied per task. Zuse also links `node_modules` from the main checkout when the lockfile is byte-for-byte identical, and leaves it alone when it isn't so setup can install the right dependency graph. Build output like `.next`, `dist`, and `target` is still per worktree, so disk use grows with active tasks. More detail in [Git worktrees for every chat](/blog/git-worktrees-for-every-chat).
 
-Assign independent tasks where possible. If two changes depend on a shared interface, settle that interface first or sequence the dependent work. Ask each task to explain assumptions that affect another part of the project.
+### Cloud: one machine per chat
 
-Shared worktrees serve a different purpose: several sessions can inspect the same branch and files. That can be useful for a read-only review of an implementation, but concurrent writers need coordination. Decide which session owns the changes and which session reviews them.
+A [cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat) runs on its own machine. Setup happens once per account:
 
-Read [Git worktrees for every chat](/blog/git-worktrees-for-every-chat) and [parallel agents without collisions](/blog/parallel-agents-without-collisions) before scaling from one task to several. Begin with one successful end-to-end change, then increase concurrency while watching setup time, conflicts, and review load.
+1. **Connect GitHub.** Install the Zuse GitHub App on the repositories you choose. Cloud agents commit, push, and open pull requests as you.
+2. **Connect agents.** Under **Zuse agent accounts**, authenticate each agent once. The same connection works on every compute provider.
+3. **Build an image.** Each compute provider gets its own image containing your connected repositories, so new chats don't start from an empty disk.
 
-## Understand pauses, queues, and recovery
+After that, choosing **Cloud · boxd** (or Boat, or E2B) in the composer starts a machine for that chat on a fresh branch. It doesn't use your local checkout or uncommitted files. A cloud chat can't be moved to your laptop, or the reverse; to continue elsewhere, push the branch and start a new chat from it.
 
-A responsive interface and an active agent process are different states. A message might be waiting locally, accepted for delivery, or actively being processed. Likewise, a saved transcript can remain readable while the compute environment is asleep.
+The providers behave differently when paused, and Zuse doesn't hide that:
 
-Check how the workspace exposes those differences. An accepted message should not be described as completed work. Reconnecting should not require guessing whether the previous send succeeded. If a runtime cannot recover its files, cached conversation history should not be mistaken for a recovered checkout.
+| | boxd | Boat | E2B |
+| --- | --- | --- | --- |
+| Pause | Hibernates; memory, processes, and files come back on resume | Disk is preserved; Zuse restarts its runtime and agents | Normal pauses keep disk and memory |
+| Sizes | Small, Standard, Large | Small, Standard, Large | One size, set by the deployment's template |
+| Extras | Fork a chat into a new machine; publish preview URLs | | |
 
-Zuse's [0.21.0 release notes](/blog/zuse-0-21-cloud-workspaces) describe improvements to eligible queued cloud messages, reconnect behavior, and mobile access. Compatibility and message-type limits still matter. Our [recovery journal](/blog/cloud-agent-recovery-journal) explains the distinctions to look for when reviewing a cloud workflow.
+Exact sizes are in the [cloud machine docs](https://docs.zuse.sh/how-to/choose-cloud-provider). Resume time depends on the image, region, and capacity, so we don't quote a number for it.
 
-## Review the result before merging
+Messages you send while a machine is paused wait in a queue and are delivered when the runtime takes the command. Delivery state is shown explicitly, so "accepted" isn't confused with "executed". The [recovery journal](/blog/cloud-agent-recovery-journal) covers why those states matter.
 
-A useful agent result contains a diff and supporting evidence. Review the changed files, including configuration and dependency changes. Ask which checks actually ran in the intended environment and whether the task's original trigger was exercised.
+### Credentials: an authority, not a copy on every machine
 
-Separate the kinds of evidence. A type check can catch incompatible types. A unit test can exercise a narrow behavior. A browser run can demonstrate a user flow at a particular viewport. A passing cloud check does not establish that a native device launch succeeded.
+The part of a cloud agent that deserves the most scrutiny is how model credentials reach the machine running untrusted code. In Zuse's cloud, agent credentials are held by a private, per-account authentication service, not baked into each workspace:
 
-If a required check could not run, keep that limitation visible. The task may still produce a useful patch, but a reviewer should know which claims remain unverified. Do not let a long summary hide the one missing step that decides whether the change is ready.
+- When you paste an API key or token, the client encrypts it to that service's public key (RSA-OAEP in the current code). The API never returns it.
+- Before saving a Claude credential, the service verifies it by running the official `claude` CLI in a throwaway config directory with any other ambient Anthropic credentials stripped, so a different key on the machine can't make a bad one pass.
+- For Codex with a ChatGPT login (and Grok with a device login), Zuse runs the official `login --device-auth` flow inside that private service. Workspaces then receive a short-lived access token, sealed to the specific workspace, its runtime generation, and its key, with an expiry. Refresh tokens stay in the service and are not copied into workspaces.
+- Static credentials (a Claude setup token, or an API key) have no refresh token to hold back. They reach a workspace through the same sealed, expiring delivery and are kept in process memory, but the value delivered is the credential you pasted, so the machine running the agent does see it.
 
-Use the checklist in [review the evidence](/blog/review-the-evidence) to make this routine. A second agent can provide another reading of the diff, but human ownership of the merge decision remains valuable, especially for permissions, migrations, and release behavior.
+That describes images built with the current broker, which production has enabled. Chats started from older images keep the image-based sign-in they started with, and a [custom Boxd snapshot](https://docs.zuse.sh/how-to/custom-boxd-snapshot) can be set to use logins copied from your source machine instead.
 
-## Compare costs at the right level
+You can read the implementation in `infra/api/src/cloud-auth-authority.ts`. The [guide to running agents on your existing plan](/blog/run-cloud-coding-agents-on-your-claude-chatgpt-plan) covers which sign-in methods each agent supports.
 
-Separate workspace software, compute, and model usage when estimating a workflow. Bringing an existing model subscription changes how the model is paid for; it does not remove the cost or limits of cloud infrastructure. More parallel tasks can also increase both compute usage and the amount of work waiting for review.
+### Agents speak their native protocols
 
-Evaluate a representative task and record setup time, active runtime, model usage where visible, and review time. Those observations are more useful than assuming every task costs the same. Repeat the evaluation when the workload or environment changes substantially.
+Zuse doesn't screen-scrape a terminal. It drives each agent through the interface the vendor ships: Claude Code's structured session events, Codex's app-server protocol, and ACP for compatible agents. That's why provider features like Claude's slash commands, Codex review, plan mode, and subagents show up in the timeline as structured events, and why sessions can resume after the agent process stops.
 
-Zuse Cloud remains in public beta. Check [current pricing](/pricing) for compute allowances and plan details instead of treating a historical article as a price quote. See [know your token spend](/blog/know-your-token-spend) for the model side of the workflow.
+### Permissions are explicit, and "full access" isn't a sandbox
 
-## Start with a reviewable outcome
+Two controls decide what an agent may do, in the cloud or locally ([docs](https://docs.zuse.sh/composer/modes-permissions)). Cursor uses its own SDK sandbox with automatic review instead, and Pi supports neither control.
 
-For a first run, select a repository you understand, prepare its setup, authorize the agent, and choose a small change. Confirm that the environment is ready before beginning. At the end, inspect the branch, the diff, and the evidence together.
+- **Plan mode** is read-only. The agent inspects and proposes; mutating tools stay blocked even under Full access.
+- **Runtime permission mode** is one of **Ask for approval** (reads proceed, everything else asks), **Approve for me** (the provider's native safety reviewer decides, and escalations come to you; available for compatible Codex, Claude, and Grok installs), or **Full access** (ordinary tools run without asking; plan-mode exits and sensitive paths still ask).
 
-That gives you a concrete answer to whether open source cloud agents fit your workflow. You can evaluate where the work ran, what access it used, what changed, and what still needs verification. Once those steps are predictable, parallel execution becomes easier to assess.
+Full access uses the provider's unrestricted mode. Zuse's docs say plainly that it is not a sandbox. In the cloud, the isolation boundary is the machine. Locally, it's a worktree on your machine, which is why defaults matter more there.
 
-[Download Zuse](/download), read the [setup documentation](https://docs.zuse.sh), or follow the [journal](/blog) for release notes and engineering updates.
+Cloud chats can also [ask to run commands on your desktop](https://docs.zuse.sh/how-to/cloud-agent-local-commands), for things like reaching a local service. Each request shows the command and working directory and needs approval (once, for the session, or always), and Full access in the cloud does not bypass that device approval.
 
-## Evaluating an alternative to an existing coding agent?
+### Where it's going: the Rust rewrite
 
-If you arrived here looking for an [open source Devin alternative](/blog/open-source-coding-agent-alternative), start with the requirements behind that search: source access, agent choice, execution environment, and review. Our evaluation guide explains Zuse's approach, identifies its current limits, and walks through a bounded task before you consider moving an existing workflow.
+Zuse is being rewritten as a native Rust application in [opcodehq/zuse](https://github.com/opcodehq/zuse): a GPUI desktop app and a WebAssembly browser target sharing one engine that owns processes, workspaces, durable conversations, and agent execution. The hosted cloud is being rebuilt there too. The repository's own docs mark which parts are verified and which are still in progress, including live provider execution and the full archive lifecycle. Two points from those docs are worth knowing as a user. An accepted constraint: resuming a cloud chat continues the same branch and files without fetching, rebasing, or renaming anything. And a proposed credential design: refresh tokens stay with a central authority and are never placed in workspace snapshots. Treat the rest of that repository as a roadmap, not a feature list.
+
+## Delivery, pauses, and recovery
+
+A responsive UI and an active agent are different states. A message can be waiting locally, accepted for delivery, or being processed, and a transcript can be readable while the machine is asleep. When you evaluate any cloud agent, check that after a reconnect you can tell whether your last message was delivered without resending it, that a machine which lost its files says so instead of hiding behind a cached transcript, and that a rejected credential is reported differently from a network failure.
+
+Zuse's [0.21.0 release](/blog/zuse-0-21-cloud-workspaces) added explicit delivery outcomes with duplicate-send protection, separate errors for rejected Codex credentials, and reporting of missing runtime data while keeping cached transcripts readable.
+
+## Review every change before it merges
+
+An agent's output is a diff plus evidence. Read the whole diff, including config, lockfiles, and CI files; agents sometimes "fix" a failing test by loosening it. Ask which checks actually ran and where: a type check, a unit test, a browser run, and a device launch prove different things. If a required check couldn't run, the pull request should say so.
+
+Zuse keeps the conversation, terminal output, files, and diff in one place, so you can trace a claim like "tests pass" back to the command that produced it. Our [review checklist](/blog/review-the-evidence) is the routine we use. A second agent reviewing the diff helps; the merge decision should still be yours.
+
+## Running agents in parallel
+
+Cloud agents make parallelism cheap to start, which moves the bottleneck to review. Give each task one owner and one branch, settle shared interfaces before fanning out dependent work, and add concurrency only after one task has gone cleanly from start to merge. [Parallel agents without collisions](/blog/parallel-agents-without-collisions) goes deeper, and [token maxing your subscriptions](/blog/token-maxing-your-subscriptions) covers getting more out of a flat-rate plan.
+
+## What it costs
+
+Three costs are easy to blur together. Keep them separate:
+
+1. **Workspace software.** Zuse is open source and free to use locally during beta.
+2. **Compute.** Cloud machines cost money whoever runs them. With Zuse you either use the Cloud Workspace plan, which includes a monthly compute allowance, or connect your own sandbox provider key and pay that provider. See [pricing](/pricing) for current numbers.
+3. **Model usage.** Billed by Anthropic, OpenAI, or whichever provider you connect, under your plan or API key. Bringing your own plan changes who bills you for inference; it doesn't make the compute free.
+
+To estimate, time one representative task end to end, including review. [Know your token spend](/blog/know-your-token-spend) covers the model side.
+
+## The cloud agent landscape, briefly
+
+These products overlap with Zuse in different ways. The descriptions below come from each vendor's own documentation at the time of writing; check current docs for anything you plan to rely on.
+
+| Product | Who runs the machine | Agents and models | Source |
+| --- | --- | --- | --- |
+| [Cursor Cloud Agents](https://cursor.com/docs/cloud-agent) | Cursor-managed VMs; tool calls can run on [your own machines](https://cursor.com/docs/cloud-agent/self-hosted/choose-runtime) while the agent loop stays in Cursor's cloud | Cursor's agent, with a curated model list | Closed |
+| [GitHub Copilot cloud agent](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent) | GitHub cloud sandboxes, GitHub Actions runners, or a remote custom environment | Copilot, with model selection; [Claude and Codex agents](https://docs.github.com/en/copilot/concepts/agents/about-third-party-agents) in public preview | Closed |
+| [Claude Code cloud sessions](https://code.claude.com/docs/en/claude-code-on-the-web) | Anthropic-managed, or your org's self-hosted environment | Claude Code | Closed |
+| [Codex Cloud](https://learn.chatgpt.com/docs/cloud) | OpenAI-managed | Codex; requires a ChatGPT sign-in | Codex CLI is open source; Codex Cloud is a hosted service |
+| [Devin](https://docs.devin.ai/get-started/devin-intro) | Cognition-managed; Devin for Terminal runs locally | Devin; Devin Desktop also runs [third-party agents over ACP](https://docs.devin.ai/desktop/acp) | Closed |
+| [Amp](https://ampcode.com/docs/orbs) | Amp-managed "Orbs", or local | Amp | Closed |
+| [OpenHands](https://github.com/OpenHands/OpenHands) | Your laptop, a VM, Docker, or OpenHands Cloud | OpenHands agent, Claude Code, Codex, and other ACP agents | MIT core; OpenHands Cloud is commercial |
+| [Zuse](https://github.com/swarajbachu/zuse) | Your machine, your VM via Zuse Serve, or cloud chats on boxd, Boat, or E2B | Claude Code, Codex, Cursor, Grok, OpenCode, and others | AGPL-3.0 |
+
+A vendor's own cloud agent is the easiest start if you've standardized on that vendor, and some (GitHub Copilot, Devin Desktop) now run other agents too. Zuse is for teams that want to choose the agent per task, keep their existing plans, and be able to read the code that holds their credentials. OpenHands is the closest open source comparison; it leans toward self-hosted agent servers and automations, while Zuse leans toward a desktop and mobile workspace with managed cloud machines and local worktrees in the same sidebar. If you're comparing with Devin specifically, read our [open source Devin alternative guide](/blog/open-source-coding-agent-alternative).
+
+## Run your first cloud task
+
+1. **Pick a repository that builds from a clean clone.** If it doesn't, fix setup before involving an agent.
+2. **Choose one bounded task with a known check.** "Fix the duplicate notification after reconnecting; reproduce by disconnecting mid-delivery; run the delivery tests" beats "improve notifications".
+3. **Set up access once.** Connect GitHub, authenticate the agent, and build an image ([steps](https://docs.zuse.sh/how-to/cloud-start-chat)). Verify each separately: a working clone doesn't prove the model accepts your credentials.
+4. **Start the chat** with a **Cloud ·** machine selected, and confirm the first reply arrives.
+5. **Review the branch:** the diff, the commands that ran, and anything the agent says it couldn't verify.
+
+Once one task goes cleanly from start to merge, add a second one in parallel.
+
+## FAQ
+
+### What are open source cloud agents?
+
+Coding agents that run on remote machines, coordinated by software whose source code is published under an open source license. You can inspect how the workspace handles your code and credentials, and run parts of it on infrastructure you control. The model behind the agent can still be proprietary.
+
+### How are cloud coding agents different from local agents?
+
+Local agents run on your computer against your checkout, including uncommitted files. Cloud agents run on a separate machine per task, start from a pushed branch, keep running when your laptop sleeps, and scale past your laptop's CPU and memory. Local is better for work that needs your devices or local data; cloud is better for long or parallel tasks.
+
+### Can I run Claude Code in the cloud with Zuse?
+
+Yes. Cloud chats support Claude Code with a Claude subscription token, an Anthropic API key, or a compatible endpoint, and Codex with a ChatGPT sign-in, an OpenAI API key, or a compatible endpoint. Provider terms apply to how you use each; see [the plan guide](/blog/run-cloud-coding-agents-on-your-claude-chatgpt-plan).
+
+### Is Zuse free?
+
+The desktop app is open source and free to use locally during beta. Cloud machines cost money: use the Cloud Workspace plan or connect your own boxd, Boat, or E2B key and pay that provider. Model usage is always billed by your model provider. See [pricing](/pricing).
+
+### Can I self-host Zuse?
+
+You can run agents on any Mac or Linux machine you control with [Zuse Serve](https://docs.zuse.sh/serve) and reach it from the hosted web app or Zuse for iPhone. The hosted cloud control plane's code is in the repository, but it isn't packaged as a turnkey self-hosted install.
+
+### Does Zuse see my code or resell tokens?
+
+Zuse doesn't resell tokens; your provider bills you directly. Locally, your code stays on your machine and goes to the model provider you chose. In the cloud, your repository is checked out on the machine running your chat, on the compute provider you selected, and your account image (which includes your connected repositories) is stored with each provider you build it for.
+
+### Which agents does Zuse support?
+
+Locally: Claude Code, Codex, Cursor, Grok, OpenCode, Kiro, Pi, and ACP-compatible agents. In cloud chats: Claude Code, Codex, Cursor, and Grok.
+
+### Do cloud agents replace code review?
+
+No. They produce branches and evidence faster, which makes review the bottleneck. Read the diff, check which commands ran where, and keep the merge decision with a person.
+
+## Start with one reviewable task
+
+[Download Zuse](/download), read the [setup docs](https://docs.zuse.sh), or [inspect the source](https://github.com/swarajbachu/zuse). The [journal](/blog) has release notes and engineering write-ups as the cloud workspace evolves.
