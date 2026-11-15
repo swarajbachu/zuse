@@ -9,20 +9,21 @@ import { Hero } from "@/components/landing/hero";
 import { HorizontalLine } from "@/components/landing/line";
 import { ProductShowcase } from "@/components/landing/product-showcase";
 import { HomepageStructuredData } from "@/components/seo/homepage-structured-data";
-import { getSEO } from "@/lib/seo";
+import { getSEO, siteConfig } from "@/lib/seo";
 import { openGraphLocale, websiteAlternates } from "@/lib/website-localization";
 
 export async function getLandingMetadata(locale: WebsiteLocale) {
 	const messages = await loadWebsiteCatalog(locale);
+	const path = websitePath(locale);
 	const metadata = getSEO({
 		absoluteTitle: messages["landing:meta_title"],
 		description: messages["landing:meta_description"],
-		path: websitePath(locale),
+		path,
 	});
 	return {
 		...metadata,
 		alternates: {
-			canonical: websitePath(locale),
+			canonical: new URL(path, siteConfig.url).toString(),
 			languages: websiteAlternates(),
 		},
 		openGraph: {

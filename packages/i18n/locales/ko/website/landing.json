@@ -1,5 +1,6 @@
 {
-	"cloud_coding_agents_open_source": "클라우드 코딩 에이전트. <part0>오픈 소스.</part0>",
+	"cloud_coding_agents_open_source": "오픈 소스 클라우드 코딩 에이전트.",
+	"hero_subtitle": "Claude Code, Codex 및 기타 에이전트를 격리된 클라우드 워크스페이스 또는 내 컴퓨터에서 실행하고, 모든 변경을 검토하세요.",
 	"open_source_cloud_beta_live": "<part0></part0>오픈소스 · 클라우드 베타 라이브",
 	"schema_worktrees": "병렬 에이전트 실행을 위한 격리된 Git 작업 트리",
 	"free_in_beta_no_token_markup": "베타 버전에서는 무료 · 토큰 마크업 없음",

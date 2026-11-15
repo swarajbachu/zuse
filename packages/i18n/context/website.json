@@ -788,7 +788,7 @@
 		]
 	},
 	"faq:zuse_supports_seven_coding_agent_clis_in_one_workspace_connect_the_pro": {
-		"source": "Zuse supports seven coding-agent CLIs in one workspace. Connect the providers you use, run them side by side, and choose which provider handles each session.",
+		"source": "Zuse supports Claude Code, Codex, Cursor, Grok, Gemini, OpenCode, Pi, and Kiro in one workspace. Connect the agents you use, run them side by side, and choose which provider handles each session.",
 		"locations": [
 			{
 				"path": "apps/web/components/faq/index.tsx",
@@ -927,20 +927,29 @@
 		"locations": []
 	},
 	"landing:cloud_coding_agents_open_source": {
-		"source": "Open source cloud agents. <part0>Your workspace.</part0>",
+		"source": "Open source cloud agents.",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/hero.tsx",
-				"line": 19
+				"line": 15
+			}
+		]
+	},
+	"landing:hero_subtitle": {
+		"source": "Run Claude Code, Codex, and other agents in isolated cloud workspaces, or on your machine, and review every change.",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/hero.tsx",
+				"line": 18
 			}
 		]
 	},
 	"landing:open_source_devin_alternative": {
-		"source": "An open-source alternative to Devin. Run agents in parallel, locally or in isolated cloud workspaces.",
+		"source": "Run coding agents in parallel, locally or in isolated cloud workspaces. Keep tasks separate with Git worktrees, hand off context, and review changes in one place. An open-source alternative to Devin.",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/hero.tsx",
-				"line": 27
+				"line": 21
 			}
 		]
 	},
@@ -949,7 +958,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/landing/hero.tsx",
-				"line": 35
+				"line": 29
 			}
 		]
 	},
@@ -958,7 +967,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/landing/hero.tsx",
-				"line": 39
+				"line": 33
 			}
 		]
 	},
@@ -967,7 +976,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/landing/page.tsx",
-				"line": 18
+				"line": 19
 			}
 		]
 	},
@@ -976,7 +985,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/landing/page.tsx",
-				"line": 19
+				"line": 20
 			},
 			{
 				"path": "apps/web/components/seo/homepage-structured-data.tsx",
@@ -1150,7 +1159,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 58
+				"line": 56
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
@@ -1172,7 +1181,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 59
+				"line": 57
 			}
 		]
 	},
@@ -1181,7 +1190,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 61
+				"line": 59
 			}
 		]
 	},
@@ -1190,7 +1199,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 62
+				"line": 60
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
@@ -1203,7 +1212,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 75
+				"line": 73
 			}
 		]
 	},
@@ -1212,7 +1221,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 124
+				"line": 122
 			}
 		]
 	},
@@ -1230,7 +1239,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 41
+				"line": 39
 			}
 		]
 	},
@@ -1239,7 +1248,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 42
+				"line": 40
 			}
 		]
 	},
@@ -1248,7 +1257,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 43
+				"line": 41
 			}
 		]
 	},
@@ -1257,7 +1266,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 44
+				"line": 42
 			}
 		]
 	},
@@ -1266,7 +1275,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 31
+				"line": 29
 			}
 		]
 	},
@@ -1275,7 +1284,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 32
+				"line": 30
 			}
 		]
 	},
@@ -1284,7 +1293,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 33
+				"line": 31
 			}
 		]
 	},
@@ -1293,7 +1302,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 34
+				"line": 32
 			}
 		]
 	},
@@ -1302,7 +1311,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 35
+				"line": 33
 			}
 		]
 	},
@@ -1311,7 +1320,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 36
+				"line": 34
 			}
 		]
 	},
@@ -1320,7 +1329,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 37
+				"line": 35
 			}
 		]
 	},
@@ -1329,7 +1338,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 38
+				"line": 36
 			}
 		]
 	},
@@ -1338,7 +1347,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 91
+				"line": 89
 			}
 		]
 	},
@@ -1347,7 +1356,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/theme-toggle.tsx",
-				"line": 20
+				"line": 19
 			}
 		]
 	},
@@ -1356,7 +1365,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/theme-toggle.tsx",
-				"line": 20
+				"line": 19
 			}
 		]
 	},
@@ -1365,11 +1374,47 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 60
+				"line": 58
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
 				"line": 27
+			}
+		]
+	},
+	"navigation:open_source_cloud_agents": {
+		"source": "Open source cloud agents",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 47
+			}
+		]
+	},
+	"navigation:open_source_devin_alternative": {
+		"source": "Open source Devin alternative",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 51
+			}
+		]
+	},
+	"navigation:sitemap": {
+		"source": "Sitemap",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 54
+			}
+		]
+	},
+	"navigation:dither_studio": {
+		"source": "Dither studio",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 55
 			}
 		]
 	},
@@ -1410,6 +1455,10 @@
 			{
 				"path": "apps/web/components/landing/product-showcase.tsx",
 				"line": 41
+			},
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/second.tsx",
+				"line": 31
 			}
 		]
 	},
@@ -1684,7 +1733,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
-				"line": 22
+				"line": 25
 			}
 		]
 	},
@@ -1697,7 +1746,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
-				"line": 32
+				"line": 35
 			}
 		]
 	},
@@ -1710,7 +1759,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
-				"line": 42
+				"line": 45
 			}
 		]
 	},
@@ -1723,7 +1772,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
-				"line": 52
+				"line": 55
 			}
 		]
 	},
@@ -1898,7 +1947,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/second.tsx",
-				"line": 47
+				"line": 66
 			}
 		]
 	},
@@ -2282,7 +2331,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-one/login-skeleton.tsx",
-				"line": 39
+				"line": 43
 			}
 		]
 	},
@@ -2291,7 +2340,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-one/login-skeleton.tsx",
-				"line": 42
+				"line": 46
 			}
 		]
 	},
@@ -2300,7 +2349,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-one/login-skeleton.tsx",
-				"line": 49
+				"line": 53
 			}
 		]
 	},
@@ -2309,7 +2358,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-one/login-skeleton.tsx",
-				"line": 52
+				"line": 56
 			}
 		]
 	},
@@ -2318,7 +2367,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-one/login-skeleton.tsx",
-				"line": 62
+				"line": 66
 			}
 		]
 	},
@@ -2327,7 +2376,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-one/login-skeleton.tsx",
-				"line": 67
+				"line": 71
 			}
 		]
 	},
@@ -2345,7 +2394,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-one/world-map-skeleton.tsx",
-				"line": 22
+				"line": 24
 			}
 		]
 	},
@@ -2354,7 +2403,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-one/world-map-skeleton.tsx",
-				"line": 23
+				"line": 29
 			}
 		]
 	},
@@ -2363,7 +2412,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-one/world-map-skeleton.tsx",
-				"line": 26
+				"line": 34
 			}
 		]
 	},
@@ -2574,5 +2623,430 @@
 	"showcase:submit_error": {
 		"source": "Something went wrong. Please try again.",
 		"locations": []
+	},
+	"showcase:running": {
+		"source": "Running",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/first.tsx",
+				"line": 19
+			},
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 41
+			},
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 214
+			}
+		]
+	},
+	"showcase:in_review": {
+		"source": "In review",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/first.tsx",
+				"line": 27
+			},
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 57
+			}
+		]
+	},
+	"showcase:cleaned": {
+		"source": "Cleaned",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/first.tsx",
+				"line": 35
+			}
+		]
+	},
+	"showcase:files_and_tests": {
+		"source": "12 files · 16 tests",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/first.tsx",
+				"line": 18
+			}
+		]
+	},
+	"showcase:pr_comments": {
+		"source": "PR #814 · 2 comments",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/first.tsx",
+				"line": 26
+			}
+		]
+	},
+	"showcase:merged_history_kept": {
+		"source": "Merged · history kept",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/first.tsx",
+				"line": 34
+			}
+		]
+	},
+	"showcase:plan_attached": {
+		"source": "Plan attached",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/second.tsx",
+				"line": 12
+			}
+		]
+	},
+	"showcase:transcript_attached": {
+		"source": "Transcript attached",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/second.tsx",
+				"line": 13
+			}
+		]
+	},
+	"showcase:diff_files": {
+		"source": "Diff · 12 files",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/second.tsx",
+				"line": 14
+			}
+		]
+	},
+	"showcase:tests_passing": {
+		"source": "Tests · 16 passing",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/second.tsx",
+				"line": 15
+			}
+		]
+	},
+	"showcase:codex_reviewing": {
+		"source": "Codex reviewing",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/second.tsx",
+				"line": 16
+			}
+		]
+	},
+	"showcase:branch_preserved": {
+		"source": "Branch preserved",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/third.tsx",
+				"line": 39
+			}
+		]
+	},
+	"showcase:commits_run_history_kept": {
+		"source": "Commits + run history kept",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/third.tsx",
+				"line": 40
+			}
+		]
+	},
+	"showcase:worktree_removed": {
+		"source": "Worktree removed",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/third.tsx",
+				"line": 41
+			}
+		]
+	},
+	"showcase:plan_complete": {
+		"source": "Plan complete",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/first.tsx",
+				"line": 22
+			}
+		]
+	},
+	"showcase:ready_to_start": {
+		"source": "Ready to start",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/first.tsx",
+				"line": 29
+			}
+		]
+	},
+	"showcase:passwords_stay_in_your_browser": {
+		"source": "Passwords stay in your browser",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/login-skeleton.tsx",
+				"line": 67
+			}
+		]
+	},
+	"showcase:never_written_into_agent_chat": {
+		"source": "Never written into agent chat",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/login-skeleton.tsx",
+				"line": 72
+			}
+		]
+	},
+	"showcase:chrome_profile": {
+		"source": "Chrome · Profile 1",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/login-skeleton.tsx",
+				"line": 31
+			}
+		]
+	},
+	"showcase:shared_worktree": {
+		"source": "Shared worktree",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 28
+			}
+		]
+	},
+	"showcase:implementation": {
+		"source": "Implementation",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 39
+			}
+		]
+	},
+	"showcase:focused_tests": {
+		"source": "Focused tests",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 47
+			}
+		]
+	},
+	"showcase:diff_review": {
+		"source": "Diff review",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 55
+			}
+		]
+	},
+	"showcase:tests_passed": {
+		"source": "16 passed",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/second.tsx",
+				"line": 29
+			},
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 49
+			},
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 225
+			}
+		]
+	},
+	"showcase:review_checkout_prompt": {
+		"source": "Review the current diff and verify checkout recovery without editing.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 69
+			}
+		]
+	},
+	"showcase:two_findings": {
+		"source": "2 findings",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 219
+			}
+		]
+	},
+	"showcase:two_fixes": {
+		"source": "2 fixes",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 237
+			}
+		]
+	},
+	"showcase:checks_passed": {
+		"source": "Checks passed",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 243
+			}
+		]
+	},
+	"showcase:file_change_summary": {
+		"source": "9 modified · 2 added · 1 deleted",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/first.tsx",
+				"line": 27
+			}
+		]
+	},
+	"showcase:line_change_summary": {
+		"source": "+182 additions · −47 deletions",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/first.tsx",
+				"line": 33
+			}
+		]
+	},
+	"showcase:files_ready_to_review": {
+		"source": "3 files ready to review",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/first.tsx",
+				"line": 39
+			}
+		]
+	},
+	"showcase:compared_with_main": {
+		"source": "Compared with origin/main",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/first.tsx",
+				"line": 45
+			}
+		]
+	},
+	"showcase:two_comments": {
+		"source": "2 comments",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/second.tsx",
+				"line": 33
+			}
+		]
+	},
+	"showcase:resolved": {
+		"source": "Resolved",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/second.tsx",
+				"line": 35
+			}
+		]
+	},
+	"showcase:navigation": {
+		"source": "navigation",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/world-map-skeleton.tsx",
+				"line": 20
+			}
+		]
+	},
+	"showcase:input": {
+		"source": "input",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/world-map-skeleton.tsx",
+				"line": 25
+			}
+		]
+	},
+	"showcase:click": {
+		"source": "click",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/world-map-skeleton.tsx",
+				"line": 30
+			}
+		]
+	},
+	"showcase:assert": {
+		"source": "assert",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/world-map-skeleton.tsx",
+				"line": 35
+			}
+		]
+	},
+	"showcase:browser_steps_passed": {
+		"source": "4/4 steps passed · trace saved · 1.8s",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/chat.tsx",
+				"line": 28
+			}
+		]
+	},
+	"showcase:guided_review_title": {
+		"source": "Guided review, in reading order",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
+				"line": 65
+			}
+		]
+	},
+	"showcase:guided_review_body": {
+		"source": "Zuse writes a guide for every change: an overview, then short chapters beside the code they explain. It refreshes after each turn, commit, and push.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
+				"line": 68
+			}
+		]
+	},
+	"showcase:view_demo": {
+		"source": "View demo",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
+				"line": 73
+			}
+		]
+	},
+	"showcase:guided_review_tools_chapter": {
+		"source": "Sessions carry their own tools",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/five.tsx",
+				"line": 23
+			}
+		]
+	},
+	"showcase:guided_review_checks_chapter": {
+		"source": "Chapters arrive through checked tools",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/five.tsx",
+				"line": 24
+			}
+		]
+	},
+	"showcase:guided_review_refresh_chapter": {
+		"source": "Guides stay current on their own",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/five.tsx",
+				"line": 25
+			}
+		]
 	}
 }
