@@ -1,0 +1,130 @@
+---
+title: "Amp alternative: Amp vs Zuse for cloud coding agents"
+description: "Comparing Amp and Zuse? See how orbs, pricing, agent choice, self-hosting, and code review differ, and when an open source Amp code alternative fits."
+date: "2026-11-15"
+category: "Guide"
+timeToRead: "9 min read"
+authorName: "Zuse team"
+authorRole: "Product and engineering"
+authorAvatar: "/app-icon.png"
+previewImage: "/brand/observatory-dither.webp"
+---
+
+If you are looking for an **Amp alternative**, you are probably weighing two things: how much you like Amp's agent, and how much of your workflow you want tied to one vendor's platform. Amp and Zuse both run coding agents in isolated cloud machines so work continues while your laptop is closed. They make different choices about who builds the agent, where the source lives, and how changes land.
+
+We build [Zuse](/), so read this as a vendor comparison written as fairly as we can manage. Every Amp claim below links to Amp's own documentation, checked on November 15, 2026. Amp ships often, so verify anything that decides your choice. We have not run a controlled benchmark between the two products and make no claims about which agent writes better code.
+
+## The short version
+
+- **Pick Amp** if you want one opinionated, polished agent that picks models for you, a hosted cloud sandbox with memory snapshots, native apps on every platform, and team features such as shared threads and pooled billing.
+- **Pick Zuse** if you want an open-source workspace, want to keep using Claude Code, Codex, or another agent CLI as the agent itself, and want every change to pass through a diff review and a pull request before it reaches your main branch.
+- **Use both** if you like. Zuse can run Amp as an agent through its [ACP wrapper](https://docs.zuse.sh/providers/acp), as long as the Amp CLI is signed in.
+
+## What Amp is today
+
+Amp describes itself as ["a coding agent and development environment built for the frontier"](https://ampcode.com/manual). It is multi-model: Amp routes work across models from several providers and chooses a default it calls Staff Pick, which its [model selector docs](https://ampcode.com/docs/model-selector) currently list as Claude Opus 5.5.
+
+The cloud side is built on **orbs**. According to the [orbs documentation](https://ampcode.com/docs/orbs), every orb thread gets "a fresh, isolated environment with your code, plugins, development tools, and the context of the thread that created it." An orb pauses when idle, costs nothing while paused, and wakes with the conversation, files, and services in place. Each orb has a Changes view, a file browser, and a terminal shared with the agent. `amp sync` mirrors an orb's work into a local checkout.
+
+Amp also offers:
+
+- [Runners](https://ampcode.com/docs/cli/runners), which run remotely started threads on any machine where you can run `amp`.
+- [Self-hosted orbs](https://ampcode.com/docs/orbs/self-hosted), where `amp orb provider` connects out to Amp and your dispatch program creates the machines on your infrastructure.
+- Apps for macOS, Windows, Linux, iPhone, iPad, and Android, listed in the [Amp manual](https://ampcode.com/manual).
+- [Integrations](https://ampcode.com/docs/integrations) with GitHub, GitLab, Linear, Slack, and others.
+
+That is a lot of product, and much of it is good. If your team wants a single vendor to own the agent, the sandbox, and the collaboration layer, Amp is a serious option.
+
+## What Zuse is
+
+Zuse is an open-source workspace for coding agents, published at [github.com/swarajbachu/zuse](https://github.com/swarajbachu/zuse) under the [AGPL-3.0 license](https://github.com/swarajbachu/zuse/blob/main/LICENSE). Zuse does not ship its own model or its own agent. It runs the agents you already use and gives them the same timeline, worktrees, terminal, files, and review flow.
+
+The [providers page](https://docs.zuse.sh/providers) lists eight built-in providers: Claude Code, Codex, Cursor, Grok, Kiro, OpenCode, OpenCode 2, and Pi. Any agent that speaks the Agent Client Protocol can be added from the ACP catalog, including Gemini CLI, GitHub Copilot, goose, and Amp. Each agent keeps its own sign-in, models, and limits. Zuse does not bundle a paid provider subscription.
+
+Work can run locally, in a per-chat Git worktree, or in a [cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat). Cloud chats are in public beta. Each one runs in its own machine on a fresh branch, and cloud agents commit, push, and open pull requests as you through the Zuse GitHub App.
+
+## Amp vs Zuse at a glance
+
+| | Amp | Zuse |
+| --- | --- | --- |
+| Source | Proprietary. The [`@ampcode/cli` npm package](https://www.npmjs.com/package/@ampcode/cli) license reads "All rights reserved" | [AGPL-3.0](https://github.com/swarajbachu/zuse/blob/main/LICENSE), public repository |
+| The agent | Amp's own agent with routed models, plus a Claude Code agent and plugin agents ([docs](https://ampcode.com/docs/model-selector)) | The agent you choose: Claude Code, Codex, Cursor, Grok, Kiro, OpenCode, Pi, or any ACP agent ([docs](https://docs.zuse.sh/providers)) |
+| Cloud machines | Orbs, `a1.tiny` (1 CPU, 2 GB) to `a1.3xlarge` (16 CPU, 44 GB), 60 GB disk ([docs](https://ampcode.com/docs/orbs/sizes-and-costs)) | boxd, Boat, or E2B, up to 4 vCPU / 16 GB on boxd or 8 vCPU / 16 GB on Boat ([docs](https://docs.zuse.sh/how-to/choose-cloud-provider)) |
+| Run on your own compute | Runners and self-hosted orbs, free outside Enterprise | Local desktop app, [Zuse Serve](https://docs.zuse.sh/serve) on a Mac or Linux machine, or your own boxd, Boat, or E2B key |
+| Default way changes land | Ship button; by default the agent "pushes straight to the base branch" ([docs](https://ampcode.com/docs/orbs/shipping)) | Branch and pull request; the Changes view is the [acceptance boundary](https://docs.zuse.sh/workspace/changes-pull-requests) |
+| Git hosts in the cloud | GitHub, GitLab, Bitbucket, other HTTPS Git hosts | GitHub only for cloud chats today |
+| Entry price | Hobby is free with pay-as-you-go usage; Megawatt is $20/month ([docs](https://ampcode.com/docs/pricing)) | Local use is $0 during beta; Cloud Workspace is $40/month ([pricing](/pricing)) |
+| Clients | Web, TUI, desktop apps, iOS, Android | Desktop (macOS, x64 Linux), browser, iPhone |
+
+## Agent choice: one agent vs your agents
+
+This is the biggest difference, and it cuts both ways.
+
+Amp is opinionated about the agent. Its manual says "If we don't use and love a feature, we kill it," and the model selector exists so Amp can match models to work. Amp has also opened up. You can [link a ChatGPT subscription](https://ampcode.com/docs/model-selector) so OpenAI models bill to your plan, and link a Claude subscription so Claude models run "through Claude Code," via the Claude Agent SDK on Amp's servers. There is a dedicated Claude Code agent as well. Amp's docs note the tradeoffs: responses start more slowly, Claude Code's own settings such as `~/.claude/CLAUDE.md` are not loaded, and image generation with Amp's Painter tool still uses Amp credits.
+
+Zuse starts from the opposite end. The agent is a provider you plug in. Claude Code runs as the local `claude` CLI, Codex as the local `codex` CLI, and so on, with their own login commands and multiple accounts for Claude Code and Codex. When a chat hits a usage limit, you can switch it to another connected account from the composer, as described in [provider setup](https://docs.zuse.sh/providers/setup).
+
+Which is better depends on what you trust. If you think Amp's harness and model routing beat what you would assemble yourself, that is a good reason to stay on Amp. If your team has standardized on Claude Code or Codex and wants to keep those agents, their configuration, and their subscriptions, Zuse fits more naturally.
+
+## Cloud execution: orbs vs Zuse cloud chats
+
+Amp's orbs are more mature. Amp-hosted orbs save disk and memory when they pause, so processes resume with the machine. Projects get snapshots, Portals share running services, and Amp offers macOS satellites for iOS and Mac builds. Orbs start in bursts of 20 per user, then one every five minutes.
+
+Zuse cloud chats are in public beta and depend on the provider you pick. The [cloud machine guide](https://docs.zuse.sh/how-to/choose-cloud-provider) is explicit about the differences. boxd hibernates a paused machine and restores memory and processes. Boat preserves disk state but restarts the runtime and agents. E2B normally preserves memory and files. Only boxd chats can be forked into a new machine or publish preview URLs.
+
+Two Zuse constraints matter today. Cloud chats need a repository with a GitHub `origin`. And a local chat cannot be moved to a cloud machine, or the reverse: you push the branch and start a new chat from it. If you need GitLab or Bitbucket in the cloud now, Amp supports them.
+
+The Zuse advantage is ownership. You can connect your own boxd, Boat, or E2B account under **Hosting**, and "a Zuse subscription is not required for compute billed to your connected provider account." Your compute bill comes from that provider directly.
+
+## Pricing: what you actually pay for
+
+Both products separate the workspace from model usage, so compare like with like.
+
+Amp's [pricing page](https://ampcode.com/docs/pricing) lists three individual tiers. Hobby is free with nothing included: you buy credits for Amp-served models at list price and pay for hosted orbs as you go. Megawatt is $20 a month and includes $20 of agent usage plus 750 hours of `a1.small` orbs. Gigawatt is $200 a month and includes $200 of agent usage plus 1,000 hours of `a1.xxlarge` orbs. Amp says it adds no markup to provider API prices for individuals, and tokens from your own subscriptions or API keys carry no Amp fees. Standard [orb prices](https://ampcode.com/docs/orbs/sizes-and-costs) run from $0.08 an hour for `a1.tiny` to $1.32 an hour for `a1.xxlarge`, billed by the minute.
+
+Zuse's [pricing](/pricing) has two plans. Local is $0 during beta: the open-source desktop app, parallel chats and worktrees, your own agent subscriptions, and local diff review. Cloud Workspace is $40 a month in beta and includes $35 of provider compute. Extra compute is billed at provider cost plus 5%, with a configurable overage cap that defaults to $25. Compute is infrastructure only; model usage is billed by your agent provider.
+
+Neither is free in practice once you run real cloud work. Model tokens cost money on both. On Amp, hosted orbs cost money unless you self-host them. On Zuse, cloud machines cost money unless you bring your own provider key, which then bills you directly. The cheapest path on both is running agents on hardware you already own: Amp runners or self-hosted orbs, or Zuse locally or through Zuse Serve.
+
+## Review: how changes reach main
+
+Amp's [Shipping Changes](https://ampcode.com/docs/orbs/shipping) page describes the default plainly. Amp "uses trunk-based development." When you press **Ship**, the agent commits, rebases onto the latest base branch, runs the tests, and pushes straight to the base branch. You can review the Changes pane first, and teams can change **Ship Behavior** to push to a branch or run a custom prompt.
+
+Zuse defaults to pull requests. A cloud chat runs on a fresh branch. In the [Changes view](https://docs.zuse.sh/workspace/changes-pull-requests) you read every patch in split or unified view, mark files viewed, choose exactly which files a commit stages, and annotate lines either for the agent or as GitHub review comments. When a pull request exists, Zuse shows its checks, reviews, and conflicts. **Auto Fix** watches CI while Zuse is open and asks the agent to fix new failures, pausing after three repairs. Merging is blocked while there are conflicts or failing checks.
+
+Neither default is wrong. Trunk-based shipping is fast for small trusted teams. A pull request per task is easier when several agents work in parallel and someone has to own each merge. Our [review the evidence](/blog/review-the-evidence) checklist covers that side.
+
+## Self-hosting and data
+
+Amp lets you bring compute but not the control plane. With self-hosted orbs, the checkout and build output stay on your infrastructure, but Amp "runs the agent loop and model inference on its own servers," and the file contents, command output, and diffs the agent works with are stored with the thread. The [self-hosted orbs page](https://ampcode.com/docs/orbs/self-hosted) also says Amp-hosted orbs "still give the best experience." For Enterprise, Amp offers controls such as minimal data retention and SCIM.
+
+Zuse is local-first for local work. The desktop service is the [source of truth](https://docs.zuse.sh/concepts/local-first) for local projects, chats, and settings, stored under `~/.zuse/`. API keys are encrypted with a key held by your system keychain, and provider sign-in stays with each provider's CLI. Because the code is AGPL, you can read how credentials reach a runtime instead of taking our word for it. Zuse Cloud itself is a hosted service. Open source does not make it a turnkey self-hosted product, so check the [Serve docs](https://docs.zuse.sh/serve) if running everything yourself is the requirement.
+
+## Where Amp is clearly ahead
+
+Most comparison pages skip this part. Today Amp has:
+
+- A more mature cloud sandbox, with memory snapshots on every hosted orb, larger sizes, and macOS satellites.
+- Native apps on Windows and Android. The Zuse desktop app ships for macOS and x64 Linux, with a [native Rust rewrite](https://github.com/opcodehq/zuse) in preview.
+- Cloud support for GitLab, Bitbucket, and other Git hosts.
+- Team features such as shared threads, multiplayer, pooled credits, and Linear assignment.
+- A single tuned harness with automatic model choice, if you would rather not choose.
+
+## Where Zuse is the better Amp alternative
+
+- **You want open source.** The workspace is AGPL-3.0 and public. You can audit it, fork it, and file issues against specific code.
+- **You want your agent, not ours.** Claude Code, Codex, OpenCode, Grok, Kiro, Pi, Cursor, and ACP agents all run with the same timeline and review flow. You can also run Amp itself through ACP.
+- **You want pull requests by default.** Every cloud task gets its own branch and review surface.
+- **You want local work to cost nothing.** The desktop app is free during beta and uses the subscriptions you already pay for.
+- **You want to bring your own sandbox account.** Connect boxd, Boat, or E2B and pay the provider directly.
+
+## How to evaluate the switch
+
+Do not migrate on a feature table. Pick one bounded task you would normally give Amp, such as a reproducible bug with a test that proves the fix.
+
+1. [Download Zuse](/download) and connect the agent you trust most. If that agent is Amp, add it from the ACP catalog.
+2. Run the task locally in a worktree first, using the [worktree guide](https://docs.zuse.sh/projects/worktrees).
+3. Set up a [cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat) and run the same task there.
+4. Compare setup time, manual interventions, the diff, and which checks actually ran.
+
+The [open source cloud agents guide](/blog/open-source-cloud-agents) explains how to prepare a repository for that first remote run, and [where to run your agents](/blog/choose-where-agents-run) covers the local-versus-cloud decision. Judge the result by the branch and the evidence, then decide.

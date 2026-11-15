@@ -1,0 +1,126 @@
+---
+title: "Cursor Cloud Agents alternative: Cursor vs Zuse"
+description: "Looking for a Cursor Cloud Agents or background agents alternative? Compare agents, models, pricing, machines, and review in Cursor and open source Zuse."
+date: "2026-11-15"
+category: "Guide"
+timeToRead: "9 min read"
+authorName: "Zuse team"
+authorRole: "Product and engineering"
+authorAvatar: "/app-icon.png"
+previewImage: "/brand/observatory-dither.webp"
+---
+
+If you used Cursor's Background Agents, you now know them as Cloud Agents. Cursor's own docs say so in a short [naming history](https://cursor.com/docs/cloud-agent) note: "Cloud Agents were formerly called Background Agents." The idea is the same. You hand a task to an agent that runs in an isolated cloud VM, close the laptop, and come back to a pull request.
+
+People searching for a **Cursor Cloud Agents alternative** usually want one of three things: a different agent than Cursor's, a different way to pay, or an open-source workspace they can inspect. This guide compares Cursor Cloud Agents with [Zuse](/), the open-source workspace we build, on those points.
+
+We are a vendor, so treat this as a vendor comparison. Every Cursor claim links to Cursor's documentation or pricing, checked on November 15, 2026. Cursor changes plans and features often, so verify anything that decides your choice. We have not benchmarked the two products against each other and make no claims about code quality or speed.
+
+## The short version
+
+- **Stay with Cursor Cloud Agents** if your team already lives in Cursor, wants a fully managed VM fleet with computer use, artifacts, and remote desktop control, and needs GitLab, Bitbucket, or Azure DevOps support today.
+- **Pick Zuse** if you want to run Claude Code, Codex, or another agent CLI as the cloud agent itself, pay for models through subscriptions you already have, and keep the workspace open source.
+- **Mix them** if you like Cursor's agent. Zuse has a [Cursor provider](https://docs.zuse.sh/providers/cursor) that runs Cursor's SDK with your API key, next to Claude Code and Codex.
+
+## What Cursor Cloud Agents are
+
+According to [Cursor's docs](https://cursor.com/docs/cloud-agent), cloud agents "run in isolated VMs in the cloud with full development environments." Cursor clones your repository, works on a separate branch, and pushes changes back for handoff. You can start them from the desktop app, [cursor.com/agents](https://cursor.com/agents), the iOS app, Slack, a GitHub or Bitbucket comment, Linear, or the API.
+
+The feature set is broad:
+
+- **Environments.** Agent-led setup, saved snapshots, or a Dockerfile in `.cursor/environment.json`, with Builds that prepare environments in the background ([setup docs](https://cursor.com/docs/cloud-agent/setup)).
+- **Computer use and artifacts.** Each agent gets a desktop, can drive a browser, and attaches screenshots, videos, and logs to the PR. You can take over the remote desktop yourself ([capabilities](https://cursor.com/docs/cloud-agent/capabilities)).
+- **Multi-repo environments**, MCP servers, and repository hooks from `.cursor/hooks.json`.
+- **Security controls** such as network egress allowlists, redacted runtime secrets, Privacy Mode, and commits signed with an HSM-backed key ([security](https://cursor.com/docs/cloud-agent/security)).
+- **Self-hosted machines**, where your worker runs file edits and terminal commands while "Cursor runs the agent loop, inference, and planning" ([self-hosted](https://cursor.com/docs/cloud-agent/self-hosted)).
+
+This is a mature, well-documented product. If it already works for your team, the switching cost has to buy you something specific.
+
+## What Zuse is
+
+Zuse is an open-source workspace for coding agents. The source is at [github.com/swarajbachu/zuse](https://github.com/swarajbachu/zuse) under the [AGPL-3.0 license](https://github.com/swarajbachu/zuse/blob/main/LICENSE). Zuse is cloud agents first, but it does not bring its own model or its own agent. It runs agents you already use and gives each one the same timeline, Git worktrees, terminal, files, and review flow.
+
+The [providers page](https://docs.zuse.sh/providers) lists eight built-in providers: Claude Code, Codex, Cursor, Grok, Kiro, OpenCode, OpenCode 2, and Pi. Agents that speak the Agent Client Protocol, such as Gemini CLI, GitHub Copilot, and goose, can be added from the [ACP catalog](https://docs.zuse.sh/providers/acp).
+
+Work runs locally, in a per-chat worktree, or in a [cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat). Cloud chats are in public beta. Each runs in its own machine on a fresh branch, and cloud agents commit, push, and open pull requests as you through the Zuse GitHub App.
+
+## Cursor Cloud Agents vs Zuse at a glance
+
+| | Cursor Cloud Agents | Zuse |
+| --- | --- | --- |
+| The agent | Cursor's agent; "Cursor runs the agent loop, inference, and planning" ([docs](https://cursor.com/docs/cloud-agent/self-hosted)) | The agent you choose: Claude Code, Codex, Cursor, Grok, Kiro, OpenCode, Pi, or an ACP agent ([docs](https://docs.zuse.sh/providers)) |
+| Models | "A curated selection of models" ([docs](https://cursor.com/docs/cloud-agent)) | Whatever the chosen agent and your account support |
+| How models are paid | Your Cursor plan's usage; third-party models at API list price from prepaid credit ([pricing](https://cursor.com/docs/models-and-pricing)) | Your own agent subscriptions or API keys, billed by the provider |
+| Lowest plan with cloud agents | Premium, $30/month; Free and Plus don't include them | Cloud Workspace, $40/month with $35 compute, or $0 with your own sandbox provider key |
+| Machines | Cursor-managed VMs on a default profile; more resources on Enterprise by request ([setup](https://cursor.com/docs/cloud-agent/setup)) | boxd, Boat, or E2B, with sizes up to 8 vCPU / 16 GB ([docs](https://docs.zuse.sh/how-to/choose-cloud-provider)) |
+| Git hosts | GitHub, GitLab, Bitbucket Cloud, Azure DevOps | GitHub only for cloud chats today |
+| Source | Hosted commercial service | [AGPL-3.0](https://github.com/swarajbachu/zuse/blob/main/LICENSE), public repository |
+| Start a task from | Desktop, web, iOS, Slack, GitHub, Bitbucket, Linear, API | Desktop, browser, [Slack](https://docs.zuse.sh/how-to/slack-start-task), [API](https://docs.zuse.sh/api-reference) |
+
+## Agent choice is the real difference
+
+Cursor Cloud Agents run Cursor's agent. You choose a model from Cursor's list, and the harness around it is Cursor's. For many teams that is the point: one agent, tuned by one vendor, integrated with the editor they already use.
+
+Zuse treats the agent as a replaceable part. Claude Code runs as the `claude` CLI, Codex as the `codex` CLI, each with its own login. Claude Code and Codex support [multiple accounts](https://docs.zuse.sh/providers/setup), and when a chat hits a usage limit you can switch it to another connected account from the composer. For cloud chats, you connect each agent once under **Zuse agent accounts** and it works on every machine provider.
+
+This matters most if your team has invested in a particular agent's configuration, or simply prefers how Claude Code or Codex works. In Cursor, a Claude model is available, but it runs inside Cursor's agent. In Zuse, Claude Code itself is the agent.
+
+You don't have to give up Cursor's agent to try Zuse. The Zuse [Cursor provider](https://docs.zuse.sh/providers/cursor) runs the bundled Cursor SDK with a Cursor API key. The account needs SDK access, and Cursor sessions in Zuse run locally with the SDK's sandbox and auto-review enabled.
+
+## Pricing: plans, models, and compute
+
+Cursor's [models and pricing page](https://cursor.com/docs/models-and-pricing) lists Free ($0), Plus ($8/month), Premium ($30/month), Super ($100/month), Ultra ($200/month), Teams seats at $30, $100, or $200, and custom Enterprise. Cloud Agents start at Premium. The same page says Plus has "No Auto, Cloud Agents, Automations, Bugbot, Origin, third-party models, or your own API keys."
+
+Paid plans include a weekly usage pool for Cursor's own models. Third-party models such as Claude, GPT, and Gemini "aren't part of the included pool." On Premium and above, they cost the model's API list price, paid from prepaid credit. Cloud Agents draw on your plan's usage "at the selected model's rate," and Cursor asks you to set a spend limit the first time. Cursor's docs do not list a separate hourly VM price.
+
+Zuse's [pricing](/pricing) separates the pieces. Local use is $0 during beta. Cloud Workspace is $40 a month in beta with $35 of provider compute included, extra compute at provider cost plus 5%, and a configurable overage cap that defaults to $25. That price covers machines only. Model usage goes to your agent provider, so a Claude or ChatGPT plan you already pay for keeps doing the work. If you connect your own boxd, Boat, or E2B account, the [cloud machine guide](https://docs.zuse.sh/how-to/choose-cloud-provider) says "a Zuse subscription is not required for compute billed to your connected provider account."
+
+Which is cheaper depends on your usage. If you mostly use Cursor's own models, Cursor's bundled pool may be the better deal. If you mainly want Claude or GPT models and already pay for those plans, paying API list price on top inside Cursor adds up. Measure one real week on both before you decide. Our guide to [running agents on the subscriptions you already have](/blog/token-maxing-your-subscriptions) covers the model side.
+
+## Machines and environments
+
+Cursor handles more of the environment for you. It provisions VMs, snapshots environments, runs background Builds, and supports Dockerfiles, multi-repo workspaces, and private connectivity through AWS PrivateLink or Cloudflare Tunnel. Its setup docs also note a limit: each agent runs on "a default VM profile with limited memory and CPU." Enterprise customers can ask support for more, and self-serve resource configuration is listed as "coming soon."
+
+Zuse lets you choose the sandbox provider and size for each new chat. The [cloud machine guide](https://docs.zuse.sh/how-to/choose-cloud-provider) lists boxd at 1 vCPU / 4 GB, 2 vCPU / 8 GB, or 4 vCPU / 16 GB, and Boat at 2 vCPU / 4 GB, 4 vCPU / 8 GB, or 8 vCPU / 16 GB. E2B has one size set by the deployment template. They pause differently. boxd hibernates and restores memory and processes. Boat keeps disk state and restarts the runtime. E2B normally keeps memory and files. Only boxd chats can be forked into a new machine or publish preview URLs.
+
+Zuse also has a path Cursor handles with self-hosted workers: [Zuse Serve](https://docs.zuse.sh/serve) turns a Mac or Linux computer into a durable environment you open from the browser or iPhone. Repositories, agent CLIs, credentials, and session state stay on that machine.
+
+## Reviewing what the agent did
+
+Both products send work back as a branch and a pull request. Cursor's [security docs](https://cursor.com/docs/cloud-agent/security) put it directly: "Agents open pull requests for review. Nothing merges until a person reviews the change." Cursor adds artifacts to the PR and offers Bugbot for AI code review on Premium and above.
+
+Zuse puts review in the workspace. The [Changes view](https://docs.zuse.sh/workspace/changes-pull-requests) shows every patch in split or unified view, lets you mark files viewed, and lets you choose which files a commit stages. You can annotate lines for the agent's next turn or post them as GitHub review comments. When a PR exists, Zuse shows its checks, reviews, and conflicts. **Auto Fix** watches CI while Zuse is open and asks the agent to fix new failures, pausing after three repairs. Merging is blocked while checks fail or conflicts remain.
+
+Cursor's artifacts and remote desktop are stronger proof for UI work today. Zuse's advantage is that the diff, terminal, files, and PR state sit next to the conversation, whichever agent produced the change. Our [review the evidence](/blog/review-the-evidence) checklist applies to both.
+
+## Where Cursor Cloud Agents are ahead
+
+Be clear about this before switching:
+
+- **More Git hosts.** GitLab, Bitbucket Cloud, and Azure DevOps, against GitHub only for Zuse cloud chats.
+- **Computer use, artifacts, and remote desktop** on every managed VM.
+- **Enterprise controls**, including egress allowlists, signed commits, retention policies, and private connectivity.
+- **More places to start work**, including GitHub and Bitbucket comments, Linear, and a native iOS app.
+- **Multi-repo environments** for tasks that span several repositories.
+- **Editor integration.** If your team already works in Cursor, Cloud Agents are one dropdown away.
+
+Zuse also has limits of its own. Cloud chats are in public beta. The desktop app ships for macOS and x64 Linux. A local chat cannot be moved to a cloud machine, or the reverse; you push the branch and start a new chat from it.
+
+## Where Zuse is the better Cursor background agents alternative
+
+- **Your agent runs in the cloud.** Claude Code or Codex is the agent, not a model inside another vendor's harness.
+- **Your subscriptions pay for the models.** Zuse bills machines, and your provider bills tokens.
+- **You can bring your own sandbox account** and skip the Zuse subscription for compute.
+- **The workspace is open source.** You can read how credentials reach a runtime, how tasks become processes, and where state is stored. The local desktop service is the [source of truth](https://docs.zuse.sh/concepts/local-first) for local work, and API keys are encrypted with a key held by your system keychain.
+- **Local work costs nothing** during beta, with the same worktree and review flow as the cloud.
+
+## Try one task on both
+
+A feature table won't tell you which one fits. Running the same task on both will.
+
+1. Pick a bounded task you would give a Cursor cloud agent: a reproducible bug and a test that proves the fix.
+2. [Download Zuse](/download), connect Claude Code or Codex, and run the task locally in a [worktree](https://docs.zuse.sh/projects/worktrees).
+3. Set up a [cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat) on a GitHub repository and run it again in the cloud.
+4. Compare the diff, the checks that actually ran, the manual fixes you made, and the cost reported by each side.
+
+The [open source cloud agents guide](/blog/open-source-cloud-agents) covers preparing a repository for its first remote run, and [where to run your agents](/blog/choose-where-agents-run) covers the local-versus-cloud decision. Read the [docs](https://docs.zuse.sh), then judge both by the pull request they leave you.
