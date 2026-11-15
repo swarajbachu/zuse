@@ -1,11 +1,38 @@
 import type { Metadata } from "next";
 
+const APEX_HOST = "zuse.sh";
+const CANONICAL_ORIGIN = "https://www.zuse.sh";
+
+/**
+ * The marketing site is served at www.zuse.sh; the apex host 308s there.
+ * Normalize a misconfigured apex env so canonicals, sitemap, and robots
+ * stay on the host that actually serves the page. Leave other hosts alone
+ * so preview deployments can still set NEXT_PUBLIC_SITE_URL.
+ */
+export function resolveSiteUrl(
+	raw = process.env.NEXT_PUBLIC_SITE_URL ?? CANONICAL_ORIGIN,
+): string {
+	try {
+		const url = new URL(raw);
+		if (url.hostname === APEX_HOST) {
+			url.hostname = `www.${APEX_HOST}`;
+		}
+		url.protocol = "https:";
+		url.pathname = "/";
+		url.search = "";
+		url.hash = "";
+		return url.origin;
+	} catch {
+		return CANONICAL_ORIGIN;
+	}
+}
+
 export const siteConfig = {
 	name: "Zuse",
 	description:
 		"Run open source cloud agents with Zuse. Work locally or in isolated cloud workspaces, use your existing model subscriptions, and review every change.",
 
-	url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://zuse.sh",
+	url: resolveSiteUrl(),
 	ogImage: "/og.png",
 	icon: "/app-icon.png",
 	twitter: "@zuse_sh",

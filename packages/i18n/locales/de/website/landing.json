@@ -7,7 +7,8 @@
 	"schema_environments": "Lokale und Cloud-Ausführungsumgebungen",
 	"schema_parallel": "Mehrere Programmieragenten in einem Arbeitsbereich ausführen",
 	"free_in_beta_no_token_markup": "Kostenlos in der Beta · kein Token-Aufschlag",
-	"cloud_coding_agents_open_source": "Coding-Agenten in der Cloud. <part0>Open Source.</part0>",
+	"cloud_coding_agents_open_source": "Open-Source-Cloud-Agenten.",
+	"hero_subtitle": "Führen Sie Claude Code, Codex und andere Agenten in isolierten Cloud-Workspaces oder auf Ihrem Rechner aus, und prüfen Sie jede Änderung.",
 	"schema_tools": "Integrierte Diff-, Terminal-, Browser- und Pull-Request-Überprüfung",
 	"meta_description": "Führen Sie Programmieragenten nebeneinander aus, übertragen Sie den Kontext zwischen ihnen und isolieren Sie jede Aufgabe in ihrem eigenen Git-Worktree mit Zuse.",
 	"schema_subscriptions": "Bringen Sie Ihre bestehenden Modellabonnements mit"

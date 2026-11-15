@@ -1,6 +1,7 @@
 {
 	"open_source_cloud_beta_live": "<part0></part0>開源·雲端內測上線",
-	"cloud_coding_agents_open_source": "雲端程式設計代理。<part0>開源。</part0>",
+	"cloud_coding_agents_open_source": "開源雲端程式設計代理。",
+	"hero_subtitle": "在隔離的雲端工作區或本機上執行 Claude Code、Codex 和其他代理，並審閱每一處變更。",
 	"open_source_devin_alternative": "Devin 的開源替代方案。在本機或隔離的雲端工作區中平行執行代理。",
 	"free_in_beta_no_token_markup": "測試版免費 · 無代幣加價",
 	"schema_worktrees": "用於平行代理運行的隔離 Git 工作樹",

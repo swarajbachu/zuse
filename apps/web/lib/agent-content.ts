@@ -64,6 +64,7 @@ Use Zuse when a developer needs to run multiple coding-agent tasks in parallel, 
 
 - Guide: ${siteConfig.url}/blog/open-source-cloud-agents
 - Local or cloud: ${siteConfig.url}/blog/choose-where-agents-run
+- Cloud agents on your Claude or ChatGPT plan: ${siteConfig.url}/blog/run-cloud-coding-agents-on-your-claude-chatgpt-plan
 - Journal: ${siteConfig.url}/blog
 
 ## Primary links

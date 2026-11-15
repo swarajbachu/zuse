@@ -1,0 +1,173 @@
+---
+title: "Best cloud coding agents in 2026: an honest comparison"
+description: "A sourced comparison of the best cloud coding agents in 2026: Codex, Claude Code, Cursor, Copilot, Devin, Amp, Capy, OpenHands, LemonLime and Zuse."
+date: "2026-11-15"
+category: "Guide"
+timeToRead: "12 min read"
+authorName: "Zuse team"
+authorRole: "Product and engineering"
+authorAvatar: "/app-icon.png"
+previewImage: "/brand/observatory-dither.webp"
+---
+
+A cloud coding agent is an agent that gets its own machine. It clones your repository into a VM or container, installs dependencies, edits files, runs commands, and hands back a branch or pull request while your laptop is closed. In 2026 almost every serious coding tool has one. Cursor [renamed Background Agents to Cloud Agents](https://cursor.com/docs/cloud-agent), GitHub now runs Copilot sessions in [cloud sandboxes](https://docs.github.com/en/copilot/concepts/copilot-surfaces/copilot-on-github), and Anthropic and OpenAI both run agents on their own infrastructure.
+
+That makes "which is best" a less useful question than "which trade-offs fit my team". The products differ on four axes that matter more than any demo:
+
+1. **Whose agent runs.** Some products run only their own harness. Others run Claude Code, Codex, and other CLIs side by side.
+2. **Who pays for inference.** Some bill tokens through their own plan. Others let you sign in with a Claude or ChatGPT subscription or an API key.
+3. **Where the machine lives.** Vendor cloud, your cloud, your own server, or your laptop.
+4. **Whether you can read the code.** Open source changes what you can audit, fork, and self-host.
+
+We build [Zuse](/), so treat our section with appropriate skepticism. Everything below links to the vendor's own documentation, pricing page, or repository, checked on November 15, 2026. We have not run a controlled benchmark across these products, so this article contains no success rates or speed rankings. Prices change often; follow the links before you buy.
+
+## The short version
+
+| Tool | Agents it runs | Open source | Where agents run | Entry price for cloud use |
+| --- | --- | --- | --- | --- |
+| [OpenAI Codex cloud](#openai-codex-cloud) | Codex | CLI yes (Apache-2.0), cloud no | OpenAI cloud | Included from ChatGPT Plus |
+| [Claude Code cloud sessions](#claude-code-cloud-sessions) | Claude Code | No | Anthropic VMs or your self-hosted environment | Included in Claude Pro and up |
+| [Cursor Cloud Agents](#cursor-cloud-agents) | Cursor's agent, curated models | No | Cursor VMs, or self-hosted machines | Premium plan or higher |
+| [GitHub Copilot in the cloud](#github-copilot-in-the-cloud) | Copilot, plus Claude and Codex agents (preview) | No | Cloud sandbox, GitHub Actions, or a remote custom environment | Paid Copilot plan |
+| [Devin](#devin) | Devin, with models from several labs | No | Cognition cloud, VPC on Enterprise | $20/month Pro |
+| [Amp](#amp) | Amp | No | Amp-hosted or self-hosted orbs | Free Hobby tier, pay as you go |
+| [Capy](#capy) | Capy, many models | No | Capy cloud, your computers and servers, or your own cloud | $20/month Lite |
+| [OpenHands Agent Canvas](#openhands-agent-canvas) | OpenHands, Claude Code, Codex, Gemini, any ACP agent | Yes (MIT) | Wherever you deploy it | Free to self-host |
+| [LemonLime](#lemonlime) | Claude Code, Codex, OpenCode, any ACP agent | Yes (MIT) | Your computer, LemonLime cloud sandboxes, or self-hosted | $5/month plus your AI plan |
+| [Zuse](#zuse) | Locally: Claude Code, Codex, Cursor, Grok, Kiro, OpenCode, Pi, and ACP agents such as Gemini CLI. Cloud: Claude Code, Codex, Cursor, Grok | Yes (AGPL-3.0) | Zuse Cloud, your boxd/Boat/E2B account, or locally | Free locally, $40/month Cloud |
+
+[Conductor](#conductor-and-sculptor-mac-first-parallel-agents) and [Sculptor](#conductor-and-sculptor-mac-first-parallel-agents) come up in the same searches. Conductor offers both local and cloud workspaces from its Mac app and joined Meta in November 2026; Sculptor runs agents on your own machine. Both are covered at the end, along with Google Jules, which is shutting down.
+
+## Vendor clouds: one company's agent, one company's machines
+
+### OpenAI Codex cloud
+
+[Codex Cloud](https://learn.chatgpt.com/docs/cloud) runs each task in its own workspace that keeps working while your computer sleeps. You can start without a repository on the default environment, or check out a repository through a connected GitHub or GitLab account. Environments are reusable: you publish one with install scripts, network rules, secrets, and environment variables, then start many tasks from it.
+
+The [pricing page](https://learn.chatgpt.com/docs/pricing) is the important part. Codex cloud chats, GitHub code review, and the Slack and Linear integrations require a ChatGPT plan (Plus and above). Codex used with an API key gets the CLI, SDK, and IDE extension, but explicitly no cloud features. Cloud tasks also share the same usage allowance as local messages and "may use more of your allowance than local messages".
+
+**Where it is strong:** if your team already pays for ChatGPT, the cloud agent costs nothing extra to try, and the [Codex CLI is open source](https://github.com/openai/codex) under Apache-2.0. **Where it is limited:** the cloud product only runs Codex, and only on OpenAI's infrastructure.
+
+### Claude Code cloud sessions
+
+Anthropic calls these [cloud sessions](https://code.claude.com/docs/en/claude-code-on-the-web): Claude Code running in an isolated, Anthropic-managed VM, started from claude.ai/code, the mobile app, the desktop app, or `claude --cloud` in a terminal. They are available on Pro, Max, Ultra, and Team plans (and Enterprise premium or Chat + Claude Code seats), count toward the same usage limits as the rest of your Claude usage, and Anthropic says there is no separate charge for the VM. Organizations can route sessions to a self-hosted environment instead.
+
+Two details stand out. GitHub credentials stay outside the VM, with git operations going through a proxy that attaches credentials server side. And `claude --teleport` pulls a cloud session back into your terminal with its branch and conversation, which is a genuinely useful escape hatch. The documented limits are real, though: repository cloning in Anthropic-hosted environments and PR creation need GitHub (other hosts can only upload a local bundle that cannot push back), cloud sessions share rate limits with all your other Claude usage, and an expired environment loses running shell commands and subagents.
+
+**Pick it if** Claude Code is your agent and you want zero extra infrastructure. It will not run Codex or anything else.
+
+### Cursor Cloud Agents
+
+[Cursor Cloud Agents](https://cursor.com/docs/cloud-agent) are one of the most complete hosted environment products in this list. Each agent gets an isolated VM with cloned repositories, dependencies, secrets, and network access, configured by agent-led setup, a saved snapshot, or a Dockerfile in `.cursor/environment.json`. They support multi-repo environments, MCP servers, repository hooks, outbound domain restrictions, Tailscale for private networks, and remote desktop control so you can click through the change yourself. Agents return screenshots, videos, and logs as artifacts.
+
+You can start them from the desktop app, web, iOS, Slack, Linear, GitHub or Bitbucket comments, and an API. Source control options are broad: GitHub (including Enterprise Server), GitLab (including self-hosted), Bitbucket Cloud, and Azure DevOps.
+
+The trade-offs: Cloud Agents use "a curated selection of models" inside Cursor's own agent, they bill against your Cursor plan at the selected model's rate, and [only Premium and higher, Teams, Enterprise, or legacy paid plans](https://cursor.com/docs/cloud-agent#troubleshooting) include them; Free and Plus do not. If you want to run Claude Code or Codex themselves with your own subscriptions, this is not that product.
+
+### GitHub Copilot in the cloud
+
+GitHub is mid-transition. The [current docs](https://docs.github.com/en/copilot/concepts/copilot-surfaces/copilot-on-github) describe both the older Copilot cloud agent and a new "Copilot in the cloud" experience, which is available to paid Copilot plans from October 28, 2026. It offers three environments: a cloud sandbox, a GitHub Actions-based environment, or a remote connection to a custom environment. Cloud sandbox sessions can be resumed across clients (web, mobile, the Copilot app, IDE, and CLI) and can span multiple repositories in one organization. Actions-based sessions support self-hosted runners and custom setup, but are limited to one repository and a hard 59-minute execution limit.
+
+Copilot is also no longer only Copilot. [Third-party coding agents](https://docs.github.com/en/copilot/concepts/agent-capabilities/about-agents/about-third-party-coding-agents), Anthropic Claude (built on the Claude Agent SDK) and OpenAI Codex (built on the Codex SDK), can be assigned issues or started from the Agents tab, and both can be powered by your existing Copilot subscription. They are in public preview, available on all paid Copilot plans, and must be enabled in settings or by policy first.
+
+It also covers work around the PR: Copilot code review, and Agent Merge, which watches a pull request and works on failing Actions workflows or merge conflicts.
+
+**The obvious fit** is a team that lives in GitHub issues and Actions. The obvious limit, from GitHub's own docs: "Copilot only works with repositories hosted on GitHub", and each task works on one branch and opens one pull request.
+
+### Devin
+
+[Devin](https://docs.devin.ai/get-started/devin-intro) is the product that popularized the "AI software engineer" framing. Its workspace has a shell, an embedded IDE you can take over, and a browser, and it is designed to be tagged from Slack or Teams, assigned Linear or Jira tickets, or driven through an API. Devin for Terminal can hand longer tasks to cloud Devin with `/handoff`, and Cognition [renamed Windsurf to Devin Desktop](https://devin.ai/blog/windsurf-is-now-devin-desktop) in June 2026.
+
+The [pricing page](https://devin.ai/pricing) has changed shape: Devin Cloud is now included in a $20/month Pro plan, with a $200 Max tier and a Teams plan at $80/month plus $40 per full seat. Pro includes frontier models from OpenAI, Anthropic, Google, and SpaceXAI, extra usage is billed at API pricing, and Pro, Max, and Teams can all use your ChatGPT plan. Integrations cover Slack, Teams, Linear, Jira, GitHub, GitLab, and Bitbucket, and Enterprise offers deployment in your own VPC.
+
+Devin is strongest for teams that want a managed, ticket-driven agent with a lot of integration surface. It is a closed product running Cognition's agent, so you are adopting their harness and their workflow, not adding a workspace around tools you already use.
+
+## Platforms with their own agent and their own machines
+
+### Amp
+
+[Amp](https://ampcode.com/docs) runs agents in "orbs": per-thread cloud machines with your code, tools, and plugins set up. You can start an orb from your phone and follow up in the terminal. It routes between frontier models, and its pricing page lets you bring ChatGPT, Claude, and other subscriptions or your own keys.
+
+Amp's [pricing](https://ampcode.com/pricing) is unusually friendly to bring-your-own-subscription users: no Amp token fees when you use your own subscription or key, a free Hobby tier with pay-as-you-go hosted orbs, a $20/month Individual tier that includes orb minutes and Amp credits, and unlimited self-hosted orbs for free on Hobby, Individual, and Teams. Orb minutes stop counting when an orb pauses while idle.
+
+What Amp is not is open source. Amp spun out of Sourcegraph as [Amp Frontier Corporation](https://ampcode.com/news/amp-frontier-corporation) in December 2025, and its CLI (now published as `@ampcode/cli`) ships as a prebuilt binary under the proprietary [Amp License Terms](https://ampcode.com/terms), with the package marked "all rights reserved". It is also deliberately opinionated: the docs promise "no backward compatibility, no legacy features", which is great if you want the frontier and less great if you want a stable workflow.
+
+### Capy
+
+[Capy](https://capy.ai) is aimed at teams running many agents at once. Its "Captains" are long-lived orchestrator agents that fan work out to many threads. Each thread gets an isolated cloud machine with a browser and desktop, Capy can install mobile builds on cloud iOS and Android devices (Pro and up), and an autofix loop handles CI failures, review comments, and merge conflicts. Integrations include Slack, Linear, GitHub, Vercel, Tailscale, and Revyl, plus an API.
+
+On models, Capy's [pricing page](https://capy.ai/pricing) lets every plan use your own ChatGPT (Codex), GitHub Copilot, or SuperGrok subscription, or API keys and gateways (its [enterprise page](https://capy.ai/enterprise) names Anthropic, OpenAI, Google, and xAI keys), with no markup; other tokens bill at list price. Plans are one subscription per organization with no per-seat charge: Lite at $20/month (4 CPU / 16 GB machines), Pro at $100/month, and Max from $200 up to $1,000/month, with cloud machines billed only while awake. You can also run threads on your own computers and servers through its Dock CLI, and the enterprise page lists running in your own cloud. Capy also publishes Terminal-Bench numbers for its harness on its homepage; we have not reproduced them.
+
+It is a hosted, commercial product. If your bottleneck is orchestrating dozens of parallel tasks across web and mobile, it is one of the more ambitious options.
+
+## Open source cloud agents
+
+This is the category Zuse is in, and the one where reading the fine print matters most. "Open source" can mean the client, the agent, the control plane, or all three.
+
+### OpenHands Agent Canvas
+
+OpenHands has evolved from a single open-source agent into [Agent Canvas](https://github.com/OpenHands/OpenHands), which its README describes as "the self-hosted developer control center for coding agents and automations". It runs the OpenHands agent by default and can run Claude Code, Codex, Gemini, Pi, OpenCode, or any agent that speaks the Agent Client Protocol. Backends are pluggable: your laptop, Docker containers, VMs, your company infrastructure, or OpenHands Cloud.
+
+It is [MIT licensed](https://github.com/OpenHands/OpenHands/blob/main/LICENSE) and [free to self-host](https://www.openhands.dev/pricing) with your own LLM key. The paid Teams plan ($500/month for up to 10 users) adds multi-user identity, RBAC, SSO, and budgeting, still self-hosted. Automations, scheduled or webhook-triggered runs that post to Slack or decompose GitHub issues, are a first-class feature.
+
+**Honest assessment:** OpenHands is the most mature open-source option if you want to own the whole stack and are comfortable operating it. The README's own warning applies: the no-sandbox install gives the agent full access to your filesystem, and the docs point you to a security hardening guide before running it on a server. You are the cloud provider.
+
+### LemonLime
+
+[LemonLime](https://lemonlime.dev) is the closest product to Zuse's positioning, and it is worth looking at directly. It runs Claude Code, Codex, OpenCode, and ACP agents on your computer for free or each in its own cloud VM, on your existing Claude or ChatGPT plan or API key, with no token markup. Its site says the app, runner, and cloud control plane are MIT licensed, and [the repository](https://github.com/hamedgitty/lemonlime) carries an MIT license. Self-hosting is documented as Node and SQLite on your own server or your own Cloudflare account.
+
+Security details on the homepage are concrete: GitHub tokens in a sandbox live at most an hour and cover one repository, and idle sandboxes pause after five quiet minutes. Cloud plans start at $5/month for 2,500 credits, which pay only for compute.
+
+## Zuse
+
+[Zuse](/) is an open-source workspace for coding agents that you already use. It is cloud agents first, but the same app also runs agents on your own machine, and both paths end in the same place: a diff you review.
+
+What it does, from our own [repository](https://github.com/swarajbachu/zuse) and [documentation](https://docs.zuse.sh):
+
+- **Agents you already have.** Zuse has [built-in providers](https://docs.zuse.sh/providers) for Claude Code, Codex, Cursor (through the Cursor SDK and an API key), Grok, Kiro, OpenCode, and Pi, and runs other agents such as Gemini CLI through the Agent Client Protocol. Locally it uses the CLIs and logins on your machine. For the cloud, you connect Claude Code, Codex, Cursor, or Grok once under Zuse agent accounts and the same credentials work on every machine provider.
+- **Isolated cloud workspaces.** A [cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat) runs in its own machine on a fresh branch, keeps going when the desktop app closes, and can open pull requests through the Zuse GitHub App. You can [choose the machine provider](https://docs.zuse.sh/how-to/choose-cloud-provider): boxd, Boat, or E2B, with sizes from 1 vCPU / 4 GB up to 8 vCPU / 16 GB depending on the provider. Messages sent while a workspace sleeps go into a durable mailbox and are delivered when it wakes.
+- **Local isolation too.** Each local chat can get its own [Git worktree](https://docs.zuse.sh/how-to/local-parallel-worktrees), so parallel agents do not trample each other's files.
+- **Review beside the work.** The conversation, terminal, file viewer, Changes diff, PR tab, and CI checks sit in the same window.
+- **Other entry points.** You can [start a cloud task from Slack](https://docs.zuse.sh/how-to/slack-start-task), create workspaces from your own scripts with the [public API](https://docs.zuse.sh/api-reference), or turn a Mac or Linux box into an account-linked environment with [Zuse Serve](https://docs.zuse.sh/serve).
+- **Open source.** The workspace is [AGPL-3.0](https://github.com/swarajbachu/zuse/blob/main/LICENSE), and the native Rust rewrite is public at [opcodehq/zuse](https://github.com/opcodehq/zuse) under the same license.
+
+On cost, [Zuse is free to use locally during beta](/pricing). Zuse Cloud is $40/month with $35 of provider compute included and a configurable overage cap. Or you can connect your own boxd, Boat, or E2B API key and pay that provider directly, with no Zuse subscription required. Model usage stays on your own Claude, ChatGPT, or other agent accounts either way.
+
+Where we are behind, plainly:
+
+- **Cloud Workspaces are in public beta.** Cursor, Codex, and Devin have run hosted agents longer, and it shows in surface area.
+- **GitHub only for cloud chats.** They need a repository with a GitHub `origin`. Cursor supports GitLab, Bitbucket, and Azure DevOps.
+- **Provider feature gaps.** You build a separate image for each machine provider, and only boxd chats can be forked or publish preview URLs.
+- **Self-hosting the cloud is not a documented user path yet.** Our docs cover bringing your own provider key, not running the control plane yourself, and the [Rust cloud rewrite](https://github.com/opcodehq/zuse) says live provider execution and cutover are still in progress. OpenHands and LemonLime both document self-hosting today.
+
+The fit is narrow on purpose: you already use Claude Code or Codex, you want those agents running in isolated cloud machines rather than a vendor's replacement agent, you want to see and review every change, and you want the source.
+
+## Conductor and Sculptor: Mac-first parallel agents
+
+These come up in the same searches. Both started as local tools, and Conductor has since added a cloud mode.
+
+[Conductor](https://www.conductor.build/docs) runs Claude Code, Codex, Cursor, and OpenCode in parallel on your Mac, each in its own workspace with a branch, terminal, and diff. For local workspaces its [FAQ](https://www.conductor.build/docs/faq) is admirably direct: agents run with your user's permissions, "without sandboxing", and the app is free for now. Local work stops when the Mac does. [Conductor Cloud](https://www.conductor.build/docs/cloud) changes that: each cloud workspace is an isolated Linux sandbox (a Vercel Sandbox in `us-east-1`, 8 vCPU / 16 GB) built from a shared org environment, and agents keep running after you close the laptop until the sandbox sleeps. Per the [Cloud FAQ](https://www.conductor.build/docs/cloud/faq), cloud workspaces need a Pro, Teams, or Enterprise plan, support GitHub repositories only, and store chat messages on Conductor's servers. You can still bring your own subscriptions or API keys, there is no extra compute fee today, and running the sandboxes on your own machines is not available yet.
+
+One caveat on Conductor's future. It [announced it was joining Meta](https://www.conductor.build/announcement) on November 4, 2026, and its [changelog](https://www.conductor.build/changelog) at first scheduled Conductor Cloud to go read-only on November 13 and shut down on November 20. The November 13 release then said "Conductor isn't shutting down" and removed the cloud shutdown banner. Check the changelog for the current state of Cloud before you commit to it.
+
+[Sculptor](https://github.com/imbue-ai/sculptor) from Imbue is a desktop app for running agents in parallel. Each workspace is a Git worktree on its own branch by default, with full clones and a container backend available as experimental options. It has integrated support for Claude Code and the Pi harness and can run any terminal-based agent, ships for Apple Silicon Macs and Linux, calls itself an experimental research preview, and is MIT licensed.
+
+If your laptop is powerful and your tasks are short, a local tool may be all you need. The case for a cloud agent starts when you want work to continue overnight, run more agents than your machine can handle, or start tasks from your phone or Slack.
+
+## Google Jules is winding down
+
+Older roundups still list Google's Jules, so a note: Google [announced on October 29, 2026](https://jules.google/docs/changelog/2026-10-29/) that Jules will wind down on December 31, 2026. Sessions could be finished until November 11, and Jules is read-only after that. Google points users to [Antigravity Remote Agents](https://antigravity.google/docs/remote-agents/), which run sessions in an isolated, Google-managed environment and are rolling out to Google AI Pro and Ultra subscribers on personal Google accounts, not Workspace or Google Cloud accounts. Do not start a new evaluation on Jules.
+
+## How to choose
+
+Skip the feature checklist and answer these in order:
+
+1. **Do you want to keep your current agent?** If you are happy with Claude Code or Codex and want them in the cloud, look at the first-party option (Claude Code cloud sessions, Codex cloud) or a multi-agent workspace (Zuse, LemonLime, OpenHands, Conductor locally). GitHub can also run Claude and Codex agents on a paid Copilot plan, in preview. If you are open to a new harness, Cursor, Devin, Amp, and Capy are in play.
+2. **Who should pay for tokens?** Products that let you use an existing subscription or API key (Zuse, LemonLime, Amp, Capy, Conductor, OpenHands, and Devin with a ChatGPT plan) keep inference on bills you already have. Cursor and Copilot bill model usage through their own plans.
+3. **Where must the code run?** Regulated teams should check VPC or self-hosted options first: Devin Enterprise, Cursor self-hosted machines, Claude Code self-hosted environments, Copilot on self-hosted Actions runners, Amp self-hosted orbs, or fully self-hosted OpenHands and LemonLime.
+4. **Which forge?** Codex supports GitHub and GitLab. Cursor and Devin cover the most forges. Copilot, Conductor Cloud, and Zuse cloud chats are GitHub only, and Claude Code cloud sessions need GitHub to clone and open pull requests.
+5. **Can you read it?** If auditing the orchestration code matters, your shortlist is OpenHands, LemonLime, Sculptor, the Codex CLI, and Zuse.
+
+Then run one bounded, reviewable task on two candidates with the same repository and the same prompt. Measure setup time, manual interventions, and how long the review took. Our [open source cloud agents guide](/blog/open-source-cloud-agents) has a checklist for that first task, and [local versus cloud coding agents](/blog/choose-where-agents-run) covers when to keep work on your machine.
+
+If Zuse is on your list, [download it](/download), [start a cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat), and judge it by the diff.

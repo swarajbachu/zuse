@@ -1,6 +1,7 @@
 {
 	"open_source_cloud_beta_live": "<part0></part0>Open source · Cloud beta live",
-	"cloud_coding_agents_open_source": "Open source cloud agents. <part0>Your workspace.</part0>",
+	"cloud_coding_agents_open_source": "Open source cloud agents.",
+	"hero_subtitle": "Run Claude Code, Codex, and other agents in isolated cloud workspaces, or on your machine, and review every change.",
 	"open_source_devin_alternative": "Run coding agents in parallel, locally or in isolated cloud workspaces. Keep tasks separate with Git worktrees, hand off context, and review changes in one place. An open-source alternative to Devin.",
 	"see_how_it_works": "See how it works",
 	"free_in_beta_no_token_markup": "Free in beta · no token markup",
