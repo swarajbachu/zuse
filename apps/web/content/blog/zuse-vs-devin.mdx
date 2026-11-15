@@ -1,0 +1,126 @@
+---
+title: "Zuse vs Devin: an open source Devin alternative, compared honestly"
+description: "Zuse vs Devin compared on pricing, openness, cloud sandboxes, models, and review. See where Devin is stronger and when an open source Devin alternative fits."
+date: "2026-11-15"
+category: "Guide"
+timeToRead: "9 min read"
+authorName: "Zuse team"
+authorRole: "Product and engineering"
+authorAvatar: "/app-icon.png"
+previewImage: "/brand/pegasus-dither.webp"
+labels: [{ name: "Comparison", hex: "#c9f34e" }]
+---
+
+Devin and Zuse both let you hand a coding task to an agent that runs in a cloud machine, keeps working after you close your laptop, and comes back with a branch for you to review. That is where the overlap ends. Devin is a vertically integrated product from Cognition: its own agent, its own model router, its own IDE, and its own cloud. [Zuse](/) is an open-source workspace that runs the coding agents you already use, such as Claude Code and Codex, in isolated cloud workspaces or on your own machine.
+
+We build Zuse, so read this as a vendor comparison and check the linked sources yourself. Every Devin claim below links to Cognition's own docs or pricing page, checked on November 15, 2026. We have not run a controlled benchmark between the two products, so there are no success-rate or speed numbers here.
+
+If you only want the short version: pick Devin if you want one vendor to own the agent, the models, and the enterprise deployment. Pick Zuse if you want to keep your current agents and subscriptions, read the source, and choose where the compute runs.
+
+## At a glance
+
+| | Zuse | Devin |
+| --- | --- | --- |
+| Source code | Published under [AGPL-3.0](https://github.com/swarajbachu/zuse/blob/main/LICENSE) | Proprietary; the agent's "brain" [always runs in Cognition's cloud](https://docs.devin.ai/enterprise/deployment/overview) |
+| Agent | Your choice: [Claude Code, Codex, Cursor, Grok, Kiro, OpenCode, Pi, or any ACP agent](https://docs.zuse.sh/providers) | Devin's own agent (Devin Cloud, [Devin CLI](https://docs.devin.ai/cli/handoff), Devin Desktop) |
+| Models | Whatever the chosen agent supports, on your own account | [Anthropic, OpenAI, Google, Cognition, and open models](https://docs.devin.ai/cli/models), metered by Devin |
+| Cloud sandbox | [boxd, Boat, or E2B](https://docs.zuse.sh/how-to/choose-cloud-provider) machine per chat | Isolated VM per session, [configured with blueprints](https://docs.devin.ai/onboard-devin/environment/blueprints) |
+| Local mode | Desktop app, free during beta, with a [Git worktree per chat](https://docs.zuse.sh/how-to/local-parallel-worktrees) | [Devin CLI and Devin Desktop](https://docs.devin.ai/desktop/devin-desktop-faq) (formerly Windsurf) |
+| Entry price | Local $0 during beta; Cloud $40/month with $35 compute, or your own provider key ([pricing](/pricing)) | Free, Pro $20/month, Max $200/month, Teams from $80/month ([pricing](https://devin.ai/pricing)) |
+| Git hosts for cloud work | GitHub ([docs](https://docs.zuse.sh/how-to/cloud-start-chat)) | GitHub, GitLab, Bitbucket, and Azure DevOps ([pricing](https://devin.ai/pricing), [enterprise docs](https://docs.devin.ai/enterprise/integrations/azure-devops)) |
+| Team chat | [Slack](https://docs.zuse.sh/how-to/slack-start-task) | Slack and Microsoft Teams ([pricing](https://devin.ai/pricing)) |
+| Enterprise deployment | Not offered as a packaged product | [Single-tenant VPC with PrivateLink](https://docs.devin.ai/enterprise/deployment/overview), SSO, SCIM |
+
+## Two different bets
+
+Devin's bet is integration. Cognition describes Devin as an autonomous engineer that can [write, run, and test code](https://docs.devin.ai/get-started/devin-intro), with a shell, an editor, and a browser in its workspace. Since June 2, 2026, Windsurf has been renamed [Devin Desktop](https://docs.devin.ai/desktop/devin-desktop-faq), and Cognition sells Devin Cloud, Devin Desktop, Devin CLI, and Devin Review under one plan. If you want the vendor to tune the agent, the model routing, and the environment together, that is a coherent product.
+
+Zuse's bet is that the agent layer is moving too fast to lock into one vendor. Claude Code, Codex, and the agents in the [ACP registry](https://docs.zuse.sh/providers/acp) each improve on their own schedule. Zuse gives all of them the same timeline, worktrees, permissions, and review flow, and lets you decide whether a chat runs on your laptop or in a cloud machine. Zuse "does not bundle a paid provider subscription," as the [providers page](https://docs.zuse.sh/providers) puts it. You bring the agent account.
+
+Neither approach is free of trade-offs. An integrated product can smooth over gaps between agent and environment that a workspace has to surface to you. A workspace keeps you on the agent you already trust and avoids paying twice for model access.
+
+## How each one runs a cloud task
+
+### Devin
+
+A Devin Cloud session boots from a snapshot of your environment. You describe that environment with a [blueprint](https://docs.devin.ai/onboard-devin/environment/blueprints), a YAML file listing what to install, how to keep dependencies current, and which lint and test commands Devin should know. Devin can generate the blueprint by inspecting your repository, and you approve it before a build produces the snapshot. Cognition also documents [macOS, Windows, and Android emulator environments](https://docs.devin.ai/onboard-devin/environment/macos-support), which matters if you ship mobile or desktop apps.
+
+From the terminal, the Devin CLI can [hand a local session off to the cloud](https://docs.devin.ai/cli/handoff) with `/handoff`, carrying the repo, branch, conversation, and uncommitted diff into a fresh VM. The reverse also works: `/handoff` in a cloud session pulls its pull-request branch back to your machine. That round trip is genuinely well designed.
+
+### Zuse
+
+A Zuse cloud chat runs in its own machine with a fresh branch. You set up once: install the Zuse GitHub App on the repositories you want, connect each agent under **Zuse agent accounts**, and build a cloud image that includes those repositories ([setup guide](https://docs.zuse.sh/how-to/cloud-start-chat)). Then you pick a **Cloud** row in the composer's computer picker, choose the agent and model, and send.
+
+You also choose the machine provider. Zuse supports [boxd, Boat, and E2B](https://docs.zuse.sh/how-to/choose-cloud-provider), and they behave differently when a chat pauses: boxd hibernates and brings memory and processes back, Boat preserves disk and restarts the runtime, and E2B normally keeps both disk and memory. Machine sizes range from 1 vCPU / 4 GB to 8 vCPU / 16 GB depending on provider. Messages you send while a machine is asleep wait in a durable queue and are delivered once the workspace resumes, so you do not have to babysit a wake-up.
+
+The cloud images ship [Claude Code and Codex](https://github.com/swarajbachu/zuse/blob/main/internal-docs/cloud/toolchain-updates.md), and you connect those accounts once for every cloud chat and every provider. Locally, the full provider list applies.
+
+What Zuse does not do is move a chat between places. A local chat cannot become a cloud chat, and a cloud chat cannot come back to your laptop; [the docs](https://docs.zuse.sh/how-to/cloud-start-chat) tell you to push the branch and start a new chat from it. Devin's `/handoff` is smoother here.
+
+## Models and who you pay for tokens
+
+This is the biggest practical difference.
+
+Devin meters model usage against a Devin quota. Paid plans include a [daily and weekly allowance](https://docs.devin.ai/admin/billing/self-serve), and usage past it is bought as on-demand credits at API pricing. Devin supports frontier models from several labs plus its own SWE models, and recommends its [Fusion and Adaptive routing](https://docs.devin.ai/cli/models) for most users. There is one important exception: on Pro, Max, and Teams you can [link a personal ChatGPT plan](https://docs.devin.ai/admin/billing/chatgpt) so GPT usage bills to ChatGPT. Non-GPT models, machine time, and code scans still draw on your Devin quota, and cloud sessions need Devin quota available to start.
+
+Zuse does not resell model access at all. Each agent uses its own sign-in, either a subscription login or an API key ([provider table](https://docs.zuse.sh/providers)). The [pricing page](/pricing) is explicit that Cloud Workspace compute "is infrastructure usage, not model tokens." If you already pay for Claude Max or ChatGPT Pro, Zuse puts that plan to work in a cloud machine instead of adding a second model bill. For more on that setup, see [bring your own keys](/blog/bring-your-own-keys).
+
+The flip side: with Zuse you manage limits across each provider yourself, and you do not get Devin's cross-model router.
+
+## Pricing
+
+Devin's self-serve plans, from its [pricing page](https://devin.ai/pricing) and [billing docs](https://docs.devin.ai/admin/billing/self-serve):
+
+- **Free:** $0, light quota, limited model availability.
+- **Pro:** $20/month, increased quotas and access to Devin Cloud.
+- **Max:** $200/month, significantly higher quotas.
+- **Teams:** $80/month minimum, $40/month per full seat or free flex seats that draw on shared credits, up to 100 members, SSO, and two free-mode cloud sessions per member.
+- **Enterprise:** custom, with dedicated deployment and SCIM.
+
+Zuse's plans, from [zuse.sh/pricing](/pricing) and the [cloud provider docs](https://docs.zuse.sh/how-to/choose-cloud-provider):
+
+- **Local:** $0 during beta. The open-source desktop app with parallel chats, worktrees, terminal, and diff review.
+- **Cloud Workspace:** $40/month with $35 of provider compute included, extra compute at provider cost plus 5%, and a configurable overage cap ($25 by default).
+- **Your own sandbox key:** connect a boxd, Boat, or E2B key and Zuse does not require a subscription for compute billed to that account.
+
+Model costs sit outside both Zuse lines. Compare a real month, not list prices: Devin's figure includes model usage up to its quota, while Zuse's figure is compute only and assumes you already pay for an agent.
+
+## Openness and control
+
+Zuse's source is on [GitHub](https://github.com/swarajbachu/zuse) under AGPL-3.0, and the native Rust rewrite is public at [opcodehq/zuse](https://github.com/opcodehq/zuse). You can read how credentials reach a workspace, how a message becomes a process, and what is stored where. You can also run agents on hardware you own: [Zuse Serve](https://docs.zuse.sh/serve) turns a Mac mini or Linux box into an always-on host you reach from a browser or the iPhone app.
+
+Be precise about what that buys you. Zuse's hosted cloud control plane is operated by us, and we do not ship it as a turnkey self-hosted package today. What you control is the agent, the model account, the sandbox provider account if you bring a key, and the code you can audit.
+
+Devin is closed source. Even in Cognition's Customer Dedicated Deployment, where the Devbox runs in a single-tenant VPC connected over AWS PrivateLink, the [enterprise deployment docs](https://docs.devin.ai/enterprise/deployment/overview) state the brain "always resides within Cognition's Cloud." For many companies that is fine and well documented. For teams that need to inspect the orchestration code, it is a hard stop.
+
+## Reviewing the work
+
+Both products assume a human reviews the output. Devin has [Devin Review](https://docs.devin.ai/work-with-devin/devin-review) and an embedded IDE where you can take over a session.
+
+Zuse keeps review next to the conversation that produced the change. The **Changes** pane shows every changed and untracked file, you run checks in the same chat's terminal, select only the files that belong, commit, and push ([review guide](https://docs.zuse.sh/how-to/local-review-changes)). PR and Checks tabs show the pull request and CI status. The same review flow works from [Zuse for iPhone](https://docs.zuse.sh/mobile), including commit, push, and merge. Read [review the evidence](/blog/review-the-evidence) for how we think about verifying agent output.
+
+## Where Devin is the better choice
+
+Be honest with yourself about these:
+
+- **You want one vendor and one bill.** Devin's plan covers models, cloud, CLI, IDE, and review.
+- **You need GitLab, Bitbucket, or Azure DevOps for cloud tasks.** Zuse Cloud currently requires a GitHub origin.
+- **You need enterprise procurement features today:** dedicated VPC deployment, SCIM, centralized admin, usage budgets, and federal deployments.
+- **You build for macOS, Windows, or Android inside the agent's VM.** Devin documents those environments; Zuse's cloud machines are Linux sandboxes.
+- **You use Microsoft Teams, Linear, or Jira as the front door** for agent tasks.
+- **You want a polished local-to-cloud handoff** of an in-progress session.
+
+## Where Zuse is the better choice
+
+- **You already pay for Claude Code or Codex** and want to use that plan in the cloud instead of buying a second model allowance.
+- **You want to switch agents** as they improve, without changing your workspace, review flow, or history.
+- **You need to read the source**, or your policy requires open-source tooling.
+- **You want to pick the sandbox provider** or bill compute to your own boxd, Boat, or E2B account.
+- **You want strong local work too.** The desktop app is free during beta, with a worktree per chat so parallel agents do not collide. See [parallel agents without collisions](/blog/parallel-agents-without-collisions).
+- **You want an API and Slack entry point** without an enterprise contract. Zuse's [public API](https://docs.zuse.sh/api-reference) creates cloud workspaces from scripts and sends webhooks when they finish.
+
+## Try both on the same task
+
+The fairest test is one bounded bug you understand well. Give both tools the same prompt with a reproducible trigger and the checks to run. Record setup time, how many times you intervened, what the final diff looked like, and what the month would cost at your usage.
+
+To try Zuse, [download the desktop app](/download), connect an agent you already use, and follow [Start a cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat) when you want it off your laptop. If you want a broader evaluation checklist, read our [open source Devin alternative guide](/blog/open-source-coding-agent-alternative) and the [open source cloud agents guide](/blog/open-source-cloud-agents). If you are also weighing a self-hosted open-source option, see [OpenHands vs Zuse](/blog/openhands-vs-zuse).
