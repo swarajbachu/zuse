@@ -18,6 +18,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 			"/changelog",
 			"/blog",
 			"/pricing",
+			"/cloud-coding-agents",
 		].map((path) => ({
 			url: new URL(path, siteConfig.url).toString(),
 		})),

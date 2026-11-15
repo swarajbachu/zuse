@@ -25,12 +25,13 @@ afterAll(() => {
 });
 
 describe("public sitemap", () => {
-	it("discovers articles from the content collection and includes pricing", () => {
+	it("discovers articles from the content collection and includes pricing and the agents directory", () => {
 		const paths = sitemap().map((entry) => new URL(entry.url).pathname);
 		expect(paths).toEqual(
 			expect.arrayContaining([
 				"/blog",
 				"/pricing",
+				"/cloud-coding-agents",
 				"/demo/guided-review",
 				"/blog/first-article",
 				"/blog/new-article",
