@@ -102,8 +102,10 @@ export default function CloudCodingAgentsPage() {
 							come from the latest release&apos;s assets (.dmg, .exe, .AppImage
 							and so on) or the README. Features are marked “Yes” only when the
 							README or homepage says so; the matching sentence and URL are
-							stored with the data. Nothing on these rows is marked “No”:
-							absence of a claim is shown as “—”.
+							stored with the data. These rows say “No” only when the README
+							states outright that a feature or platform is unsupported; absence
+							of a claim is shown as “—”. A product with both a repository and a
+							homepage appears once.
 						</p>
 						<p>
 							Zuse publishes this page and has a row in it. Our row comes from
@@ -142,9 +144,9 @@ export default function CloudCodingAgentsPage() {
 							show “—”. Products that live on a shared domain, like GitHub
 							Copilot, have no fair HN count and no stars, so they show “—”
 							rather than a misleading low score. Domain counts cover every
-							story ever linked from that domain, which can include a company&apos;s
-							other or older products. Raw inputs and the fetch date are in the
-							data file.
+							story ever linked from that domain, which can include a
+							company&apos;s other or older products. Raw inputs and the fetch
+							date are in the data file.
 						</p>
 					</div>
 					<div>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type {
 	Category,
 	FeatureKey,
@@ -178,6 +178,15 @@ interface SortState {
 	reverse: boolean;
 }
 
+/** Keys whose comparator puts A before Z (or the first category first) when not reversed. */
+const ASCENDING_KEYS = new Set<SortKey>(["name", "category", "default"]);
+
+export function sortDirection(sort: SortState): "ascending" | "descending" {
+	return ASCENDING_KEYS.has(sort.key) !== sort.reverse
+		? "ascending"
+		: "descending";
+}
+
 function SortHeader({
 	k,
 	sort,
@@ -194,24 +203,132 @@ function SortHeader({
 	className?: string;
 }) {
 	const active = sort.key === k;
+	const direction = sortDirection(sort);
 	return (
 		<th
 			scope="col"
-			aria-sort={
-				active ? (sort.reverse ? "ascending" : "descending") : undefined
-			}
+			aria-sort={active ? direction : undefined}
 			className={className}
 			title={title}
 		>
 			<button type="button" onClick={() => onSort(k)} className="agents-sort">
 				{children}
 				<span aria-hidden className="agents-sort-mark">
-					{active ? (sort.reverse ? "↑" : "↓") : "↕"}
+					{active ? (direction === "ascending" ? "↑" : "↓") : "↕"}
 				</span>
 			</button>
 		</th>
 	);
 }
+
+/** One table row. Memoized so filtering and sorting only mount or unmount rows. */
+const AgentRowView = memo(function AgentRowView({ row }: { row: TableRow }) {
+	return (
+		<tr id={row.id}>
+			<th scope="row" className="agents-sticky">
+				<a
+					href={row.url}
+					rel="nofollow noopener"
+					target="_blank"
+					className="agents-name"
+				>
+					{row.name}
+				</a>
+				{row.status && <span className="agents-status">{row.status}</span>}
+				{row.verification === "hand" && (
+					<span className="agents-hand" title="Every cell checked by hand">
+						Hand-checked
+					</span>
+				)}
+			</th>
+			<td className="agents-muted">{row.category}</td>
+			<td className="agents-agents">
+				{row.agents.length === 0 && !row.acp ? (
+					"—"
+				) : (
+					<details>
+						<summary>
+							<span className="agents-num">{row.agents.length}</span>
+							{row.acp && <span className="agents-plus">+ACP</span>}
+						</summary>
+						<span className="agents-list">
+							{row.agents.join(", ")}
+							{row.acp &&
+								(row.agents.length ? ", any ACP agent" : "Any ACP agent")}
+							{row.agentsNote && (
+								<span className="agents-muted"> {row.agentsNote}</span>
+							)}
+						</span>
+					</details>
+				)}
+			</td>
+			{FEATURE_ORDER.map((k) => (
+				<TriCell
+					key={k}
+					value={row.features[k]}
+					label={FEATURE_LABELS[k].long}
+				/>
+			))}
+			<td className="agents-tri" data-value={row.openSource}>
+				{row.openSource === "yes"
+					? row.license
+					: row.openSource === "no"
+						? "No"
+						: "—"}
+			</td>
+			{PLATFORM_ORDER.map((k) => (
+				<TriCell key={k} value={row.platforms[k]} label={PLATFORM_LABELS[k]} />
+			))}
+			<td className="agents-price">{row.pricing ?? "—"}</td>
+			<TriCell value={row.freeCloud} label="Free cloud tier" />
+			<td className="agents-num-cell">{row.reputation ?? "—"}</td>
+			<td className="agents-muted agents-nowrap">{formatSince(row.since)}</td>
+			<td className="agents-notes">
+				<details>
+					<summary>{row.description ?? "Details"}</summary>
+					<div className="agents-more">
+						{row.pricingDetail && <p>{row.pricingDetail}</p>}
+						{row.notes && <p>{row.notes}</p>}
+						{row.integrations.length > 0 && (
+							<p>Integrations named: {row.integrations.join(", ")}.</p>
+						)}
+						<p className="agents-muted">
+							{row.stars !== null && (
+								<>GitHub stars {row.stars.toLocaleString("en-US")}. </>
+							)}
+							{row.hnStories !== null && (
+								<>Hacker News stories {row.hnStories}. </>
+							)}
+							{row.pushedAt && <>Last push {row.pushedAt}. </>}
+							{row.sinceNote && <>Since: {row.sinceNote.toLowerCase()}. </>}
+						</p>
+						{row.compare && (
+							<p>
+								<Link
+									href={row.compare.href}
+									className="text-primary underline underline-offset-4"
+								>
+									{row.compare.label}
+								</Link>
+							</p>
+						)}
+						<p className="agents-sources">
+							Sources:{" "}
+							{row.sources.map((src, i) => (
+								<span key={src}>
+									{i > 0 && ", "}
+									<a href={src} rel="nofollow noopener" target="_blank">
+										{hostOf(src)}
+									</a>
+								</span>
+							))}
+						</p>
+					</div>
+				</details>
+			</td>
+		</tr>
+	);
+});
 
 export function AgentsTable({ rows }: { rows: TableRow[] }) {
 	const [category, setCategory] = useState<Category | "All">("All");
@@ -431,135 +548,7 @@ export function AgentsTable({ rows }: { rows: TableRow[] }) {
 					</thead>
 					<tbody>
 						{visible.map((row) => (
-							<tr key={row.id} id={row.id}>
-								<th scope="row" className="agents-sticky">
-									<a
-										href={row.url}
-										rel="nofollow noopener"
-										target="_blank"
-										className="agents-name"
-									>
-										{row.name}
-									</a>
-									{row.status && (
-										<span className="agents-status">{row.status}</span>
-									)}
-									{row.verification === "hand" && (
-										<span
-											className="agents-hand"
-											title="Every cell checked by hand"
-										>
-											Hand-checked
-										</span>
-									)}
-								</th>
-								<td className="agents-muted">{row.category}</td>
-								<td className="agents-agents">
-									{row.agents.length === 0 && !row.acp ? (
-										"—"
-									) : (
-										<details>
-											<summary>
-												<span className="agents-num">{row.agents.length}</span>
-												{row.acp && <span className="agents-plus">+ACP</span>}
-											</summary>
-											<span className="agents-list">
-												{row.agents.join(", ")}
-												{row.acp &&
-													(row.agents.length
-														? ", any ACP agent"
-														: "Any ACP agent")}
-												{row.agentsNote && (
-													<span className="agents-muted">
-														{" "}
-														{row.agentsNote}
-													</span>
-												)}
-											</span>
-										</details>
-									)}
-								</td>
-								{FEATURE_ORDER.map((k) => (
-									<TriCell
-										key={k}
-										value={row.features[k]}
-										label={FEATURE_LABELS[k].long}
-									/>
-								))}
-								<td className="agents-tri" data-value={row.openSource}>
-									{row.openSource === "yes"
-										? row.license
-										: row.openSource === "no"
-											? "No"
-											: "—"}
-								</td>
-								{PLATFORM_ORDER.map((k) => (
-									<TriCell
-										key={k}
-										value={row.platforms[k]}
-										label={PLATFORM_LABELS[k]}
-									/>
-								))}
-								<td className="agents-price">{row.pricing ?? "—"}</td>
-								<TriCell value={row.freeCloud} label="Free cloud tier" />
-								<td className="agents-num-cell">{row.reputation ?? "—"}</td>
-								<td className="agents-muted agents-nowrap">
-									{formatSince(row.since)}
-								</td>
-								<td className="agents-notes">
-									<details>
-										<summary>{row.description ?? "Details"}</summary>
-										<div className="agents-more">
-											{row.pricingDetail && <p>{row.pricingDetail}</p>}
-											{row.notes && <p>{row.notes}</p>}
-											{row.integrations.length > 0 && (
-												<p>
-													Integrations named: {row.integrations.join(", ")}.
-												</p>
-											)}
-											<p className="agents-muted">
-												{row.stars !== null && (
-													<>
-														GitHub stars {row.stars.toLocaleString("en-US")}.{" "}
-													</>
-												)}
-												{row.hnStories !== null && (
-													<>Hacker News stories {row.hnStories}. </>
-												)}
-												{row.pushedAt && <>Last push {row.pushedAt}. </>}
-												{row.sinceNote && (
-													<>Since: {row.sinceNote.toLowerCase()}. </>
-												)}
-											</p>
-											{row.compare && (
-												<p>
-													<Link
-														href={row.compare.href}
-														className="text-primary underline underline-offset-4"
-													>
-														{row.compare.label}
-													</Link>
-												</p>
-											)}
-											<p className="agents-sources">
-												Sources:{" "}
-												{row.sources.map((src, i) => (
-													<span key={src}>
-														{i > 0 && ", "}
-														<a
-															href={src}
-															rel="nofollow noopener"
-															target="_blank"
-														>
-															{hostOf(src)}
-														</a>
-													</span>
-												))}
-											</p>
-										</div>
-									</details>
-								</td>
-							</tr>
+							<AgentRowView key={row.id} row={row} />
 						))}
 					</tbody>
 				</table>

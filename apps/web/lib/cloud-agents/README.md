@@ -8,7 +8,9 @@ Data for `/cloud-coding-agents`. Checked on 2026-11-15.
   - license, stars, creation date, last push and archived flag come from the GitHub GraphQL API;
   - macOS/Windows/Linux come from the latest GitHub release's asset names, or a README sentence;
   - feature values are "yes" only when a README or homepage sentence says so. That sentence is
-    stored as `quote` next to its `src` URL. Generated rows are never "no";
+    stored as `quote` next to its `src` URL. Generated rows are "no" only when the README says
+    outright that the feature or platform is unsupported (the sentence is the `quote`);
+  - a homepage-only row for a product that also has a repository row is merged into that row;
   - `reputation.hnStories` counts Hacker News stories whose URL points at the repo or homepage
     (hn.algolia.com, `restrictSearchableAttributes=url`, `tags=story`).
 - `meta.excluded` lists candidates left out and why.
