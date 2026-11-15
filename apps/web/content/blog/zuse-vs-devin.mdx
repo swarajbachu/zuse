@@ -1,6 +1,6 @@
 ---
-title: "Zuse vs Devin: an open source Devin alternative, compared honestly"
-description: "Zuse vs Devin compared on pricing, openness, cloud sandboxes, models, and review. See where Devin is stronger and when an open source Devin alternative fits."
+title: "Zuse vs Devin: pricing, cloud agents, and models compared"
+description: "Zuse vs Devin, side by side: pricing, who pays for model tokens, cloud sandboxes, Git hosts, and review. Where Devin is stronger, and when Zuse fits better."
 date: "2026-11-15"
 category: "Guide"
 timeToRead: "9 min read"
@@ -14,6 +14,8 @@ labels: [{ name: "Comparison", hex: "#c9f34e" }]
 Devin and Zuse both let you hand a coding task to an agent that runs in a cloud machine, keeps working after you close your laptop, and comes back with a branch for you to review. That is where the overlap ends. Devin is a vertically integrated product from Cognition: its own agent, its own model router, its own IDE, and its own cloud. [Zuse](/) is an open-source workspace that runs the coding agents you already use, such as Claude Code and Codex, in isolated cloud workspaces or on your own machine.
 
 We build Zuse, so read this as a vendor comparison and check the linked sources yourself. Every Devin claim below links to Cognition's own docs or pricing page, checked on November 15, 2026. We have not run a controlled benchmark between the two products, so there are no success-rate or speed numbers here.
+
+This page is a head-to-head comparison. If you are still deciding what an open-source alternative to Devin should even include, start with our [open source Devin alternative guide](/blog/open-source-coding-agent-alternative), which covers evaluation criteria rather than a product matchup.
 
 If you only want the short version: pick Devin if you want one vendor to own the agent, the models, and the enterprise deployment. Pick Zuse if you want to keep your current agents and subscriptions, read the source, and choose where the compute runs.
 
@@ -81,9 +83,9 @@ Zuse's plans, from [zuse.sh/pricing](/pricing) and the [cloud provider docs](htt
 
 - **Local:** $0 during beta. The open-source desktop app with parallel chats, worktrees, terminal, and diff review.
 - **Cloud Workspace:** $40/month with $35 of provider compute included, extra compute at provider cost plus 5%, and a configurable overage cap ($25 by default).
-- **Your own sandbox key:** connect a boxd, Boat, or E2B key and Zuse does not require a subscription for compute billed to that account.
+- **Your own sandbox key:** connect a boxd, Boat, or E2B key and Zuse does not require a Zuse subscription; that provider bills you for the compute directly.
 
-Model costs sit outside both Zuse lines. Compare a real month, not list prices: Devin's figure includes model usage up to its quota, while Zuse's figure is compute only and assumes you already pay for an agent.
+Zuse Cloud is not free: you pay either the $40 plan or your sandbox provider. Model costs sit outside both of those lines. Compare a real month, not list prices: Devin's figure includes model usage up to its quota, while Zuse's figure is compute only and assumes you already pay for an agent.
 
 ## Openness and control
 
@@ -123,4 +125,4 @@ Be honest with yourself about these:
 
 The fairest test is one bounded bug you understand well. Give both tools the same prompt with a reproducible trigger and the checks to run. Record setup time, how many times you intervened, what the final diff looked like, and what the month would cost at your usage.
 
-To try Zuse, [download the desktop app](/download), connect an agent you already use, and follow [Start a cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat) when you want it off your laptop. If you want a broader evaluation checklist, read our [open source Devin alternative guide](/blog/open-source-coding-agent-alternative) and the [open source cloud agents guide](/blog/open-source-cloud-agents). If you are also weighing a self-hosted open-source option, see [OpenHands vs Zuse](/blog/openhands-vs-zuse).
+To try Zuse, [download the desktop app](/download), connect an agent you already use, and follow [Start a cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat) when you want it off your laptop. For a broader evaluation checklist, see the the [open source cloud agents guide](/blog/open-source-cloud-agents). If you are also weighing a self-hosted open-source option, see [OpenHands vs Zuse](/blog/openhands-vs-zuse).
