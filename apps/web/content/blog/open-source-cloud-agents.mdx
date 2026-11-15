@@ -65,7 +65,7 @@ Questions worth answering before you connect a repository to any cloud agent:
 - How is the repository cloned and pushed, and with whose identity?
 - What is stored after the task ends, and where?
 
-With Zuse you can answer those from the [source](https://github.com/swarajbachu/zuse). The workspace is licensed under [AGPL-3.0](https://github.com/swarajbachu/zuse/blob/main/LICENSE). The native Rust rewrite, [opcodehq/zuse](https://github.com/opcodehq/zuse), is public under the same license and documents its cloud design, acceptance status, and open gaps in the repository.
+With Zuse you can answer those from the [source](https://github.com/opcodehq/zuse). The workspace is licensed under [AGPL-3.0](https://github.com/opcodehq/zuse/blob/main/LICENSE). The native Rust rewrite, [opcodehq/zuse](https://github.com/opcodehq/zuse), is public under the same license and documents its cloud design, acceptance status, and open gaps in the repository.
 
 ### You can run it on infrastructure you control
 
@@ -190,7 +190,7 @@ These products overlap with Zuse in different ways. The descriptions below come 
 | [Devin](https://docs.devin.ai/get-started/devin-intro) | Cognition-managed; Devin for Terminal runs locally | Devin; Devin Desktop also runs [third-party agents over ACP](https://docs.devin.ai/desktop/acp) | Closed |
 | [Amp](https://ampcode.com/docs/orbs) | Amp-managed "Orbs", or local | Amp | Closed |
 | [OpenHands](https://github.com/OpenHands/OpenHands) | Your laptop, a VM, Docker, or OpenHands Cloud | OpenHands agent, Claude Code, Codex, and other ACP agents | MIT core; OpenHands Cloud is commercial |
-| [Zuse](https://github.com/swarajbachu/zuse) | Your machine, your VM via Zuse Serve, or cloud chats on boxd, Boat, or E2B | Claude Code, Codex, Cursor, Grok, OpenCode, and others | AGPL-3.0 |
+| [Zuse](https://github.com/opcodehq/zuse) | Your machine, your VM via Zuse Serve, or cloud chats on boxd, Boat, or E2B | Claude Code, Codex, Cursor, Grok, OpenCode, and others | AGPL-3.0 |
 
 A vendor's own cloud agent is the easiest start if you've standardized on that vendor, and some (GitHub Copilot, Devin Desktop) now run other agents too. Zuse is for teams that want to choose the agent per task, keep their existing plans, and be able to read the code that holds their credentials. OpenHands is the closest open source comparison; it leans toward self-hosted agent servers and automations, while Zuse leans toward a desktop and mobile workspace with managed cloud machines and local worktrees in the same sidebar. If you're comparing with Devin specifically, read our [open source Devin alternative guide](/blog/open-source-coding-agent-alternative).
 
@@ -240,4 +240,4 @@ No. They produce branches and evidence faster, which makes review the bottleneck
 
 ## Start with one reviewable task
 
-[Download Zuse](/download), read the [setup docs](https://docs.zuse.sh), or [inspect the source](https://github.com/swarajbachu/zuse). The [journal](/blog) has release notes and engineering write-ups as the cloud workspace evolves.
+[Download Zuse](/download), read the [setup docs](https://docs.zuse.sh), or [inspect the source](https://github.com/opcodehq/zuse). The [journal](/blog) has release notes and engineering write-ups as the cloud workspace evolves.

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Container } from "@/components/container";
 import { PageMasthead } from "@/components/page-masthead";
 import { getSEO } from "@/lib/seo";
+import { GITHUB_URL } from "@/lib/site";
 
 export const metadata = getSEO({
 	title: "Developer Resources",
@@ -40,11 +41,10 @@ const resources = [
 		label: "Open llms.txt",
 	},
 	{
-		title: "Local MCP integration",
-		description:
-			"The open-source MCP server connects compatible clients to the installed Zuse desktop app over stdio.",
-		href: "https://github.com/swarajbachu/zuse/tree/main/apps/mcp-server",
-		label: "View MCP server source",
+		title: "Source code",
+		description: "Explore Zuse’s source code and integration documentation.",
+		href: GITHUB_URL,
+		label: "View source code",
 	},
 ];
 
