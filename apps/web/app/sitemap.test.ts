@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/source", () => ({
 	blog: {
@@ -10,6 +10,19 @@ vi.mock("@/lib/source", () => ({
 }));
 
 import sitemap from "./sitemap";
+
+// Runs before the static imports: `siteConfig.url` is read when `@/lib/seo` loads,
+// so a preview NEXT_PUBLIC_SITE_URL in the shell would otherwise leak in.
+const originalSiteUrl = vi.hoisted(() => {
+	const value = process.env.NEXT_PUBLIC_SITE_URL;
+	delete process.env.NEXT_PUBLIC_SITE_URL;
+	return value;
+});
+
+afterAll(() => {
+	if (originalSiteUrl === undefined) delete process.env.NEXT_PUBLIC_SITE_URL;
+	else process.env.NEXT_PUBLIC_SITE_URL = originalSiteUrl;
+});
 
 describe("public sitemap", () => {
 	it("discovers articles from the content collection and includes pricing", () => {

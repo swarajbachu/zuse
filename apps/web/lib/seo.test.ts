@@ -1,6 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import robots from "../app/robots";
 import { getSEO, resolveSiteUrl, siteConfig } from "./seo";
+
+// Runs before the static imports: `siteConfig.url` is read when `./seo` loads,
+// so a preview NEXT_PUBLIC_SITE_URL in the shell would otherwise leak in.
+const originalSiteUrl = vi.hoisted(() => {
+	const value = process.env.NEXT_PUBLIC_SITE_URL;
+	delete process.env.NEXT_PUBLIC_SITE_URL;
+	return value;
+});
+
+afterAll(() => {
+	if (originalSiteUrl === undefined) delete process.env.NEXT_PUBLIC_SITE_URL;
+	else process.env.NEXT_PUBLIC_SITE_URL = originalSiteUrl;
+});
 
 describe("resolveSiteUrl", () => {
 	it("defaults and normalizes the apex host to www", () => {
