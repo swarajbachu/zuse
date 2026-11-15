@@ -37,7 +37,7 @@ We build [Zuse](/), so treat our section with appropriate skepticism. Everything
 | [LemonLime](#lemonlime) | Claude Code, Codex, OpenCode, any ACP agent | Yes (MIT) | LemonLime VMs or self-hosted | $5/month plus your AI plan |
 | [Zuse](#zuse) | Claude Code, Codex, Grok, Gemini, Cursor, OpenCode, Pi | Yes (AGPL-3.0) | Zuse Cloud, your boxd/Boat/E2B account, or locally | Free locally, $40/month Cloud |
 
-[Conductor](#local-parallel-agents-conductor-and-sculptor) and [Sculptor](#local-parallel-agents-conductor-and-sculptor) come up in the same searches but run agents on your own machine; they are covered at the end.
+[Conductor](#conductor-and-sculptor-mac-first-parallel-agents) and [Sculptor](#conductor-and-sculptor-mac-first-parallel-agents) come up in the same searches. Conductor offers both local and cloud workspaces from its Mac app; Sculptor runs agents on your own machine. Both are covered at the end.
 
 ## Vendor clouds: one company's agent, one company's machines
 
@@ -147,11 +147,11 @@ Where we are behind, plainly:
 
 The fit is narrow on purpose: you already use Claude Code or Codex, you want those agents running in isolated cloud machines rather than a vendor's replacement agent, you want to see and review every change, and you want the source.
 
-## Local parallel agents: Conductor and Sculptor
+## Conductor and Sculptor: Mac-first parallel agents
 
-These come up in the same searches, but they are not cloud agents.
+These come up in the same searches. Both started as local tools, and Conductor has since added a cloud mode.
 
-[Conductor](https://docs.conductor.build) runs Claude Code, Codex, Cursor, and OpenCode in parallel on your Mac, each in its own workspace with a branch, terminal, and diff. Its [FAQ](https://docs.conductor.build/faq) is admirably direct: agents run with your user's permissions, "without sandboxing", and the product is currently free. It is a polished local tool, and the work stops when the Mac does.
+[Conductor](https://docs.conductor.build) runs Claude Code, Codex, Cursor, and OpenCode in parallel on your Mac, each in its own workspace with a branch, terminal, and diff. For local workspaces its [FAQ](https://docs.conductor.build/faq) is admirably direct: agents run with your user's permissions, "without sandboxing", and the app is currently free. Local work stops when the Mac does. [Conductor Cloud](https://www.conductor.build/docs/cloud) changes that: each cloud workspace is an isolated Linux sandbox (a Vercel Sandbox in `us-east-1`) built from a shared org environment, and agents keep running after you close the laptop until the sandbox sleeps. Per the [Cloud FAQ](https://www.conductor.build/docs/cloud/faq), cloud workspaces need a Pro, Teams, or Enterprise plan, support GitHub repositories only, and store chat messages on Conductor's servers. You can still bring your own subscriptions or API keys, there is no extra compute fee today, and running the sandboxes on your own machines is not available yet.
 
 [Sculptor](https://imbue.com/sculptor/) from Imbue runs each agent in its own container rather than a worktree, and Pairing Mode syncs an agent's work into your local repo so you can test it in your IDE. It supports Claude Code and Codex, runs on Apple Silicon Macs and Linux, and its [repository](https://github.com/imbue-ai/sculptor) is MIT licensed.
 
