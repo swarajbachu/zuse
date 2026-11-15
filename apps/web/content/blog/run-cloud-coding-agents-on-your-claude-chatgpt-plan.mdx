@@ -20,23 +20,23 @@ Cloud agents don't change how Claude Code or Codex authenticate. They run the sa
 
 ### Claude Code
 
-[Claude Code's authentication docs](https://code.claude.com/docs/en/authentication) list these methods:
+[Claude Code's authentication docs](https://code.claude.com/docs/en/authentication) list these methods for individuals (organizations can also use Claude Console logins or a self-hosted gateway):
 
 - **Claude subscription login.** Pro, Max, Ultra, Team, and Enterprise accounts sign in through a browser with `/login` or `claude auth login`. On a remote machine where the browser can't open, press `c` to copy the login URL, and paste the code back into the terminal if the browser shows one.
 - **Long-lived subscription token.** `claude setup-token` runs the same browser authorization and prints a one-year OAuth token. You set it as `CLAUDE_CODE_OAUTH_TOKEN` where you want to authenticate. Anthropic documents it for "CI pipelines, scripts, or other environments where interactive browser login isn't available." It requires a Pro, Max, Ultra, Team, or Enterprise plan and can only make model requests.
 - **API key.** `ANTHROPIC_API_KEY` from the Claude Console, billed per token.
 - **Cloud providers.** Amazon Bedrock, Google Cloud's Agent Platform, or Microsoft Foundry credentials.
 
-One gotcha matters for cloud machines. When several credentials are present, Claude Code picks one by [precedence](https://code.claude.com/docs/en/authentication#authentication-precedence), and `ANTHROPIC_API_KEY` ranks above `CLAUDE_CODE_OAUTH_TOKEN` and above your `/login` subscription. A stray API key in a machine image silently moves you from plan usage to API billing. Run `/status` inside Claude Code to see which credential is active.
+One gotcha matters for cloud machines. When several credentials are present, Claude Code picks one by [precedence](https://code.claude.com/docs/en/authentication#authentication-precedence), and `ANTHROPIC_API_KEY` ranks above `CLAUDE_CODE_OAUTH_TOKEN` and above your `/login` subscription. In an interactive session Claude Code asks once whether to use the key and remembers your answer; in non-interactive mode (`-p`) it always uses a key that is present. Either way, a stray API key in a machine image can move you from plan usage to API billing. Run `/status` inside Claude Code to see which credential is active.
 
 ### Codex
 
-[Codex's authentication docs](https://developers.openai.com/codex/auth) list two ways for a person to sign in:
+[Codex's authentication docs](https://learn.chatgpt.com/docs/auth) list two ways for a person to sign in:
 
-- **Sign in with ChatGPT** for subscription access. `codex login` opens a browser. On a remote or headless machine, use device code authentication: enable device code login in your ChatGPT security settings (or ask your workspace admin), then run `codex login --device-auth`, open the link, and enter the one-time code.
+- **Sign in with ChatGPT** for subscription access. `codex login` opens a browser. On a remote or headless machine, use device code authentication (in beta): enable device code login in your ChatGPT security settings (or ask your workspace admin), then run `codex login --device-auth`, open the link, and enter the one-time code.
 - **API key** for usage-based access, with `codex login --with-api-key`. OpenAI notes this uses standard API pricing "instead of included ChatGPT plan credits."
 
-Check that your plan includes Codex on [OpenAI's Codex pricing page](https://developers.openai.com/codex/pricing). At the time of writing it lists Codex in the CLI and on the web for Plus, Pro, Business, and Enterprise/Edu. Codex caches the login in `~/.codex/auth.json` or your OS credential store, and OpenAI's docs say to treat that file like a password.
+Check that your plan includes Codex on [OpenAI's Codex pricing page](https://learn.chatgpt.com/docs/pricing). At the time of writing it lists Codex in the CLI and on the web for Plus, Pro, Business, and Enterprise/Edu. Codex caches the login in `~/.codex/auth.json` or your OS credential store, and OpenAI's docs say to treat that file like a password.
 
 ## What the terms say
 
@@ -46,23 +46,25 @@ Read this before choosing a setup. We're quoting the provider pages directly bec
 
 Anthropic's [legal and compliance page for Claude Code](https://code.claude.com/docs/en/legal-and-compliance) separates two cases:
 
-- Subscription OAuth "is intended exclusively for purchasers of Claude Free, Pro, Max, Ultra, Team, and Enterprise subscription plans and is designed to support ordinary use of Claude Code and other native Anthropic applications." Advertised Pro, Max, and Ultra usage limits "assume ordinary, individual usage of Claude Code and the Agent SDK."
-- Developers building products "should use API key authentication." Anthropic "does not permit third-party developers to offer Claude.ai login into their own applications, or to route requests through Free, Pro, Max, or Ultra plan credentials on behalf of their users," and developers "may not collect, store, or intermediate Claude.ai credentials or session tokens."
+- OAuth authentication "is intended exclusively for purchasers of Claude Free, Pro, Max, Ultra, Team, and Enterprise subscription plans and is designed to support ordinary use of Claude Code and other native Anthropic applications." Advertised Pro, Max, and Ultra usage limits "assume ordinary, individual usage of Claude Code and the Agent SDK."
+- Developers building products "should use API key authentication." Anthropic "does not permit third-party developers to offer Claude.ai login into their own applications, or to route requests through Free, Pro, Max, or Ultra plan credentials on behalf of their users," and developers "may not collect, store, or intermediate Claude.ai credentials or session tokens". The same sentence adds that "sign-in to a Claude account must complete through Anthropic's own flow."
 
-The same page says this doesn't prevent "an end user from signing in to the unmodified Claude Code binary with their own Claude subscription, including where a platform hosts Claude Code," subject to conditions: the binary is unmodified, each user authenticates with their own credentials, and usage isn't resold. It also says API keys can be configured "in a development environment, secrets manager, or machine image for use by the customer's own authorized users."
+The same page says this doesn't prevent "an end user from signing in to the unmodified Claude Code binary with their own Claude subscription, including where a platform hosts Claude Code," under the conditions that page sets for platforms that run Claude Code: the platform agrees to Anthropic's Commercial Terms, the binary is unmodified with none of its sign-in methods removed, each end user authenticates with their own credentials and is billed directly, and the platform doesn't pay for, resell, or intermediate that usage. It also says API keys can be configured "in a development environment, secrets manager, or machine image for use by the customer's own authorized users."
 
-In practical terms: use your own plan, for your own work, through the official `claude` CLI. Don't share one subscription across a team or a shared bot. For team automation and CI, Anthropic points to API keys. We're not your lawyers. If your company needs a definite answer for a hosted setup, use an API key or cloud-provider credential, or ask Anthropic.
+In practical terms: use your own plan, for your own work, through the official `claude` CLI. Don't share one subscription across a team or a shared bot. Anthropic points developers building products to API keys. For your own CI and scripts, its authentication docs document `claude setup-token`. We're not your lawyers. If your company needs a definite answer for a hosted setup, use an API key or cloud-provider credential, or ask Anthropic.
 
 ### OpenAI
 
-OpenAI's [Codex auth docs](https://developers.openai.com/codex/auth) describe device code login for "a remote or headless environment" as the preferred path, and recommend API keys for "programmatic Codex CLI workflows, such as CI/CD jobs." They also say: "Don't expose Codex execution in untrusted or public environments." With a ChatGPT sign-in, Codex usage follows your ChatGPT workspace's permissions and data settings; with an API key, your API organization's settings apply.
+OpenAI's [Codex auth docs](https://learn.chatgpt.com/docs/auth) describe device code login for "a remote or headless environment" as the preferred path, and recommend API keys for "programmatic Codex CLI workflows, such as CI/CD jobs." They also say: "Don't expose Codex execution in untrusted or public environments." With a ChatGPT sign-in, Codex usage follows your ChatGPT workspace's permissions and data settings; with an API key, your API organization's settings apply. ChatGPT Enterprise workspaces can also issue Codex access tokens for "trusted scripts, schedulers, and private CI runners."
+
+The Codex docs don't address third-party hosted services directly. OpenAI's separate [Sign in with ChatGPT docs](https://developers.openai.com/siwc/token-sharing-open-source), which let apps use a user's ChatGPT plan through OAuth, say they cover "open-source and locally hosted apps," and ask anyone "interested in offering it in a paid or remotely hosted app" to complete an interest form. Zuse cloud chats don't use that program; they run the official `codex login --device-auth` flow in a private environment for your account. If your company needs a definite answer, use an API key or ask OpenAI.
 
 ## Option 1: the vendor's own cloud
 
 The simplest way to run each agent in the cloud on your plan is the vendor's hosted product.
 
 - **Claude Code cloud sessions.** [Available](https://code.claude.com/docs/en/claude-code-on-the-web) on Pro, Max, Ultra, and Team plans, and for some Enterprise seats. Start one at claude.ai/code, in the Claude app, or with `claude --cloud "your task"` from a repository. Anthropic says usage counts toward your plan's limits and "there's no separate charge for the cloud VM."
-- **Codex Cloud.** [Codex Cloud](https://developers.openai.com/codex/cloud) requires signing in with ChatGPT. Start a chat on the web or in the desktop app and choose **Work in → Cloud**.
+- **Codex Cloud.** [Codex Cloud](https://learn.chatgpt.com/docs/cloud) requires signing in with ChatGPT. Start a chat on the web or in the desktop app and choose **Work in → Cloud**.
 
 The tradeoff: each runs one vendor's agent on that vendor's machines. If you use both Claude Code and Codex, you get two task lists, two review surfaces, and two environment configs.
 
@@ -70,18 +72,20 @@ The tradeoff: each runs one vendor's agent on that vendor's machines. If you use
 
 If you want both agents on one machine you control, run them on a VM you rent and attach it to Zuse. The CLIs are signed in with your account, on your machine, using each vendor's documented headless flow.
 
-[Zuse Serve](https://docs.zuse.sh/serve) turns a Mac or Linux computer into an environment you open from the hosted web app or Zuse for iPhone. The machine keeps its repositories, agent CLIs, credentials, and sessions. It needs a systemd user session on Linux and Node.js 22.13.0 or newer.
+[Zuse Serve](https://docs.zuse.sh/serve) turns a Mac or Linux computer into an environment you open from the hosted web app or Zuse for iPhone. The machine keeps its repositories, agent CLIs, credentials, and sessions. It needs Node.js 22.13.0 or newer, and on Linux a systemd user session for durable background operation.
 
 1. **Install the CLIs** on the VM:
 
    ```bash
-   npm i -g @anthropic-ai/claude-code
+   curl -fsSL https://claude.ai/install.sh | bash
    npm i -g @openai/codex
    ```
 
+   The first line is Anthropic's [recommended native installer](https://code.claude.com/docs/en/setup); `npm i -g @anthropic-ai/claude-code` also works.
+
    Zuse requires Codex CLI [0.128.0 or newer](https://docs.zuse.sh/providers/codex).
 
-2. **Sign in to Claude Code** with your subscription. Over SSH, run `claude auth login`, copy the URL into your local browser, and paste the code back if prompted. Check with `claude --version` and `/status` in a session.
+2. **Sign in to Claude Code** with your subscription. Over SSH, run `claude auth login`, open the login URL in your local browser (press `c` to copy it), and paste the code back if prompted. Check with `claude --version` and `/status` in a session.
 
 3. **Sign in to Codex** with ChatGPT. Enable device code login in ChatGPT's security settings, then run `codex login --device-auth` and enter the code. Confirm with `codex login status`.
 
@@ -93,11 +97,11 @@ If you want both agents on one machine you control, run them on a VM you rent an
    npx @zusehq/serve
    ```
 
-   Finish account authorization in a browser and wait for **Zuse Serve is ready**. On Linux it installs a systemd user service, so it keeps running after you close the SSH session.
+   Finish account authorization in a browser and wait for **Zuse Serve is ready**. On Linux it installs a systemd user service. systemd stops a user's services when their last session ends unless [lingering](https://www.freedesktop.org/software/systemd/man/latest/loginctl.html) is enabled, so on a VM run `sudo loginctl enable-linger $USER` once to keep Serve running after you close the SSH session.
 
 6. **Open the hosted app** with the same account, select the computer, and start a chat. Each chat can use its own [Git worktree](https://docs.zuse.sh/projects/worktrees) on the VM, so several Claude Code and Codex tasks run in parallel without touching each other's files.
 
-You can also skip Serve's account linking and [add the VM over SSH](https://docs.zuse.sh/remote/other-computers) from the desktop app. Zuse installs a private runtime bound to loopback and uses your existing SSH setup. The provider CLIs still need to be installed and signed in on that machine.
+You can also skip Serve's account linking and [add the VM over SSH](https://docs.zuse.sh/remote/other-computers) from the desktop app. Zuse installs a private runtime bound to loopback and uses your existing SSH setup. The VM needs Node.js 22.5 or newer and npm. The provider CLIs still need to be installed and signed in on that machine.
 
 The isolation boundary here is your VM. Agents with **Full access** can do anything your VM user can, so give that user only the repository and network access the tasks need. See [modes and permissions](https://docs.zuse.sh/composer/modes-permissions).
 
@@ -116,13 +120,13 @@ Open **Settings → Cloud workspaces · Public beta** and find **Zuse agent acco
 | Cursor | Cursor API key |
 | Grok | Grok device login, xAI API key, or compatible endpoint |
 
-**Claude Code with your subscription:** run `claude setup-token` on a trusted computer, then paste the new token into Zuse. Zuse asks for a freshly issued token and doesn't read the Claude credentials already on your machine. Given the Anthropic terms quoted above, use an Anthropic API key instead if you need a clear-cut answer for a company account.
+**Claude Code with your subscription:** run `claude setup-token` on a trusted computer, then paste the new token into Zuse. Zuse asks for a token made for this purpose and doesn't read or import the Claude credentials already on your machine. Given the Anthropic terms quoted above, use an Anthropic API key instead if you need a clear-cut answer for a company account.
 
 **Codex with your ChatGPT plan:** in ChatGPT, open **Settings → Security** and enable device code authorization (managed workspaces may need an admin). In Zuse, start the login. Zuse runs the official `codex login --device-auth` flow inside your private cloud environment and shows the code. Open the authorization page, sign in to the ChatGPT workspace you intend to use, and enter the code. It expires after 15 minutes. Only approve a login you started.
 
 **API keys and endpoints:** paste the key, or a base URL plus secret for a compatible endpoint. This is the right choice for shared team setups and for anything that should bill per token.
 
-You connect each agent once for all cloud chats, and the same connection works on every compute provider. Rebuilding your image keeps it.
+You connect each agent once for all cloud chats, and the same connection works on every compute provider. The connection lives in your private authentication service, not in the image.
 
 ### What happens to the credential
 
@@ -130,7 +134,8 @@ Credentials go to a private authentication service for your account, not into ea
 
 - A pasted key or token is encrypted on the client to that service's public key. The API never returns it.
 - A Claude credential is verified by running the official `claude` CLI once in a throwaway config directory, with other Anthropic credentials stripped from the environment.
-- For a Codex ChatGPT login, workspaces receive short-lived access, sealed to that workspace and its runtime key, with an expiry. The refresh token isn't copied into workspaces.
+- For a Codex ChatGPT login, workspaces receive a short-lived access token, sealed to that workspace and its runtime key, with an expiry. The refresh token isn't copied into workspaces.
+- A Claude setup token or an API key is stored by that service and delivered to each workspace the same sealed way, into process memory. Because it is a static credential, the workspace receives the token itself.
 
 ### Start a chat
 
@@ -151,7 +156,7 @@ Zuse's local Tokenmaxer dashboard shows usage across providers so you can see wh
 
 ## Troubleshooting
 
-- **Billed per token when you expected plan usage.** Check for `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the environment. For Claude, an API key outranks the subscription. Use `/status` in Claude Code and `codex login status` for Codex.
+- **Billed per token when you expected plan usage.** For Claude, check for `ANTHROPIC_API_KEY` in the environment; an approved API key outranks the subscription. Run `/status` to confirm. For Codex, run `codex login status`; an API-key login bills at API rates.
 - **Codex device login fails immediately.** Device code login isn't enabled in ChatGPT security settings, or your workspace admin hasn't allowed it.
 - **"Sign-in is required" in a Zuse cloud chat.** Choose **Open Cloud Authentication**, reconnect the agent, then retry the failed prompt once.
 - **"Rebuild authentication" in the computer picker.** Reconnect the agent under **Zuse agent accounts**, then follow the image status.
@@ -164,6 +169,6 @@ Zuse's local Tokenmaxer dashboard shows usage across providers so you can see wh
 | One agent, zero setup | The vendor's cloud: Claude Code cloud sessions or Codex Cloud |
 | Claude Code and Codex on a machine you control | Your VM with Zuse Serve |
 | A fresh managed machine per task, several agents, one review surface | Zuse cloud chats |
-| Team automation or CI | API keys, per both vendors' guidance |
+| Team automation or CI | API keys (OpenAI's recommended default for automation; Anthropic's guidance for products). For your own scripts, Anthropic also documents `claude setup-token`, and ChatGPT Enterprise offers Codex access tokens |
 
 For the bigger picture of what cloud agents are and how Zuse isolates them, read the [guide to open source cloud agents](/blog/open-source-cloud-agents). To try it, [download Zuse](/download) or start with the [provider setup docs](https://docs.zuse.sh/providers/setup).

@@ -26,7 +26,7 @@ A cloud coding task has four parts. Evaluating any tool gets easier once you can
 - **The agent:** the program that reads your instructions, calls a model, and uses tools (shell, file edits, browser) under a permission policy. Claude Code and Codex are agents. So is OpenHands' agent, or Cursor's.
 - **The workspace:** the interface where you start tasks, follow the conversation, read terminal output, and review the diff.
 
-"Cloud agents" became a product category in 2026. Cursor renamed its background agents to [Cloud Agents](https://cursor.com/docs/cloud-agent), GitHub calls its product the [Copilot cloud agent](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent), Anthropic runs [Claude Code cloud sessions](https://code.claude.com/docs/en/claude-code-on-the-web), and OpenAI has [Codex Cloud](https://developers.openai.com/codex/cloud). They share a shape: each task gets an isolated machine, works on a branch, and hands back a pull request. They differ on who owns each of the four parts above.
+"Cloud agents" is now a product category. Cursor renamed its background agents to [Cloud Agents](https://cursor.com/docs/cloud-agent), GitHub documents the [Copilot cloud agent](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent), Anthropic runs [Claude Code cloud sessions](https://code.claude.com/docs/en/claude-code-on-the-web), and OpenAI has [Codex Cloud](https://learn.chatgpt.com/docs/cloud). They share a shape: each task gets an isolated machine, works on a branch, and hands back a pull request. They differ on who owns each of the four parts above.
 
 ## Cloud agents vs local agents
 
@@ -81,7 +81,7 @@ The hosted control plane for cloud chats (accounts, image builds, sandbox lifecy
 
 - **Agent.** Zuse wraps the agents you already use instead of shipping its own model. Locally it supports [Claude Code](https://docs.zuse.sh/providers/claude-code), [Codex](https://docs.zuse.sh/providers/codex), [Cursor](https://docs.zuse.sh/providers/cursor), [Grok](https://docs.zuse.sh/providers/grok), [OpenCode](https://docs.zuse.sh/providers/opencode), [Kiro](https://docs.zuse.sh/providers/kiro), [Pi](https://docs.zuse.sh/providers/pi), and other agents that speak the [Agent Client Protocol](https://docs.zuse.sh/providers/acp). Cloud chats support Claude Code, Codex, Cursor, and Grok. You can switch agents per chat.
 - **Compute.** Cloud chats run on boxd, Boat, or E2B, picked per chat. Changing provider doesn't change how you work.
-- **Data.** Work lands as commits on branches in your Git host. Local state is SQLite under `~/.zuse/`. Nothing about your repository is stored in a proprietary format you need Zuse to read.
+- **Data.** Work lands as commits on branches in your Git host. Local chat state is a SQLite file (`zuse.sqlite`) in the app's data directory, and settings are JSON under `~/.zuse/`. Nothing about your repository is stored in a proprietary format you need Zuse to read.
 
 ### You bring your own keys and plans
 
@@ -125,7 +125,10 @@ The part of a cloud agent that deserves the most scrutiny is how model credentia
 
 - When you paste an API key or token, the client encrypts it to that service's public key (RSA-OAEP in the current code). The API never returns it.
 - Before saving a Claude credential, the service verifies it by running the official `claude` CLI in a throwaway config directory with any other ambient Anthropic credentials stripped, so a different key on the machine can't make a bad one pass.
-- For Codex with a ChatGPT login, Zuse runs the official `codex login --device-auth` flow inside that private service. Workspaces then receive short-lived access, sealed to the specific workspace, its runtime generation, and its key, with an expiry. Refresh tokens are not copied into workspaces.
+- For Codex with a ChatGPT login (and Grok with a device login), Zuse runs the official `login --device-auth` flow inside that private service. Workspaces then receive a short-lived access token, sealed to the specific workspace, its runtime generation, and its key, with an expiry. Refresh tokens stay in the service and are not copied into workspaces.
+- Static credentials (a Claude setup token, or an API key) have no refresh token to hold back. They reach a workspace through the same sealed, expiring delivery and are kept in process memory, but the value delivered is the credential you pasted, so the machine running the agent does see it.
+
+That describes images built with the current broker, which production has enabled. Chats started from older images keep the image-based sign-in they started with, and a [custom Boxd snapshot](https://docs.zuse.sh/how-to/custom-boxd-snapshot) can be set to use logins copied from your source machine instead.
 
 You can read the implementation in `infra/api/src/cloud-auth-authority.ts`. The [guide to running agents on your existing plan](/blog/run-cloud-coding-agents-on-your-claude-chatgpt-plan) covers which sign-in methods each agent supports.
 
@@ -135,10 +138,10 @@ Zuse doesn't screen-scrape a terminal. It drives each agent through the interfac
 
 ### Permissions are explicit, and "full access" isn't a sandbox
 
-Two controls decide what an agent may do, in the cloud or locally ([docs](https://docs.zuse.sh/composer/modes-permissions)):
+Two controls decide what an agent may do, in the cloud or locally ([docs](https://docs.zuse.sh/composer/modes-permissions)). Cursor uses its own SDK sandbox with automatic review instead, and Pi supports neither control.
 
 - **Plan mode** is read-only. The agent inspects and proposes; mutating tools stay blocked even under Full access.
-- **Runtime permission mode** is one of **Ask for approval** (reads proceed, everything else asks), **Approve for me** (the provider's native safety reviewer decides, and escalations come to you), or **Full access** (ordinary tools run without asking).
+- **Runtime permission mode** is one of **Ask for approval** (reads proceed, everything else asks), **Approve for me** (the provider's native safety reviewer decides, and escalations come to you; available for compatible Codex, Claude, and Grok installs), or **Full access** (ordinary tools run without asking; plan-mode exits and sensitive paths still ask).
 
 Full access uses the provider's unrestricted mode. Zuse's docs say plainly that it is not a sandbox. In the cloud, the isolation boundary is the machine. Locally, it's a worktree on your machine, which is why defaults matter more there.
 
@@ -180,11 +183,11 @@ These products overlap with Zuse in different ways. The descriptions below come 
 
 | Product | Who runs the machine | Agents and models | Source |
 | --- | --- | --- | --- |
-| [Cursor Cloud Agents](https://cursor.com/docs/cloud-agent) | Cursor-managed VMs; tool calls can run on [your own machines](https://cursor.com/docs/cloud-agent/self-hosted/choose-runtime) while the agent loop stays in Cursor's cloud | Cursor's agent | Closed |
-| [GitHub Copilot cloud agent](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent) | GitHub cloud sandboxes or GitHub Actions runners | Copilot, with model selection | Closed |
+| [Cursor Cloud Agents](https://cursor.com/docs/cloud-agent) | Cursor-managed VMs; tool calls can run on [your own machines](https://cursor.com/docs/cloud-agent/self-hosted/choose-runtime) while the agent loop stays in Cursor's cloud | Cursor's agent, with a curated model list | Closed |
+| [GitHub Copilot cloud agent](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent) | GitHub cloud sandboxes, GitHub Actions runners, or a remote custom environment | Copilot, with model selection | Closed |
 | [Claude Code cloud sessions](https://code.claude.com/docs/en/claude-code-on-the-web) | Anthropic-managed, or your org's self-hosted environment | Claude Code | Closed |
-| [Codex Cloud](https://developers.openai.com/codex/cloud) | OpenAI-managed | Codex; requires a ChatGPT sign-in | Codex CLI is open source; Codex Cloud is a hosted service |
-| [Devin](https://docs.devin.ai/get-started/devin-intro) | Cognition-managed | Devin | Closed |
+| [Codex Cloud](https://learn.chatgpt.com/docs/cloud) | OpenAI-managed | Codex; requires a ChatGPT sign-in | Codex CLI is open source; Codex Cloud is a hosted service |
+| [Devin](https://docs.devin.ai/get-started/devin-intro) | Cognition-managed; Devin for Terminal runs locally | Devin | Closed |
 | [Amp](https://ampcode.com/docs/orbs) | Amp-managed "Orbs", or local | Amp | Closed |
 | [OpenHands](https://github.com/OpenHands/OpenHands) | Your laptop, a VM, Docker, or OpenHands Cloud | OpenHands agent, Claude Code, Codex, and other ACP agents | MIT core; OpenHands Cloud is commercial |
 | [Zuse](https://github.com/swarajbachu/zuse) | Your machine, your VM via Zuse Serve, or cloud chats on boxd, Boat, or E2B | Claude Code, Codex, Cursor, Grok, OpenCode, and others | AGPL-3.0 |
@@ -225,7 +228,7 @@ You can run agents on any Mac or Linux machine you control with [Zuse Serve](htt
 
 ### Does Zuse see my code or resell tokens?
 
-Zuse doesn't resell tokens; your provider bills you directly. Locally, your code stays on your machine and goes to the model provider you chose. In the cloud, your repository is cloned onto the machine running your chat, on the compute provider you selected.
+Zuse doesn't resell tokens; your provider bills you directly. Locally, your code stays on your machine and goes to the model provider you chose. In the cloud, your repository is checked out on the machine running your chat, on the compute provider you selected, and your account image (which includes your connected repositories) is stored with each provider you build it for.
 
 ### Which agents does Zuse support?
 
