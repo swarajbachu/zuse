@@ -17,7 +17,7 @@ We build [Zuse](/), so read this as a vendor comparison written as fairly as we 
 ## The short version
 
 - **Pick Amp** if you want one opinionated, polished agent that picks models for you, a hosted cloud sandbox with memory snapshots, native apps on every platform, and team features such as shared threads and pooled billing.
-- **Pick Zuse** if you want an open-source workspace, want to keep using Claude Code, Codex, or another agent CLI as the agent itself, and want every change to pass through a diff review and a pull request before it reaches your main branch.
+- **Pick Zuse** if you want an open-source workspace, want to keep using Claude Code, Codex, or another agent CLI as the agent itself, and want a review-first workflow: cloud chats work on their own fresh branch, and the Changes view and pull requests are where you accept the work.
 - **Use both** if you like. Zuse can run Amp as an agent through its [ACP wrapper](https://docs.zuse.sh/providers/acp), as long as the Amp CLI is signed in.
 
 ## What Amp is today
@@ -51,7 +51,7 @@ Work can run locally, in a per-chat Git worktree, or in a [cloud chat](https://d
 | The agent | Amp's own agent with routed models, plus a Claude Code agent and plugin agents ([docs](https://ampcode.com/docs/model-selector)) | The agent you choose: Claude Code, Codex, Cursor, Grok, Kiro, OpenCode, Pi, or any ACP agent ([docs](https://docs.zuse.sh/providers)) |
 | Cloud machines | Orbs, `a1.tiny` (1 CPU, 2 GB) to `a1.3xlarge` (16 CPU, 44 GB), 60 GB disk ([docs](https://ampcode.com/docs/orbs/sizes-and-costs)) | boxd, Boat, or E2B, up to 4 vCPU / 16 GB on boxd or 8 vCPU / 16 GB on Boat ([docs](https://docs.zuse.sh/how-to/choose-cloud-provider)) |
 | Run on your own compute | Runners and self-hosted orbs, free outside Enterprise | Local desktop app, [Zuse Serve](https://docs.zuse.sh/serve) on a Mac or Linux machine, or your own boxd, Boat, or E2B key |
-| Default way changes land | Ship button; by default the agent "pushes straight to the base branch" ([docs](https://ampcode.com/docs/orbs/shipping)) | Branch and pull request; the Changes view is the [acceptance boundary](https://docs.zuse.sh/workspace/changes-pull-requests) |
+| Default way changes land | Ship button; by default the agent "pushes straight to the base branch" ([docs](https://ampcode.com/docs/orbs/shipping)) | Cloud chats work on a [fresh branch](https://docs.zuse.sh/how-to/cloud-start-chat) and you open a pull request; the Changes view is the [acceptance boundary](https://docs.zuse.sh/workspace/changes-pull-requests). Locally, Commit and Push are yours to run on whatever branch you are on |
 | Git hosts in the cloud | GitHub, GitLab, Bitbucket, other HTTPS Git hosts | GitHub only for cloud chats today |
 | Entry price | Hobby is free with pay-as-you-go usage; Megawatt is $20/month ([docs](https://ampcode.com/docs/pricing)) | Local use is $0 during beta; Cloud Workspace is $40/month ([pricing](/pricing)) |
 | Clients | Web, TUI, desktop apps, iOS, Android | Desktop (macOS, x64 Linux), browser, iPhone |
@@ -80,7 +80,7 @@ The Zuse advantage is ownership. You can connect your own boxd, Boat, or E2B acc
 
 Both products separate the workspace from model usage, so compare like with like.
 
-Amp's [pricing page](https://ampcode.com/docs/pricing) lists three individual tiers. Hobby is free with nothing included: you buy credits for Amp-served models at list price and pay for hosted orbs as you go. Megawatt is $20 a month and includes $20 of agent usage plus 750 hours of `a1.small` orbs. Gigawatt is $200 a month and includes $200 of agent usage plus 1,000 hours of `a1.xxlarge` orbs. Amp says it adds no markup to provider API prices for individuals, and tokens from your own subscriptions or API keys carry no Amp fees. Standard [orb prices](https://ampcode.com/docs/orbs/sizes-and-costs) run from $0.08 an hour for `a1.tiny` to $1.32 an hour for `a1.xxlarge`, billed by the minute.
+Amp's [pricing page](https://ampcode.com/docs/pricing) lists three individual tiers. Hobby is free with nothing included: you buy credits for Amp-served models at list price and pay for hosted orbs as you go. Megawatt is $20 a month and includes $20 of agent usage plus 750 hours of `a1.small` orbs. Gigawatt is $200 a month and includes $200 of agent usage plus 1,000 hours of `a1.xxlarge` orbs. Amp says it adds no markup to provider API prices for individuals, and tokens from your own subscriptions or API keys carry no Amp fees. Standard [orb prices](https://ampcode.com/docs/orbs/sizes-and-costs) run from $0.08 an hour for `a1.tiny` to $1.32 an hour for `a1.xxlarge`, or $2.13 an hour for `a1.3xlarge`, which only Gigawatt subscribers and Enterprise workspaces can use. Orbs are billed by the minute.
 
 Zuse's [pricing](/pricing) has two plans. Local is $0 during beta: the open-source desktop app, parallel chats and worktrees, your own agent subscriptions, and local diff review. Cloud Workspace is $40 a month in beta and includes $35 of provider compute. Extra compute is billed at provider cost plus 5%, with a configurable overage cap that defaults to $25. Compute is infrastructure only; model usage is billed by your agent provider.
 
