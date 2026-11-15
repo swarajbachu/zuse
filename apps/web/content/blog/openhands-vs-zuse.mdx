@@ -11,9 +11,9 @@ previewImage: "/brand/handoff-dither.webp"
 labels: [{ name: "Comparison", hex: "#c9f34e" }]
 ---
 
-OpenHands and Zuse are closer than most "vs" pairs. Both are open source. Both can drive Claude Code, Codex, and other agents through the Agent Client Protocol (ACP). Both can run work on your laptop or in a cloud sandbox. If you are searching for an OpenHands alternative, or for an honest OpenHands vs Zuse comparison, the useful question is not which one is "better" but which set of trade-offs fits how your team works.
+OpenHands and Zuse are closer than most "vs" pairs. Both are open source. Both can drive Claude Code, Codex, and agents that speak the Agent Client Protocol (ACP). Both can run work on your laptop or in a cloud sandbox. If you are searching for an OpenHands alternative, or for an honest OpenHands vs Zuse comparison, the useful question is not which one is "better" but which set of trade-offs fits how your team works.
 
-The short answer: OpenHands is a self-hosted control center built around its own open agent, with a deep model-agnostic SDK, automations, and Docker or Kubernetes deployment. [Zuse](/) is a cloud-agents-first workspace for the agents you already pay for, with a desktop app, an iPhone client, managed cloud machines, and review built around Git.
+The short answer: OpenHands is a self-hosted control center built around its own open agent, with a deep model-agnostic SDK, automations, and Docker or Kubernetes deployment. [Zuse](/) is a cloud-agents-first workspace for the agents you already pay for, with a desktop app, a native iPhone client, managed cloud machines (in beta), and review built around Git.
 
 We build Zuse, so treat this as a vendor comparison. Every OpenHands claim links to its own docs, repository, or pricing page, checked on November 15, 2026. OpenHands has changed shape quickly over the last year, so verify anything that decides your choice.
 
@@ -22,15 +22,15 @@ We build Zuse, so treat this as a vendor comparison. Every OpenHands claim links
 | | Zuse | OpenHands |
 | --- | --- | --- |
 | License | [AGPL-3.0](https://github.com/swarajbachu/zuse/blob/main/LICENSE) | [MIT](https://github.com/OpenHands/OpenHands/blob/main/LICENSE) |
-| Main interface | Desktop app (macOS, Linux; Windows preview), browser, [iPhone app](https://docs.zuse.sh/mobile) | [Agent Canvas](https://github.com/OpenHands/OpenHands), a web UI you run via npm or Docker |
+| Main interface | Desktop app (macOS, Linux; Windows test builds), browser, [iPhone app](https://docs.zuse.sh/mobile) | [Agent Canvas](https://github.com/OpenHands/OpenHands), a web UI you run via npm or Docker, or a [desktop app in preview](https://docs.openhands.dev/openhands/usage/agent-canvas/setup) |
 | Built-in agent | None; runs your agents | The open-source OpenHands agent, plus ACP agents |
-| Third-party agents | [Claude Code, Codex, Cursor, Grok, Kiro, OpenCode, Pi, and the ACP catalog](https://docs.zuse.sh/providers) | [Claude Code, Codex, Gemini CLI, Pi, OpenCode](https://docs.openhands.dev/openhands/usage/agent-canvas/acp-agents) |
+| Third-party agents | [Claude Code, Codex, Cursor, Grok, Kiro, OpenCode, Pi, and the ACP catalog](https://docs.zuse.sh/providers) | [Claude Code, Codex, Gemini CLI, Pi, OpenCode presets, or any custom ACP command](https://docs.openhands.dev/openhands/usage/agent-canvas/acp-agents) |
 | Models | Whatever each agent supports, on your account | OpenHands agent works with [any LiteLLM-supported model](https://docs.openhands.dev/openhands/usage/llms/llms), including local models |
-| Local isolation | [Git worktree per chat](https://docs.zuse.sh/how-to/local-parallel-worktrees) plus a permission system | Optional [Docker container per conversation](https://docs.openhands.dev/openhands/usage/agent-canvas/backend-setup/docker-execution) |
-| Cloud | Managed machines on [boxd, Boat, or E2B](https://docs.zuse.sh/how-to/choose-cloud-provider) | [OpenHands Cloud](https://docs.openhands.dev/openhands/usage/agent-canvas/backend-setup/cloud), DigitalOcean, Modal, or your own VM or Kubernetes |
+| Local isolation | [Git worktree per chat](https://docs.zuse.sh/how-to/local-parallel-worktrees) plus a permission system | Worktree runtime, or an optional [Docker container per conversation](https://docs.openhands.dev/openhands/usage/agent-canvas/backend-setup/docker-execution) |
+| Cloud | Managed machines on [boxd, Boat, or E2B](https://docs.zuse.sh/how-to/choose-cloud-provider) (public beta) | [OpenHands Cloud](https://docs.openhands.dev/openhands/usage/agent-canvas/backend-setup/cloud), [DigitalOcean Managed Agents](https://docs.openhands.dev/openhands/usage/agent-canvas/backend-setup/digitalocean), Modal, or your own VM or Kubernetes |
 | Self-hosting | Run agents on your own machine with [Zuse Serve](https://docs.zuse.sh/serve); hosted cloud is ours | Whole stack is designed to be [self-hosted](https://github.com/OpenHands/OpenHands/blob/main/docs/SELF_HOSTING.md) |
-| Automations | API with webhooks, Slack | Scheduled and webhook-triggered [automations](https://github.com/OpenHands/automation) |
-| Pricing | Local $0 during beta; Cloud $40/month with $35 compute, or your own sandbox key ([pricing](/pricing)) | Agent Canvas free; Teams $500/month self-hosted; Enterprise custom ([pricing](https://openhands.dev/pricing)) |
+| Automations | API with webhooks, Slack | Scheduled and event-triggered [automations](https://github.com/OpenHands/automation) |
+| Pricing | Local $0 during beta; Cloud (beta) $40/month with $35 compute, or your own sandbox key ([pricing](/pricing)) | Agent Canvas free; Teams $500/month self-hosted; Enterprise custom ([pricing](https://openhands.dev/pricing)) |
 
 ## What each project actually is
 
@@ -48,7 +48,7 @@ The difference in emphasis matters. OpenHands starts from "self-host an agent pl
 
 ## Setup
 
-**OpenHands.** The fastest path is `npm install -g @openhands/agent-canvas` and `agent-canvas`, which needs Node.js 24 and `uv`. The README is direct that this mode runs the agent server on your machine and "the agent will have full access to your filesystem." The safer local options are a Docker image with your projects mounted at `/projects`, or `OH_CONVERSATION_RUNTIME=docker`, which gives each conversation its own container. Linux users may need to adjust ownership so the container's uid can write the workspace ([README quickstart](https://github.com/OpenHands/OpenHands#quickstart)). For a cloud backend you sign in to OpenHands Cloud from **Manage Backends**, or deploy an Agent Server on a [VM](https://docs.openhands.dev/openhands/usage/agent-canvas/backend-setup/vm), [Kubernetes with Helm](https://docs.openhands.dev/openhands/usage/agent-canvas/backend-setup/kubernetes), or [Modal](https://docs.openhands.dev/openhands/usage/agent-canvas/backend-setup/modal).
+**OpenHands.** The fastest path is `npm install -g @openhands/agent-canvas` and `agent-canvas`, which needs Node.js 24 or later and `uv`. A [desktop app](https://docs.openhands.dev/openhands/usage/agent-canvas/setup) for macOS, Windows, and Linux is in preview and bundles both. The README is direct that this mode runs the agent server on your machine and "the agent will have full access to your filesystem." The safer local options are a Docker image with your projects mounted at `/projects`, or `OH_CONVERSATION_RUNTIME=docker`, which gives each conversation its own container (conversations that share a host workspace still share its files). Linux users may need to adjust ownership so the container's uid can write the workspace ([README quickstart](https://github.com/OpenHands/OpenHands#quickstart)). For a cloud backend you sign in to OpenHands Cloud from **Manage Backends**, or deploy an Agent Server on a [VM](https://docs.openhands.dev/openhands/usage/agent-canvas/backend-setup/vm), [Kubernetes with Helm](https://docs.openhands.dev/openhands/usage/agent-canvas/backend-setup/kubernetes), or [Modal](https://docs.openhands.dev/openhands/usage/agent-canvas/backend-setup/modal).
 
 **Zuse.** Install the desktop app ([download](/download)), and install and sign in to at least one agent CLI. Zuse detects each provider and reports install, sign-in, and update state in **Settings → Providers** ([providers](https://docs.zuse.sh/providers)). For cloud work, a one-time wizard installs the Zuse GitHub App, connects your agent accounts, and builds a cloud image containing your repositories. After that, choosing **Cloud** in the composer's computer picker is the whole workflow.
 
@@ -56,7 +56,7 @@ OpenHands gives you more knobs. Zuse asks you to make fewer infrastructure decis
 
 ## How agents run, and how isolated they are
 
-This is where OpenHands has a real advantage for local work. Running each conversation in its own hardened container is a first-class option, and the docs explain exactly what it isolates and what it does not ([docker execution](https://docs.openhands.dev/openhands/usage/agent-canvas/backend-setup/docker-execution)). Zuse's local mode isolates *files* with worktrees and gates actions with a [permission system](https://docs.zuse.sh/composer/modes-permissions), but the agent process still runs as you on your machine. If you want container isolation on your laptop, OpenHands has it built in and Zuse does not.
+This is where OpenHands has a real advantage for local work. Running each conversation in its own hardened container is a first-class option, and the docs explain exactly what it isolates and what it does not ([docker execution](https://docs.openhands.dev/openhands/usage/agent-canvas/backend-setup/docker-execution)). Zuse's local mode isolates *files* with worktrees and gates actions with a [permission system](https://docs.zuse.sh/composer/modes-permissions), but Zuse does not containerize local agents: they run as you on your machine (the Cursor provider applies its own SDK sandbox). OpenHands also offers a worktree runtime. If you want container isolation on your laptop, OpenHands has it built in and Zuse does not.
 
 In the cloud, both give each task its own sandbox. Zuse lets you choose the machine provider per chat, and the providers behave differently when a chat pauses: boxd hibernates and restores memory and processes, Boat preserves disk and restarts the runtime, E2B normally preserves both ([cloud machines](https://docs.zuse.sh/how-to/choose-cloud-provider)). Messages sent while a machine sleeps wait in a durable queue and are delivered once it resumes. A cloud chat can also ask to run commands on your desktop, each one approved by you unless you have saved a permission ([local commands from cloud](https://docs.zuse.sh/how-to/cloud-agent-local-commands)).
 
@@ -66,9 +66,9 @@ OpenHands' cloud story is broader in where it can run (OpenHands Cloud, DigitalO
 
 OpenHands' own agent is model-agnostic. It connects to [any model LiteLLM supports](https://docs.openhands.dev/openhands/usage/llms/llms), including Bedrock, Azure, OpenRouter, and local servers like Ollama or vLLM. If you want to run an open-weight model on your own GPUs, that is a strong reason to choose OpenHands.
 
-For third-party agents, the [ACP docs](https://docs.openhands.dev/openhands/usage/agent-canvas/acp-agents) explain that a subscription login stored by the agent's CLI is reused when the Agent Server runs on the same machine. On a clean cloud sandbox "there's no stored login, so an API key is needed instead."
+For third-party agents, the [ACP docs](https://docs.openhands.dev/openhands/usage/agent-canvas/acp-agents) explain that a subscription login stored by the agent's CLI is reused when the Agent Server runs on the same machine. On a Docker or cloud backend there is no host login, so onboarding asks you for credentials: an API key, or subscription material such as a Claude Code OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`) or the contents of Codex's `auth.json`. Canvas saves them as secrets on that backend.
 
-Zuse handles that cloud credential problem for you. You connect Claude Code or Codex once under **Zuse agent accounts**, and the same credentials work on every machine provider and every cloud chat ([cloud machines](https://docs.zuse.sh/how-to/choose-cloud-provider)). The [pricing page](/pricing) says it plainly: bring your own agent subscriptions, and compute "is infrastructure usage, not model tokens." If your model budget is a Claude or ChatGPT plan rather than API credits, that difference shows up on your bill. See [token-maxing your subscriptions](/blog/token-maxing-your-subscriptions).
+Zuse takes a different route. You sign in to Claude Code or Codex once under **Zuse agent accounts**, and the same credentials work on every machine provider and every cloud chat ([cloud machines](https://docs.zuse.sh/how-to/choose-cloud-provider)), with no token or auth file to copy into a secrets store. The [pricing page](/pricing) says it plainly: bring your own agent subscriptions, and compute "is infrastructure usage, not model tokens." If your model budget is a Claude or ChatGPT plan rather than API credits, that difference shows up on your bill. See [token-maxing your subscriptions](/blog/token-maxing-your-subscriptions).
 
 Zuse does not have its own agent, so it cannot point a generic agent at an arbitrary model endpoint the way OpenHands can. You are limited to what each agent CLI supports.
 
@@ -77,15 +77,15 @@ Zuse does not have its own agent, so it cannot point a generic agent at an arbit
 OpenHands, from its [pricing page](https://openhands.dev/pricing):
 
 - **Agent Canvas:** free, MIT, self-hosted, single user or shared identity, bring your own LLM key, any agent, automations.
-- **Teams:** $500/month for up to 10 users, plus $50/month per extra seat, self-hosted, with RBAC, SSO, built-in integrations, and budgeting. Capped at 5,000 sessions per month.
+- **Teams:** $500/month for up to 10 users, plus $50/month per extra seat, with a 30-day trial. Self-hosted, with RBAC, SSO, built-in integrations, and budgeting. Capped at 5,000 sessions per month.
 - **Enterprise:** custom.
 
-The current pricing page does not list rates for hosted OpenHands Cloud usage, so check your account before you plan around it. In every OpenHands tier you pay for models separately, and in self-hosted tiers you also pay for the machines.
+The current pricing page does not list rates for hosted OpenHands Cloud usage, so check your account before you plan around it. No OpenHands plan on that page includes model usage: every tier says bring your own LLM key. In self-hosted tiers you also pay for the machines.
 
 Zuse, from [zuse.sh/pricing](/pricing):
 
 - **Local:** $0 during beta.
-- **Cloud Workspace:** $40/month with $35 of provider compute included, extra compute at provider cost plus 5%, and a $25 default overage cap you can change.
+- **Cloud Workspace (beta):** $40/month with $35 of provider compute included, extra compute at provider cost plus 5%, and a $25 default overage cap you can change. Cloud access is still in beta; the pricing page asks you to book a call for availability.
 - **Your own sandbox key:** connect a boxd, Boat, or E2B key and Zuse does not require a Zuse subscription; the provider bills you for compute directly ([docs](https://docs.zuse.sh/how-to/choose-cloud-provider)).
 
 Running locally, both cost nothing beyond models and your own hardware (Zuse's local app is $0 during beta). Cloud work is paid on both: OpenHands Cloud usage or your own servers, and Zuse's $40 plan or your sandbox provider. For a team, the comparison is OpenHands' flat self-hosted seat price plus your infrastructure against Zuse's per-account compute.
@@ -103,9 +103,9 @@ The other openness question is hosting. OpenHands is designed so you can run the
 
 ## Day-to-day workflow and review
 
-OpenHands' signature workflow is automation. Canvas can run agents on a schedule or in response to webhooks, with prebuilt automations for [GitHub PR review](https://docs.openhands.dev/openhands/usage/agent-canvas/prebuilt/github-pr-review), repository monitoring, and Slack channel monitoring. OpenHands Cloud adds GitHub, GitLab, Bitbucket, [Slack](https://docs.openhands.dev/openhands/usage/cloud/slack-installation), and Jira integrations.
+OpenHands' signature workflow is automation. Canvas can run agents on a schedule or in response to webhook events, with [prebuilt automations](https://docs.openhands.dev/openhands/usage/agent-canvas/prebuilt-automations) for issue to pull request, [GitHub PR review](https://docs.openhands.dev/openhands/usage/agent-canvas/prebuilt/github-pr-review), repository monitoring, and Slack channel monitoring. OpenHands Cloud adds GitHub, GitLab, Bitbucket, [Slack](https://docs.openhands.dev/openhands/usage/cloud/slack-installation), and Jira integrations.
 
-Zuse's signature workflow is supervised delegation. You start several chats, each in its own worktree or cloud machine, then review in the **Changes** pane, run checks in the same chat's terminal, commit only the files you intend, and push ([review guide](https://docs.zuse.sh/how-to/local-review-changes)). PR and CI status sit in the same window. You can do the same review, including commit, push, and merge, from [Zuse for iPhone](https://docs.zuse.sh/mobile). Tasks can also start from [Slack](https://docs.zuse.sh/how-to/slack-start-task) or the [public API](https://docs.zuse.sh/api-reference), which sends webhooks when work finishes.
+Zuse's signature workflow is supervised delegation. You start several chats, each in its own worktree or cloud machine, then review in the **Changes** pane, run checks in the same chat's terminal, commit only the files you intend, and push ([review guide](https://docs.zuse.sh/how-to/local-review-changes)). The **PR** panel shows the pull request's checks, reviews, and conflicts in the same window ([changes and pull requests](https://docs.zuse.sh/workspace/changes-pull-requests)). You can do the same review, including commit, push, and merge, from [Zuse for iPhone](https://docs.zuse.sh/mobile). Tasks can also start from [Slack](https://docs.zuse.sh/how-to/slack-start-task) or the [public API](https://docs.zuse.sh/api-reference), which can send a webhook when a turn completes.
 
 ## When to choose OpenHands
 
@@ -119,11 +119,11 @@ Zuse's signature workflow is supervised delegation. You start several chats, eac
 
 ## When to choose Zuse
 
-- **You want cloud agents without running infrastructure.** Pick a machine in the composer and go.
-- **You already pay for Claude Code or Codex** and want those accounts to work in every cloud chat without managing API keys per sandbox.
-- **You want a desktop and mobile workflow**, with worktrees, terminal, diffs, and PR status in one place, and approvals from your phone.
+- **You want cloud agents without running infrastructure.** After the one-time setup, pick a machine in the composer and go. Cloud is in public beta. OpenHands Cloud is the other no-infrastructure option.
+- **You already pay for Claude Code or Codex** and want those accounts to work in every cloud chat by signing in once, without pasting tokens or auth files into a backend's secrets.
+- **You want a native mobile client**, alongside the desktop app, with worktrees, terminal, diffs, and PR status in one place, and approvals and commits from your iPhone.
 - **You want to choose the sandbox provider** per chat, or bill compute to your own boxd, Boat, or E2B account.
-- **You use agents outside OpenHands' ACP list**, such as Cursor, Grok, or Kiro, or want the full ACP registry.
+- **You want agents beyond OpenHands' presets built in**, such as Cursor, Grok, or Kiro, plus a catalog from the ACP registry. OpenHands can run other ACP agents, but only as a custom command you configure yourself.
 
 ## Try them side by side
 
