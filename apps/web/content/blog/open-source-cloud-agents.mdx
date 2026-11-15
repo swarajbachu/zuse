@@ -184,15 +184,15 @@ These products overlap with Zuse in different ways. The descriptions below come 
 | Product | Who runs the machine | Agents and models | Source |
 | --- | --- | --- | --- |
 | [Cursor Cloud Agents](https://cursor.com/docs/cloud-agent) | Cursor-managed VMs; tool calls can run on [your own machines](https://cursor.com/docs/cloud-agent/self-hosted/choose-runtime) while the agent loop stays in Cursor's cloud | Cursor's agent, with a curated model list | Closed |
-| [GitHub Copilot cloud agent](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent) | GitHub cloud sandboxes, GitHub Actions runners, or a remote custom environment | Copilot, with model selection | Closed |
+| [GitHub Copilot cloud agent](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent) | GitHub cloud sandboxes, GitHub Actions runners, or a remote custom environment | Copilot, with model selection; [Claude and Codex agents](https://docs.github.com/en/copilot/concepts/agents/about-third-party-agents) in public preview | Closed |
 | [Claude Code cloud sessions](https://code.claude.com/docs/en/claude-code-on-the-web) | Anthropic-managed, or your org's self-hosted environment | Claude Code | Closed |
 | [Codex Cloud](https://learn.chatgpt.com/docs/cloud) | OpenAI-managed | Codex; requires a ChatGPT sign-in | Codex CLI is open source; Codex Cloud is a hosted service |
-| [Devin](https://docs.devin.ai/get-started/devin-intro) | Cognition-managed; Devin for Terminal runs locally | Devin | Closed |
+| [Devin](https://docs.devin.ai/get-started/devin-intro) | Cognition-managed; Devin for Terminal runs locally | Devin; Devin Desktop also runs [third-party agents over ACP](https://docs.devin.ai/desktop/acp) | Closed |
 | [Amp](https://ampcode.com/docs/orbs) | Amp-managed "Orbs", or local | Amp | Closed |
 | [OpenHands](https://github.com/OpenHands/OpenHands) | Your laptop, a VM, Docker, or OpenHands Cloud | OpenHands agent, Claude Code, Codex, and other ACP agents | MIT core; OpenHands Cloud is commercial |
 | [Zuse](https://github.com/swarajbachu/zuse) | Your machine, your VM via Zuse Serve, or cloud chats on boxd, Boat, or E2B | Claude Code, Codex, Cursor, Grok, OpenCode, and others | AGPL-3.0 |
 
-Single-vendor cloud agents are the easiest start if you've standardized on one agent. Zuse is for teams that want to choose the agent per task, keep their existing plans, and be able to read the code that holds their credentials. OpenHands is the closest open source comparison; it leans toward self-hosted agent servers and automations, while Zuse leans toward a desktop and mobile workspace with managed cloud machines and local worktrees in the same sidebar. If you're comparing with Devin specifically, read our [open source Devin alternative guide](/blog/open-source-coding-agent-alternative).
+A vendor's own cloud agent is the easiest start if you've standardized on that vendor, and some (GitHub Copilot, Devin Desktop) now run other agents too. Zuse is for teams that want to choose the agent per task, keep their existing plans, and be able to read the code that holds their credentials. OpenHands is the closest open source comparison; it leans toward self-hosted agent servers and automations, while Zuse leans toward a desktop and mobile workspace with managed cloud machines and local worktrees in the same sidebar. If you're comparing with Devin specifically, read our [open source Devin alternative guide](/blog/open-source-coding-agent-alternative).
 
 ## Run your first cloud task
 
