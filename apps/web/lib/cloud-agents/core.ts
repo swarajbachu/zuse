@@ -202,8 +202,12 @@ export const CORE_ROWS: AgentRow[] = [
 				CODEX_PRICING,
 				'API key sign-in: "No cloud-based features (GitHub code review, Slack, etc.)".',
 			),
-			mcp: yes(CODEX_CLOUD, "Docs cover MCP connections and MCP servers."),
-			plugins: yes(CODEX_CLOUD, "Docs cover Codex plugins."),
+			mcp: unknown(
+				"Codex docs cover MCP, but the cloud page does not say MCP servers work in cloud tasks.",
+			),
+			plugins: unknown(
+				"Codex docs cover plugins, but the cloud page does not say plugins work in cloud tasks.",
+			),
 		},
 		platforms: {
 			macos: unknown(),

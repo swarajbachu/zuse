@@ -64,11 +64,52 @@ describe("cloud coding agents data", () => {
 		}
 	});
 
-	it("never marks automatically extracted rows as 'no'", () => {
+	it("marks generated rows 'no' only with an explicit negative quote", () => {
 		for (const row of AGENT_ROWS.filter((r) => r.verification !== "hand")) {
-			for (const [key, ev] of allEvidence(row))
-				expect(ev.v, `${row.id}.${key}`).not.toBe("no");
+			for (const [key, ev] of allEvidence(row)) {
+				if (ev.v !== "no") continue;
+				expect(ev.quote ?? "", `${row.id}.${key}`).toMatch(
+					/not (available|supported)|is not supported|not for agents/i,
+				);
+			}
 		}
+	});
+
+	it("does not count unrelated mentions as platform or feature support", () => {
+		const byId = (id: string) => AGENT_ROWS.find((r) => r.id === id);
+		// Prize copy ("Win an iPhone") is not an iOS app.
+		expect(byId("co-qodo")?.platforms.ios.v).not.toBe("yes");
+		// "Windows snap to a grid" is about arranging windows, not Microsoft Windows.
+		expect(byId("gh-mixpeek-amux")?.platforms.windows.v).not.toBe("yes");
+		// README says these are unsupported.
+		expect(byId("gh-umputun-ralphex")?.platforms.windows.v).toBe("no");
+		expect(byId("gh-johannesjo-parallel-code")?.features.cloud.v).toBe("no");
+	});
+
+	it("lists each product once, not as both a repo row and a homepage row", () => {
+		const host = (u: string) => {
+			const url = new URL(u);
+			return url.pathname.replace(/\/$/, "") === ""
+				? url.hostname.replace(/^www\./, "")
+				: null;
+		};
+		const homepageHosts = AGENT_ROWS.filter(
+			(r) => r.verification === "auto-homepage",
+		)
+			.map((r) => host(r.url))
+			.filter(Boolean);
+		const repoHosts = new Set(
+			AGENT_ROWS.filter((r) => r.verification === "auto")
+				.map((r) => host(r.url))
+				.filter(Boolean),
+		);
+		for (const h of homepageHosts)
+			expect(repoHosts.has(h), String(h)).toBe(false);
+		for (const id of ["co-kiro", "co-zed", "co-kilo"])
+			expect(
+				AGENT_ROWS.some((r) => r.id === id),
+				id,
+			).toBe(false);
 	});
 
 	it("uses known categories", () => {
