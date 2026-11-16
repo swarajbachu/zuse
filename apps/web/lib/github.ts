@@ -10,7 +10,7 @@ export async function getGitHubStars(): Promise<number | null> {
 				"User-Agent": "zuse-web",
 			},
 
-			next: { revalidate: 86400 },
+			next: { revalidate: 300 },
 		});
 		if (!response.ok) return null;
 
