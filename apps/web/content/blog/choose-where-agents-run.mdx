@@ -4,6 +4,7 @@ description: "Local worktrees and isolated cloud workspaces solve different prob
 date: "2026-09-17"
 updated: "2026-09-24"
 category: "Guide"
+related: ["git-worktrees-for-every-chat", "local-first-by-design", "cloud-agent-recovery-journal"]
 timeToRead: "3 min read"
 authorName: "Zuse team"
 authorRole: "Product and engineering"
@@ -18,7 +19,7 @@ Zuse supports local work and optional cloud environments. Choosing between them 
 
 ## Start local when your environment is ready
 
-Local work is a good fit when the repository already builds on your machine and the task needs your installed tools. A fresh Git worktree can isolate a change while keeping the workflow close to the project you know.
+Local work is a good fit when the repository already builds on your machine and the task needs your installed tools. A fresh [Git worktree](/blog/git-worktrees-for-every-chat) can isolate a change while keeping the workflow close to the project you know.
 
 Before starting several tasks, make sure the repository's setup script prepares each checkout. A new worktree has its own working files; it may need dependencies or generated files before a test can run. Confirm setup completed before interpreting a failure as a code defect.
 

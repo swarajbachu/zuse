@@ -14,7 +14,12 @@ import {
 	Prerequisites,
 	RelatedPages,
 } from "@/components/mdx-components";
+import {
+	type DocsCrumb,
+	DocsStructuredData,
+} from "@/components/structured-data";
 import { GITHUB_URL } from "@/lib/layout.shared";
+import { docsSocialMetadata } from "@/lib/seo";
 import { source } from "@/lib/source";
 import { getMDXComponents } from "@/mdx-components";
 
@@ -42,6 +47,11 @@ export async function generateMetadata({
 		title: page.data.title,
 		description: page.data.description,
 		alternates: { canonical: page.url },
+		...docsSocialMetadata({
+			title: titleOf(page),
+			description: page.data.description,
+			path: page.url,
+		}),
 	};
 }
 
@@ -51,6 +61,12 @@ export default async function Page({ params }: PageProps) {
 
 	return (
 		<main className="contents">
+			<DocsStructuredData
+				title={titleOf(page)}
+				description={page.data.description}
+				path={page.url}
+				crumbs={breadcrumbs(page)}
+			/>
 			{page.type === "openapi" ? (
 				<Endpoint page={page} />
 			) : (
@@ -58,6 +74,21 @@ export default async function Page({ params }: PageProps) {
 			)}
 		</main>
 	);
+}
+
+/** Generated API pages can lack a title; fall back to the section name. */
+const titleOf = (page: DocumentationPage) => page.data.title ?? "API reference";
+
+/** Docs home, then each ancestor page that exists, then the page itself. */
+function breadcrumbs(page: DocumentationPage): DocsCrumb[] {
+	const crumbs: DocsCrumb[] = [{ name: "Zuse Docs", path: "/start" }];
+	const slugs = page.slugs;
+	for (let depth = 1; depth <= slugs.length; depth++) {
+		const node = source.getPage(slugs.slice(0, depth));
+		if (node && !crumbs.some((crumb) => crumb.path === node.url))
+			crumbs.push({ name: titleOf(node), path: node.url });
+	}
+	return crumbs;
 }
 
 function Endpoint({ page }: { page: EndpointPage }) {

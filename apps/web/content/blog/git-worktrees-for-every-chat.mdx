@@ -3,6 +3,7 @@ title: "Git worktrees for every chat"
 description: "Each chat gets an isolated working tree, so parallel agents never clobber each other's changes."
 date: "2026-05-28"
 category: "Guide"
+related: ["parallel-agents-without-collisions", "run-six-agents-side-by-side", "sub-agent-delegation"]
 timeToRead: "5 min read"
 authorName: "Zuse (Beta) team"
 authorRole: "Product notes"
@@ -92,4 +93,4 @@ The point of worktrees is not to make the UI look organized. It is to make paral
 
 That changes how you can use the tool. You can let a long task run while starting a short one. You can compare providers on the same issue. You can ask for a conservative fix and a more ambitious refactor, then choose. You can preserve your main checkout as the stable place you return to, instead of letting every agent experiment accumulate there.
 
-Zuse (Beta) makes this the default because the workflow should protect you before you remember to protect yourself. Agents are most useful when they let you explore more options. Git worktrees make that exploration reviewable, reversible, and compatible with the version-control habits developers already have.
+Zuse (Beta) makes this the default because the workflow should protect you before you remember to protect yourself. Agents are most useful when they let you explore more options. Git worktrees make that exploration reviewable, reversible, and compatible with the version-control habits developers already have. The [original public alpha announcement](/blog/memoize-public-alpha) lists a Git worktree per chat among Zuse's launch features.

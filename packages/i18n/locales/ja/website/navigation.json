@@ -39,5 +39,9 @@
 	"open_source_cloud_agents": "オープンソースのクラウドエージェント",
 	"open_source_devin_alternative": "Devin のオープンソース代替",
 	"sitemap": "サイトマップ",
-	"dither_studio": "ディザースタジオ"
+	"dither_studio": "ディザースタジオ",
+	"compare_agents": "エージェント比較",
+	"cloud_coding_agents_compared": "クラウドコーディングエージェント比較",
+	"language_suggestion": "Zuse は次の言語でも利用できます:",
+	"language_suggestion_dismiss": "言語の提案を閉じる"
 }

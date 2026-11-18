@@ -39,5 +39,9 @@
 	"open_source_cloud_agents": "Agents cloud open source",
 	"open_source_devin_alternative": "Alternative open source à Devin",
 	"sitemap": "Plan du site",
-	"dither_studio": "Studio de tramage"
+	"dither_studio": "Studio de tramage",
+	"compare_agents": "Comparer les agents",
+	"cloud_coding_agents_compared": "Agents de codage cloud, comparés",
+	"language_suggestion": "Zuse est aussi disponible en",
+	"language_suggestion_dismiss": "Ignorer la suggestion de langue"
 }

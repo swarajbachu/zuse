@@ -4,6 +4,7 @@ description: "Your API keys stay in your operating system's credential store. Zu
 date: "2026-06-04"
 updated: "2026-09-24"
 category: "Note"
+related: ["local-first-by-design", "know-your-token-spend", "run-cloud-coding-agents-on-your-claude-chatgpt-plan"]
 timeToRead: "4 min read"
 authorName: "Zuse (Beta) team"
 authorRole: "Product notes"
@@ -23,7 +24,7 @@ Zuse (Beta) does not do that. You bring your own keys or your own provider subsc
 
 ## Where your keys live
 
-API keys are stored in your operating system's credential store (macOS Keychain or Linux Secret Service) and protected by the OS. They are not synced to a server, not logged, and not sent anywhere except the provider you are calling. Zuse (Beta) is local-first by design: your chats and project data live in a local SQLite database on your machine.
+API keys are stored in your operating system's credential store (macOS Keychain or Linux Secret Service) and protected by the OS. They are not synced to a server, not logged, and not sent anywhere except the provider you are calling. Zuse (Beta) is [local-first by design](/blog/local-first-by-design): your chats and project data live in a local SQLite database on your machine.
 
 ---
 
@@ -75,9 +76,9 @@ This is also useful when evaluating models. Teams often want to try a new provid
 
 ## Transparency beats bundled abstraction
 
-The deeper reason for BYOK is alignment. A coding agent app should make it easy to see what happened. You should see what the agent read, what command it ran, what changed in the repository, what failed, and what it cost at the provider level. The app should not benefit when your token usage becomes harder to inspect.
+The deeper reason for BYOK is alignment. A coding agent app should make it easy to see what happened. You should see what the agent read, what command it ran, what changed in the repository, what failed, and what it cost at the provider level. The app should not benefit when your [token usage](/blog/know-your-token-spend) becomes harder to inspect.
 
-Zuse (Beta) is built around that bias. The chat timeline shows tool calls and output instead of turning the session into a mystery. The changes pane makes diffs reviewable before they become commits. Worktrees isolate experiments so one agent's attempt does not silently bleed into another. BYOK fits the same pattern: keep the important mechanics visible, keep ownership close to the developer, and avoid inventing a dependency where the platform does not need one.
+Zuse (Beta) is built around that bias. The chat timeline shows tool calls and output instead of turning the session into a mystery. The changes pane makes diffs reviewable before they become commits. [Worktrees](/blog/git-worktrees-for-every-chat) isolate experiments so one agent's attempt does not silently bleed into another. BYOK fits the same pattern: keep the important mechanics visible, keep ownership close to the developer, and avoid inventing a dependency where the platform does not need one.
 
 There will still be teams that prefer centralized procurement, pooled credits, or a fully hosted product. That is fine. Zuse (Beta) is for the teams and individual developers who want the opposite shape: a desktop app that runs locally, respects the provider relationships they already have, and does not turn model access into a markup layer. If the app earns trust, it should be because it improves the work, not because it controls the meter.
 

@@ -3,6 +3,7 @@ title: "Best cloud coding agents in 2026: an honest comparison"
 description: "A sourced comparison of the best cloud coding agents in 2026: Codex, Claude Code, Cursor, Copilot, Devin, Amp, Capy, OpenHands, LemonLime and Zuse."
 date: "2026-11-15"
 category: "Guide"
+related: ["open-source-cloud-agents", "amp-vs-zuse", "cursor-cloud-agents-vs-zuse"]
 timeToRead: "12 min read"
 authorName: "Zuse team"
 authorRole: "Product and engineering"
@@ -14,7 +15,7 @@ A cloud coding agent is an agent that gets its own machine. It clones your repos
 
 That makes "which is best" a less useful question than "which trade-offs fit my team". The products differ on four axes that matter more than any demo:
 
-1. **Whose agent runs.** Some products run only their own harness. Others run Claude Code, Codex, and other CLIs side by side.
+1. **Whose agent runs.** Some products run only their own harness. Others run Claude Code, Codex, and other CLIs [side by side](/blog/run-six-agents-side-by-side).
 2. **Who pays for inference.** Some bill tokens through their own plan. Others let you sign in with a Claude or ChatGPT subscription or an API key.
 3. **Where the machine lives.** Vendor cloud, your cloud, your own server, or your laptop.
 4. **Whether you can read the code.** Open source changes what you can audit, fork, and self-host.
@@ -128,7 +129,7 @@ What it does, from our own [repository](https://github.com/swarajbachu/zuse) and
 
 - **Agents you already have.** Zuse has [built-in providers](https://docs.zuse.sh/providers) for Claude Code, Codex, Cursor (through the Cursor SDK and an API key), Grok, Kiro, OpenCode, and Pi, and runs other agents such as Gemini CLI through the Agent Client Protocol. Locally it uses the CLIs and logins on your machine. For the cloud, you connect Claude Code, Codex, Cursor, or Grok once under Zuse agent accounts and the same credentials work on every machine provider.
 - **Isolated cloud workspaces.** A [cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat) runs in its own machine on a fresh branch, keeps going when the desktop app closes, and can open pull requests through the Zuse GitHub App. You can [choose the machine provider](https://docs.zuse.sh/how-to/choose-cloud-provider): boxd, Boat, or E2B, with sizes from 1 vCPU / 4 GB up to 8 vCPU / 16 GB depending on the provider. Messages sent while a workspace sleeps go into a durable mailbox and are delivered when it wakes.
-- **Local isolation too.** Each local chat can get its own [Git worktree](https://docs.zuse.sh/how-to/local-parallel-worktrees), so parallel agents do not trample each other's files.
+- **Local isolation too.** Each local chat can get its own [Git worktree](https://docs.zuse.sh/how-to/local-parallel-worktrees), so parallel agents do not trample each other's files ([more on worktrees](/blog/git-worktrees-for-every-chat)).
 - **Review beside the work.** The conversation, terminal, file viewer, Changes diff, PR tab, and CI checks sit in the same window.
 - **Other entry points.** You can [start a cloud task from Slack](https://docs.zuse.sh/how-to/slack-start-task), create workspaces from your own scripts with the [public API](https://docs.zuse.sh/api-reference), or turn a Mac or Linux box into an account-linked environment with [Zuse Serve](https://docs.zuse.sh/serve).
 - **Open source.** The workspace is [AGPL-3.0](https://github.com/swarajbachu/zuse/blob/main/LICENSE), and the native Rust rewrite is public at [opcodehq/zuse](https://github.com/opcodehq/zuse) under the same license.
@@ -170,6 +171,6 @@ Skip the feature checklist and answer these in order:
 4. **Which forge?** Codex supports GitHub and GitLab. Cursor and Devin cover the most forges. Copilot, Conductor Cloud, and Zuse cloud chats are GitHub only, and Claude Code cloud sessions need GitHub to clone and open pull requests.
 5. **Can you read it?** If auditing the orchestration code matters, your shortlist is OpenHands, LemonLime, Sculptor, the Codex CLI, and Zuse.
 
-Then run one bounded, reviewable task on two candidates with the same repository and the same prompt. Measure setup time, manual interventions, and how long the review took. Our [open source cloud agents guide](/blog/open-source-cloud-agents) has a checklist for that first task, and [local versus cloud coding agents](/blog/choose-where-agents-run) covers when to keep work on your machine.
+Then run one bounded, reviewable task on two candidates with the same repository and the same prompt. Measure setup time, manual interventions, and how long the review took. Our [open source cloud agents guide](/blog/open-source-cloud-agents) has a checklist for that first task, and [local versus cloud coding agents](/blog/choose-where-agents-run) covers when to keep work on your machine. For head-to-head write-ups, see [Amp vs Zuse](/blog/amp-vs-zuse), [Cursor Cloud Agents vs Zuse](/blog/cursor-cloud-agents-vs-zuse), [Zuse vs Devin](/blog/zuse-vs-devin) and [OpenHands vs Zuse](/blog/openhands-vs-zuse).
 
 If Zuse is on your list, [download it](/download), [start a cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat), and judge it by the diff.

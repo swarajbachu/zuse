@@ -11,5 +11,9 @@
 	"schema_worktrees": "Arbres de travail Git isolés pour les exécutions d'agents parallèles",
 	"schema_environments": "Environnements d'exécution locaux et cloud",
 	"schema_subscriptions": "Apportez vos abonnements modèles existants",
-	"schema_parallel": "Exécutez plusieurs agents de codage à partir d’un seul espace de travail"
+	"schema_parallel": "Exécutez plusieurs agents de codage à partir d’un seul espace de travail",
+	"agents_directory_eyebrow": "Annuaire",
+	"agents_directory_title": "Agents de codage cloud, comparés.",
+	"agents_directory_body": "{{value0}} agents de codage cloud, espaces de travail d'agents et CLI de codage dans un seul tableau, avec un lien vers la source pour chaque ligne. Quand une source ne le dit pas, la cellule affiche « — », pas une supposition.",
+	"agents_directory_cta": "Comparer les agents de codage cloud"
 }

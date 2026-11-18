@@ -18,6 +18,11 @@ export const CHECKED_ON = "2026-11-15";
 export const CHECKED_ON_LABEL = "15 November 2026";
 export const CORRECTIONS_EMAIL = "hi@zuse.sh";
 
+/** Search-result description; kept under the ~160 characters engines display. */
+export function directoryMetaDescription(count: number): string {
+	return `${count} cloud coding agents, workspaces and CLIs compared on cloud and self-hosted runs, MCP, plugins, platforms, license and price. Checked ${CHECKED_ON_LABEL}.`;
+}
+
 interface DirectoryFile {
 	meta: {
 		checkedOn: string;

@@ -11,5 +11,9 @@
 	"schema_tools": "內建差異、終端、瀏覽器和拉取請求審查",
 	"meta_description": "並行運行編碼代理，在它們之間傳遞上下文，並使用 Zuse 將每個任務隔離在自己的 git 工作樹中。",
 	"schema_environments": "本地和雲端執行環境",
-	"schema_subscriptions": "帶上您現有的機型訂閱"
+	"schema_subscriptions": "帶上您現有的機型訂閱",
+	"agents_directory_eyebrow": "目錄",
+	"agents_directory_title": "雲端編碼代理比較。",
+	"agents_directory_body": "{{value0}} 個雲端編碼代理、代理工作區和編碼命令列工具彙整在一張表中，每一列都附有來源連結。來源沒有說明的地方，儲存格顯示「—」，而不是猜測。",
+	"agents_directory_cta": "比較雲端編碼代理"
 }

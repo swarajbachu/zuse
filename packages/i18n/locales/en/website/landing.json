@@ -5,11 +5,15 @@
 	"open_source_devin_alternative": "Run coding agents in parallel, locally or in isolated cloud workspaces. Keep tasks separate with Git worktrees, hand off context, and review changes in one place. An open-source alternative to Devin.",
 	"see_how_it_works": "See how it works",
 	"free_in_beta_no_token_markup": "Free in beta · no token markup",
-	"meta_title": "Open Source Cloud Agents for Coding | Zuse",
+	"meta_title": "Zuse: Open Source Cloud Agents for Coding",
 	"meta_description": "Zuse is an open source Devin alternative for local and cloud coding agents. Bring your model subscriptions, isolate tasks, and review every change.",
 	"schema_parallel": "Run multiple coding agents from one workspace",
 	"schema_worktrees": "Isolated Git worktrees for parallel agent runs",
 	"schema_environments": "Local and cloud execution environments",
 	"schema_tools": "Built-in diff, terminal, browser, and pull-request review",
-	"schema_subscriptions": "Bring your existing model subscriptions"
+	"schema_subscriptions": "Bring your existing model subscriptions",
+	"agents_directory_eyebrow": "Directory",
+	"agents_directory_title": "Cloud coding agents, compared.",
+	"agents_directory_body": "{{value0}} cloud coding agents, agent workspaces and coding CLIs in one table, with a source link for every row. Where a source did not say, the cell shows “—”, not a guess.",
+	"agents_directory_cta": "Compare cloud coding agents"
 }

@@ -11,6 +11,8 @@ Data for `/cloud-coding-agents`. Checked on 2026-11-15.
     stored as `quote` next to its `src` URL. Generated rows are "no" only when the README says
     outright that the feature or platform is unsupported (the sentence is the `quote`);
   - a homepage-only row for a product that also has a repository row is merged into that row;
+  - rows for one product with several repositories or a former name are merged into one row, with
+    the other repository or former name in `notes` and the merge recorded in `meta.merged`;
   - `reputation.hnStories` counts Hacker News stories whose URL points at the repo or homepage
     (hn.algolia.com, `restrictSearchableAttributes=url`, `tags=story`).
 - `meta.excluded` lists candidates left out and why.

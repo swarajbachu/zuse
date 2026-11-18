@@ -1,8 +1,9 @@
 ---
-title: "OpenHands vs Zuse: two open source ways to run coding agents"
+title: "OpenHands vs Zuse: open source coding agents"
 description: "OpenHands vs Zuse compared on licensing, self-hosting, sandboxes, agents, models, and pricing. An honest look for anyone weighing an OpenHands alternative."
 date: "2026-11-15"
 category: "Guide"
+related: ["zuse-vs-devin", "open-source-coding-agent-alternative", "sub-agent-delegation"]
 timeToRead: "9 min read"
 authorName: "Zuse team"
 authorRole: "Product and engineering"
@@ -42,7 +43,7 @@ OpenHands is also a large community project. The main repository has over 93,000
 
 ### Zuse
 
-Zuse is a workspace, not an agent. It wraps the agent CLIs you already use in a durable chat timeline with files, terminal, diffs, and pull-request context ([README](https://github.com/swarajbachu/zuse)). Each local chat can get its own Git worktree so parallel agents do not trample each other. Cloud chats run in their own machine with a fresh branch, keep going when your laptop sleeps, and can be followed from any signed-in client ([start a cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat)). The Electron app lives in [swarajbachu/zuse](https://github.com/swarajbachu/zuse), and a native Rust rewrite is public at [opcodehq/zuse](https://github.com/opcodehq/zuse).
+Zuse is a workspace, not an agent. It wraps the agent CLIs you already use in a durable chat timeline with files, terminal, diffs, and pull-request context ([README](https://github.com/swarajbachu/zuse)). Each local chat can get its own [Git worktree](/blog/git-worktrees-for-every-chat) so parallel agents do not trample each other. Cloud chats run in their own machine with a fresh branch, keep going when your laptop sleeps, and can be followed from any signed-in client ([start a cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat)). The Electron app lives in [swarajbachu/zuse](https://github.com/swarajbachu/zuse), and a native Rust rewrite is public at [opcodehq/zuse](https://github.com/opcodehq/zuse).
 
 The difference in emphasis matters. OpenHands starts from "self-host an agent platform." Zuse starts from "run the agent you trust in the cloud, and review what it did."
 
@@ -129,4 +130,4 @@ Zuse's signature workflow is supervised delegation. You start several chats, eac
 
 Both have a free local option, so test them on the same task: a bug you understand, with a clear reproduction and the checks to run. Note setup time, how often you intervened, and how easy it was to trust the final diff.
 
-To try Zuse, [download the app](/download), connect an agent you already use, then follow [Start a cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat). For background on the category, read our [open source cloud agents guide](/blog/open-source-cloud-agents), and if you are also weighing a closed option, see [Zuse vs Devin](/blog/zuse-vs-devin).
+To try Zuse, [download the app](/download), connect an agent you already use, then follow [Start a cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat). For background on the category, read our [open source cloud agents guide](/blog/open-source-cloud-agents), and if you are also weighing a closed option, see [Zuse vs Devin](/blog/zuse-vs-devin). The [best cloud coding agents roundup](/blog/best-cloud-coding-agents) and the [cloud coding agents comparison](/cloud-coding-agents) cover the wider field.

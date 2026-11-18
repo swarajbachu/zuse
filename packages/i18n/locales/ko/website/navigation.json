@@ -39,5 +39,9 @@
 	"open_source_cloud_agents": "오픈 소스 클라우드 에이전트",
 	"open_source_devin_alternative": "Devin의 오픈 소스 대안",
 	"sitemap": "사이트맵",
-	"dither_studio": "디더링 스튜디오"
+	"dither_studio": "디더링 스튜디오",
+	"compare_agents": "에이전트 비교",
+	"cloud_coding_agents_compared": "클라우드 코딩 에이전트 비교",
+	"language_suggestion": "Zuse는 다음 언어로도 제공됩니다:",
+	"language_suggestion_dismiss": "언어 제안 닫기"
 }
