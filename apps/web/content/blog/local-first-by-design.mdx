@@ -3,6 +3,7 @@ title: "Local-first by design"
 description: "SQLite on disk, keys in the operating system credential store, no account required. Your work stays on your machine."
 date: "2026-05-12"
 category: "Note"
+related: ["bring-your-own-keys", "memoize-public-alpha", "git-worktrees-for-every-chat"]
 timeToRead: "4 min read"
 authorName: "Zuse (Beta) team"
 authorRole: "Product notes"
@@ -92,10 +93,10 @@ The hardest part of local-first design is collaboration. Teams often want shared
 
 That is a good constraint. Not every piece of agent history should become shared team data by default. Some conversations are scratch work. Some include sensitive logs. Some are failed explorations that should be discarded. When collaboration features are added, they should make sharing intentional: export this summary, commit this change, open this PR, copy this configuration, or attach this context to an issue.
 
-Git already gives developers a strong collaboration substrate for code. Zuse (Beta) leans into that by making worktrees and diffs central. The artifact that crosses from one person to another should often be a branch, a commit, a PR, or a clear written summary, not an invisible sync of every local thought the agent produced.
+Git already gives developers a strong collaboration substrate for code. Zuse (Beta) leans into that by making [worktrees](/blog/git-worktrees-for-every-chat) and diffs central. The artifact that crosses from one person to another should often be a branch, a commit, a PR, or a clear written summary, not an invisible sync of every local thought the agent produced.
 
 ## Trust is built through restraint
 
 The easiest way to build features is often to collect more data. The local-first approach asks a harder question: can this be useful without taking custody of the user's work? Sometimes the answer is yes with a better local design. Sometimes the answer is yes if sharing is explicit. Sometimes the answer is no, and the feature needs a serious trust discussion before it belongs in the product.
 
-That restraint is part of Zuse (Beta)'s identity. We want the app to feel like a tool you can put next to a private repository without wondering which hidden service is watching the session. You should know where your data lives, which provider receives a request, and what changed in the working tree. Local-first is how we make those answers concrete.
+That restraint is part of Zuse (Beta)'s identity. We want the app to feel like a tool you can put next to a private repository without wondering which hidden service is watching the session. You should know where your data lives, which provider receives a request, and what changed in the working tree. Local-first is how we make those answers concrete. The [original public alpha announcement](/blog/memoize-public-alpha) lists SQLite on disk and API keys in the macOS Keychain among Zuse's launch features.

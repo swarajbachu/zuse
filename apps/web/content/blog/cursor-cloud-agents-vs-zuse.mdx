@@ -3,6 +3,7 @@ title: "Cursor Cloud Agents alternative: Cursor vs Zuse"
 description: "Looking for a Cursor Cloud Agents or background agents alternative? Compare agents, models, pricing, machines, and review in Cursor and open source Zuse."
 date: "2026-11-15"
 category: "Guide"
+related: ["amp-vs-zuse", "best-cloud-coding-agents", "choose-where-agents-run"]
 timeToRead: "9 min read"
 authorName: "Zuse team"
 authorRole: "Product and engineering"
@@ -39,7 +40,7 @@ This is a mature, well-documented product. If it already works for your team, th
 
 ## What Zuse is
 
-Zuse is an open-source workspace for coding agents. The source is at [github.com/swarajbachu/zuse](https://github.com/swarajbachu/zuse) under the [AGPL-3.0 license](https://github.com/swarajbachu/zuse/blob/main/LICENSE). Zuse is cloud agents first, but it does not bring its own model or its own agent. It runs agents you already use and gives each one the same timeline, Git worktrees, terminal, files, and review flow.
+Zuse is an open-source workspace for coding agents. The source is at [github.com/swarajbachu/zuse](https://github.com/swarajbachu/zuse) under the [AGPL-3.0 license](https://github.com/swarajbachu/zuse/blob/main/LICENSE). Zuse is cloud agents first, but it does not bring its own model or its own agent. It runs agents you already use and gives each one the same timeline, [Git worktrees](/blog/git-worktrees-for-every-chat), terminal, files, and review flow.
 
 The [providers page](https://docs.zuse.sh/providers) lists eight built-in providers: Claude Code, Codex, Cursor, Grok, Kiro, OpenCode, OpenCode 2, and Pi. Agents that speak the Agent Client Protocol, such as Gemini CLI, GitHub Copilot, and goose, can be added from the [ACP catalog](https://docs.zuse.sh/providers/acp). Cloud chats support four agents today: Claude Code, Codex, Cursor, and Grok, per the [Zuse API schema](https://github.com/swarajbachu/zuse/blob/main/apps/docs/openapi/zuse-api.json). The rest run locally.
 
@@ -124,4 +125,4 @@ A feature table won't tell you which one fits. Running the same task on both wil
 3. Set up a [cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat) on a GitHub repository and run it again in the cloud.
 4. Compare the diff, the checks that actually ran, the manual fixes you made, and the cost reported by each side.
 
-The [open source cloud agents guide](/blog/open-source-cloud-agents) covers preparing a repository for its first remote run, and [where to run your agents](/blog/choose-where-agents-run) covers the local-versus-cloud decision. Read the [docs](https://docs.zuse.sh), then judge both by the pull request they leave you.
+The [open source cloud agents guide](/blog/open-source-cloud-agents) covers preparing a repository for its first remote run, and [where to run your agents](/blog/choose-where-agents-run) covers the local-versus-cloud decision. Read the [docs](https://docs.zuse.sh), then judge both by the pull request they leave you. If you are also weighing other options, see [Amp vs Zuse](/blog/amp-vs-zuse), [Zuse vs Devin](/blog/zuse-vs-devin), [best cloud coding agents in 2026](/blog/best-cloud-coding-agents) and the [cloud coding agents comparison](/cloud-coding-agents).

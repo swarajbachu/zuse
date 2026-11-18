@@ -2,6 +2,10 @@ export const SITE_NAME = "Zuse";
 
 export const GITHUB_REPOSITORY = "opcodehq/zuse";
 export const GITHUB_URL = `https://github.com/${GITHUB_REPOSITORY}`;
+/** The public repository the marketing site and docs are built from. */
+export const PUBLIC_REPOSITORY_URL = "https://github.com/swarajbachu/zuse";
+export const DOCS_URL = "https://docs.zuse.sh/start";
+export const CLOUD_AGENTS_DIRECTORY_PATH = "/cloud-coding-agents";
 export const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPOSITORY}`;
 export const RELEASES_URL = `${GITHUB_URL}/releases`;
 export const X_URL = "https://x.com/zuse_sh";

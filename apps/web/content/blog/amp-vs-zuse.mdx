@@ -3,6 +3,7 @@ title: "Amp alternative: Amp vs Zuse for cloud coding agents"
 description: "Comparing Amp and Zuse? See how orbs, pricing, agent choice, self-hosting, and code review differ, and when an open source Amp code alternative fits."
 date: "2026-11-15"
 category: "Guide"
+related: ["best-cloud-coding-agents", "cursor-cloud-agents-vs-zuse", "zuse-vs-devin"]
 timeToRead: "9 min read"
 authorName: "Zuse team"
 authorRole: "Product and engineering"
@@ -43,7 +44,7 @@ Zuse is an open-source workspace for coding agents, published at [github.com/swa
 
 The [providers page](https://docs.zuse.sh/providers) lists eight built-in providers: Claude Code, Codex, Cursor, Grok, Kiro, OpenCode, OpenCode 2, and Pi. Any agent that speaks the Agent Client Protocol can be added from the ACP catalog, including Gemini CLI, GitHub Copilot, goose, and Amp. Each agent keeps its own sign-in, models, and limits. Zuse does not bundle a paid provider subscription. Cloud chats support four of these agents today: Claude Code, Codex, Cursor, and Grok, per the [Zuse API schema](https://github.com/swarajbachu/zuse/blob/main/apps/docs/openapi/zuse-api.json). The others run locally.
 
-Work can run locally, in a per-chat Git worktree, or in a [cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat). Cloud chats are in public beta. Each one runs in its own machine on a fresh branch, and cloud agents commit, push, and open pull requests as you through the Zuse GitHub App.
+Work can run locally, in a per-chat [Git worktree](/blog/git-worktrees-for-every-chat), or in a [cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat). Cloud chats are in public beta. Each one runs in its own machine on a fresh branch, and cloud agents commit, push, and open pull requests as you through the Zuse GitHub App.
 
 ## Amp vs Zuse at a glance
 
@@ -100,7 +101,7 @@ Neither default is wrong. Trunk-based shipping is fast for small trusted teams. 
 
 Amp lets you bring compute but not the control plane. With self-hosted orbs, the checkout and build output stay on your infrastructure, but Amp "runs the agent loop and model inference on its own servers," and the file contents, command output, and diffs the agent works with are stored with the thread. The [self-hosted orbs page](https://ampcode.com/docs/orbs/self-hosted) also says Amp-hosted orbs "still give the best experience." For Enterprise, Amp adds controls such as SCIM, audit logs, and configurable thread retention ([pricing](https://ampcode.com/docs/pricing)).
 
-Zuse is local-first for local work. The desktop service is the [source of truth](https://docs.zuse.sh/concepts/local-first) for local projects, chats, and settings, stored under `~/.zuse/`. API keys are encrypted with a key held by your system keychain, and provider sign-in stays with each provider's CLI. Because the code is AGPL, you can read how credentials reach a runtime instead of taking our word for it. Zuse Cloud itself is a hosted service. Open source does not make it a turnkey self-hosted product, so check the [Serve docs](https://docs.zuse.sh/serve) if running everything yourself is the requirement.
+Zuse is [local-first](/blog/local-first-by-design) for local work. The desktop service is the [source of truth](https://docs.zuse.sh/concepts/local-first) for local projects, chats, and settings, stored under `~/.zuse/`. API keys are encrypted with a key held by your system keychain, and provider sign-in stays with each provider's CLI. Because the code is AGPL, you can read how credentials reach a runtime instead of taking our word for it. Zuse Cloud itself is a hosted service. Open source does not make it a turnkey self-hosted product, so check the [Serve docs](https://docs.zuse.sh/serve) if running everything yourself is the requirement.
 
 ## Where Amp is clearly ahead
 
@@ -130,4 +131,4 @@ Do not migrate on a feature table. Pick one bounded task you would normally give
 3. Set up a [cloud chat](https://docs.zuse.sh/how-to/cloud-start-chat) and run the same task there with Claude Code, Codex, Cursor, or Grok.
 4. Compare setup time, manual interventions, the diff, and which checks actually ran.
 
-The [open source cloud agents guide](/blog/open-source-cloud-agents) explains how to prepare a repository for that first remote run, and [where to run your agents](/blog/choose-where-agents-run) covers the local-versus-cloud decision. Judge the result by the branch and the evidence, then decide.
+The [open source cloud agents guide](/blog/open-source-cloud-agents) explains how to prepare a repository for that first remote run, and [where to run your agents](/blog/choose-where-agents-run) covers the local-versus-cloud decision. Judge the result by the branch and the evidence, then decide. If you are also weighing other options, see [Cursor Cloud Agents vs Zuse](/blog/cursor-cloud-agents-vs-zuse), [best cloud coding agents in 2026](/blog/best-cloud-coding-agents) and the [cloud coding agents comparison](/cloud-coding-agents).

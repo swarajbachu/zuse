@@ -1,4 +1,4 @@
-import { isWebsiteLocale, websitePath } from "@zuse/i18n/registry";
+import { isWebsiteLocale } from "@zuse/i18n/registry";
 import { type NextRequest, NextResponse } from "next/server";
 import { NOT_FOUND_MARKDOWN } from "@/lib/agent-content";
 import { jsonError } from "@/lib/api-error";
@@ -6,7 +6,6 @@ import { appendVary, negotiateContent } from "@/lib/content-negotiation";
 import {
 	LANGUAGE_COOKIE,
 	LANGUAGE_COOKIE_MAX_AGE,
-	resolveWebsiteLanguage,
 } from "@/lib/language-preference";
 import { LEGAL_PAGE_PATHS } from "@/lib/legal-pages";
 
@@ -101,25 +100,10 @@ export function proxy(request: NextRequest) {
 			return response;
 		}
 
-		const locale = resolveWebsiteLanguage(
-			request.cookies.get(LANGUAGE_COOKIE)?.value,
-			request.headers.get("accept-language"),
-			request.headers.get("x-vercel-ip-country"),
-		);
-		const url = request.nextUrl.clone();
-		url.pathname = websitePath(locale);
-		const response = withNegotiationHeaders(
-			locale === "en" ? NextResponse.next() : NextResponse.redirect(url, 307),
-		);
-
-		response.headers.set("Cache-Control", "private, no-store");
-		for (const header of ["Accept-Language", "Cookie", "X-Vercel-IP-Country"]) {
-			response.headers.set(
-				"Vary",
-				appendVary(response.headers.get("Vary"), header),
-			);
-		}
-		return response;
+		// English is always served at `/`. Other languages are offered by the
+		// client-side suggestion and the language selector, never by a redirect,
+		// so the page stays one cacheable response for crawlers and users alike.
+		return withNegotiationHeaders(NextResponse.next());
 	}
 
 	const isKnownRoute =

@@ -3,6 +3,7 @@ title: "Zuse Alpha is now in public alpha"
 description: "How Zuse launched its original public alpha as one project-aware workspace for coding agent CLIs."
 date: "2026-06-16"
 category: "News"
+related: ["local-first-by-design", "run-six-agents-side-by-side", "git-worktrees-for-every-chat"]
 timeToRead: "4 min read"
 authorName: "Zuse Alpha team"
 authorRole: "Product notes"
@@ -23,10 +24,10 @@ The public alpha is out today. It is free, runs on Apple Silicon and Intel, and 
 ## What you get
 
 - A real streaming chat timeline with tool calls, thinking blocks, diffs, and errors rendered inline. Not a raw terminal dump.
-- Multiple agents side by side, with provider switching that does not lose your context.
-- Git worktrees per chat so every conversation gets an isolated working tree.
+- [Multiple agents side by side](/blog/run-six-agents-side-by-side), with provider switching that does not lose your context.
+- [Git worktrees per chat](/blog/git-worktrees-for-every-chat) so every conversation gets an isolated working tree.
 - A PR / Changes pane with a diff viewer and commit composer.
-- Local-first storage: SQLite on disk, API keys in the macOS Keychain.
+- [Local-first](/blog/local-first-by-design) storage: SQLite on disk, API keys in the macOS Keychain.
 
 ---
 
@@ -44,7 +45,7 @@ AI coding agents moved from novelty to daily tool very quickly, but the workflow
 
 The friction gets worse when work becomes parallel. You ask one agent to investigate a bug, another to prototype a refactor, and a third to write tests. They all want to read and edit the same checkout. Soon the working tree has unrelated changes, a build is running in the wrong directory, and it is no longer clear which conversation produced which diff. The agent might have done good work, but the surrounding process is brittle enough that reviewing it costs more than it should.
 
-Zuse Alpha exists because the agent should not be the only part of the workflow that improves. The surface around the agent needs to understand projects, files, branches, diffs, credentials, and review. It needs to make multiple providers feel comparable without flattening them into a lowest-common-denominator runtime. It needs to keep the developer in control while still making it normal to delegate more work.
+Zuse Alpha exists because the agent should not be the only part of the workflow that improves. The surface around the agent needs to understand projects, files, branches, diffs, credentials, and review. It needs to make multiple providers feel comparable without flattening them into a lowest-common-denominator runtime. It needs to keep the developer in control while still making it normal to [delegate more work](/blog/sub-agent-delegation).
 
 ## What alpha means in practical terms
 

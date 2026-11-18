@@ -11,5 +11,9 @@
 	"hero_subtitle": "Führen Sie Claude Code, Codex und andere Agenten in isolierten Cloud-Workspaces oder auf Ihrem Rechner aus, und prüfen Sie jede Änderung.",
 	"schema_tools": "Integrierte Diff-, Terminal-, Browser- und Pull-Request-Überprüfung",
 	"meta_description": "Führen Sie Programmieragenten nebeneinander aus, übertragen Sie den Kontext zwischen ihnen und isolieren Sie jede Aufgabe in ihrem eigenen Git-Worktree mit Zuse.",
-	"schema_subscriptions": "Bringen Sie Ihre bestehenden Modellabonnements mit"
+	"schema_subscriptions": "Bringen Sie Ihre bestehenden Modellabonnements mit",
+	"agents_directory_eyebrow": "Verzeichnis",
+	"agents_directory_title": "Cloud-Coding-Agenten im Vergleich.",
+	"agents_directory_body": "{{value0}} Cloud-Coding-Agenten, Agenten-Arbeitsbereiche und Coding-CLIs in einer Tabelle, mit einem Quellenlink für jede Zeile. Wo eine Quelle nichts sagt, steht in der Zelle „—“ statt einer Vermutung.",
+	"agents_directory_cta": "Cloud-Coding-Agenten vergleichen"
 }

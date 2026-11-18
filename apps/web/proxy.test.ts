@@ -42,9 +42,7 @@ describe("proxy", () => {
 		const response = proxy(makeRequest("/", "text/html, */*;q=0.8"));
 		expect(response.status).toBe(200);
 		expect(response.headers.get("x-middleware-next")).toBe("1");
-		expect(response.headers.get("vary")).toBe(
-			"Accept, Accept-Encoding, Accept-Language, Cookie, X-Vercel-IP-Country",
-		);
+		expect(response.headers.get("vary")).toBe("Accept, Accept-Encoding");
 	});
 
 	it("returns a structured 406 for unsupported homepage media types", async () => {
@@ -97,74 +95,50 @@ describe("proxy", () => {
 	});
 });
 
-describe("homepage language preference", () => {
+describe("homepage language handling", () => {
 	const request = (path: string, headers: Record<string, string> = {}) =>
 		new NextRequest(`https://zuse.sh${path}`, {
 			headers: { Accept: "text/html", ...headers },
 		});
 
-	it("redirects first visits using browser quality order and preserves queries", () => {
-		const response = proxy(
-			request("/?utm_source=launch", {
-				"Accept-Language": "fr;q=0.5,de;q=0.9",
-			}),
-		);
-		expect(response.status).toBe(307);
-		expect(response.headers.get("location")).toBe(
-			"https://zuse.sh/de?utm_source=launch",
-		);
-		expect(response.headers.get("cache-control")).toBe("private, no-store");
-		expect(response.headers.get("vary")).toContain("Accept-Language");
-		expect(response.headers.get("vary")).toContain("Cookie");
-	});
-	it("lets saved English and other explicit choices beat browser and IP hints", () => {
-		const hints = { "Accept-Language": "fr", "x-vercel-ip-country": "DE" };
-		expect(
-			proxy(request("/", { ...hints, Cookie: "zuse-language=en" })).status,
-		).toBe(200);
-		expect(
-			proxy(request("/", { ...hints, Cookie: "zuse-language=ko" })).headers.get(
-				"location",
-			),
-		).toBe("https://zuse.sh/ko");
-	});
-	it("uses the IP country only without a supported browser preference", () => {
-		expect(
-			proxy(
-				request("/", { "Accept-Language": "ru", "x-vercel-ip-country": "TW" }),
-			).headers.get("location"),
-		).toBe("https://zuse.sh/zh-Hant");
-		expect(
-			proxy(
-				request("/", { "Accept-Language": "en", "x-vercel-ip-country": "TW" }),
-			).status,
-		).toBe(200);
-	});
-	it("ignores corrupt and pseudo-language cookies", () => {
-		for (const value of ["corrupt", "en-XA", "../../fr"]) {
-			expect(
-				proxy(
-					request("/", {
-						Cookie: `zuse-language=${value}`,
-						"Accept-Language": "ja",
-					}),
-				).headers.get("location"),
-			).toBe("https://zuse.sh/ja");
+	it("serves English at / whatever the browser language, cookie or country says", () => {
+		const hints: Record<string, string>[] = [
+			{ "Accept-Language": "fr;q=0.5,de;q=0.9" },
+			{ "Accept-Language": "ja", "x-vercel-ip-country": "JP" },
+			{ "x-vercel-ip-country": "TW" },
+			{ Cookie: "zuse-language=ko", "Accept-Language": "fr" },
+		];
+		for (const headers of hints) {
+			const response = proxy(request("/?utm_source=launch", headers));
+			expect(response.status).toBe(200);
+			expect(response.headers.get("location")).toBeNull();
+			expect(response.headers.get("x-middleware-next")).toBe("1");
 		}
 	});
-	it("honors direct localized URLs without overwriting the saved choice", () => {
+
+	it("keeps the English homepage cacheable: no private/no-store and no personalised Vary", () => {
+		const response = proxy(request("/", { "Accept-Language": "fr" }));
+		expect(response.headers.get("cache-control")).toBeNull();
+		const vary = response.headers.get("vary") ?? "";
+		for (const header of ["Accept-Language", "Cookie", "X-Vercel-IP-Country"])
+			expect(vary).not.toContain(header);
+	});
+
+	it("honors direct localized URLs without touching the saved choice", () => {
 		const response = proxy(
 			request("/fr", { Cookie: "zuse-language=de", "Accept-Language": "ko" }),
 		);
 		expect(response.status).toBe(200);
 		expect(response.headers.get("set-cookie")).toBeNull();
 	});
-	it("makes explicit English links sticky and prevents automatic redirect loops", () => {
+
+	it("keeps /en as a sticky link to the English homepage", () => {
 		const response = proxy(request("/en", { "Accept-Language": "fr" }));
 		expect(response.status).toBe(307);
+		expect(response.headers.get("location")).toBe("https://zuse.sh/");
 		expect(response.headers.get("set-cookie")).toContain("zuse-language=en;");
-		expect(response.headers.get("cache-control")).toBe("private, no-store");
 	});
+
 	it("does not redirect Markdown or non-landing routes", () => {
 		expect(
 			proxy(

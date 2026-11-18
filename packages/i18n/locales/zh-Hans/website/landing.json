@@ -11,5 +11,9 @@
 	"schema_worktrees": "用独立的 Git worktree 隔离并行任务",
 	"cloud_coding_agents_open_source": "开源云端编程智能体。",
 	"hero_subtitle": "在隔离的云工作区或本机上运行 Claude Code、Codex 和其他智能体，并审阅每一处更改。",
-	"schema_tools": "内置代码改动审查、终端、浏览器和合并请求审查"
+	"schema_tools": "内置代码改动审查、终端、浏览器和合并请求审查",
+	"agents_directory_eyebrow": "目录",
+	"agents_directory_title": "云端编程智能体对比。",
+	"agents_directory_body": "{{value0}} 个云端编程智能体、智能体工作区和编程命令行工具汇总在一张表中，每一行都附有来源链接。来源没有说明的地方，单元格显示“—”，而不是猜测。",
+	"agents_directory_cta": "对比云端编程智能体"
 }

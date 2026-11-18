@@ -48,14 +48,15 @@ keeps full native names in its menu, and saves manual choices in the `zuse-langu
 first-party cookie for one year (Path=/, SameSite=Lax, Secure on HTTPS). It preserves
 section hashes when navigating. Website preferences are independent of desktop settings.
 
-For HTML requests to `/`, precedence is saved choice, quality-ranked `Accept-Language`,
-Vercel's IP-country hint, then English. Country is used only if no browser language matches;
-ambiguous countries without a configured hint fall back to English. Direct localized URLs
-such as `/fr` take precedence for that visit and do not overwrite the saved preference.
-`/en` saves English before a temporary redirect to `/`, preventing a browser-language loop.
-Personalized root responses/redirects are private and non-cacheable, with language/cookie/
-country Vary headers on redirects. Markdown, API, downloads, legal, and documentation routes are excluded.
-The IP hint uses the hosting request header, not a GPS permission or external lookup service.
+`/` always serves English, whatever the browser language, saved choice or country, so one URL
+has one cacheable response and crawlers see the same page as visitors. Other languages are
+reached through the language selector, explicit URLs such as `/fr` (which do not overwrite the
+saved preference), or the dismissible language suggestion on the English page. The suggestion
+appears when a quality-ranked `Accept-Language` header matches an enabled non-English language
+and no choice is saved yet; dismissing it saves English. Every page keeps its `hreflang`
+alternates. `/en` saves English before a temporary redirect to `/`; that redirect response is
+private and non-cacheable because it sets a cookie. Markdown, API, downloads, legal, and
+documentation routes are excluded. No IP-country hint or GPS permission is used.
 Clearing/blocking cookies resets remembered website choices; desktop preferences stay local.
 
 Each page is statically generated with its language, canonical URL, reciprocal hreflang

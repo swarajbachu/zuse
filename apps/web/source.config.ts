@@ -11,6 +11,8 @@ const blogMetadataSchema = pageSchema.extend({
 	authorRole: z.string(),
 	authorAvatar: z.string(),
 	previewImage: z.string().optional(),
+	/** Slugs of up to three posts to feature under "Keep reading". */
+	related: z.array(z.string()).max(3).optional(),
 	labels: z.array(z.object({ name: z.string(), hex: z.string() })).optional(),
 });
 

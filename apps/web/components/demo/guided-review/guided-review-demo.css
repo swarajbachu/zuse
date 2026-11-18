@@ -130,7 +130,7 @@
 	}
 }
 
-.grd h1 {
+.grd .grd-title {
 	margin: 32px 0 0;
 	font-size: 26px;
 	line-height: 32px;
@@ -717,7 +717,7 @@
 	.grd-page {
 		padding: 0 16px 120px;
 	}
-	.grd h1 {
+	.grd .grd-title {
 		font-size: 22px;
 		line-height: 28px;
 	}

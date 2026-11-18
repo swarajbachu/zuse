@@ -1,4 +1,4 @@
-import { detectLocale, parseLanguagePreferences } from "@zuse/i18n/detection";
+import { detectLocale } from "@zuse/i18n/detection";
 import {
 	isWebsiteLocale,
 	type WebsiteLocale,
@@ -8,18 +8,22 @@ import {
 export const LANGUAGE_COOKIE = "zuse-language";
 export const LANGUAGE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
-export function resolveWebsiteLanguage(
-	preference: string | undefined,
-	acceptLanguage: string | null,
-	country: string | null,
-): WebsiteLocale {
-	if (preference && isWebsiteLocale(preference)) return preference;
-	const detected = detectLocale(
-		parseLanguagePreferences(acceptLanguage),
-		websiteLocales,
-		country,
-	);
-	return isWebsiteLocale(detected) ? detected : "en";
+/**
+ * The non-English website language a visitor's browser prefers, if any.
+ * Used only to offer a link on `/`; it never changes the page that is served.
+ */
+export function suggestWebsiteLanguage(
+	browserLanguages: readonly string[],
+): WebsiteLocale | null {
+	const detected = detectLocale(browserLanguages, websiteLocales, null);
+	return isWebsiteLocale(detected) && detected !== "en" ? detected : null;
+}
+
+export function hasSavedWebsiteLanguage(cookieHeader: string): boolean {
+	return cookieHeader.split(";").some((part) => {
+		const [name, value] = part.trim().split("=");
+		return name === LANGUAGE_COOKIE && !!value && isWebsiteLocale(value);
+	});
 }
 
 export function rememberWebsiteLanguage(locale: WebsiteLocale) {

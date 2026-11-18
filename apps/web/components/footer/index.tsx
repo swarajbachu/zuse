@@ -17,7 +17,9 @@ import { CopyRightIcon, XformerlyTwitter } from "@/components/icons/general";
 import { Logo } from "@/components/logo";
 import { legalPageLinks } from "@/lib/legal-pages";
 import {
+	CLOUD_AGENTS_DIRECTORY_PATH,
 	DISCORD_URL,
+	DOCS_URL,
 	DOWNLOAD_URL,
 	GITHUB_URL,
 	INSTAGRAM_URL,
@@ -51,6 +53,11 @@ const getData = (t: WebsiteMessage) => ({
 			label: t("navigation:open_source_devin_alternative"),
 			href: "/blog/open-source-coding-agent-alternative",
 		},
+		{
+			label: t("navigation:cloud_coding_agents_compared"),
+			href: CLOUD_AGENTS_DIRECTORY_PATH,
+		},
+		{ label: t("navigation:docs"), href: DOCS_URL },
 		{ label: t("navigation:sitemap"), href: "/sitemap.xml" },
 		{ label: t("navigation:dither_studio"), href: "/tools/dither" },
 		{ label: t("navigation:download"), href: DOWNLOAD_URL },

@@ -7,6 +7,7 @@ import {
 	CHECKED_ON_LABEL,
 	CORRECTIONS_EMAIL,
 	DIRECTORY_META,
+	directoryMetaDescription,
 	REPUTATION_MAX,
 	toTableRow,
 } from "@/lib/cloud-agents";
@@ -18,7 +19,7 @@ const DESCRIPTION = `${AGENT_ROWS.length} cloud coding agents, agent workspaces 
 
 export const metadata = getSEO({
 	absoluteTitle: `${TITLE} (${AGENT_ROWS.length} tools) | Zuse`,
-	description: DESCRIPTION,
+	description: directoryMetaDescription(AGENT_ROWS.length),
 	path: PATH,
 	keywords: [
 		"cloud coding agents",

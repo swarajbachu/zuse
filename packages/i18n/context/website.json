@@ -972,11 +972,11 @@
 		]
 	},
 	"landing:meta_title": {
-		"source": "Open Source Cloud Agents for Coding | Zuse",
+		"source": "Zuse: Open Source Cloud Agents for Coding",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/page.tsx",
-				"line": 19
+				"line": 22
 			}
 		]
 	},
@@ -985,15 +985,15 @@
 		"locations": [
 			{
 				"path": "apps/web/components/landing/page.tsx",
-				"line": 20
+				"line": 23
 			},
 			{
 				"path": "apps/web/components/seo/homepage-structured-data.tsx",
-				"line": 32
+				"line": 39
 			},
 			{
 				"path": "apps/web/components/seo/homepage-structured-data.tsx",
-				"line": 40
+				"line": 47
 			}
 		]
 	},
@@ -1002,7 +1002,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/seo/homepage-structured-data.tsx",
-				"line": 55
+				"line": 62
 			}
 		]
 	},
@@ -1011,7 +1011,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/seo/homepage-structured-data.tsx",
-				"line": 56
+				"line": 63
 			}
 		]
 	},
@@ -1020,7 +1020,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/seo/homepage-structured-data.tsx",
-				"line": 57
+				"line": 64
 			}
 		]
 	},
@@ -1029,7 +1029,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/seo/homepage-structured-data.tsx",
-				"line": 58
+				"line": 65
 			}
 		]
 	},
@@ -1038,7 +1038,43 @@
 		"locations": [
 			{
 				"path": "apps/web/components/seo/homepage-structured-data.tsx",
-				"line": 59
+				"line": 66
+			}
+		]
+	},
+	"landing:agents_directory_eyebrow": {
+		"source": "Directory",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/agents-directory-teaser.tsx",
+				"line": 14
+			}
+		]
+	},
+	"landing:agents_directory_title": {
+		"source": "Cloud coding agents, compared.",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/agents-directory-teaser.tsx",
+				"line": 20
+			}
+		]
+	},
+	"landing:agents_directory_body": {
+		"source": "{{value0}} cloud coding agents, agent workspaces and coding CLIs in one table, with a source link for every row. Where a source did not say, the cell shows “—”, not a guess.",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/agents-directory-teaser.tsx",
+				"line": 23
+			}
+		]
+	},
+	"landing:agents_directory_cta": {
+		"source": "Compare cloud coding agents",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/agents-directory-teaser.tsx",
+				"line": 30
 			}
 		]
 	},
@@ -1083,7 +1119,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 25
+				"line": 30
 			}
 		]
 	},
@@ -1091,8 +1127,12 @@
 		"source": "Docs",
 		"locations": [
 			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 60
+			},
+			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 26
+				"line": 31
 			}
 		]
 	},
@@ -1105,7 +1145,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 29
+				"line": 38
 			}
 		]
 	},
@@ -1114,7 +1154,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 91
+				"line": 100
 			}
 		]
 	},
@@ -1123,7 +1163,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 92
+				"line": 101
 			}
 		]
 	},
@@ -1132,7 +1172,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 155
+				"line": 164
 			}
 		]
 	},
@@ -1141,7 +1181,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 156
+				"line": 165
 			}
 		]
 	},
@@ -1150,7 +1190,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 164
+				"line": 173
 			}
 		]
 	},
@@ -1159,11 +1199,11 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 56
+				"line": 63
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 192
+				"line": 201
 			}
 		]
 	},
@@ -1172,7 +1212,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 207
+				"line": 216
 			}
 		]
 	},
@@ -1181,7 +1221,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 57
+				"line": 64
 			}
 		]
 	},
@@ -1190,7 +1230,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 59
+				"line": 66
 			}
 		]
 	},
@@ -1199,11 +1239,11 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 60
+				"line": 67
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 28
+				"line": 37
 			}
 		]
 	},
@@ -1212,7 +1252,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 73
+				"line": 80
 			}
 		]
 	},
@@ -1221,7 +1261,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 122
+				"line": 129
 			}
 		]
 	},
@@ -1231,6 +1271,10 @@
 			{
 				"path": "apps/web/components/language-selector.tsx",
 				"line": 47
+			},
+			{
+				"path": "apps/web/components/language-suggestion.tsx",
+				"line": 40
 			}
 		]
 	},
@@ -1239,7 +1283,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 39
+				"line": 41
 			}
 		]
 	},
@@ -1248,7 +1292,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 40
+				"line": 42
 			}
 		]
 	},
@@ -1257,7 +1301,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 41
+				"line": 43
 			}
 		]
 	},
@@ -1266,7 +1310,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 42
+				"line": 44
 			}
 		]
 	},
@@ -1275,7 +1319,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 29
+				"line": 31
 			}
 		]
 	},
@@ -1284,7 +1328,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 30
+				"line": 32
 			}
 		]
 	},
@@ -1293,7 +1337,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 31
+				"line": 33
 			}
 		]
 	},
@@ -1302,7 +1346,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 32
+				"line": 34
 			}
 		]
 	},
@@ -1311,7 +1355,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 33
+				"line": 35
 			}
 		]
 	},
@@ -1320,7 +1364,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 34
+				"line": 36
 			}
 		]
 	},
@@ -1329,7 +1373,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 35
+				"line": 37
 			}
 		]
 	},
@@ -1338,7 +1382,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 36
+				"line": 38
 			}
 		]
 	},
@@ -1347,7 +1391,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 89
+				"line": 96
 			}
 		]
 	},
@@ -1374,11 +1418,11 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 58
+				"line": 65
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 27
+				"line": 32
 			}
 		]
 	},
@@ -1387,7 +1431,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 47
+				"line": 49
 			}
 		]
 	},
@@ -1396,7 +1440,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 51
+				"line": 53
 			}
 		]
 	},
@@ -1405,7 +1449,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 54
+				"line": 61
 			}
 		]
 	},
@@ -1414,7 +1458,43 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 55
+				"line": 62
+			}
+		]
+	},
+	"navigation:compare_agents": {
+		"source": "Compare agents",
+		"locations": [
+			{
+				"path": "apps/web/components/navbar.tsx",
+				"line": 34
+			}
+		]
+	},
+	"navigation:cloud_coding_agents_compared": {
+		"source": "Cloud coding agents, compared",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 57
+			}
+		]
+	},
+	"navigation:language_suggestion": {
+		"source": "Zuse is also available in",
+		"locations": [
+			{
+				"path": "apps/web/components/language-suggestion.tsx",
+				"line": 44
+			}
+		]
+	},
+	"navigation:language_suggestion_dismiss": {
+		"source": "Dismiss language suggestion",
+		"locations": [
+			{
+				"path": "apps/web/components/language-suggestion.tsx",
+				"line": 57
 			}
 		]
 	},

@@ -679,6 +679,7 @@ export function GuidedReviewDemo() {
 
 	return (
 		<div className="grd">
+			<h1 className="sr-only">Guided review demo</h1>
 			<header className="grd-bar">
 				<Link href="/" className="grd-brand">
 					Zuse
@@ -718,7 +719,7 @@ export function GuidedReviewDemo() {
 						</div>
 					) : mode === "overview" ? (
 						<>
-							<h1>{data.guide.title}</h1>
+							<h2 className="grd-title">{data.guide.title}</h2>
 							<div className="grd-byline">
 								<span className="grd-author-logo" aria-hidden />
 								<span style={{ color: "var(--grd-fg)" }}>

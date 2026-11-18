@@ -1,12 +1,17 @@
 import { ChangelogText } from "@/components/changelog-text";
 import { Container } from "@/components/container";
 import { PageMasthead } from "@/components/page-masthead";
+import { PageStructuredData } from "@/components/seo/page-structured-data";
 import changelogData from "@/content/changelog.json";
 import { getSEO } from "@/lib/seo";
 
+const TITLE = "Change Log";
+const DESCRIPTION =
+	"Release notes for every Zuse version: new features, improvements and fixes to the open source agent workspace, grouped by release.";
+
 export const metadata = getSEO({
-	title: "Change Log",
-	description: "All notable Zuse product changes, grouped by release.",
+	title: TITLE,
+	description: DESCRIPTION,
 	path: "/changelog",
 });
 
@@ -25,6 +30,12 @@ export default async function ChangelogPage() {
 
 	return (
 		<main className="w-full">
+			<PageStructuredData
+				type="CollectionPage"
+				path="/changelog"
+				name="Zuse change log"
+				description={DESCRIPTION}
+			/>
 			<PageMasthead
 				eyebrow="Release notes"
 				title="Always in motion."
