@@ -16,15 +16,24 @@ import {
 	useDownloadPlatform,
 } from "@/components/platform-download";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { DISCORD_URL, GITHUB_URL } from "@/lib/site";
+import {
+	CLOUD_AGENTS_DIRECTORY_PATH,
+	DISCORD_URL,
+	DOCS_URL,
+	GITHUB_URL,
+} from "@/lib/site";
 import { cn } from "@/lib/utils";
 import { LanguageSelector } from "./language-selector";
 import { VerticalLine } from "./line";
 
 const getNavItems = (t: WebsiteMessage) => [
 	{ label: t("navigation:how_it_works"), href: "/#workflow" },
-	{ label: t("navigation:docs"), href: "/docs" },
+	{ label: t("navigation:docs"), href: DOCS_URL },
 	{ label: t("navigation:pricing"), href: "/pricing" },
+	{
+		label: t("navigation:compare_agents"),
+		href: CLOUD_AGENTS_DIRECTORY_PATH,
+	},
 	{ label: t("navigation:blog"), href: "/blog" },
 	{ label: t("navigation:changelog"), href: "/changelog" },
 ];

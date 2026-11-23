@@ -5,6 +5,7 @@ import { BlogHeader } from "@/components/blogs/blog-header";
 import { Content } from "@/components/blogs/content";
 import { SuggestedBlogs } from "@/components/blogs/suggested-blogs";
 import { ArticleStructuredData } from "@/components/seo/article-structured-data";
+import { blogOgImagePath } from "@/lib/blog-og-image";
 import { getSEO } from "@/lib/seo";
 import { blog } from "@/lib/source";
 
@@ -27,10 +28,7 @@ export async function generateMetadata(props: {
 		title: page.data.title,
 		description: page.data.description,
 		path: page.url,
-		image:
-			!page.data.previewImage || page.data.previewImage.endsWith(".svg")
-				? "/og.png"
-				: page.data.previewImage,
+		image: blogOgImagePath(page.url),
 	});
 	return {
 		...metadata,
@@ -60,7 +58,7 @@ export default async function BlogPostPage({
 				title={page.data.title}
 				description={page.data.description}
 				url={page.url}
-				image={page.data.previewImage ?? "/og.png"}
+				image={blogOgImagePath(page.url)}
 				date={page.data.date}
 				updated={page.data.updated}
 				author={page.data.authorName}

@@ -3,6 +3,7 @@ title: "Zuse 0.21.0: cloud chat recovery and mobile access"
 description: "A closer look at Zuse 0.21.0: queued cloud messages, reconnect fixes, mobile cloud chats, and clearer workspace selection for coding agents."
 date: "2026-09-24"
 category: "News"
+related: ["cloud-agent-recovery-journal", "memoize-public-alpha", "run-cloud-coding-agents-on-your-claude-chatgpt-plan"]
 timeToRead: "4 min read"
 authorName: "Zuse team"
 authorRole: "Product and engineering"
@@ -40,7 +41,7 @@ If you are checking this workflow after updating, verify the mobile client, clou
 
 ## Choosing a checkout is more direct
 
-The composer now offers the main checkout or a fresh isolated worktree when starting a chat. This makes a consequential choice visible at the beginning of the task: should it edit the current working directory or use a separate checkout?
+The composer now offers the main checkout or a fresh isolated [worktree](/blog/git-worktrees-for-every-chat) when starting a chat. This makes a consequential choice visible at the beginning of the task: should it edit the current working directory or use a separate checkout?
 
 An isolated worktree is useful for independent changes. The main checkout can be appropriate when the task deliberately needs the files already there. In both cases, confirm that setup has completed before interpreting test results. Read [choosing where agents run](/blog/choose-where-agents-run) for the broader environment decision.
 

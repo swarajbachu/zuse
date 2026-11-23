@@ -3,6 +3,7 @@ title: "Run six coding agents side by side"
 description: "Claude Code, Codex, Cursor, Gemini, Grok, and OpenCode in one window. Switch providers without losing context."
 date: "2026-06-10"
 category: "Note"
+related: ["memoize-public-alpha", "parallel-agents-without-collisions", "token-maxing-your-subscriptions"]
 timeToRead: "5 min read"
 authorName: "Zuse (Beta) team"
 authorRole: "Product notes"
@@ -38,7 +39,7 @@ Zuse (Beta) speaks each CLI's native protocol underneath. There is no proprietar
 
 ## Built for parallel work
 
-Because every chat gets its own git worktree, you can run several agents against the same repo at once without them stepping on each other. Review the diffs side by side and commit the ones you want.
+Because every chat gets its [own git worktree](/blog/git-worktrees-for-every-chat), you can run several agents against the same repo at once without them stepping on each other. Review the diffs side by side and commit the ones you want.
 
 ---
 
@@ -94,4 +95,4 @@ This pattern changes the emotional feel of agent work. Instead of treating a sin
 
 More agents can create more noise if the product does not impose structure. Six terminals streaming at once is not a workflow; it is a distraction. Zuse (Beta) tries to make multi-agent work calm by giving each session a clear home, each branch a clear owner, and each diff a clear review path.
 
-That structure is what makes the provider list valuable. Claude Code, Codex, Cursor, Gemini, Grok, and OpenCode can all be useful, but the real product is the workspace that lets you use them intentionally. Pick the right agent, compare alternatives, switch when a task changes, and keep the resulting code under the same review standards you would apply to a teammate's patch.
+That structure is what makes the provider list valuable. Claude Code, Codex, Cursor, Gemini, Grok, and OpenCode can all be useful, but the real product is the workspace that lets you use them intentionally. Pick the right agent, compare alternatives, switch when a task changes, and keep the resulting code under the same review standards you would apply to a teammate's patch. The [original public alpha announcement](/blog/memoize-public-alpha) lists multiple agents side by side, with provider switching that keeps your context, among Zuse's launch features.

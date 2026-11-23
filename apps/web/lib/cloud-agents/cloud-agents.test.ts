@@ -3,7 +3,9 @@ import {
 	AGENT_ROWS,
 	CATEGORIES,
 	CHECKED_ON,
+	CHECKED_ON_LABEL,
 	DIRECTORY_META,
+	directoryMetaDescription,
 	FEATURE_KEYS,
 	PLATFORM_KEYS,
 	reputationScore,
@@ -112,6 +114,30 @@ describe("cloud coding agents data", () => {
 			).toBe(false);
 	});
 
+	it("never lists two rows for the same homepage or repository URL", () => {
+		const normalize = (u: string) =>
+			u
+				.replace(/^https?:\/\/(www\.)?/, "")
+				.replace(/\/$/, "")
+				.toLowerCase();
+		const seen = new Map<string, string>();
+		for (const row of AGENT_ROWS) {
+			const key = normalize(row.url);
+			expect(seen.get(key), `${row.id} duplicates ${seen.get(key)}`).toBe(
+				undefined,
+			);
+			seen.set(key, row.id);
+		}
+	});
+
+	it("keeps merged products as one row that names its other repository or former name", () => {
+		const byId = (id: string) => AGENT_ROWS.find((r) => r.id === id);
+		for (const id of ["gh-herdrdev-herdr-app", "gh-stravu-crystal"])
+			expect(byId(id), id).toBeUndefined();
+		expect(byId("gh-herdrdev-herdr")?.notes).toContain("herdr-app");
+		expect(byId("gh-nimbalyst-nimbalyst")?.notes).toContain("Crystal");
+	});
+
 	it("uses known categories", () => {
 		for (const row of AGENT_ROWS) expect(CATEGORIES).toContain(row.category);
 	});
@@ -133,6 +159,15 @@ describe("cloud coding agents data", () => {
 		const row = toTableRow(AGENT_ROWS[0]);
 		expect(JSON.stringify(row)).not.toContain('"quote"');
 		expect(row.sources.every(isUrl)).toBe(true);
+	});
+});
+
+describe("directory metadata", () => {
+	it("keeps the search description within 160 characters", () => {
+		const description = directoryMetaDescription(AGENT_ROWS.length);
+		expect(description.length).toBeLessThanOrEqual(160);
+		expect(description).toContain(String(AGENT_ROWS.length));
+		expect(description).toContain(CHECKED_ON_LABEL);
 	});
 });
 

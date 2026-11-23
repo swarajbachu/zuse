@@ -39,5 +39,9 @@
 	"open_source_cloud_agents": "开源云端智能体",
 	"open_source_devin_alternative": "Devin 的开源替代方案",
 	"sitemap": "网站地图",
-	"dither_studio": "抖色工作室"
+	"dither_studio": "抖色工作室",
+	"compare_agents": "对比智能体",
+	"cloud_coding_agents_compared": "云端编程智能体对比",
+	"language_suggestion": "Zuse 还提供以下语言版本：",
+	"language_suggestion_dismiss": "关闭语言建议"
 }

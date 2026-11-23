@@ -1,6 +1,8 @@
 import { CalendarDays, Check } from "lucide-react";
 import { Button } from "@/components/button";
 import { PageMasthead } from "@/components/page-masthead";
+import { PricingStructuredData } from "@/components/seo/pricing-structured-data";
+import { PRICING_PLANS } from "@/lib/pricing";
 import { getSEO } from "@/lib/seo";
 
 export const metadata = getSEO({
@@ -10,37 +12,10 @@ export const metadata = getSEO({
 	path: "/pricing",
 });
 
-const plans = [
-	{
-		name: "Local",
-		price: "$0",
-		period: "during beta",
-		summary: "Your machine. Your agents. Your workflow.",
-		features: [
-			"Open-source desktop app",
-			"Parallel chats and Git worktrees",
-			"Bring your own agent keys or subscriptions",
-			"Local files, terminal, and diff review",
-		],
-		download: true,
-	},
-	{
-		name: "Cloud Workspace",
-		price: "$40",
-		period: "/ month · USD",
-		summary: "Isolated compute for work beyond your laptop.",
-		features: [
-			"Cloud beta",
-			"$35 of provider compute included monthly",
-			"Additional compute at provider cost + 5%",
-			"Configurable overage cap; $25 default",
-		],
-		download: false,
-	},
-];
 export default function PricingPage() {
 	return (
 		<main>
+			<PricingStructuredData />
 			<PageMasthead
 				eyebrow="Pricing / Bring your own agents"
 				title={
@@ -54,7 +29,7 @@ export default function PricingPage() {
 				artwork="handoff"
 			/>
 			<div className="grid md:grid-cols-2">
-				{plans.map((plan) => (
+				{PRICING_PLANS.map((plan) => (
 					<section key={plan.name} className="pricing-card flex flex-col">
 						<p className="editorial-label">
 							{plan.download ? "On your machine" : "Cloud · Beta"}

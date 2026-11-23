@@ -39,5 +39,9 @@
 	"open_source_cloud_agents": "Open-Source-Cloud-Agenten",
 	"open_source_devin_alternative": "Open-Source-Alternative zu Devin",
 	"sitemap": "Sitemap",
-	"dither_studio": "Dithering-Studio"
+	"dither_studio": "Dithering-Studio",
+	"compare_agents": "Agenten vergleichen",
+	"cloud_coding_agents_compared": "Cloud-Coding-Agenten im Vergleich",
+	"language_suggestion": "Zuse ist auch verfügbar auf",
+	"language_suggestion_dismiss": "Sprachvorschlag schließen"
 }

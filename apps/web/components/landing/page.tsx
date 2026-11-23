@@ -5,10 +5,13 @@ import {
 } from "@zuse/i18n/registry";
 import { loadWebsiteCatalog } from "@zuse/i18n/website/server";
 import { FAQ } from "@/components/faq";
+import { AgentsDirectoryTeaser } from "@/components/landing/agents-directory-teaser";
 import { Hero } from "@/components/landing/hero";
 import { HorizontalLine } from "@/components/landing/line";
 import { ProductShowcase } from "@/components/landing/product-showcase";
+import { LanguageSuggestion } from "@/components/language-suggestion";
 import { HomepageStructuredData } from "@/components/seo/homepage-structured-data";
+import { AGENT_ROWS } from "@/lib/cloud-agents";
 import { getSEO, siteConfig } from "@/lib/seo";
 import { openGraphLocale, websiteAlternates } from "@/lib/website-localization";
 
@@ -42,7 +45,10 @@ export function LandingPage({ locale }: { locale: WebsiteLocale }) {
 			<Hero />
 			<ProductShowcase />
 			<HorizontalLine />
+			<AgentsDirectoryTeaser count={AGENT_ROWS.length} />
+			<HorizontalLine />
 			<FAQ />
+			{locale === "en" ? <LanguageSuggestion /> : null}
 		</main>
 	);
 }

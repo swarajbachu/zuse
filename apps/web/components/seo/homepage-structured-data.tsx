@@ -7,10 +7,11 @@ import {
 	DOWNLOAD_URL,
 	GITHUB_URL,
 	INSTAGRAM_URL,
+	PUBLIC_REPOSITORY_URL,
 	X_URL,
 } from "@/lib/site";
 
-const createStructuredData = (
+export const createStructuredData = (
 	locale: WebsiteLocale,
 	messages: WebsiteCatalog,
 ) => ({
@@ -22,7 +23,13 @@ const createStructuredData = (
 			name: siteConfig.name,
 			url: siteConfig.url,
 			logo: new URL(siteConfig.icon, siteConfig.url).toString(),
-			sameAs: [GITHUB_URL, X_URL, INSTAGRAM_URL, DISCORD_URL],
+			sameAs: [
+				GITHUB_URL,
+				PUBLIC_REPOSITORY_URL,
+				X_URL,
+				INSTAGRAM_URL,
+				DISCORD_URL,
+			],
 		},
 		{
 			"@type": "WebSite",

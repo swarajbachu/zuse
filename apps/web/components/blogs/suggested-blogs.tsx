@@ -1,18 +1,9 @@
 import Link from "next/link";
+import { getRelatedPosts } from "@/lib/blog-related";
 import { blog } from "@/lib/source";
 
 export const SuggestedBlogs = ({ currentUrl }: { currentUrl: string }) => {
-	const pages = blog.getPages();
-	const current = pages.find((page) => page.url === currentUrl);
-	const posts = pages
-		.filter((page) => page.url !== currentUrl)
-		.toSorted((a, b) => {
-			const relevance =
-				Number(b.data.category === current?.data.category) -
-				Number(a.data.category === current?.data.category);
-			return relevance || b.data.date.getTime() - a.data.date.getTime();
-		})
-		.slice(0, 3);
+	const posts = getRelatedPosts(currentUrl, blog.getPages());
 
 	return (
 		<section aria-labelledby="related-heading" className="journal-related">

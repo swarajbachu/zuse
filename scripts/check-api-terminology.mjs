@@ -20,6 +20,8 @@ const historicalPaths = [
 	/^apps\/mobile\/(?:src|test\/unit)\/lib\/connection-(?:records|params)(?:\.test)?\.ts$/u,
 	/^CHANGELOG\.md$/u,
 	/^apps\/web\/content\/changelog\.json$/u,
+	// Verbatim quotes from other projects' READMEs, kept as evidence for the comparison table.
+	/^apps\/web\/lib\/cloud-agents\/directory\.json$/u,
 	/^scripts\/check-api-terminology\.mjs$/u,
 ];
 

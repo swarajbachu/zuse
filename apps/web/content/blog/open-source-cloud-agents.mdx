@@ -2,8 +2,9 @@
 title: "Open source cloud agents for coding: a complete guide"
 description: "What open source cloud agents are, how they differ from local coding agents, how Zuse runs Claude Code and Codex in isolated cloud workspaces, and an FAQ."
 date: "2026-09-24"
-updated: "2026-11-15"
+updated: "2026-11-18"
 category: "Guide"
+related: ["best-cloud-coding-agents", "choose-where-agents-run", "open-source-coding-agent-alternative"]
 timeToRead: "15 min read"
 authorName: "Zuse team"
 authorRole: "Product and engineering"
@@ -134,7 +135,7 @@ You can read the implementation in `infra/api/src/cloud-auth-authority.ts`. The 
 
 ### Agents speak their native protocols
 
-Zuse doesn't screen-scrape a terminal. It drives each agent through the interface the vendor ships: Claude Code's structured session events, Codex's app-server protocol, and ACP for compatible agents. That's why provider features like Claude's slash commands, Codex review, plan mode, and subagents show up in the timeline as structured events, and why sessions can resume after the agent process stops.
+Zuse doesn't screen-scrape a terminal. It drives each agent through the interface the vendor ships: Claude Code's structured session events, Codex's app-server protocol, and ACP for compatible agents. That's why provider features like Claude's slash commands, Codex review, plan mode, and [subagents](/blog/sub-agent-delegation) show up in the timeline as structured events, and why sessions can resume after the agent process stops.
 
 ### Permissions are explicit, and "full access" isn't a sandbox
 
@@ -184,15 +185,15 @@ These products overlap with Zuse in different ways. The descriptions below come 
 | Product | Who runs the machine | Agents and models | Source |
 | --- | --- | --- | --- |
 | [Cursor Cloud Agents](https://cursor.com/docs/cloud-agent) | Cursor-managed VMs; tool calls can run on [your own machines](https://cursor.com/docs/cloud-agent/self-hosted/choose-runtime) while the agent loop stays in Cursor's cloud | Cursor's agent, with a curated model list | Closed |
-| [GitHub Copilot cloud agent](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent) | GitHub cloud sandboxes, GitHub Actions runners, or a remote custom environment | Copilot, with model selection; [Claude and Codex agents](https://docs.github.com/en/copilot/concepts/agents/about-third-party-agents) in public preview | Closed |
+| [GitHub Copilot cloud agent](https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-cloud-agent) | GitHub cloud sandboxes, GitHub Actions runners, or a remote custom environment | Copilot, with model selection; [Claude and Codex agents](https://docs.github.com/en/copilot/concepts/agents/about-third-party-agents) in public preview on paid plans. From 28 October 2026 the new cloud experience on GitHub.com and GitHub Mobile is for paid Copilot plans; Copilot Free keeps the older Copilot Chat experience | Closed |
 | [Claude Code cloud sessions](https://code.claude.com/docs/en/claude-code-on-the-web) | Anthropic-managed, or your org's self-hosted environment | Claude Code | Closed |
 | [Codex Cloud](https://learn.chatgpt.com/docs/cloud) | OpenAI-managed | Codex; requires a ChatGPT sign-in | Codex CLI is open source; Codex Cloud is a hosted service |
 | [Devin](https://docs.devin.ai/get-started/devin-intro) | Cognition-managed; Devin for Terminal runs locally | Devin; Devin Desktop also runs [third-party agents over ACP](https://docs.devin.ai/desktop/acp) | Closed |
-| [Amp](https://ampcode.com/docs/orbs) | Amp-managed "Orbs", or local | Amp | Closed |
+| [Amp](https://ampcode.com/docs/orbs) | Amp-hosted orbs, [self-hosted orbs](https://ampcode.com/docs/orbs/self-hosted) on your own infrastructure (launched 22 October 2026, and free on the Hobby, Individual and Teams plans per [Amp's pricing](https://ampcode.com/pricing)), or local | Amp | Closed |
 | [OpenHands](https://github.com/OpenHands/OpenHands) | Your laptop, a VM, Docker, or OpenHands Cloud | OpenHands agent, Claude Code, Codex, and other ACP agents | MIT core; OpenHands Cloud is commercial |
 | [Zuse](https://github.com/opcodehq/zuse) | Your machine, your VM via Zuse Serve, or cloud chats on boxd, Boat, or E2B | Claude Code, Codex, Cursor, Grok, OpenCode, and others | AGPL-3.0 |
 
-A vendor's own cloud agent is the easiest start if you've standardized on that vendor, and some (GitHub Copilot, Devin Desktop) now run other agents too. Zuse is for teams that want to choose the agent per task, keep their existing plans, and be able to read the code that holds their credentials. OpenHands is the closest open source comparison; it leans toward self-hosted agent servers and automations, while Zuse leans toward a desktop and mobile workspace with managed cloud machines and local worktrees in the same sidebar. If you're comparing with Devin specifically, read our [open source Devin alternative guide](/blog/open-source-coding-agent-alternative).
+A vendor's own cloud agent is the easiest start if you've standardized on that vendor, and some (GitHub Copilot, Devin Desktop) now run other agents too. Zuse is for teams that want to choose the agent per task, keep their existing plans, and be able to read the code that holds their credentials. OpenHands is the closest open source comparison; it leans toward self-hosted agent servers and automations, while Zuse leans toward a desktop and mobile workspace with managed cloud machines and local worktrees in the same sidebar. If you're comparing with Devin specifically, read our [open source Devin alternative guide](/blog/open-source-coding-agent-alternative) or [Zuse vs Devin](/blog/zuse-vs-devin). The other head-to-head write-ups are [Amp vs Zuse](/blog/amp-vs-zuse), [Cursor Cloud Agents vs Zuse](/blog/cursor-cloud-agents-vs-zuse) and [OpenHands vs Zuse](/blog/openhands-vs-zuse), and [best cloud coding agents in 2026](/blog/best-cloud-coding-agents) is our sourced roundup.
 
 For a wider view, our [cloud coding agents comparison](/cloud-coding-agents) lists hundreds of cloud agents, agent workspaces and coding CLIs side by side, with a source link for every row.
 

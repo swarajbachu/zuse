@@ -6,15 +6,25 @@ import { RootProvider } from "fumadocs-ui/provider/next";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { SITE_URL } from "@/lib/layout.shared";
+import {
+	DOCS_DESCRIPTION,
+	DOCS_SITE_NAME,
+	docsSocialMetadata,
+} from "@/lib/seo";
 
 export const metadata: Metadata = {
 	metadataBase: new URL(SITE_URL),
 	title: {
 		default: "Zuse Documentation",
-		template: "%s | Zuse Docs",
+		template: `%s | ${DOCS_SITE_NAME}`,
 	},
-	description:
-		"Guides and reference for Zuse desktop, mobile, remote access, and Serve.",
+	description: DOCS_DESCRIPTION,
+	...docsSocialMetadata({
+		title: "Zuse Documentation",
+		description: DOCS_DESCRIPTION,
+		path: "/start",
+		type: "website",
+	}),
 	icons: {
 		icon: "/app-icon.png",
 		apple: "/app-icon.png",

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import robots from "../app/robots";
 import { getSEO, resolveSiteUrl, siteConfig } from "./seo";
@@ -41,7 +43,7 @@ describe("site metadata", () => {
 
 	it("emits a per-page canonical and og:url on the www host", () => {
 		const home = getSEO({
-			absoluteTitle: "Open Source Cloud Agents for Coding | Zuse",
+			absoluteTitle: "Zuse: Open Source Cloud Agents for Coding",
 			path: "/",
 		});
 		expect(home.alternates?.canonical).toBe("https://www.zuse.sh/");
@@ -63,5 +65,34 @@ describe("site metadata", () => {
 		const manifest = robots();
 		expect(manifest.host).toBe("https://www.zuse.sh");
 		expect(manifest.sitemap).toBe("https://www.zuse.sh/sitemap.xml");
+	});
+});
+
+describe("title lengths", () => {
+	const webRoot = join(import.meta.dirname, "..");
+	const titleLimit = 60;
+
+	it("leads the English homepage title with the brand and keeps it under 60 characters", () => {
+		const catalog = JSON.parse(
+			readFileSync(
+				join(webRoot, "../../packages/i18n/locales/en/website/landing.json"),
+				"utf8",
+			),
+		) as Record<string, string>;
+		expect(catalog.meta_title.startsWith("Zuse")).toBe(true);
+		expect(catalog.meta_title.length).toBeLessThanOrEqual(titleLimit);
+	});
+
+	it.each([
+		"cloud-agent-recovery-journal",
+		"openhands-vs-zuse",
+	])("keeps the %s title and site suffix within 60 characters", (slug) => {
+		const source = readFileSync(
+			join(webRoot, "content/blog", `${slug}.mdx`),
+			"utf8",
+		);
+		const title = source.match(/^title: "(.*)"$/m)?.[1] ?? "";
+		const full = getSEO({ title }).title as string;
+		expect(full.length).toBeLessThanOrEqual(titleLimit);
 	});
 });
