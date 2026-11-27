@@ -139,100 +139,143 @@ const recoveryDirectory = async (
 		path.basename(ref),
 	);
 
+const assertCheckpointAvailable = async (directory: string): Promise<void> => {
+	try {
+		await stat(directory);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+		throw error;
+	}
+	throw new GitCheckpointPreconditionError(
+		"Checkpoint is unavailable after repository corruption. Its reference was preserved for recovery.",
+	);
+};
+
+// Capture publication and recovery share this lock across processes and linked worktrees.
+const withCheckpointLock = async <A>(
+	cwd: string,
+	ref: string,
+	run: (directory: string) => Promise<A>,
+	signal?: AbortSignal,
+): Promise<A> => {
+	const directory = await recoveryDirectory(cwd, ref, signal);
+	const locks = path.join(
+		path.dirname(path.dirname(directory)),
+		"checkpoint-locks",
+	);
+	await mkdir(locks, { recursive: true, mode: 0o700 });
+	const lockPath = path.join(locks, `${path.basename(ref)}.lock`);
+	const lock = await open(lockPath, "wx", 0o600);
+	try {
+		return await run(directory);
+	} finally {
+		await lock.close();
+		await rm(lockPath, { force: true });
+	}
+};
+
+export const checkpointRefFromGitError = (stderr: string): string | null =>
+	/^fatal: bad object (refs\/zuse\/checkpoints\/[0-9a-f]{64})\r?$/m.exec(
+		stderr,
+	)?.[1] ?? null;
+
 /** Only a reported, provably missing app-owned ref may be removed; evidence stays outside refs. */
 export const recoverGitCheckpointRef = async (
 	cwd: string,
 	stderr: string,
 	signal?: AbortSignal,
 ): Promise<boolean> => {
-	const ref =
-		/^fatal: bad object (refs\/zuse\/checkpoints\/[0-9a-f]{64})\r?$/m.exec(
-			stderr,
-		)?.[1];
-	if (ref === undefined) return false;
-	const directory = await recoveryDirectory(cwd, ref, signal);
-	const preserve = async (raw: string) => {
-		await mkdir(directory, { recursive: true, mode: 0o700 });
-		await writeFile(
-			path.join(directory, `${randomUUID()}.json`),
-			JSON.stringify({
-				version: 1,
-				ref,
-				raw,
-				reason: "invalid-checkpoint-reference",
-				recoveredAt: new Date().toISOString(),
-			}),
-			{ flag: "wx", mode: 0o600, flush: true },
-		);
-		if (process.platform !== "win32") {
-			for (const folder of [
-				directory,
-				path.dirname(directory),
-				path.dirname(path.dirname(directory)),
-				path.dirname(path.dirname(path.dirname(directory))),
-			]) {
-				const handle = await open(folder, "r");
-				try {
-					await handle.sync();
-				} finally {
-					await handle.close();
+	const ref = checkpointRefFromGitError(stderr);
+	if (ref === null) return false;
+	return withCheckpointLock(
+		cwd,
+		ref,
+		async (directory) => {
+			const preserve = async (raw: string) => {
+				await mkdir(directory, { recursive: true, mode: 0o700 });
+				await writeFile(
+					path.join(directory, `${randomUUID()}.json`),
+					JSON.stringify({
+						version: 1,
+						ref,
+						raw,
+						reason: "invalid-checkpoint-reference",
+						recoveredAt: new Date().toISOString(),
+					}),
+					{ flag: "wx", mode: 0o600, flush: true },
+				);
+				if (process.platform !== "win32") {
+					for (const folder of [
+						directory,
+						path.dirname(directory),
+						path.dirname(path.dirname(directory)),
+						path.dirname(path.dirname(path.dirname(directory))),
+					]) {
+						const handle = await open(folder, "r");
+						try {
+							await handle.sync();
+						} finally {
+							await handle.close();
+						}
+					}
 				}
+			};
+			const refPath = (
+				await git(
+					cwd,
+					["rev-parse", "--path-format=absolute", "--git-path", ref],
+					undefined,
+					signal,
+				)
+			).trim();
+			let raw: string;
+			try {
+				if (!(await lstat(refPath)).isFile()) return false;
+				raw = await readFile(refPath, "utf8");
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+				raw = await git(cwd, ["rev-parse", "--verify", ref], undefined, signal);
 			}
-		}
-	};
-	const refPath = (
-		await git(
-			cwd,
-			["rev-parse", "--path-format=absolute", "--git-path", ref],
-			undefined,
-			signal,
-		)
-	).trim();
-	let raw: string;
-	try {
-		if (!(await lstat(refPath)).isFile()) return false;
-		raw = await readFile(refPath, "utf8");
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-		raw = await git(cwd, ["rev-parse", "--verify", ref], undefined, signal);
-	}
-	const oid = raw.trim();
-	if (/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(oid)) {
-		try {
-			await git(cwd, ["cat-file", "-e", oid], undefined, signal);
-			return false;
-		} catch (error) {
-			const failure = error as { code?: unknown; stderr?: string };
-			if (failure.code !== 1 || failure.stderr?.trim() !== "") return false;
-		}
-		await preserve(raw);
-		// Compare-and-delete protects a checkpoint repaired by another process.
-		await git(
-			cwd,
-			["update-ref", "--no-deref", "-d", ref, oid],
-			undefined,
-			signal,
-		);
-		return true;
-	}
-	// Git cannot delete an empty/malformed loose ref. Use its lock protocol and recheck under lock.
-	if (raw.length > 128 || raw.startsWith("ref:")) return false;
-	let lock: FileHandle;
-	try {
-		lock = await open(`${refPath}.lock`, "wx", 0o600);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
-		throw error;
-	}
-	try {
-		if ((await readFile(refPath, "utf8")) !== raw) return false;
-		await preserve(raw);
-		await rm(refPath);
-		return true;
-	} finally {
-		await lock.close();
-		await rm(`${refPath}.lock`, { force: true });
-	}
+			const oid = raw.trim();
+			if (/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(oid)) {
+				try {
+					await git(cwd, ["cat-file", "-e", oid], undefined, signal);
+					return false;
+				} catch (error) {
+					const failure = error as { code?: unknown; stderr?: string };
+					if (failure.code !== 1 || failure.stderr?.trim() !== "") return false;
+				}
+				await preserve(raw);
+				// Compare-and-delete protects a checkpoint repaired by another process.
+				await git(
+					cwd,
+					["update-ref", "--no-deref", "-d", ref, oid],
+					undefined,
+					signal,
+				);
+				return true;
+			}
+			// Git cannot delete an empty/malformed loose ref. Use its lock protocol and recheck under lock.
+			if (raw.length > 128 || raw.startsWith("ref:")) return false;
+			let lock: FileHandle;
+			try {
+				lock = await open(`${refPath}.lock`, "wx", 0o600);
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+				throw error;
+			}
+			try {
+				if ((await readFile(refPath, "utf8")) !== raw) return false;
+				await preserve(raw);
+				await rm(refPath);
+				return true;
+			} finally {
+				await lock.close();
+				await rm(`${refPath}.lock`, { force: true });
+			}
+		},
+		signal,
+	);
 };
 const owner = async (cwd: string) => ({
 	root: await realpath(
@@ -258,19 +301,12 @@ export const readGitCheckpoint = async (
 ): Promise<GitCheckpoint | null> => {
 	const location = await owner(cwd);
 	const ref = reference(id);
+	await assertCheckpointAvailable(await recoveryDirectory(cwd, ref));
 	let commit: string;
 	try {
 		commit = (await git(cwd, ["rev-parse", "--verify", "--quiet", ref])).trim();
 	} catch {
-		try {
-			await stat(await recoveryDirectory(cwd, ref));
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-			throw error;
-		}
-		throw new GitCheckpointPreconditionError(
-			"Checkpoint is unavailable after repository corruption. Its reference was preserved for recovery.",
-		);
+		return null;
 	}
 	const metadata = Schema.decodeUnknownSync(
 		Schema.fromJsonString(SnapshotMetadata),
@@ -370,19 +406,22 @@ export const captureGitCheckpoint = async (
 			])
 		).trim();
 		const ref = reference(id);
-		try {
-			await git(location.root, [
-				"update-ref",
-				ref,
-				commit,
-				"0".repeat(commit.length),
-			]);
-		} catch (error) {
-			const winner = await readGitCheckpoint(cwd, id);
-			if (winner !== null) return winner;
-			throw error;
-		}
-		return { ...metadata, ...observed, ref, commit };
+		return withCheckpointLock(cwd, ref, async (directory) => {
+			await assertCheckpointAvailable(directory);
+			try {
+				await git(location.root, [
+					"update-ref",
+					ref,
+					commit,
+					"0".repeat(commit.length),
+				]);
+			} catch (error) {
+				const winner = await readGitCheckpoint(cwd, id);
+				if (winner !== null) return winner;
+				throw error;
+			}
+			return { ...metadata, ...observed, ref, commit };
+		});
 	});
 };
 
