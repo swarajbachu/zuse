@@ -56,6 +56,8 @@ export const cloudFailureMessage = (statusCode: string): string => {
 			return "The saved sandbox no longer exists. Retry will restore this workspace in a new sandbox.";
 		case "provider-unavailable":
 			return "The cloud provider is temporarily unavailable.";
+		case "provider-quota-exceeded":
+			return "Your cloud provider's machine limit is reached. Remove an unused machine or increase the limit, then retry.";
 		case "workspace-credential-install-failed":
 		case "credential-install-failed":
 			return "The workspace could not install your connected account credentials.";

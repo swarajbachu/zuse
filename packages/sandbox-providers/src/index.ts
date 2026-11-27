@@ -10,7 +10,12 @@ import { Context, Effect, Layer, type Redacted, Schema } from "effect";
 export class SandboxProviderError extends Schema.TaggedErrorClass<SandboxProviderError>()(
 	"SandboxProviderError",
 	{
-		code: Schema.Literals(["transient", "not-found", "rejected"]),
+		code: Schema.Literals([
+			"transient",
+			"not-found",
+			"rejected",
+			"quota-exceeded",
+		]),
 		diagnostic: Schema.optionalKey(Schema.String),
 	},
 ) {}
